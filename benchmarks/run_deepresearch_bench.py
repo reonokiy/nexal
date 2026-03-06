@@ -4,7 +4,8 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-from deepresearch.agent_core import config, init_client, run_agent
+from deepresearch.agent_core import init_client, run_agent
+from deepresearch.settings import load_settings
 
 
 DEFAULT_BENCH_ROOT = ROOT / "benchmarks" / "deep_research_bench"
@@ -85,7 +86,7 @@ def main() -> None:
     queries = filter_queries(load_jsonl(query_path), args.only_zh, args.only_en, args.limit)
     existing = {} if args.force else load_existing_results(output_path)
 
-    settings = config()
+    settings = load_settings()
     client = init_client(settings)
 
     results_by_id: dict[int, dict] = dict(existing)

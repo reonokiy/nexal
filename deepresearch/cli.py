@@ -1,6 +1,7 @@
 import argparse
 
-from deepresearch.agent_core import AgentSettings, config, init_client, run_agent
+from deepresearch.agent_core import init_client, run_agent
+from deepresearch.settings import AgentSettings, load_settings
 
 
 def main() -> None:
@@ -13,20 +14,20 @@ def main() -> None:
         help="Mount the default sandbox /workspace as read-only",
     )
     parser.add_argument(
-        "--allow-network",
+        "--disable-network",
         action="store_true",
-        help="Allow network access for sandbox run_command calls by default",
+        help="Disable network access for sandbox run_command calls",
     )
     args = parser.parse_args()
     query = args.query.strip()
 
-    settings: AgentSettings = config()
+    settings: AgentSettings = load_settings()
     if args.session_id:
         settings.sandbox_session_id = args.session_id
     if args.workspace_read_only:
         settings.sandbox_workspace_read_only = True
-    if args.allow_network:
-        settings.sandbox_network_enabled = True
+    if args.disable_network:
+        settings.sandbox_network_enabled = False
     client = init_client(settings)
     answer = run_agent(client, settings, query)
     print(answer)

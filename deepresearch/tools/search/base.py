@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any
 
 
 @dataclass
@@ -8,11 +8,6 @@ class SearchResult:
     url: str
     snippet: str = ""
     score: float | None = None
-
-
-class SearchProvider(Protocol):
-    def search(self, query: str, max_results: int = 5) -> dict[str, Any]:
-        pass
 
 
 def build_search_payload(
