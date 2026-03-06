@@ -1,0 +1,3 @@
+[submodule "benchmarks/deep_research_bench"]
+	path = benchmarks/deep_research_bench
+	url = https://github.com/Ayanami0730/deep_research_bench.git
