@@ -1,5 +1,5 @@
-from search.base import SearchProvider
-from search.tavily import TavilySearchProvider
+from deepresearch.tools.search.base import SearchProvider
+from deepresearch.tools.search.tavily import TavilySearchProvider
 
 
 def get_search_provider(name: str) -> SearchProvider:

@@ -2,7 +2,7 @@ import json
 import os
 from urllib.request import Request, urlopen
 
-from search.base import SearchResult, build_search_payload
+from deepresearch.tools.search.base import SearchResult, build_search_payload
 
 
 class TavilySearchProvider:

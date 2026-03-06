@@ -1,15 +1,10 @@
 import argparse
 import json
-import sys
 import time
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
-
-from agent_core import config, init_client, run_agent
+from deepresearch.agent_core import config, init_client, run_agent
 
 
 DEFAULT_BENCH_ROOT = ROOT / "benchmarks" / "deep_research_bench"
