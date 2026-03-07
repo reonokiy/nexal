@@ -3,7 +3,6 @@ import shlex
 
 from deepresearch.sandbox.backends.podman.runner import (
     build_create_args,
-    build_exec_args,
     build_stop_args,
     container_exists,
     container_name,
@@ -24,6 +23,9 @@ from deepresearch.sandbox.base import (
     SandboxSessionStopResult,
 )
 
+_STATE_FILE = "/workspace/agent/.bash_state"
+_AGENT_DIR = "/workspace/agent"
+
 
 class PodmanEphemeralSandbox(EphemeralSandboxBackend):
     def exec(self, config: EphemeralSandboxConfig, request: SandboxExecRequest) -> EphemeralSandboxResult:
@@ -39,15 +41,42 @@ class PodmanSandboxSession(SandboxSession):
         if not request.command:
             raise ValueError("command must not be empty")
 
-        exec_args = build_exec_args(self.session_id, request)
+        name = container_name(self.session_id)
+        cmd_str = request.command if isinstance(request.command, str) else shlex.join(request.command)
+
+        # Wrapper script: restore state, run command, save state.
+        parts: list[str] = [
+            f"[ -f {_STATE_FILE} ] && . {_STATE_FILE}",
+        ]
+        if not request.system:
+            # Protect agent directory from LLM commands.
+            parts.append(f"chmod -R a-w {_AGENT_DIR} 2>/dev/null")
+        parts.append(cmd_str)
+        parts.append("__rc=$?")
+        if not request.system:
+            # Restore write permission for state saving.
+            parts.append(f"chmod -R u+w {_AGENT_DIR} 2>/dev/null")
+        parts.extend([
+            f"mkdir -p {_AGENT_DIR}",
+            f'{{ export -p; echo "cd \\"$(pwd)\\""; }} > {_STATE_FILE}',
+            "exit $__rc",
+        ])
+
+        script = "\n".join(parts)
+        exec_args = [
+            "podman", "exec",
+            name,
+            "bash", "-c", script,
+        ]
+
         completed = run_subprocess(exec_args, timeout_seconds=request.timeout_seconds)
         return SandboxSessionExecResult(
             request=request,
-            container_name=container_name(self.session_id),
+            container_name=name,
             exit_code=completed.returncode,
             stdout=completed.stdout,
             stderr=completed.stderr,
-            podman_command=shlex.join(exec_args),
+            podman_command=cmd_str,
         )
 
     def stop(self) -> SandboxSessionStopResult:
@@ -67,25 +96,27 @@ class PodmanSandboxManager(SandboxManagerBackend):
     def start(self, config: SandboxConfig) -> SandboxSession:
         name = container_name(config.session_id)
         created_now = False
-        if not container_exists(name):
-            create_args = build_create_args(
-                config.session_id,
-                image=config.image,
-                workspace_dir=config.workspace_dir,
-                workspace_read_only=config.workspace_read_only,
-                shared_dirs=config.shared_dirs,
-                env=config.env,
-                network=config.network,
-                memory=config.memory,
-                cpus=config.cpus,
-                pids_limit=config.pids_limit,
-            )
-            created = run_subprocess(create_args)
-            if created.returncode != 0:
-                raise RuntimeError(
-                    f"Failed to create sandbox {name}: {created.stderr.strip() or created.stdout.strip()}"
-                )
+
+        # Try to create; ignore "already exists" errors (avoids TOCTOU race).
+        create_args = build_create_args(
+            config.session_id,
+            image=config.image,
+            workspace_dir=config.workspace_dir,
+            workspace_read_only=config.workspace_read_only,
+            shared_dirs=config.shared_dirs,
+            env=config.env,
+            network=config.network,
+            memory=config.memory,
+            cpus=config.cpus,
+            pids_limit=config.pids_limit,
+        )
+        created = run_subprocess(create_args)
+        if created.returncode == 0:
             created_now = True
+        elif "already" not in (created.stderr + created.stdout).lower():
+            raise RuntimeError(
+                f"Failed to create sandbox {name}: {created.stderr.strip() or created.stdout.strip()}"
+            )
 
         if not container_running(name):
             start_args = ["podman", "start", name]
@@ -100,7 +131,7 @@ class PodmanSandboxManager(SandboxManagerBackend):
             start_result=SandboxSessionStartResult(
                 config=config,
                 container_name=name,
-                created=True,
+                created=created_now,
                 started=True,
                 already_running=not created_now,
                 exit_code=0,

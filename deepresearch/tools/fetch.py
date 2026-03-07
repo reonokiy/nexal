@@ -19,7 +19,10 @@ def _check_url_scheme(url: str) -> str | None:
     if not parsed.hostname:
         return "URL has no hostname"
     lower = parsed.hostname.lower()
-    _BLOCKED_HOSTS = {"localhost", "0.0.0.0", "metadata.google.internal"}
+    _BLOCKED_HOSTS = {
+        "localhost", "0.0.0.0", "metadata.google.internal",
+        "169.254.169.254", "[::1]", "100.100.100.200",
+    }
     _BLOCKED_SUFFIXES = (".local", ".internal", ".localhost")
     if lower in _BLOCKED_HOSTS or any(lower.endswith(s) for s in _BLOCKED_SUFFIXES):
         return "Local/private network URLs are not allowed"
@@ -112,13 +115,12 @@ class WebFetchTool(FunctionTool):
                     if parsed.hostname:
                         _assert_public_address(parsed.hostname)
 
-            client = httpx.Client(
+            with httpx.Client(
                 headers=_BROWSER_HEADERS,
                 follow_redirects=True,
                 timeout=30,
                 event_hooks={"response": [_check_redirect]},
-            )
-            with client.stream("GET", params.url) as response:
+            ) as client, client.stream("GET", params.url) as response:
                 # Also verify the final resolved destination.
                 final_hostname = urlparse(str(response.url)).hostname
                 if final_hostname:

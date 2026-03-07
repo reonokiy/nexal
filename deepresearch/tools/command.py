@@ -13,10 +13,17 @@ logger = logging.getLogger("deepresearch.agent")
 
 
 @dataclass
+class ExecParams:
+    command: str
+    timeout_seconds: int = 60
+
+
+@dataclass
 class ExecTool(FunctionTool):
     name: str = "exec"
     description: str = (
         "Run a command in the persistent sandbox environment. Use /workspace for files you want to keep. "
+        "Environment variables (export) and working directory (cd) persist across calls. "
         "You have root access and can install packages with apt-get or pip as needed."
     )
     parameters: dict[str, Any] = field(
@@ -24,19 +31,8 @@ class ExecTool(FunctionTool):
             "type": "object",
             "properties": {
                 "command": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "Command and arguments to execute inside the container.",
-                },
-                "workdir": {
                     "type": "string",
-                    "description": "Working directory. Prefer paths under /workspace.",
-                    "default": "/workspace",
-                },
-                "env": {
-                    "type": "object",
-                    "description": "Environment variables to pass into the container.",
-                    "additionalProperties": {"type": "string"},
+                    "description": "Shell command to execute inside the container.",
                 },
                 "timeout_seconds": {
                     "type": "integer",
@@ -50,13 +46,18 @@ class ExecTool(FunctionTool):
         },
         init=False,
     )
-    params_type: ClassVar[type] = SandboxExecRequest
+    params_type: ClassVar[type] = ExecParams
     _session: SandboxSession | None = field(default=None, init=False, repr=False)
 
-    def execute(self, params: SandboxExecRequest) -> str:
+    def execute(self, params: ExecParams) -> str:
+        timeout = max(1, min(params.timeout_seconds, 600))
+        request = SandboxExecRequest(
+            command=params.command,
+            timeout_seconds=timeout,
+        )
         if self._session is None:
             self._session = self._start_sandbox()
-        return json.dumps(asdict(self._session.exec(params)), ensure_ascii=False)
+        return json.dumps(asdict(self._session.exec(request)), ensure_ascii=False)
 
     def close(self) -> None:
         if self._session is None:

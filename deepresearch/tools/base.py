@@ -96,7 +96,7 @@ class FunctionTool:
             filtered = {}
             for k, v in parsed.items():
                 if k not in valid_fields:
-                    continue
+                    return json.dumps({"error": f"Unknown parameter: '{k}'"})
                 expected = self._expected_types(valid_fields[k].type)
                 if expected is not None:
                     # bool is a subclass of int; reject bool when int is expected.

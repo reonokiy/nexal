@@ -10,7 +10,7 @@ class SandboxMount:
 
 
 @dataclass
-class EphemeralSandboxConfig:
+class BaseSandboxConfig:
     image: str | None = None
     workspace_dir: str | None = None
     workspace_read_only: bool = False
@@ -23,25 +23,24 @@ class EphemeralSandboxConfig:
 
 
 @dataclass
-class SandboxConfig:
-    session_id: str
-    image: str | None = None
-    workspace_dir: str | None = None
-    workspace_read_only: bool = False
-    shared_dirs: list[SandboxMount] = field(default_factory=list)
-    env: dict[str, str] = field(default_factory=dict)
-    network: str = "none"
-    memory: str = "512m"
-    cpus: float = 1.0
-    pids_limit: int = 256
+class EphemeralSandboxConfig(BaseSandboxConfig):
+    pass
+
+
+@dataclass
+class SandboxConfig(BaseSandboxConfig):
+    session_id: str = field(default="")
+
+    def __post_init__(self) -> None:
+        if not self.session_id:
+            raise ValueError("session_id is required")
 
 
 @dataclass
 class SandboxExecRequest:
-    command: list[str]
-    workdir: str = "/workspace"
-    env: dict[str, str] = field(default_factory=dict)
+    command: str | list[str]
     timeout_seconds: int = 60
+    system: bool = False
 
 
 @dataclass

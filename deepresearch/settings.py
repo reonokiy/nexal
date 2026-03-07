@@ -16,7 +16,7 @@ class AgentSettings:
     sandbox_session_id: str = ""
     sandbox_workspace_read_only: bool = False
     sandbox_workspace_dir: str = ""
-    sandbox_network_enabled: bool = True
+    sandbox_network_enabled: bool = False
 
 
 settings = AgentSettings()

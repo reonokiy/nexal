@@ -72,11 +72,18 @@ def _build_env_args(env: dict[str, str] | None) -> list[str]:
 
 
 def _container_name(session_id: str) -> str:
+    if not session_id:
+        raise ValueError("session_id must not be empty")
     sanitized = "".join(ch if ch.isalnum() or ch in "-_." else "-" for ch in session_id)
+    sanitized = sanitized.strip("-_.")
+    if not sanitized:
+        raise ValueError(f"session_id produced empty container name: {session_id!r}")
     return f"deepresearch-sbx-{sanitized}"
 
 
-def _run_subprocess(args: list[str], timeout_seconds: int | None = None) -> subprocess.CompletedProcess[str]:
+_DEFAULT_TIMEOUT = 30
+
+def _run_subprocess(args: list[str], timeout_seconds: int | None = _DEFAULT_TIMEOUT) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         args,
         capture_output=True,
@@ -122,17 +129,18 @@ def run_podman_command(config: EphemeralSandboxConfig, request: SandboxExecReque
         "--network",
         config.network,
         "--workdir",
-        request.workdir,
+        "/workspace",
     ]
     podman_args.extend(
         _build_workspace_mount_args(config.workspace_dir, read_only=config.workspace_read_only)
     )
     podman_args.extend(_build_mount_args(config.shared_dirs))
-    merged_env = dict(config.env)
-    merged_env.update(request.env)
-    podman_args.extend(_build_env_args(merged_env))
+    podman_args.extend(_build_env_args(config.env))
     podman_args.append(image_name)
-    podman_args.extend(request.command)
+    if isinstance(request.command, str):
+        podman_args.extend(["bash", "-c", request.command])
+    else:
+        podman_args.extend(request.command)
 
     completed = _run_subprocess(podman_args, timeout_seconds=request.timeout_seconds)
     return EphemeralSandboxResult(
@@ -192,10 +200,11 @@ def build_create_args(
 
 
 def build_exec_args(session_id: str, request: SandboxExecRequest) -> list[str]:
-    args = ["podman", "exec"]
-    args.extend(_build_env_args(request.env))
-    args.extend(["--workdir", request.workdir, _container_name(session_id)])
-    args.extend(request.command)
+    args = ["podman", "exec", _container_name(session_id)]
+    if isinstance(request.command, str):
+        args.extend(["bash", "-c", request.command])
+    else:
+        args.extend(request.command)
     return args
 
 

@@ -49,7 +49,6 @@ def test_ephemeral_sandbox_executes_code_and_writes_workspace(workspace: Path) -
                     "print('hello from ephemeral')"
                 ),
             ],
-            workdir="/workspace",
             timeout_seconds=30,
         )
     )
@@ -82,7 +81,7 @@ def test_persistent_sandbox_preserves_workspace_between_execs(workspace: Path) -
                         "print('write ok')"
                     ),
                 ],
-                workdir="/workspace",
+
                 timeout_seconds=30,
             )
         )
@@ -96,7 +95,7 @@ def test_persistent_sandbox_preserves_workspace_between_execs(workspace: Path) -
                         "print(Path('/workspace/state.txt').read_text(encoding='utf-8'))"
                     ),
                 ],
-                workdir="/workspace",
+
                 timeout_seconds=30,
             )
         )
@@ -107,3 +106,102 @@ def test_persistent_sandbox_preserves_workspace_between_execs(workspace: Path) -
     assert read_result.exit_code == 0, read_result.stderr
     assert "persisted" in read_result.stdout
     assert (workspace / "state.txt").read_text(encoding="utf-8") == "persisted"
+
+
+@pytest.mark.integration
+def test_persistent_sandbox_preserves_bash_state(workspace: Path) -> None:
+    """Verify that env vars and cwd persist across exec calls via state file."""
+    session_id = f"test-{uuid7()}"
+    sandbox = Sandbox(
+        config=SandboxConfig(
+            session_id=session_id,
+            workspace_dir=str(workspace),
+            network="none",
+        )
+    )
+
+    try:
+        # Set an env var and change directory.
+        r1 = sandbox.exec(SandboxExecRequest(
+            command="export MY_VAR=hello123 && mkdir -p /workspace/subdir && cd /workspace/subdir",
+            timeout_seconds=10,
+        ))
+        assert r1.exit_code == 0, r1.stderr
+
+        # Verify env var and cwd persisted.
+        r2 = sandbox.exec(SandboxExecRequest(
+            command="echo $MY_VAR && pwd",
+            timeout_seconds=10,
+        ))
+        assert r2.exit_code == 0, r2.stderr
+        assert "hello123" in r2.stdout
+        assert "/workspace/subdir" in r2.stdout
+
+        # Override env var, verify it sticks.
+        r3 = sandbox.exec(SandboxExecRequest(
+            command="export MY_VAR=updated",
+            timeout_seconds=10,
+        ))
+        assert r3.exit_code == 0, r3.stderr
+
+        r4 = sandbox.exec(SandboxExecRequest(
+            command="echo $MY_VAR",
+            timeout_seconds=10,
+        ))
+        assert r4.exit_code == 0, r4.stderr
+        assert "updated" in r4.stdout
+    finally:
+        sandbox.stop()
+
+
+@pytest.mark.integration
+def test_agent_dir_readonly_for_llm_commands(workspace: Path) -> None:
+    """LLM commands (system=False) cannot write to /workspace/agent/, but system requests can."""
+    session_id = f"test-{uuid7()}"
+    sandbox = Sandbox(
+        config=SandboxConfig(
+            session_id=session_id,
+            workspace_dir=str(workspace),
+            network="none",
+        )
+    )
+
+    try:
+        # System request: can write to /workspace/agent/.
+        r1 = sandbox.exec(SandboxExecRequest(
+            command="mkdir -p /workspace/agent && echo secret > /workspace/agent/test.txt",
+            timeout_seconds=10,
+            system=True,
+        ))
+        assert r1.exit_code == 0, r1.stderr
+
+        # LLM request: cannot write to /workspace/agent/.
+        r2 = sandbox.exec(SandboxExecRequest(
+            command="echo hacked > /workspace/agent/test.txt",
+            timeout_seconds=10,
+        ))
+        assert r2.exit_code != 0
+
+        # LLM request: can still read /workspace/agent/.
+        r3 = sandbox.exec(SandboxExecRequest(
+            command="cat /workspace/agent/test.txt",
+            timeout_seconds=10,
+        ))
+        assert r3.exit_code == 0, r3.stderr
+        assert "secret" in r3.stdout
+
+        # Verify state file still works after the failed write.
+        r4 = sandbox.exec(SandboxExecRequest(
+            command="export AFTER_FAIL=yes",
+            timeout_seconds=10,
+        ))
+        assert r4.exit_code == 0, r4.stderr
+
+        r5 = sandbox.exec(SandboxExecRequest(
+            command="echo $AFTER_FAIL",
+            timeout_seconds=10,
+        ))
+        assert r5.exit_code == 0, r5.stderr
+        assert "yes" in r5.stdout
+    finally:
+        sandbox.stop()

@@ -84,15 +84,25 @@ class AgentLoop:
                     "content": output,
                 })
 
-        raise RuntimeError("Agent exceeded max_turns without producing a final answer")
+        # Ask the model to summarize what it has so far.
+        messages.append({"role": "user", "content": "You have reached the maximum number of steps. Please summarize your findings so far and provide the best answer you can."})
+        response = self.client.chat.completions.create(
+            model=settings.llm_model,
+            messages=messages,  # type: ignore[arg-type]
+        )
+        return response.choices[0].message.content or ""
+
+    @staticmethod
+    def _truncate(text: str, limit: int = 500) -> str:
+        return text[:limit] + "..." if len(text) > limit else text
 
     def _execute_tool(self, name: str, arguments: str) -> str:
-        logger.info("tool_call_start name=%s args=%s", name, arguments or "{}")
+        logger.info("tool_call_start name=%s args=%s", name, self._truncate(arguments or "{}"))
         tool = self._tool_map.get(name)
         if tool is None:
             raise ValueError(f"Unknown tool: {name}")
         result = tool.run(arguments)
-        logger.info("tool_call_end name=%s output=%s", name, result)
+        logger.info("tool_call_end name=%s output=%s", name, self._truncate(result))
         return result
 
     def close(self) -> None:

@@ -2,6 +2,7 @@ import base64
 from dataclasses import dataclass, field
 import json
 import re
+import shlex
 from typing import Any, ClassVar
 
 from deepresearch.tools.base import FunctionTool
@@ -67,7 +68,7 @@ class TodoTool(FunctionTool):
 
     def _exec(self, command: list[str]) -> str:
         """Run a command inside the sandbox and return stdout."""
-        req = SandboxExecRequest(command=command, timeout_seconds=10)
+        req = SandboxExecRequest(command=command, timeout_seconds=10, system=True)
         result = json.loads(self.exec_tool.execute(req))
         if result.get("exit_code", 0) != 0:
             raise RuntimeError(result.get("stderr", ""))
@@ -105,7 +106,7 @@ class TodoTool(FunctionTool):
         self._exec(["mkdir", "-p", parent])
         # Use base64 to safely pass content without shell injection.
         encoded = base64.b64encode(content.encode()).decode()
-        self._exec(["sh", "-c", f"echo '{encoded}' | base64 -d > {self.path}"])
+        self._exec(["sh", "-c", f"echo '{encoded}' | base64 -d > {shlex.quote(self.path)}"])
 
     def _result(self, data: dict[str, Any], was_reset: bool) -> str:
         if was_reset:
