@@ -1,7 +1,7 @@
 import shutil
 import tempfile
 from pathlib import Path
-from uuid import uuid7
+from uuid6 import uuid7
 
 import pytest
 

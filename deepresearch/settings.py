@@ -2,7 +2,7 @@ from dataclasses import dataclass
 import logging
 import os
 from pathlib import Path
-from uuid import uuid7
+from uuid6 import uuid7
 
 
 logger = logging.getLogger("deepresearch.agent")
