@@ -15,7 +15,10 @@ logger = logging.getLogger("deepresearch.agent")
 @dataclass
 class ExecTool(FunctionTool):
     name: str = "exec"
-    description: str = "Run a command in the persistent working environment. Use /workspace for files you want to keep."
+    description: str = (
+        "Run a command in the persistent sandbox environment. Use /workspace for files you want to keep. "
+        "You have root access and can install packages with apt-get or pip as needed."
+    )
     parameters: dict[str, Any] = field(
         default_factory=lambda: {
             "type": "object",

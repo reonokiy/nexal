@@ -112,14 +112,13 @@ class WebFetchTool(FunctionTool):
                     if parsed.hostname:
                         _assert_public_address(parsed.hostname)
 
-            with httpx.stream(
-                "GET",
-                params.url,
+            client = httpx.Client(
                 headers=_BROWSER_HEADERS,
                 follow_redirects=True,
                 timeout=30,
                 event_hooks={"response": [_check_redirect]},
-            ) as response:
+            )
+            with client.stream("GET", params.url) as response:
                 # Also verify the final resolved destination.
                 final_hostname = urlparse(str(response.url)).hostname
                 if final_hostname:
