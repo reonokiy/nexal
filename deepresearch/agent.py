@@ -11,6 +11,7 @@ from deepresearch.tools.registry import get_default_tools
 
 
 logger = logging.getLogger("deepresearch.agent")
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 
 def init_client() -> OpenAI:
