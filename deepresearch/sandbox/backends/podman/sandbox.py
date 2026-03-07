@@ -23,8 +23,8 @@ from deepresearch.sandbox.base import (
     SandboxSessionStopResult,
 )
 
-_STATE_FILE = "/workspace/agent/.bash_state"
-_AGENT_DIR = "/workspace/agent"
+_STATE_FILE = "/workspace/agents/.bash_state"
+_AGENT_DIR = "/workspace/agents"
 
 
 class PodmanEphemeralSandbox(EphemeralSandboxBackend):
@@ -38,29 +38,20 @@ class PodmanSandboxSession(SandboxSession):
     start_result: SandboxSessionStartResult | None = None
 
     def exec(self, request: SandboxExecRequest) -> SandboxSessionExecResult:
-        if not request.command:
-            raise ValueError("command must not be empty")
-
         name = container_name(self.session_id)
         cmd_str = request.command if isinstance(request.command, str) else shlex.join(request.command)
 
-        # Wrapper script: restore state, run command, save state.
+        # Wrapper script: restore state, protect agents dir, run command, save state.
         parts: list[str] = [
             f"[ -f {_STATE_FILE} ] && . {_STATE_FILE}",
-        ]
-        if not request.system:
-            # Protect agent directory from LLM commands.
-            parts.append(f"chmod -R a-w {_AGENT_DIR} 2>/dev/null")
-        parts.append(cmd_str)
-        parts.append("__rc=$?")
-        if not request.system:
-            # Restore write permission for state saving.
-            parts.append(f"chmod -R u+w {_AGENT_DIR} 2>/dev/null")
-        parts.extend([
+            f"chmod -R a-w {_AGENT_DIR} 2>/dev/null",
+            cmd_str,
+            "__rc=$?",
+            f"chmod -R u+w {_AGENT_DIR} 2>/dev/null",
             f"mkdir -p {_AGENT_DIR}",
             f'{{ export -p; echo "cd \\"$(pwd)\\""; }} > {_STATE_FILE}',
             "exit $__rc",
-        ])
+        ]
 
         script = "\n".join(parts)
         exec_args = [

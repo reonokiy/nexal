@@ -1,17 +1,24 @@
 import json
 import logging
+import re
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Any
 
+from uuid6 import uuid7
 from openai import OpenAI
+
 from deepresearch.prompts import SYSTEM_PROMPT
 from deepresearch.settings import settings, ensure_sandbox_session
 from deepresearch.tools.base import FunctionTool
 from deepresearch.tools.registry import get_default_tools
+from deepresearch.workspace import write_agents_file
 
 
 logger = logging.getLogger("deepresearch.agent")
 logging.getLogger("httpx").setLevel(logging.WARNING)
+
+_OBSERVATION_PREVIEW_LIMIT = 1000
 
 
 def init_client() -> OpenAI:
@@ -19,6 +26,13 @@ def init_client() -> OpenAI:
         base_url=settings.llm_api_endpoint,
         api_key=settings.llm_api_key,
     )
+
+
+def _detect_ext(content: str) -> str:
+    stripped = content.lstrip()
+    if stripped.startswith("{") or stripped.startswith("["):
+        return "json"
+    return "md"
 
 
 @dataclass
@@ -42,11 +56,14 @@ class AgentLoop:
             {"role": "user", "content": query},
         ]
 
+        openai_tools = [t.to_openai_tool() for t in self.tools]
+
         for _ in range(self.max_turns):
+            # --- Action: model decides to call tools or give final answer ---
             response = self.client.chat.completions.create(
                 model=settings.llm_model,
                 messages=messages,  # type: ignore[arg-type]
-                tools=[t.to_openai_tool() for t in self.tools],  # type: ignore[list-item]
+                tools=openai_tools,  # type: ignore[list-item]
                 tool_choice="auto",
             )
             message = response.choices[0].message
@@ -69,20 +86,30 @@ class AgentLoop:
                 ]
             messages.append(assistant_message)
 
+            # No tool calls → final answer.
             if not message.tool_calls:
                 return message.content or ""
 
+            # --- Observation: execute tools, collect results ---
             for tc in message.tool_calls:
                 try:
-                    output = self._execute_tool(tc.function.name, tc.function.arguments)
+                    raw_output = self._execute_tool(tc.function.name, tc.function.arguments)
                 except Exception as e:
                     logger.exception("tool_call_error name=%s", tc.function.name)
-                    output = json.dumps({"error": str(e)})
+                    raw_output = json.dumps({"error": str(e)})
+
+                observation = self._save_and_build_observation(tc.function.name, raw_output)
                 messages.append({
                     "role": "tool",
                     "tool_call_id": tc.id,
-                    "content": output,
+                    "content": observation,
                 })
+
+            # --- Thought prompt: guide the model to reflect before next action ---
+            messages.append({
+                "role": "user",
+                "content": "Based on the observations above, briefly state what you learned and what you should do next. Then take your next action or provide a final answer.",
+            })
 
         # Ask the model to summarize what it has so far.
         messages.append({"role": "user", "content": "You have reached the maximum number of steps. Please summarize your findings so far and provide the best answer you can."})
@@ -91,6 +118,38 @@ class AgentLoop:
             messages=messages,  # type: ignore[arg-type]
         )
         return response.choices[0].message.content or ""
+
+    def _save_and_build_observation(self, tool_name: str, raw_output: str) -> str:
+        """Save raw tool output to history file and return a truncated observation."""
+        # For short outputs, just return as-is.
+        if len(raw_output) <= _OBSERVATION_PREVIEW_LIMIT:
+            return raw_output
+
+        # Save full output to file.
+        saved_path = self._save_to_history(tool_name, raw_output)
+        if saved_path is None:
+            # Fallback: truncate inline if saving failed.
+            return raw_output[:_OBSERVATION_PREVIEW_LIMIT] + "\n\n[Output truncated]"
+
+        preview = raw_output[:_OBSERVATION_PREVIEW_LIMIT]
+        return f"{preview}\n\n[Output truncated. Full output saved to {saved_path} — use exec to view if needed]"
+
+    def _save_to_history(self, tool_name: str, content: str) -> str | None:
+        """Save content to /workspace/agents/history/YYYY/MM/DD/<uuid7>-<name>.<ext>.
+
+        Returns the container-side path or None on failure.
+        """
+        now = datetime.now(timezone.utc)
+        ext = _detect_ext(content)
+        safe_name = re.sub(r"[^a-zA-Z0-9_-]", "_", tool_name)
+        filename = f"{uuid7()}-{safe_name}.{ext}"
+        rel_path = f"history/{now:%Y}/{now:%m}/{now:%d}/{filename}"
+
+        try:
+            return write_agents_file(rel_path, content)
+        except Exception:
+            logger.warning("failed to save tool output for %s", tool_name, exc_info=True)
+            return None
 
     @staticmethod
     def _truncate(text: str, limit: int = 500) -> str:

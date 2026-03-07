@@ -1,4 +1,4 @@
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 import json
 import logging
 from typing import Any, ClassVar
@@ -57,7 +57,12 @@ class ExecTool(FunctionTool):
         )
         if self._session is None:
             self._session = self._start_sandbox()
-        return json.dumps(asdict(self._session.exec(request)), ensure_ascii=False)
+        result = self._session.exec(request)
+        return json.dumps({
+            "exit_code": result.exit_code,
+            "stdout": result.stdout,
+            "stderr": result.stderr,
+        }, ensure_ascii=False)
 
     def close(self) -> None:
         if self._session is None:
@@ -74,7 +79,7 @@ class ExecTool(FunctionTool):
             self._session = None
 
     def _start_sandbox(self) -> SandboxSession:
-        network = "host" if settings.sandbox_network_enabled else "none"
+        network = "bridge" if settings.sandbox_network_enabled else "none"
         return Sandbox(
             config=SandboxConfig(
                 session_id=settings.sandbox_session_id,

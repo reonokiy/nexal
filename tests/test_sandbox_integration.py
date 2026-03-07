@@ -155,8 +155,8 @@ def test_persistent_sandbox_preserves_bash_state(workspace: Path) -> None:
 
 
 @pytest.mark.integration
-def test_agent_dir_readonly_for_llm_commands(workspace: Path) -> None:
-    """LLM commands (system=False) cannot write to /workspace/agent/, but system requests can."""
+def test_agents_dir_readonly_for_exec_commands(workspace: Path) -> None:
+    """/workspace/agents/ is read-only inside exec commands, writable from host."""
     session_id = f"test-{uuid7()}"
     sandbox = Sandbox(
         config=SandboxConfig(
@@ -167,41 +167,38 @@ def test_agent_dir_readonly_for_llm_commands(workspace: Path) -> None:
     )
 
     try:
-        # System request: can write to /workspace/agent/.
+        # Write a file from host side (simulating system write via workspace.py).
+        agents_dir = workspace / "agents"
+        agents_dir.mkdir(parents=True, exist_ok=True)
+        (agents_dir / "test.txt").write_text("secret", encoding="utf-8")
+
+        # Exec command: cannot write to /workspace/agents/.
         r1 = sandbox.exec(SandboxExecRequest(
-            command="mkdir -p /workspace/agent && echo secret > /workspace/agent/test.txt",
+            command="echo hacked > /workspace/agents/test.txt",
             timeout_seconds=10,
-            system=True,
         ))
-        assert r1.exit_code == 0, r1.stderr
+        assert r1.exit_code != 0
 
-        # LLM request: cannot write to /workspace/agent/.
+        # Exec command: can still read /workspace/agents/.
         r2 = sandbox.exec(SandboxExecRequest(
-            command="echo hacked > /workspace/agent/test.txt",
+            command="cat /workspace/agents/test.txt",
             timeout_seconds=10,
         ))
-        assert r2.exit_code != 0
-
-        # LLM request: can still read /workspace/agent/.
-        r3 = sandbox.exec(SandboxExecRequest(
-            command="cat /workspace/agent/test.txt",
-            timeout_seconds=10,
-        ))
-        assert r3.exit_code == 0, r3.stderr
-        assert "secret" in r3.stdout
+        assert r2.exit_code == 0, r2.stderr
+        assert "secret" in r2.stdout
 
         # Verify state file still works after the failed write.
-        r4 = sandbox.exec(SandboxExecRequest(
+        r3 = sandbox.exec(SandboxExecRequest(
             command="export AFTER_FAIL=yes",
             timeout_seconds=10,
         ))
-        assert r4.exit_code == 0, r4.stderr
+        assert r3.exit_code == 0, r3.stderr
 
-        r5 = sandbox.exec(SandboxExecRequest(
+        r4 = sandbox.exec(SandboxExecRequest(
             command="echo $AFTER_FAIL",
             timeout_seconds=10,
         ))
-        assert r5.exit_code == 0, r5.stderr
-        assert "yes" in r5.stdout
+        assert r4.exit_code == 0, r4.stderr
+        assert "yes" in r4.stdout
     finally:
         sandbox.stop()

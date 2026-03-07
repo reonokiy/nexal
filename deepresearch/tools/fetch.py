@@ -126,6 +126,8 @@ class WebFetchTool(FunctionTool):
                 if final_hostname:
                     _assert_public_address(final_hostname)
                 response.raise_for_status()
+                encoding = response.charset_encoding or "utf-8"
+                content_type = response.headers.get("content-type", "")
                 # Read with size limit to avoid memory exhaustion.
                 chunks: list[bytes] = []
                 total = 0
@@ -140,12 +142,10 @@ class WebFetchTool(FunctionTool):
         except httpx.HTTPError as e:
             return json.dumps({"error": str(e)})
 
-        encoding = response.charset_encoding or "utf-8"
         try:
             raw_text = raw_bytes.decode(encoding, errors="replace")
         except (LookupError, UnicodeDecodeError):
             raw_text = raw_bytes.decode("utf-8", errors="replace")
-        content_type = response.headers.get("content-type", "")
         if "html" in content_type or "xml" in content_type:
             text = html_to_markdown.convert(raw_text)
         elif content_type.startswith("text/") or "json" in content_type:

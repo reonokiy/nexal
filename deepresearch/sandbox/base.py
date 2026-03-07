@@ -40,7 +40,10 @@ class SandboxConfig(BaseSandboxConfig):
 class SandboxExecRequest:
     command: str | list[str]
     timeout_seconds: int = 60
-    system: bool = False
+
+    def __post_init__(self) -> None:
+        if not self.command:
+            raise ValueError("command must not be empty")
 
 
 @dataclass

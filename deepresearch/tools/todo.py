@@ -1,15 +1,11 @@
-import base64
 from dataclasses import dataclass, field
 import json
-import re
-import shlex
 from typing import Any, ClassVar
 
 from deepresearch.tools.base import FunctionTool
-from deepresearch.tools.command import ExecTool
-from deepresearch.sandbox import SandboxExecRequest
+from deepresearch.workspace import read_agents_file, write_agents_file
 
-DEFAULT_TODO_PATH = "/workspace/agents/TODO.md"
+DEFAULT_TODO_PATH = "TODO.md"
 
 # content can be str or list[str], but base.py type validation only handles
 # simple types. We skip framework validation by using Any and validate manually.
@@ -28,7 +24,7 @@ class TodoTool(FunctionTool):
     description: str = (
         "Manage a TODO list for tracking tasks. "
         "Supports read/add/remove/clear actions. "
-        f"Stored as a Markdown checklist at {DEFAULT_TODO_PATH}."
+        "Stored as a Markdown checklist at /workspace/agents/TODO.md."
     )
     parameters: dict[str, Any] = field(
         default_factory=lambda: {
@@ -57,22 +53,7 @@ class TodoTool(FunctionTool):
         init=False,
     )
     params_type: ClassVar[type] = TodoParams
-    exec_tool: ExecTool = field(default_factory=ExecTool)
     path: str = DEFAULT_TODO_PATH
-
-    _SAFE_PATH_RE: ClassVar[re.Pattern[str]] = re.compile(r"^/[\w./ -]+$")
-
-    def __post_init__(self) -> None:
-        if not self._SAFE_PATH_RE.match(self.path):
-            raise ValueError(f"Invalid TODO path: {self.path}")
-
-    def _exec(self, command: list[str]) -> str:
-        """Run a command inside the sandbox and return stdout."""
-        req = SandboxExecRequest(command=command, timeout_seconds=10, system=True)
-        result = json.loads(self.exec_tool.execute(req))
-        if result.get("exit_code", 0) != 0:
-            raise RuntimeError(result.get("stderr", ""))
-        return result.get("stdout", "")
 
     @staticmethod
     def _parse_item(line: str) -> dict[str, Any]:
@@ -82,14 +63,10 @@ class TodoTool(FunctionTool):
         return {"text": text, "done": done}
 
     def _read_items(self) -> tuple[list[str], list[dict[str, Any]], bool]:
-        """Read TODO items from sandbox. Returns (raw_lines, parsed_items, was_reset)."""
-        try:
-            text = self._exec(["cat", self.path])
-        except RuntimeError as e:
-            err = str(e).lower()
-            if "no such file" in err or "not found" in err:
-                return [], [], False
-            raise
+        """Read TODO items. Returns (raw_lines, parsed_items, was_reset)."""
+        text = read_agents_file(self.path)
+        if text is None:
+            return [], [], False
         lines = text.splitlines()
         raw = [line for line in lines if line.startswith("- [")]
         # If file has content but no valid checklist items, it's corrupted.
@@ -102,11 +79,7 @@ class TodoTool(FunctionTool):
 
     def _write_items(self, items: list[str]) -> None:
         content = ("# TODO\n\n" + "\n".join(items) + "\n") if items else "# TODO\n"
-        parent = self.path.rsplit("/", 1)[0]
-        self._exec(["mkdir", "-p", parent])
-        # Use base64 to safely pass content without shell injection.
-        encoded = base64.b64encode(content.encode()).decode()
-        self._exec(["sh", "-c", f"echo '{encoded}' | base64 -d > {shlex.quote(self.path)}"])
+        write_agents_file(self.path, content)
 
     def _result(self, data: dict[str, Any], was_reset: bool) -> str:
         if was_reset:

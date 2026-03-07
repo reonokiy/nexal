@@ -39,7 +39,7 @@ def load_settings() -> None:
     settings.llm_model = model
     settings.sandbox_session_id = sandbox_session_id
     settings.sandbox_workspace_read_only = workspace_read_only_env in {"1", "true", "yes", "on"}
-    settings.sandbox_network_enabled = sandbox_network_env not in {"0", "false", "no", "off"}
+    settings.sandbox_network_enabled = sandbox_network_env in {"1", "true", "yes", "on"}
     _settings_loaded = True
 
 

@@ -93,7 +93,7 @@ def _run_subprocess(args: list[str], timeout_seconds: int | None = _DEFAULT_TIME
     )
 
 
-def run_subprocess(args: list[str], timeout_seconds: int | None = None) -> subprocess.CompletedProcess[str]:
+def run_subprocess(args: list[str], timeout_seconds: int | None = _DEFAULT_TIMEOUT) -> subprocess.CompletedProcess[str]:
     return _run_subprocess(args, timeout_seconds=timeout_seconds)
 
 
@@ -108,9 +108,6 @@ def container_running(container_name: str) -> bool:
 
 
 def run_podman_command(config: EphemeralSandboxConfig, request: SandboxExecRequest) -> EphemeralSandboxResult:
-    if not request.command:
-        raise ValueError("command must not be empty")
-
     image_name = config.image or os.getenv("SANDBOX_IMAGE", "docker.io/library/python:3.12-slim")
     podman_args = [
         "podman",

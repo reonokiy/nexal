@@ -7,11 +7,10 @@ from deepresearch.tools.todo import TodoTool
 
 
 def get_default_tools() -> list[FunctionTool]:
-    exec_tool = ExecTool()
     return [
         WebSearchTool(),
         WebFetchTool(),
         TimeTool(),
-        exec_tool,
-        TodoTool(exec_tool=exec_tool),
+        ExecTool(),
+        TodoTool(),
     ]
