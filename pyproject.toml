@@ -6,6 +6,8 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "agentfs-sdk>=0.6.2",
+    "html-to-markdown>=2.28.1",
+    "httpx>=0.28.1",
     "openai>=2.26.0",
     "podman>=5.7.0",
     "pytest>=8.4.0",

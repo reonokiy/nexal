@@ -1,12 +1,14 @@
 from deepresearch.tools.base import FunctionTool
-from deepresearch.tools.command import RunCommandTool
-from deepresearch.tools.search.tavily import TavilyWebSearch
-from deepresearch.tools.time import CurrentDatetimeTool
+from deepresearch.tools.command import ExecTool
+from deepresearch.tools.fetch import WebFetchTool
+from deepresearch.tools.search.tavily import WebSearchTool
+from deepresearch.tools.time import TimeTool
 
 
 def get_default_tools() -> list[FunctionTool]:
     return [
-        TavilyWebSearch(),
-        CurrentDatetimeTool(),
-        RunCommandTool(),
+        WebSearchTool(),
+        WebFetchTool(),
+        TimeTool(),
+        ExecTool(),
     ]

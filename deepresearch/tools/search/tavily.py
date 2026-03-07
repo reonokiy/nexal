@@ -1,10 +1,10 @@
-from dataclasses import dataclass, field, fields
+from dataclasses import dataclass, field
 import json
 import os
-from typing import Any
-from urllib.request import Request, urlopen
+from typing import Any, ClassVar
 
-from deepresearch.settings import AgentSettings
+import httpx
+
 from deepresearch.tools.base import FunctionTool
 
 
@@ -15,7 +15,7 @@ class WebSearchParams:
 
 
 @dataclass
-class TavilyWebSearch(FunctionTool):
+class WebSearchTool(FunctionTool):
     name: str = "web_search"
     description: str = "Search the web and return a short list of relevant results."
     parameters: dict[str, Any] = field(
@@ -39,50 +39,46 @@ class TavilyWebSearch(FunctionTool):
         },
         init=False,
     )
+    params_type: ClassVar[type] = WebSearchParams
     api_key: str | None = None
 
-    def execute(self, arguments: str, settings: AgentSettings) -> str:
-        parsed = json.loads(arguments or "{}")
-        valid = {f.name for f in fields(WebSearchParams)}
-        params = WebSearchParams(**{k: v for k, v in parsed.items() if k in valid})
-        return json.dumps(self._search(params), ensure_ascii=False)
-
-    def _search(self, params: WebSearchParams) -> dict[str, Any]:
+    def execute(self, params: WebSearchParams) -> str:
         api_key = self.api_key or os.getenv("TAVILY_API_KEY")
         if not api_key:
-            raise RuntimeError("TAVILY_API_KEY environment variable is required")
+            return json.dumps({"error": "TAVILY_API_KEY environment variable is required"})
 
-        body = json.dumps(
+        try:
+            response = httpx.post(
+                "https://api.tavily.com/search",
+                json={
+                    "api_key": api_key,
+                    "query": params.query,
+                    "max_results": max(1, min(params.max_results, 10)),
+                    "search_depth": "advanced",
+                    "include_answer": False,
+                    "include_raw_content": False,
+                },
+                timeout=30,
+            )
+            response.raise_for_status()
+        except httpx.HTTPError as e:
+            return json.dumps({"error": str(e)})
+        payload = response.json()
+
+        return json.dumps(
             {
-                "api_key": api_key,
+                "provider": "tavily",
                 "query": params.query,
-                "max_results": max(1, min(params.max_results, 10)),
-                "search_depth": "advanced",
-                "include_answer": False,
-                "include_raw_content": False,
-            }
-        ).encode("utf-8")
-        request = Request(
-            "https://api.tavily.com/search",
-            data=body,
-            headers={"Content-Type": "application/json", "Accept": "application/json"},
-            method="POST",
+                "results": [
+                    {
+                        "title": item.get("title", ""),
+                        "url": item.get("url", ""),
+                        "snippet": item.get("content", ""),
+                        "score": item.get("score"),
+                    }
+                    for item in payload.get("results", [])
+                    if item.get("url")
+                ],
+            },
+            ensure_ascii=False,
         )
-
-        with urlopen(request, timeout=30) as response:
-            payload = json.loads(response.read().decode("utf-8"))
-
-        return {
-            "provider": "tavily",
-            "query": params.query,
-            "results": [
-                {
-                    "title": item.get("title", ""),
-                    "url": item.get("url", ""),
-                    "snippet": item.get("content", ""),
-                    "score": item.get("score"),
-                }
-                for item in payload.get("results", [])
-                if item.get("url")
-            ],
-        }

@@ -122,6 +122,8 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "agentfs-sdk" },
+    { name = "html-to-markdown" },
+    { name = "httpx" },
     { name = "openai" },
     { name = "podman" },
     { name = "pytest" },
@@ -130,6 +132,8 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "agentfs-sdk", specifier = ">=0.6.2" },
+    { name = "html-to-markdown", specifier = ">=2.28.1" },
+    { name = "httpx", specifier = ">=0.28.1" },
     { name = "openai", specifier = ">=2.26.0" },
     { name = "podman", specifier = ">=5.7.0" },
     { name = "pytest", specifier = ">=8.4.0" },
@@ -151,6 +155,17 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/01/ee/02a2c011bdab74c6fb3c75474d40b3052059d95df7e73351460c8588d963/h11-0.16.0.tar.gz", hash = "sha256:4e35b956cf45792e4caa5885e69fba00bdbc6ffafbfa020300e549b208ee5ff1", size = 101250, upload-time = "2025-04-24T03:35:25.427Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/04/4b/29cac41a4d98d144bf5f6d33995617b185d14b22401f75ca86f384e87ff1/h11-0.16.0-py3-none-any.whl", hash = "sha256:63cf8bbe7522de3bf65932fda1d9c2772064ffb3dae62d55932da54b31cb6c86", size = 37515, upload-time = "2025-04-24T03:35:24.344Z" },
+]
+
+[[package]]
+name = "html-to-markdown"
+version = "2.28.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/46/6d/af303c3ea87daedc248fbe0fb79c1913a1731b75ed74f7dc7a53864bf79a/html_to_markdown-2.28.1.tar.gz", hash = "sha256:e2dd0c2a6b4507dbe3a4ec2e815451c2bba35d28428f5340b44145e5ec8e8522", size = 308699, upload-time = "2026-03-07T08:29:20.842Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/17/da/074d0d328bd527740e2ad5c4bcd60a2835c74ee7f16789f3f2eb2717ac1d/html_to_markdown-2.28.1-cp310-abi3-macosx_11_0_arm64.whl", hash = "sha256:6e68e283eac710b76b894d269ae4753b4d4d3f1cc1fdd1f2e8f3cc83838abcd8", size = 8880836, upload-time = "2026-03-07T08:29:14.446Z" },
+    { url = "https://files.pythonhosted.org/packages/75/3c/00703916ca8179883a80f8b91624ec15939caeba2718caa66425becfefa6/html_to_markdown-2.28.1-cp310-abi3-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:75d4937c0ba795cd18dcc95f77956d8bbe73f8e3493f2c30ea5d76d25e77662a", size = 9688758, upload-time = "2026-03-07T08:29:16.995Z" },
+    { url = "https://files.pythonhosted.org/packages/eb/43/d26b75fc93eb8948843c1c254c78da79cb87694277b9883c0aa4970ab29b/html_to_markdown-2.28.1-cp310-abi3-win_amd64.whl", hash = "sha256:1e6f92271bff5d77bf13a4cdd9ea9e1979e8775ee42149cb3148b56d820bb6ef", size = 9309750, upload-time = "2026-03-07T08:29:19.033Z" },
 ]
 
 [[package]]

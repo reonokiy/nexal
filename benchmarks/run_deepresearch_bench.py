@@ -4,7 +4,7 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-from deepresearch.agent import init_client, run_agent
+from deepresearch.agent import run_agent
 from deepresearch.settings import load_settings
 
 
@@ -86,8 +86,7 @@ def main() -> None:
     queries = filter_queries(load_jsonl(query_path), args.only_zh, args.only_en, args.limit)
     existing = {} if args.force else load_existing_results(output_path)
 
-    settings = load_settings()
-    client = init_client(settings)
+    load_settings()
 
     results_by_id: dict[int, dict] = dict(existing)
     total = len(queries)
@@ -101,7 +100,7 @@ def main() -> None:
             continue
 
         print(f"[{index}/{total}] run id={item_id}")
-        article = run_agent(client, settings, prompt, max_turns=args.max_turns)
+        article = run_agent(prompt, max_turns=args.max_turns)
         results_by_id[item_id] = {
             "id": item_id,
             "prompt": prompt,
