@@ -1,34 +1,10 @@
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any
 
-from deepresearch.sandbox.base import SandboxSession
-
-
-@dataclass
-class ToolContext:
-    settings: Any
-    sandbox_session: SandboxSession | None = None
+from deepresearch.settings import AgentSettings
 
 
 @dataclass
-class ToolExecutionResult:
-    output: str
-    sandbox_session: SandboxSession | None = None
-
-
-class AgentTool(Protocol):
-    name: str
-    description: str
-    parameters: dict[str, Any]
-
-    def to_openai_tool(self) -> dict[str, Any]:
-        pass
-
-    def execute(self, arguments: str, context: ToolContext) -> ToolExecutionResult:
-        pass
-
-
-@dataclass(frozen=True)
 class FunctionTool:
     name: str
     description: str
@@ -43,3 +19,9 @@ class FunctionTool:
                 "parameters": self.parameters,
             },
         }
+
+    def execute(self, arguments: str, settings: AgentSettings) -> str:
+        raise NotImplementedError
+
+    def close(self) -> None:
+        pass

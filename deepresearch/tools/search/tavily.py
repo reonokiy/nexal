@@ -1,60 +1,62 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 import json
 import os
 from typing import Any
 from urllib.request import Request, urlopen
 
-from deepresearch.tools.base import FunctionTool, ToolContext, ToolExecutionResult
-from deepresearch.tools.search.base import SearchResult, build_search_payload
+from deepresearch.settings import AgentSettings
+from deepresearch.tools.base import FunctionTool
 
 
-def _tavily_web_search_parameters() -> dict[str, Any]:
-    return {
-        "type": "object",
-        "properties": {
-            "query": {
-                "type": "string",
-                "description": "The search query to look up on the web.",
-            },
-            "max_results": {
-                "type": "integer",
-                "description": "Maximum number of search results to return.",
-                "default": 5,
-                "minimum": 1,
-                "maximum": 10,
-            },
-        },
-        "required": ["query"],
-        "additionalProperties": False,
-    }
+@dataclass
+class WebSearchParams:
+    query: str
+    max_results: int = 5
 
 
-@dataclass(frozen=True)
+@dataclass
 class TavilyWebSearch(FunctionTool):
     name: str = "web_search"
     description: str = "Search the web and return a short list of relevant results."
-    parameters: dict[str, Any] = field(default_factory=_tavily_web_search_parameters, init=False)
-    provider_name: str = field(default="tavily", init=False)
+    parameters: dict[str, Any] = field(
+        default_factory=lambda: {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "The search query to look up on the web.",
+                },
+                "max_results": {
+                    "type": "integer",
+                    "description": "Maximum number of search results to return.",
+                    "default": 5,
+                    "minimum": 1,
+                    "maximum": 10,
+                },
+            },
+            "required": ["query"],
+            "additionalProperties": False,
+        },
+        init=False,
+    )
     api_key: str | None = None
 
-    def execute(self, arguments: str, context: ToolContext) -> ToolExecutionResult:
-        parsed_args = json.loads(arguments or "{}")
-        query = str(parsed_args["query"])
-        max_results = int(parsed_args.get("max_results", 5))
-        output = json.dumps(self.search(query, max_results=max_results), ensure_ascii=False)
-        return ToolExecutionResult(output=output, sandbox_session=context.sandbox_session)
+    def execute(self, arguments: str, settings: AgentSettings) -> str:
+        parsed = json.loads(arguments or "{}")
+        valid = {f.name for f in fields(WebSearchParams)}
+        params = WebSearchParams(**{k: v for k, v in parsed.items() if k in valid})
+        return json.dumps(self._search(params), ensure_ascii=False)
 
-    def search(self, query: str, max_results: int = 5) -> dict[str, object]:
+    def _search(self, params: WebSearchParams) -> dict[str, Any]:
         api_key = self.api_key or os.getenv("TAVILY_API_KEY")
         if not api_key:
             raise RuntimeError("TAVILY_API_KEY environment variable is required")
 
-        safe_max_results = max(1, min(max_results, 10))
         body = json.dumps(
             {
                 "api_key": api_key,
-                "query": query,
-                "max_results": safe_max_results,
+                "query": params.query,
+                "max_results": max(1, min(params.max_results, 10)),
                 "search_depth": "advanced",
                 "include_answer": False,
                 "include_raw_content": False,
@@ -63,24 +65,24 @@ class TavilyWebSearch(FunctionTool):
         request = Request(
             "https://api.tavily.com/search",
             data=body,
-            headers={
-                "Content-Type": "application/json",
-                "Accept": "application/json",
-            },
+            headers={"Content-Type": "application/json", "Accept": "application/json"},
             method="POST",
         )
 
         with urlopen(request, timeout=30) as response:
             payload = json.loads(response.read().decode("utf-8"))
 
-        results = [
-            SearchResult(
-                title=item.get("title", ""),
-                url=item.get("url", ""),
-                snippet=item.get("content", ""),
-                score=item.get("score"),
-            )
-            for item in payload.get("results", [])
-            if item.get("url")
-        ]
-        return build_search_payload(self.provider_name, query, results)
+        return {
+            "provider": "tavily",
+            "query": params.query,
+            "results": [
+                {
+                    "title": item.get("title", ""),
+                    "url": item.get("url", ""),
+                    "snippet": item.get("content", ""),
+                    "score": item.get("score"),
+                }
+                for item in payload.get("results", [])
+                if item.get("url")
+            ],
+        }

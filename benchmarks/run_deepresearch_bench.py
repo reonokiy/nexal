@@ -4,7 +4,7 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-from deepresearch.agent_core import init_client, run_agent
+from deepresearch.agent import init_client, run_agent
 from deepresearch.settings import load_settings
 
 

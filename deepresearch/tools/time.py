@@ -3,26 +3,22 @@ import json
 from datetime import datetime
 from typing import Any
 
-from deepresearch.tools.base import FunctionTool, ToolContext, ToolExecutionResult
+from deepresearch.settings import AgentSettings
+from deepresearch.tools.base import FunctionTool
 
 
-def _current_datetime_parameters() -> dict[str, Any]:
-    return {
-        "type": "object",
-        "properties": {},
-        "additionalProperties": False,
-    }
-
-
-@dataclass(frozen=True)
+@dataclass
 class CurrentDatetimeTool(FunctionTool):
     name: str = "get_current_datetime"
     description: str = "Get the current local date and time from the system clock."
-    parameters: dict[str, Any] = field(default_factory=_current_datetime_parameters, init=False)
+    parameters: dict[str, Any] = field(
+        default_factory=lambda: {"type": "object", "properties": {}, "additionalProperties": False},
+        init=False,
+    )
 
-    def execute(self, arguments: str, context: ToolContext) -> ToolExecutionResult:
+    def execute(self, arguments: str, settings: AgentSettings) -> str:
         now = datetime.now().astimezone()
-        output = json.dumps(
+        return json.dumps(
             {
                 "iso_datetime": now.isoformat(),
                 "date": now.date().isoformat(),
@@ -32,4 +28,3 @@ class CurrentDatetimeTool(FunctionTool):
             },
             ensure_ascii=False,
         )
-        return ToolExecutionResult(output=output, sandbox_session=context.sandbox_session)

@@ -1,6 +1,6 @@
 import argparse
 
-from deepresearch.agent_core import init_client, run_agent
+from deepresearch.agent import init_client, run_agent
 from deepresearch.settings import AgentSettings, load_settings
 
 
