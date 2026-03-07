@@ -1,7 +1,7 @@
 import shutil
 import tempfile
 from pathlib import Path
-from uuid import uuid4
+from uuid import uuid7
 
 import pytest
 
@@ -61,7 +61,7 @@ def test_ephemeral_sandbox_executes_code_and_writes_workspace(workspace: Path) -
 
 @pytest.mark.integration
 def test_persistent_sandbox_preserves_workspace_between_execs(workspace: Path) -> None:
-    session_id = f"test-{uuid4().hex}"
+    session_id = f"test-{uuid7()}"
     sandbox = Sandbox(
         config=SandboxConfig(
             session_id=session_id,

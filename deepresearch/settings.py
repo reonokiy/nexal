@@ -2,7 +2,7 @@ from dataclasses import dataclass
 import logging
 import os
 from pathlib import Path
-from uuid import uuid4
+from uuid import uuid7
 
 
 logger = logging.getLogger("deepresearch.agent")
@@ -51,7 +51,7 @@ def ensure_sandbox_session() -> None:
 
     root = Path(os.getenv("SANDBOX_SESSIONS_DIR", ".sandbox_sessions")).resolve()
     root.mkdir(parents=True, exist_ok=True)
-    session_name = settings.sandbox_session_id or uuid4().hex
+    session_name = settings.sandbox_session_id or str(uuid7())
     workspace_dir = root / session_name
     workspace_dir.mkdir(parents=True, exist_ok=True)
 

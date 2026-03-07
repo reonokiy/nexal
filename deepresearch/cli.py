@@ -7,7 +7,7 @@ from deepresearch.settings import settings, load_settings
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--query", required=True, help="Research query")
-    parser.add_argument("--session-id", help="Optional sandbox session id to reuse")
+    parser.add_argument("--session", help="Optional sandbox session id to reuse")
     parser.add_argument(
         "--workspace-read-only",
         action="store_true",
@@ -22,8 +22,8 @@ def main() -> None:
     query = args.query.strip()
 
     load_settings()
-    if args.session_id:
-        settings.sandbox_session_id = args.session_id
+    if args.session:
+        settings.sandbox_session_id = args.session
     if args.workspace_read_only:
         settings.sandbox_workspace_read_only = True
     if args.disable_network:
