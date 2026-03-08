@@ -47,6 +47,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--judge-model", type=str, default="", help="Model for judging (default: same as LLM_MODEL).")
     parser.add_argument("--sleep", type=float, default=2.0, help="Seconds to pause between questions.")
     parser.add_argument("--score-only", action="store_true", help="Only score existing results, don't run agent.")
+    parser.add_argument("--sandbox-network", action="store_true", help="Enable sandbox network access.")
     return parser.parse_args()
 
 
@@ -147,6 +148,7 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 
     load_settings()
+    settings.sandbox_network_enabled = args.sandbox_network
 
     judge_model = args.judge_model or settings.llm_model
     client = OpenAI(base_url=settings.llm_api_endpoint, api_key=settings.llm_api_key)

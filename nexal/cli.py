@@ -14,7 +14,7 @@ def main() -> None:
         help="Mount the default sandbox /workspace as read-only",
     )
     parser.add_argument(
-        "--enable-sandbox-network",
+        "--sandbox-network",
         action="store_true",
         help="Enable network access for sandbox exec calls (default: disabled)",
     )
@@ -30,7 +30,7 @@ def main() -> None:
         settings.sandbox_session_id = args.session
     if args.workspace_readonly:
         settings.sandbox_workspace_read_only = True
-    if args.enable_sandbox_network:
+    if args.sandbox_network:
         settings.sandbox_network_enabled = True
     answer = run_agent(task, max_turns=args.max_turns)
     print(answer)
