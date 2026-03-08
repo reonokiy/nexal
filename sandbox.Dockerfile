@@ -7,6 +7,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     jq \
     unzip \
     ripgrep \
+    xxd \
     && rm -rf /var/lib/apt/lists/*
 
 ENV UV_VERSION=0.10.9 PIXI_VERSION=0.65.0

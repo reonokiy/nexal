@@ -25,7 +25,9 @@ class ExecTool(FunctionTool):
         "Run a command in the persistent sandbox environment. Use /workspace for files you want to keep. "
         "Environment variables (export) and working directory (cd) persist across calls. "
         "Pre-installed tools: python3, uv, pixi, git, curl, wget, jq, ripgrep (rg). "
-        "Use uv or pixi to install additional packages. Do not use apt or system pip directly."
+        "To install Python packages: `uv venv && uv pip install <pkg>` (creates .venv and installs into it). "
+        "Activate with `source .venv/bin/activate` or run directly with `.venv/bin/python`. "
+        "Do not use bare pip or apt."
     )
     parameters: dict[str, Any] = field(
         default_factory=lambda: {
@@ -74,6 +76,8 @@ class ExecTool(FunctionTool):
                 "sandbox_session_stopped session_id=%s exit_code=%s",
                 result.session_id, result.exit_code,
             )
+        except KeyboardInterrupt:
+            logger.warning("sandbox_session_stop_interrupted")
         except Exception:
             logger.exception("sandbox_session_stop_failed")
         finally:

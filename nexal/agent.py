@@ -25,6 +25,7 @@ def init_client() -> OpenAI:
     return OpenAI(
         base_url=settings.llm_api_endpoint,
         api_key=settings.llm_api_key,
+        timeout=300.0,
     )
 
 
@@ -61,6 +62,13 @@ class AgentLoop:
 
         openai_tools = [t.to_openai_tool() for t in self.tools]
 
+        try:
+            return self._loop(messages, openai_tools)
+        except KeyboardInterrupt:
+            logger.info("agent_interrupted")
+            raise
+
+    def _loop(self, messages: list[dict[str, Any]], openai_tools: list[dict[str, Any]]) -> str:
         for _ in range(self.max_turns):
             response = self.client.chat.completions.create(
                 model=settings.llm_model,
@@ -166,6 +174,7 @@ class AgentLoop:
         return text[:limit] + "..." if len(text) > limit else text
 
     def _execute_tool(self, name: str, arguments: str) -> str:
+        name = name.strip()
         logger.info("tool_call_start name=%s args=%s", name, self._truncate(arguments or "{}"))
         tool = self._tool_map.get(name)
         if tool is None:
@@ -176,7 +185,10 @@ class AgentLoop:
 
     def close(self) -> None:
         for tool in self.tools:
-            tool.close()
+            try:
+                tool.close()
+            except (KeyboardInterrupt, Exception):
+                pass
 
     def __enter__(self) -> "AgentLoop":
         return self

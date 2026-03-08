@@ -88,6 +88,7 @@ def _run_subprocess(args: list[str], timeout_seconds: int | None = _DEFAULT_TIME
         args,
         capture_output=True,
         text=True,
+        errors="replace",
         timeout=timeout_seconds,
         check=False,
     )
