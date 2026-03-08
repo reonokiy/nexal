@@ -18,6 +18,10 @@ def main() -> None:
         action="store_true",
         help="Enable network access for sandbox exec calls (default: disabled)",
     )
+    parser.add_argument(
+        "--max-turns", type=int, default=10,
+        help="Maximum agent turns (default: 10)",
+    )
     args = parser.parse_args()
     task = args.task.strip()
 
@@ -28,5 +32,5 @@ def main() -> None:
         settings.sandbox_workspace_read_only = True
     if args.enable_sandbox_network:
         settings.sandbox_network_enabled = True
-    answer = run_agent(task)
+    answer = run_agent(task, max_turns=args.max_turns)
     print(answer)

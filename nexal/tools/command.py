@@ -80,7 +80,7 @@ class ExecTool(FunctionTool):
             self._session = None
 
     def _start_sandbox(self) -> SandboxSession:
-        network = "bridge" if settings.sandbox_network_enabled else "none"
+        network = "pasta" if settings.sandbox_network_enabled else "none"
         return Sandbox(
             config=SandboxConfig(
                 session_id=settings.sandbox_session_id,
