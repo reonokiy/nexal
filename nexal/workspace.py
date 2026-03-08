@@ -8,9 +8,9 @@ the container while allowing system code to manage it directly via the bind moun
 import logging
 from pathlib import Path
 
-from deepresearch.settings import settings
+from nexal.settings import settings
 
-logger = logging.getLogger("deepresearch.workspace")
+logger = logging.getLogger("nexal.workspace")
 
 _AGENTS_DIR = "agents"
 

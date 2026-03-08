@@ -2,8 +2,8 @@ from dataclasses import dataclass, field
 import json
 from typing import Any, ClassVar
 
-from deepresearch.tools.base import FunctionTool
-from deepresearch.workspace import read_agents_file, write_agents_file
+from nexal.tools.base import FunctionTool
+from nexal.workspace import read_agents_file, write_agents_file
 
 DEFAULT_TODO_PATH = "TODO.md"
 

@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 import shlex
 
-from deepresearch.sandbox.backends.podman.runner import (
+from nexal.sandbox.backends.podman.runner import (
     build_create_args,
     build_stop_args,
     container_exists,
@@ -10,7 +10,7 @@ from deepresearch.sandbox.backends.podman.runner import (
     run_podman_command,
     run_subprocess,
 )
-from deepresearch.sandbox.base import (
+from nexal.sandbox.base import (
     EphemeralSandboxConfig,
     EphemeralSandboxBackend,
     EphemeralSandboxResult,

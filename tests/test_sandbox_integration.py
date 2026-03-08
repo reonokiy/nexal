@@ -1,11 +1,12 @@
 import shutil
 import tempfile
+from collections.abc import Generator
 from pathlib import Path
 from uuid6 import uuid7
 
 import pytest
 
-from deepresearch.sandbox import (
+from nexal.sandbox import (
     EphemeralSandbox,
     EphemeralSandboxConfig,
     Sandbox,
@@ -18,7 +19,7 @@ TEST_ROOT = Path(".tmp_test_sandbox")
 
 
 @pytest.fixture(scope="session", autouse=True)
-def test_root() -> Path:
+def test_root() -> Generator[Path]:
     TEST_ROOT.mkdir(exist_ok=True)
     yield TEST_ROOT
     shutil.rmtree(TEST_ROOT, ignore_errors=True)

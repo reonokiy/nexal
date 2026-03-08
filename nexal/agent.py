@@ -8,14 +8,14 @@ from typing import Any
 from uuid6 import uuid7
 from openai import OpenAI
 
-from deepresearch.prompts import SYSTEM_PROMPT
-from deepresearch.settings import settings, ensure_sandbox_session
-from deepresearch.tools.base import FunctionTool
-from deepresearch.tools.registry import get_default_tools
-from deepresearch.workspace import write_agents_file
+from nexal.prompts import SYSTEM_PROMPT
+from nexal.settings import settings, ensure_sandbox_session
+from nexal.tools.base import FunctionTool
+from nexal.tools.registry import get_default_tools
+from nexal.workspace import write_agents_file
 
 
-logger = logging.getLogger("deepresearch.agent")
+logger = logging.getLogger("nexal.agent")
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
 _OBSERVATION_PREVIEW_LIMIT = 1000

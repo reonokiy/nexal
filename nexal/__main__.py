@@ -1,4 +1,4 @@
-from deepresearch.cli import main
+from nexal.cli import main
 
 
 if __name__ == "__main__":

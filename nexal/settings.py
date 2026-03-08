@@ -5,7 +5,7 @@ from pathlib import Path
 from uuid6 import uuid7
 
 
-logger = logging.getLogger("deepresearch.agent")
+logger = logging.getLogger("nexal.agent")
 
 
 @dataclass
@@ -49,7 +49,7 @@ def ensure_sandbox_session() -> None:
     if settings.sandbox_workspace_dir:
         return
 
-    root = Path(os.getenv("SANDBOX_SESSIONS_DIR", ".sandbox_sessions")).resolve()
+    root = Path(os.getenv("SANDBOX_SESSIONS_DIR", ".workspace")).resolve()
     root.mkdir(parents=True, exist_ok=True)
     session_name = settings.sandbox_session_id or str(uuid7())
     workspace_dir = root / session_name

@@ -4,8 +4,8 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-from deepresearch.agent import run_agent
-from deepresearch.settings import load_settings
+from nexal.agent import run_agent
+from nexal.settings import load_settings
 
 
 DEFAULT_BENCH_ROOT = ROOT / "benchmarks" / "deep_research_bench"

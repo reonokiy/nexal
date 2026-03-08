@@ -9,6 +9,8 @@ wheels/
 # Virtual environments
 .venv
 .env
-.sandbox_sessions
+.pytest_cache
+.workspace
 .vscode
 .uv-cache
+.claude

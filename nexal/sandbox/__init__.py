@@ -1,4 +1,4 @@
-from deepresearch.sandbox.base import (
+from nexal.sandbox.base import (
     EphemeralSandboxConfig,
     SandboxConfig,
     SandboxExecRequest,
@@ -8,7 +8,7 @@ from deepresearch.sandbox.base import (
     SandboxSessionStartResult,
     SandboxSessionStopResult,
 )
-from deepresearch.sandbox.service import EphemeralSandbox, Sandbox
+from nexal.sandbox.service import EphemeralSandbox, Sandbox
 
 __all__ = [
     "EphemeralSandboxConfig",

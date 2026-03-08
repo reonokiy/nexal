@@ -1,7 +1,7 @@
 import argparse
 
-from deepresearch.agent import run_agent
-from deepresearch.settings import settings, load_settings
+from nexal.agent import run_agent
+from nexal.settings import settings, load_settings
 
 
 def main() -> None:

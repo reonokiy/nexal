@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 
-from deepresearch.sandbox.base import (
+from nexal.sandbox.base import (
     EphemeralSandboxBackend,
     EphemeralSandboxConfig,
     EphemeralSandboxResult,
@@ -11,7 +11,7 @@ from deepresearch.sandbox.base import (
     SandboxSessionExecResult,
     SandboxSessionStopResult,
 )
-from deepresearch.sandbox.backends.podman.sandbox import PodmanEphemeralSandbox, PodmanSandboxManager
+from nexal.sandbox.backends.podman.sandbox import PodmanEphemeralSandbox, PodmanSandboxManager
 
 
 @dataclass

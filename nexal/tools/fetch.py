@@ -8,7 +8,7 @@ from urllib.parse import urlparse
 import httpx
 import html_to_markdown
 
-from deepresearch.tools.base import FunctionTool
+from nexal.tools.base import FunctionTool
 
 
 def _check_url_scheme(url: str) -> str | None:

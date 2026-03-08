@@ -1,5 +1,5 @@
-from deepresearch.sandbox.backends.podman.runner import run_podman_command, run_subprocess
-from deepresearch.sandbox.backends.podman.sandbox import (
+from nexal.sandbox.backends.podman.runner import run_podman_command, run_subprocess
+from nexal.sandbox.backends.podman.sandbox import (
     PodmanEphemeralSandbox,
     PodmanSandboxManager,
     PodmanSandboxSession,

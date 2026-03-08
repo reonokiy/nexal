@@ -3,13 +3,13 @@ import json
 import logging
 from typing import Any, ClassVar
 
-from deepresearch.sandbox import Sandbox, SandboxConfig, SandboxExecRequest
-from deepresearch.sandbox.base import SandboxSession
-from deepresearch.settings import settings
-from deepresearch.tools.base import FunctionTool
+from nexal.sandbox import Sandbox, SandboxConfig, SandboxExecRequest
+from nexal.sandbox.base import SandboxSession
+from nexal.settings import settings
+from nexal.tools.base import FunctionTool
 
 
-logger = logging.getLogger("deepresearch.agent")
+logger = logging.getLogger("nexal.agent")
 
 
 @dataclass
@@ -24,7 +24,8 @@ class ExecTool(FunctionTool):
     description: str = (
         "Run a command in the persistent sandbox environment. Use /workspace for files you want to keep. "
         "Environment variables (export) and working directory (cd) persist across calls. "
-        "You have root access and can install packages with apt-get or pip as needed."
+        "Pre-installed tools: python3, uv, pixi, git, curl, wget, jq, ripgrep (rg). "
+        "Use uv or pixi to install additional packages. Do not use apt or system pip directly."
     )
     parameters: dict[str, Any] = field(
         default_factory=lambda: {

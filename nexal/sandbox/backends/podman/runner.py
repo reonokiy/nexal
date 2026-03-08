@@ -3,7 +3,7 @@ import os
 import shlex
 import subprocess
 from pathlib import Path
-from deepresearch.sandbox.base import (
+from nexal.sandbox.base import (
     EphemeralSandboxConfig,
     EphemeralSandboxResult,
     SandboxExecRequest,
@@ -78,7 +78,7 @@ def _container_name(session_id: str) -> str:
     sanitized = sanitized.strip("-_.")
     if not sanitized:
         raise ValueError(f"session_id produced empty container name: {session_id!r}")
-    return f"deepresearch-sbx-{sanitized}"
+    return f"nexal-sbx-{sanitized}"
 
 
 _DEFAULT_TIMEOUT = 30
@@ -108,7 +108,7 @@ def container_running(container_name: str) -> bool:
 
 
 def run_podman_command(config: EphemeralSandboxConfig, request: SandboxExecRequest) -> EphemeralSandboxResult:
-    image_name = config.image or os.getenv("SANDBOX_IMAGE", "docker.io/library/python:3.12-slim")
+    image_name = config.image or os.getenv("SANDBOX_IMAGE", "ghcr.io/reonokiy/nexal-sandbox:python3.13-debian13")
     podman_args = [
         "podman",
         "run",
@@ -168,7 +168,7 @@ def build_create_args(
     cpus: float,
     pids_limit: int,
 ) -> list[str]:
-    image_name = image or os.getenv("SANDBOX_IMAGE", "docker.io/library/python:3.12-slim")
+    image_name = image or os.getenv("SANDBOX_IMAGE", "ghcr.io/reonokiy/nexal-sandbox:python3.13-debian13")
     args = [
         "podman",
         "create",

@@ -3,7 +3,7 @@ import json
 from datetime import datetime
 from typing import Any
 
-from deepresearch.tools.base import FunctionTool
+from nexal.tools.base import FunctionTool
 
 
 @dataclass

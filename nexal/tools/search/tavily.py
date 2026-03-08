@@ -5,7 +5,7 @@ from typing import Any, ClassVar
 
 import httpx
 
-from deepresearch.tools.base import FunctionTool
+from nexal.tools.base import FunctionTool
 
 
 @dataclass

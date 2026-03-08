@@ -1,5 +1,5 @@
 [project]
-name = "deepresearch"
+name = "nexal"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
@@ -15,7 +15,7 @@ dependencies = [
 ]
 
 [project.scripts]
-deepresearch = "deepresearch.cli:main"
+nexal = "nexal.cli:main"
 
 [build-system]
 requires = ["hatchling"]
