@@ -1,14 +1,21 @@
 import ipaddress
 import json
+import logging
+import re
 import socket
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Any, ClassVar
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 import httpx
 import html_to_markdown
+from uuid6 import uuid7
 
 from nexal.tools.base import FunctionTool
+from nexal.workspace import write_agents_file_bytes
+
+logger = logging.getLogger("nexal.fetch")
 
 
 def _check_url_scheme(url: str) -> str | None:
@@ -151,7 +158,51 @@ class WebFetchTool(FunctionTool):
         elif content_type.startswith("text/") or "json" in content_type:
             text = raw_text
         else:
-            return json.dumps({"error": f"Unsupported content type: {content_type}"})
+            return self._save_binary(params.url, content_type, raw_bytes)
         if len(text) > self.MAX_CONTENT_LENGTH:
             text = text[: self.MAX_CONTENT_LENGTH] + "\n\n[Content truncated]"
         return text
+
+    def _save_binary(self, url: str, content_type: str, data: bytes) -> str:
+        """Save binary content to history and return a message with the saved path."""
+        ext = self._guess_ext(url, content_type)
+        now = datetime.now(timezone.utc)
+        filename = f"{uuid7()}-web_fetch.{ext}"
+        rel_path = f"history/{now:%Y}/{now:%m}/{now:%d}/{filename}"
+        try:
+            saved_path = write_agents_file_bytes(rel_path, data)
+            return json.dumps({
+                "saved_to": saved_path,
+                "content_type": content_type,
+                "size_bytes": len(data),
+            })
+        except Exception:
+            logger.warning("failed to save binary fetch from %s", url, exc_info=True)
+            return json.dumps({"error": f"Binary content ({content_type}), failed to save to workspace"})
+
+    @staticmethod
+    def _guess_ext(url: str, content_type: str) -> str:
+        _MIME_TO_EXT = {
+            "application/pdf": "pdf",
+            "application/zip": "zip",
+            "application/gzip": "gz",
+            "application/x-tar": "tar",
+            "application/octet-stream": "bin",
+            "image/png": "png",
+            "image/jpeg": "jpg",
+            "image/gif": "gif",
+            "image/webp": "webp",
+            "image/svg+xml": "svg",
+            "audio/mpeg": "mp3",
+            "video/mp4": "mp4",
+        }
+        mime = content_type.split(";")[0].strip().lower()
+        if mime in _MIME_TO_EXT:
+            return _MIME_TO_EXT[mime]
+        # Try to extract from URL path
+        path = unquote(urlparse(url).path)
+        if "." in path.split("/")[-1]:
+            ext = path.rsplit(".", 1)[-1][:10]
+            if re.match(r"^[a-zA-Z0-9]+$", ext):
+                return ext
+        return "bin"

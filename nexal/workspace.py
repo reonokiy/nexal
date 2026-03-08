@@ -49,3 +49,14 @@ def write_agents_file(rel_path: str, content: str) -> str:
     host_path.parent.mkdir(parents=True, exist_ok=True)
     host_path.write_text(content, encoding="utf-8")
     return f"/workspace/{_AGENTS_DIR}/{rel_path}"
+
+
+def write_agents_file_bytes(rel_path: str, data: bytes) -> str:
+    """Write binary data under /workspace/agents/<rel_path>.
+
+    Returns the container-side path (/workspace/agents/<rel_path>).
+    """
+    host_path = _safe_resolve(rel_path)
+    host_path.parent.mkdir(parents=True, exist_ok=True)
+    host_path.write_bytes(data)
+    return f"/workspace/{_AGENTS_DIR}/{rel_path}"
