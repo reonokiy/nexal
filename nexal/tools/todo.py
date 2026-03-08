@@ -32,8 +32,8 @@ class TodoTool(FunctionTool):
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": ["read", "add", "remove", "clear"],
-                    "description": "read: list all items; add: append new item(s); remove: remove item by index (1-based); clear: remove all items.",
+                    "enum": ["read", "add", "done", "remove", "clear"],
+                    "description": "read: list all items; add: append new item(s); done: mark item as completed by index (1-based); remove: remove item by index (1-based); clear: remove all items.",
                 },
                 "content": {
                     "oneOf": [
@@ -108,6 +108,20 @@ class TodoTool(FunctionTool):
                 raw.append(f"- [ ] {text}")
             self._write_items(raw)
             return self._result({"add": len(texts), "total": len(raw)}, was_reset)
+
+        if params.action == "done":
+            raw, parsed, was_reset = self._read_items()
+            idx = params.index
+            if idx == 0:
+                return json.dumps({"error": "index is required for 'done' action (1-based)"})
+            if not raw:
+                return json.dumps({"error": "TODO list is empty"})
+            if idx < 1 or idx > len(raw):
+                return json.dumps({"error": f"Invalid index {idx}, must be 1-{len(raw)}"})
+            item = parsed[idx - 1]
+            raw[idx - 1] = f"- [x] {item['text']}"
+            self._write_items(raw)
+            return self._result({"done": item, "count": len(raw)}, was_reset)
 
         if params.action == "remove":
             raw, parsed, was_reset = self._read_items()

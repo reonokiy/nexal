@@ -35,6 +35,9 @@ def _detect_ext(content: str) -> str:
     return "md"
 
 
+_FINAL_ANSWER_TOOL = "final_answer"
+
+
 @dataclass
 class AgentLoop:
     client: OpenAI
@@ -59,7 +62,6 @@ class AgentLoop:
         openai_tools = [t.to_openai_tool() for t in self.tools]
 
         for _ in range(self.max_turns):
-            # --- Action: model decides to call tools or give final answer ---
             response = self.client.chat.completions.create(
                 model=settings.llm_model,
                 messages=messages,  # type: ignore[arg-type]
@@ -86,17 +88,22 @@ class AgentLoop:
                 ]
             messages.append(assistant_message)
 
-            # No tool calls → final answer.
             if not message.tool_calls:
-                return message.content or ""
+                # Model returned text without tool calls — treat as thought and continue.
+                logger.info("agent_no_tool_calls turn=%d, treating as thought", _ + 1)
+                continue
 
-            # --- Observation: execute tools, collect results ---
+            # --- Execute tools ---
             for tc in message.tool_calls:
                 try:
                     raw_output = self._execute_tool(tc.function.name, tc.function.arguments)
                 except Exception as e:
                     logger.exception("tool_call_error name=%s", tc.function.name)
                     raw_output = json.dumps({"error": str(e)})
+
+                if tc.function.name == _FINAL_ANSWER_TOOL:
+                    logger.info("agent_finish turns_used=%d", _ + 1)
+                    return raw_output
 
                 observation = self._save_and_build_observation(tc.function.name, raw_output)
                 messages.append({
@@ -105,19 +112,22 @@ class AgentLoop:
                     "content": observation,
                 })
 
-            # --- Thought prompt: guide the model to reflect before next action ---
-            messages.append({
-                "role": "user",
-                "content": "Based on the observations above, briefly state what you learned and what you should do next. Then take your next action or provide a final answer.",
-            })
-
-        # Ask the model to summarize what it has so far.
-        messages.append({"role": "user", "content": "You have reached the maximum number of steps. Please summarize your findings so far and provide the best answer you can."})
+        # Max turns reached — force final answer.
+        final_tool = self._tool_map.get(_FINAL_ANSWER_TOOL)
+        if not final_tool:
+            return "Max turns reached."
+        final_openai_tool = final_tool.to_openai_tool()
+        messages.append({"role": "user", "content": "You have reached the maximum number of steps. Please use final_answer now to summarize your findings."})
         response = self.client.chat.completions.create(
             model=settings.llm_model,
             messages=messages,  # type: ignore[arg-type]
+            tools=[final_openai_tool],  # type: ignore[list-item]
+            tool_choice={"type": "function", "function": {"name": _FINAL_ANSWER_TOOL}},
         )
-        return response.choices[0].message.content or ""
+        message = response.choices[0].message
+        if message.tool_calls:
+            return self._execute_tool(_FINAL_ANSWER_TOOL, message.tool_calls[0].function.arguments)
+        return message.content or ""
 
     def _save_and_build_observation(self, tool_name: str, raw_output: str) -> str:
         """Save raw tool output to history file and return a truncated observation."""
