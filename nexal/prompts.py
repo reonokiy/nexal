@@ -29,3 +29,22 @@ Repeat this loop until you have enough information, then call **final_answer** t
 - Cite source titles and URLs you relied on.
 - If results are weak or incomplete after thorough investigation, say so clearly.
 - Produce a comprehensive final answer with evidence and sources."""
+
+
+CONTEXT_COMPRESSION_PROMPT = """You are a research assistant compressing a conversation to fit within context limits.
+
+## Original Task
+{original_query}
+
+## Conversation History
+{conversation}
+
+## Instructions
+Summarize the conversation above into a concise research briefing. You MUST preserve:
+1. All key findings, facts, and data points discovered so far
+2. URLs and sources already visited
+3. What has been tried and what worked/failed
+4. Current progress — what's done and what remains
+5. Any TODO items still pending
+
+Be concise but do NOT lose important information. Output only the summary."""

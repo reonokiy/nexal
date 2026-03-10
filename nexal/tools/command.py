@@ -1,12 +1,16 @@
 from dataclasses import dataclass, field
 import json
 import logging
+from pathlib import Path
 from typing import Any, ClassVar
 
 from nexal.sandbox import Sandbox, SandboxConfig, SandboxExecRequest
-from nexal.sandbox.base import SandboxSession
+from nexal.sandbox.base import SandboxMount, SandboxSession
 from nexal.settings import settings
 from nexal.tools.base import FunctionTool
+
+_SKILLS_DIR = Path(__file__).resolve().parent.parent / "skills"
+_CONTAINER_SKILLS_DIR = "/workspace/agents/skills"
 
 
 logger = logging.getLogger("nexal.agent")
@@ -85,11 +89,26 @@ class ExecTool(FunctionTool):
 
     def _start_sandbox(self) -> SandboxSession:
         network = "pasta" if settings.sandbox_network_enabled else "none"
+        shared_dirs: list[SandboxMount] = []
+        if _SKILLS_DIR.is_dir():
+            shared_dirs.append(SandboxMount(
+                host_path=str(_SKILLS_DIR),
+                container_path=_CONTAINER_SKILLS_DIR,
+                read_only=True,
+            ))
+        # Forward channel tokens into sandbox so skill scripts can use them.
+        env: dict[str, str] = {}
+        if settings.telegram_bot_token:
+            env["TELEGRAM_BOT_TOKEN"] = settings.telegram_bot_token
+        if settings.discord_bot_token:
+            env["DISCORD_BOT_TOKEN"] = settings.discord_bot_token
         return Sandbox(
             config=SandboxConfig(
                 session_id=settings.sandbox_session_id,
                 workspace_dir=settings.sandbox_workspace_dir or None,
                 workspace_read_only=settings.sandbox_workspace_read_only,
+                shared_dirs=shared_dirs,
+                env=env,
                 network=network,
             )
         ).start()

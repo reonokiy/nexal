@@ -17,6 +17,19 @@ class AgentSettings:
     sandbox_workspace_read_only: bool = False
     sandbox_workspace_dir: str = ""
     sandbox_network_enabled: bool = False
+    llm_max_context_tokens: int = 128_000
+    llm_temperature: float = 0.6
+    llm_top_p: float = 0.95
+    telegram_bot_token: str = ""
+    telegram_allow_from: list[str] | None = None
+    telegram_allow_chats: list[str] | None = None
+    discord_bot_token: str = ""
+    discord_allow_from: list[str] | None = None
+    discord_allow_channels: list[str] | None = None
+    bot_name: str = "nexal"
+    message_debounce_seconds: int = 1
+    message_delay_seconds: int = 10
+    active_time_window_seconds: int = 60
 
 
 settings = AgentSettings()
@@ -40,7 +53,27 @@ def load_settings() -> None:
     settings.sandbox_session_id = sandbox_session_id
     settings.sandbox_workspace_read_only = workspace_read_only_env in {"1", "true", "yes", "on"}
     settings.sandbox_network_enabled = sandbox_network_env in {"1", "true", "yes", "on"}
+    settings.llm_max_context_tokens = int(os.getenv("LLM_MAX_CONTEXT_TOKENS", "128000"))
+    settings.llm_temperature = float(os.getenv("LLM_TEMPERATURE", "0.6"))
+    settings.llm_top_p = float(os.getenv("LLM_TOP_P", "0.95"))
+    settings.telegram_bot_token = os.getenv("TELEGRAM_BOT_TOKEN", "")
+    settings.telegram_allow_from = _parse_list_env("TELEGRAM_ALLOW_FROM")
+    settings.telegram_allow_chats = _parse_list_env("TELEGRAM_ALLOW_CHATS")
+    settings.discord_bot_token = os.getenv("DISCORD_BOT_TOKEN", "")
+    settings.discord_allow_from = _parse_list_env("DISCORD_ALLOW_FROM")
+    settings.discord_allow_channels = _parse_list_env("DISCORD_ALLOW_CHANNELS")
+    settings.bot_name = os.getenv("BOT_NAME", "nexal")
+    settings.message_debounce_seconds = int(os.getenv("MESSAGE_DEBOUNCE_SECONDS", "1"))
+    settings.message_delay_seconds = int(os.getenv("MESSAGE_DELAY_SECONDS", "10"))
+    settings.active_time_window_seconds = int(os.getenv("ACTIVE_TIME_WINDOW_SECONDS", "60"))
     _settings_loaded = True
+
+
+def _parse_list_env(key: str) -> list[str] | None:
+    val = os.getenv(key, "").strip()
+    if not val:
+        return None
+    return [item.strip() for item in val.split(",") if item.strip()]
 
 
 def ensure_sandbox_session() -> None:

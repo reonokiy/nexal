@@ -1,12 +1,23 @@
+"""Run the nexal agent on the DeepResearch Bench benchmark.
+
+Usage:
+    uv run python benchmarks/run_deepresearch_bench.py --model-name gpt-4o --max-turns 16
+    uv run python benchmarks/run_deepresearch_bench.py --model-name gpt-4o --limit 5  # quick test
+    uv run python benchmarks/run_deepresearch_bench.py --model-name gpt-4o --parallel 4 --sandbox-network
+"""
+
 import argparse
 import json
+import logging
 import time
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 from nexal.agent import run_agent
-from nexal.settings import load_settings
+from nexal.settings import load_settings, settings
 
+logger = logging.getLogger("deepresearch_bench")
 
 DEFAULT_BENCH_ROOT = ROOT / "benchmarks" / "deep_research_bench"
 
@@ -35,6 +46,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--force", action="store_true", help="Overwrite existing output file.")
     parser.add_argument("--max-turns", type=int, default=8, help="Maximum agent turns per query.")
     parser.add_argument("--sleep-seconds", type=float, default=0.0, help="Optional pause between queries.")
+    parser.add_argument("--sandbox-network", action="store_true", help="Enable sandbox network access.")
+    parser.add_argument("--parallel", type=int, default=1, help="Number of parallel workers (default: 1).")
     return parser.parse_args()
 
 
@@ -77,8 +90,36 @@ def filter_queries(rows: list[dict], only_zh: bool, only_en: bool, limit: int) -
     return filtered
 
 
+def _run_one(row: dict, max_turns: int, sandbox_network: bool) -> dict:
+    """Worker function for parallel execution. Runs in a subprocess."""
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+    load_settings()
+    settings.sandbox_network_enabled = sandbox_network
+    # Reset session so each worker gets its own sandbox
+    settings.sandbox_session_id = ""
+    settings.sandbox_workspace_dir = ""
+
+    item_id = row["id"]
+    prompt = row["prompt"]
+    logger.info("run id=%d", item_id)
+
+    try:
+        article = run_agent(prompt, max_turns=max_turns)
+    except Exception as e:
+        logger.error("agent_error id=%d: %s", item_id, e)
+        article = f"[ERROR] {e}"
+
+    return {
+        "id": item_id,
+        "prompt": prompt,
+        "article": article,
+    }
+
+
 def main() -> None:
     args = parse_args()
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+
     bench_root = Path(args.bench_root).resolve()
     query_path = bench_root / args.query_file
     output_path = (bench_root / args.output_dir / f"{args.model_name}.jsonl").resolve()
@@ -87,30 +128,72 @@ def main() -> None:
     existing = {} if args.force else load_existing_results(output_path)
 
     load_settings()
+    settings.sandbox_network_enabled = args.sandbox_network
 
     results_by_id: dict[int, dict] = dict(existing)
+    pending = [row for row in queries if row["id"] not in results_by_id]
     total = len(queries)
 
-    for index, row in enumerate(queries, start=1):
-        item_id = row["id"]
-        prompt = row["prompt"]
+    print(f"DeepResearch Bench: {total} queries, {len(pending)} pending, max_turns={args.max_turns}, parallel={args.parallel}")
+    if existing:
+        print(f"  Resuming: {len(existing)} existing results")
 
-        if item_id in results_by_id:
-            print(f"[{index}/{total}] skip id={item_id}")
-            continue
+    if args.parallel > 1:
+        # --- Parallel execution ---
+        try:
+            with ProcessPoolExecutor(max_workers=args.parallel) as executor:
+                futures = {
+                    executor.submit(_run_one, row, args.max_turns, args.sandbox_network): row
+                    for row in pending
+                }
+                for fut in as_completed(futures):
+                    row = futures[fut]
+                    item_id = row["id"]
+                    try:
+                        result = fut.result()
+                    except Exception as e:
+                        logger.error("worker_error id=%d: %s", item_id, e)
+                        result = {
+                            "id": item_id,
+                            "prompt": row["prompt"],
+                            "article": f"[ERROR] {e}",
+                        }
 
-        print(f"[{index}/{total}] run id={item_id}")
-        article = run_agent(prompt, max_turns=args.max_turns)
-        results_by_id[item_id] = {
-            "id": item_id,
-            "prompt": prompt,
-            "article": article,
-        }
-        ordered = [results_by_id[q["id"]] for q in queries if q["id"] in results_by_id]
-        write_jsonl(output_path, ordered)
+                    results_by_id[item_id] = result
+                    logger.info("done id=%d article_len=%d", item_id, len(result["article"]))
 
-        if args.sleep_seconds > 0:
-            time.sleep(args.sleep_seconds)
+                    # Write after each completion for crash recovery
+                    ordered = [results_by_id[q["id"]] for q in queries if q["id"] in results_by_id]
+                    write_jsonl(output_path, ordered)
+        except KeyboardInterrupt:
+            logger.info("interrupted, saving progress")
+    else:
+        # --- Sequential execution ---
+        for index, row in enumerate(pending, start=1):
+            item_id = row["id"]
+            prompt = row["prompt"]
+
+            logger.info("[%d/%d] run id=%d", index, len(pending), item_id)
+
+            try:
+                article = run_agent(prompt, max_turns=args.max_turns)
+            except KeyboardInterrupt:
+                logger.info("interrupted at id=%d, saving progress", item_id)
+                break
+            except Exception as e:
+                logger.error("agent_error id=%d: %s", item_id, e)
+                article = f"[ERROR] {e}"
+
+            results_by_id[item_id] = {
+                "id": item_id,
+                "prompt": prompt,
+                "article": article,
+            }
+            ordered = [results_by_id[q["id"]] for q in queries if q["id"] in results_by_id]
+            write_jsonl(output_path, ordered)
+
+            if args.sleep_seconds > 0 and index < len(pending):
+                time.sleep(args.sleep_seconds)
 
     ordered = [results_by_id[q["id"]] for q in queries if q["id"] in results_by_id]
     write_jsonl(output_path, ordered)
