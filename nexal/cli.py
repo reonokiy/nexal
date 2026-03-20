@@ -42,6 +42,9 @@ def main() -> None:
     else:
         logging.root.setLevel(logging.INFO)
 
+    # Force LiteLLM to use our logging format instead of its own handlers.
+    _tame_litellm_logging()
+
     load_settings()
     if args.session:
         settings.sandbox_session_id = args.session
@@ -64,6 +67,24 @@ def main() -> None:
         asyncio.run(bot.start())
     except KeyboardInterrupt:
         logging.getLogger("nexal").info("shutting down")
+
+
+class _StripNewlineFilter(logging.Filter):
+    """Strip leading/trailing whitespace from log messages."""
+    def filter(self, record: logging.LogRecord) -> bool:
+        if isinstance(record.msg, str):
+            record.msg = record.msg.strip()
+        return True
+
+
+def _tame_litellm_logging() -> None:
+    """Strip LiteLLM's custom handlers so its logs use our root format."""
+    import litellm as _  # noqa: F401 — ensure the module registers its loggers first
+    for name in ("LiteLLM", "litellm"):
+        lg = logging.getLogger(name)
+        lg.handlers.clear()
+        lg.propagate = True
+        lg.addFilter(_StripNewlineFilter())
 
 
 def _add_daemon_channels(bot) -> None:  # noqa: ANN001
