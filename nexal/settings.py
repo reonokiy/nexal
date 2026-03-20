@@ -74,6 +74,16 @@ def _parse_list_env(key: str) -> list[str] | None:
     return [item.strip() for item in val.split(",") if item.strip()]
 
 
+def llm_kwargs() -> dict:
+    """Common kwargs for litellm.completion calls."""
+    kwargs: dict = {"model": settings.llm_model, "timeout": 300.0}
+    if settings.llm_api_key:
+        kwargs["api_key"] = settings.llm_api_key
+    if settings.llm_api_base:
+        kwargs["api_base"] = settings.llm_api_base
+    return kwargs
+
+
 def ensure_sandbox_session() -> None:
     if not _settings_loaded:
         raise RuntimeError("load_settings() must be called before using the agent")

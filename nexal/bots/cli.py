@@ -54,9 +54,10 @@ def main() -> None:
         logging.getLogger("nexal.bots").info("discord channel enabled")
 
     if not bot.channels:
-        raise RuntimeError(
-            "No channels configured. Set TELEGRAM_BOT_TOKEN and/or DISCORD_BOT_TOKEN."
-        )
+        # No external channels — enable interactive CLI channel as fallback.
+        from nexal.channels.cli import CLIChannel
+        bot.add_channel(CLIChannel())
+        logging.getLogger("nexal.bots").info("cli channel enabled (no external channels configured)")
 
     try:
         asyncio.run(bot.start())

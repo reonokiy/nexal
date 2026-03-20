@@ -32,6 +32,15 @@ class Channel(ABC):
     @abstractmethod
     def name(self) -> str: ...
 
+    @property
+    def direct_response(self) -> bool:
+        """If True, the agent's final text output is sent via ``send()`` automatically.
+
+        Channels that use external skill scripts (Telegram, Discord) return False.
+        Channels where the agent's text IS the reply (CLI) return True.
+        """
+        return False
+
     @abstractmethod
     async def start(self, on_message: OnMessage) -> None:
         """Start listening for messages. Calls on_message for each incoming message.

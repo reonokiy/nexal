@@ -8,16 +8,16 @@ import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
+from collections.abc import Callable
 from typing import Any, TYPE_CHECKING
 
 import litellm
 from uuid6 import uuid7
 
-from nexal.settings import settings
+from nexal.settings import settings, llm_kwargs
 from nexal.tools.base import FunctionTool
 from nexal.tools.command import ExecTool
 from nexal.tools.fetch import WebFetchTool
-from nexal.tools.final_answer import FinalAnswerTool
 from nexal.tools.search.tavily import WebSearchTool
 from nexal.tools.time import TimeTool
 from nexal.tools.todo import TodoTool
@@ -29,7 +29,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger("nexal.bots.agent")
 
 _OBSERVATION_PREVIEW_LIMIT = 1000
-_FINAL_ANSWER_TOOL = "final_answer"
 
 _SKILLS_DIR = Path(__file__).resolve().parent.parent / "skills"
 
@@ -51,17 +50,15 @@ You are connected to these channels: {channels}
 - **web_fetch**(url): Fetch a web page and return its content as Markdown.
 - **time**(): Get current date and time.
 - **todo**(action, ...): Manage your task list.
-- **final_answer**(answer): Call when you're done processing this message. Pass empty string if no action needed.
 
 ## Response Instructions
-- You MUST send a message to the corresponding channel via its skill script before calling final_answer when you want to respond.
+- Send your response to the corresponding channel via its skill (use `exec` to run the commands described in Channel Skills above).
 - Route your response to the same channel the message came from (inferred from channel info in the message).
-- There is a skill for each channel — use `exec` to run the skill scripts.
-- Not every message requires a response; it is OK to finish without replying.
+- Not every message requires a response; it is OK to stop without replying.
 - You SHOULD respond to messages that directly mention or reply to you.
 - Use research tools (web_search, web_fetch, exec) before replying if needed.
 - For tasks that take multiple steps (research, debugging, etc.), send brief progress updates along the way — like texting a friend while you're looking something up. Don't wait until you have the full answer. A quick "hmm let me dig into this" or "ok found something interesting" keeps the conversation alive.
-- Call **final_answer** when you're finished processing.
+- When you are done processing, simply stop calling tools.
 - Reply in the same language the user is using.
 - CRITICAL: Stay in character at ALL times. Your persona above defines who you are — your tone, word choice, and personality. Never fall back to generic assistant language."""
 
@@ -102,24 +99,15 @@ def _build_tools() -> list[FunctionTool]:
         TimeTool(),
         ExecTool(),
         TodoTool(),
-        FinalAnswerTool(),
     ]
 
-
-def _llm_kwargs() -> dict[str, Any]:
-    """Common kwargs for litellm.completion calls."""
-    kwargs: dict[str, Any] = {"model": settings.llm_model, "timeout": 300.0}
-    if settings.llm_api_key:
-        kwargs["api_key"] = settings.llm_api_key
-    if settings.llm_api_base:
-        kwargs["api_base"] = settings.llm_api_base
-    return kwargs
 
 
 @dataclass
 class BotAgentLoop:
     tools: list[FunctionTool]
     max_turns: int = 8
+    on_exec_output: Callable[[str], None] | None = None
 
     def __post_init__(self) -> None:
         self._tool_map: dict[str, FunctionTool] = {t.name: t for t in self.tools}
@@ -130,7 +118,7 @@ class BotAgentLoop:
         persona: str,
         memory_context: str,
         channel_names: list[str],
-    ) -> None:
+    ) -> str:
         skills_doc = _load_skill_docs(channel_names)
         system_prompt = BOT_SYSTEM_TEMPLATE.format(
             persona=persona,
@@ -152,21 +140,21 @@ class BotAgentLoop:
         openai_tools = [t.to_openai_tool() for t in self.tools]
 
         try:
-            self._loop(messages, openai_tools)
+            return self._loop(messages, openai_tools)
         except KeyboardInterrupt:
             logger.info("bot_agent_interrupted")
             raise
 
     def _call_llm(self, messages: list[dict[str, Any]], **kwargs: Any) -> Any:
         return litellm.completion(
-            **_llm_kwargs(),
+            **llm_kwargs(),
             temperature=settings.llm_temperature,
             top_p=settings.llm_top_p,
             messages=messages,
             **kwargs,
         )
 
-    def _loop(self, messages: list[dict[str, Any]], openai_tools: list[dict[str, Any]]) -> None:
+    def _loop(self, messages: list[dict[str, Any]], openai_tools: list[dict[str, Any]]) -> str:
         for turn in range(self.max_turns):
             response = self._call_llm(messages, tools=openai_tools, tool_choice="auto")
             msg = response.choices[0].message
@@ -194,8 +182,8 @@ class BotAgentLoop:
             messages.append(assistant_message)
 
             if not msg.tool_calls:
-                logger.info("bot_agent_thinking turn=%d", turn + 1)
-                continue
+                logger.info("bot_agent_done turns_used=%d", turn + 1)
+                return msg.content or ""
 
             for tc in msg.tool_calls:
                 tool_name = tc.function.name.strip()
@@ -205,9 +193,15 @@ class BotAgentLoop:
                     logger.exception("tool_call_error name=%s", tool_name)
                     raw_output = json.dumps({"error": str(e)})
 
-                if tool_name == _FINAL_ANSWER_TOOL:
-                    logger.info("bot_agent_done turns_used=%d", turn + 1)
-                    return
+                # Route exec stdout to the channel so the user sees it live.
+                if tool_name == "exec" and self.on_exec_output:
+                    try:
+                        parsed = json.loads(raw_output)
+                        stdout = parsed.get("stdout", "").strip()
+                    except (json.JSONDecodeError, AttributeError):
+                        stdout = raw_output.strip()
+                    if stdout:
+                        self.on_exec_output(stdout)
 
                 observation = self._save_and_build_observation(tool_name, raw_output)
                 messages.append({
@@ -217,6 +211,7 @@ class BotAgentLoop:
                 })
 
         logger.info("bot_agent_max_turns_reached")
+        return ""
 
     def _save_and_build_observation(self, tool_name: str, raw_output: str) -> str:
         if len(raw_output) <= _OBSERVATION_PREVIEW_LIMIT:
@@ -273,13 +268,114 @@ def run_bot_agent(
     memory_context: str,
     channel_names: list[str],
     max_turns: int = 8,
-) -> None:
-    """Run the bot agent for a single incoming message."""
+    on_exec_output: Callable[[str], None] | None = None,
+) -> str:
+    """Run the bot agent for a single incoming message. Returns last assistant text."""
     tools = _build_tools()
-    with BotAgentLoop(tools=tools, max_turns=max_turns) as agent:
-        agent.run(
+    with BotAgentLoop(tools=tools, max_turns=max_turns, on_exec_output=on_exec_output) as agent:
+        return agent.run(
             msg=msg,
             persona=persona,
             memory_context=memory_context,
             channel_names=channel_names,
         )
+
+
+# ---------------------------------------------------------------------------
+# Refiner agent — delivers raw text as natural multi-message conversation
+# ---------------------------------------------------------------------------
+
+_REFINER_PROMPT = """{persona}
+
+---
+
+You are now in **delivery mode**. You receive a block of text that the main agent wants to say, and your job is to deliver it to the user as natural chat messages.
+
+## Rules
+
+- Split the content into short messages — each one a single thought, like texting a friend.
+- Use `exec` with `echo` to send each message. Each exec call = one message the user sees.
+- To pause between messages, use `sleep N && echo "..."` in a single exec call.
+- Preserve the original meaning. Don't add new content or remove important points.
+- Match the language and tone of the input.
+- Stay in character (see persona above).
+- Don't explain what you're doing. Just send.
+
+## Example
+
+Input: "嗨！我查了一下，今天北京天气不错，25度，适合出门。不过下午可能有雨，建议带伞。"
+
+You would call:
+  exec: echo "嗨！"
+  exec: sleep 1 && echo "查了一下，今天北京25度，挺不错的"
+  exec: sleep 1 && echo "不过下午可能有雨，出门带把伞吧"
+"""
+
+
+def run_refiner(
+    text: str,
+    persona: str,
+    on_exec_output: Callable[[str], None],
+    max_turns: int = 6,
+) -> None:
+    """Deliver *text* as multiple natural chat messages via exec."""
+    exec_tool = ExecTool()
+    tools = [exec_tool]
+    openai_tools = [t.to_openai_tool() for t in tools]
+    tool_map: dict[str, FunctionTool] = {t.name: t for t in tools}
+
+    messages: list[dict[str, Any]] = [
+        {"role": "system", "content": _REFINER_PROMPT.format(persona=persona)},
+        {"role": "user", "content": text},
+    ]
+
+    try:
+        for _ in range(max_turns):
+            resp = litellm.completion(
+                **llm_kwargs(),
+                temperature=settings.llm_temperature,
+                messages=messages,
+                tools=openai_tools,
+                tool_choice="auto",
+            )
+            msg = resp.choices[0].message
+
+            assistant_msg: dict[str, Any] = {
+                "role": "assistant",
+                "content": msg.content or "",
+            }
+            if msg.tool_calls:
+                assistant_msg["tool_calls"] = [
+                    {"id": tc.id, "type": tc.type,
+                     "function": {"name": tc.function.name, "arguments": tc.function.arguments}}
+                    for tc in msg.tool_calls
+                ]
+            messages.append(assistant_msg)
+
+            if not msg.tool_calls:
+                break
+
+            for tc in msg.tool_calls:
+                name = tc.function.name.strip()
+                tool = tool_map.get(name)
+                if not tool:
+                    messages.append({"role": "tool", "tool_call_id": tc.id,
+                                     "content": json.dumps({"error": f"Unknown tool: {name}"})})
+                    continue
+                try:
+                    raw = tool.run(tc.function.arguments)
+                except Exception as e:
+                    raw = json.dumps({"error": str(e)})
+
+                # Route exec stdout to channel.
+                try:
+                    parsed = json.loads(raw)
+                    stdout = parsed.get("stdout", "").strip()
+                except (json.JSONDecodeError, AttributeError):
+                    stdout = raw.strip()
+                if stdout:
+                    on_exec_output(stdout)
+
+                messages.append({"role": "tool", "tool_call_id": tc.id, "content": raw})
+    finally:
+        exec_tool.close()

@@ -25,7 +25,7 @@ You don't perform helpfulness — you just naturally like figuring things out. W
 ## How you talk
 
 - Short, casual messages. You don't monologue.
-- You split long thoughts across multiple messages like a normal person texting.
+- You split long thoughts across multiple messages like a normal person texting. If you have a lot to say, send several short messages instead of one wall of text. Each message should feel like a single thought or beat — the way people actually text.
 - You use lowercase most of the time. Capitals when you're emphasizing something or genuinely surprised.
 - You say "hmm", "oh wait", "actually" — you think out loud.
 - You laugh with "haha" or "lol", not "Ha ha!" or "That's funny!"
@@ -132,14 +132,55 @@ class Bot:
                 try:
                     from nexal.bots.agent import run_bot_agent
 
-                    await asyncio.to_thread(
+                    # For direct-response channels, route exec stdout
+                    # to the channel so the user sees programmatic output.
+                    channel = self.channels.get(msg.channel)
+                    exec_hook = None
+                    exec_sent = False
+                    is_direct = channel is not None and channel.direct_response
+                    if is_direct:
+                        loop = asyncio.get_running_loop()
+
+                        def _send_sync(text: str) -> None:
+                            nonlocal exec_sent
+                            exec_sent = True
+                            future = asyncio.run_coroutine_threadsafe(
+                                channel.send(msg.chat_id, text), loop,
+                            )
+                            future.result(timeout=30)
+
+                        exec_hook = _send_sync
+
+                    response = await asyncio.to_thread(
                         run_bot_agent,
                         msg=msg,
                         persona=persona,
                         memory_context=memory_context,
                         channel_names=list(self.channels.keys()),
                         max_turns=self.max_turns,
+                        on_exec_output=exec_hook,
                     )
+
+                    # Deliver the agent's text through the refiner agent,
+                    # which splits it into natural multi-message output.
+                    if is_direct and not exec_sent and response and response.strip():
+                        from nexal.bots.agent import run_refiner
+
+                        persona = read_agents_file("SOUL.md") or _DEFAULT_SOUL
+                        await asyncio.to_thread(
+                            run_refiner,
+                            text=response,
+                            persona=persona,
+                            on_exec_output=exec_hook,
+                        )
+                    if is_direct and response and response.strip():
+                        save_chat_entry(
+                            channel=msg.channel,
+                            chat_id=msg.chat_id,
+                            sender="assistant",
+                            text=response,
+                            role="assistant",
+                        )
                 except Exception:
                     logger.exception("bot_agent_error channel=%s chat_id=%s", msg.channel, msg.chat_id)
 

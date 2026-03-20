@@ -9,7 +9,7 @@ import litellm
 from uuid6 import uuid7
 
 from nexal.prompts import SYSTEM_PROMPT, CONTEXT_COMPRESSION_PROMPT
-from nexal.settings import settings, ensure_sandbox_session
+from nexal.settings import settings, ensure_sandbox_session, llm_kwargs
 from nexal.tools.base import FunctionTool
 from nexal.tools.registry import get_default_tools
 from nexal.workspace import write_agents_file
@@ -20,15 +20,6 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 
 _OBSERVATION_PREVIEW_LIMIT = 1000
 
-
-def _llm_kwargs() -> dict[str, Any]:
-    """Common kwargs for litellm.completion calls."""
-    kwargs: dict[str, Any] = {"model": settings.llm_model, "timeout": 300.0}
-    if settings.llm_api_key:
-        kwargs["api_key"] = settings.llm_api_key
-    if settings.llm_api_base:
-        kwargs["api_base"] = settings.llm_api_base
-    return kwargs
 
 
 def _detect_ext(content: str) -> str:
@@ -90,7 +81,7 @@ class AgentLoop:
 
         try:
             return litellm.completion(
-                **_llm_kwargs(),
+                **llm_kwargs(),
                 temperature=settings.llm_temperature,
                 top_p=settings.llm_top_p,
                 messages=messages,
@@ -102,7 +93,7 @@ class AgentLoop:
                 logger.warning("context_length_exceeded, compressing conversation")
                 self._compress_context(messages)
                 return litellm.completion(
-                    **_llm_kwargs(),
+                    **llm_kwargs(),
                     temperature=settings.llm_temperature,
                     top_p=settings.llm_top_p,
                     messages=messages,
@@ -144,7 +135,7 @@ class AgentLoop:
 
         try:
             resp = litellm.completion(
-                **_llm_kwargs(),
+                **llm_kwargs(),
                 messages=[{"role": "user", "content": summary_request}],
             )
             summary = resp.choices[0].message.content or ""
