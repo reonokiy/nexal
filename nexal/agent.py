@@ -5,8 +5,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
+import litellm
 from uuid6 import uuid7
-from openai import OpenAI
 
 from nexal.prompts import SYSTEM_PROMPT, CONTEXT_COMPRESSION_PROMPT
 from nexal.settings import settings, ensure_sandbox_session
@@ -21,12 +21,14 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 _OBSERVATION_PREVIEW_LIMIT = 1000
 
 
-def init_client() -> OpenAI:
-    return OpenAI(
-        base_url=settings.llm_api_endpoint,
-        api_key=settings.llm_api_key,
-        timeout=300.0,
-    )
+def _llm_kwargs() -> dict[str, Any]:
+    """Common kwargs for litellm.completion calls."""
+    kwargs: dict[str, Any] = {"model": settings.llm_model, "timeout": 300.0}
+    if settings.llm_api_key:
+        kwargs["api_key"] = settings.llm_api_key
+    if settings.llm_api_base:
+        kwargs["api_base"] = settings.llm_api_base
+    return kwargs
 
 
 def _detect_ext(content: str) -> str:
@@ -41,7 +43,6 @@ _FINAL_ANSWER_TOOL = "final_answer"
 
 @dataclass
 class AgentLoop:
-    client: OpenAI
     tools: list[FunctionTool] = field(default_factory=get_default_tools)
     max_turns: int = 8
 
@@ -88,11 +89,11 @@ class AgentLoop:
             self._compress_context(messages)
 
         try:
-            return self.client.chat.completions.create(
-                model=settings.llm_model,
+            return litellm.completion(
+                **_llm_kwargs(),
                 temperature=settings.llm_temperature,
                 top_p=settings.llm_top_p,
-                messages=messages,  # type: ignore[arg-type]
+                messages=messages,
                 **kwargs,
             )
         except Exception as e:
@@ -100,11 +101,11 @@ class AgentLoop:
             if "context_length" in error_str or "too many tokens" in error_str or "maximum context" in error_str:
                 logger.warning("context_length_exceeded, compressing conversation")
                 self._compress_context(messages)
-                return self.client.chat.completions.create(
-                    model=settings.llm_model,
+                return litellm.completion(
+                    **_llm_kwargs(),
                     temperature=settings.llm_temperature,
                     top_p=settings.llm_top_p,
-                    messages=messages,  # type: ignore[arg-type]
+                    messages=messages,
                     **kwargs,
                 )
             raise
@@ -142,8 +143,8 @@ class AgentLoop:
         )
 
         try:
-            resp = self.client.chat.completions.create(
-                model=settings.llm_model,
+            resp = litellm.completion(
+                **_llm_kwargs(),
                 messages=[{"role": "user", "content": summary_request}],
             )
             summary = resp.choices[0].message.content or ""
@@ -174,6 +175,8 @@ class AgentLoop:
                 tool_choice="auto",
             )
             message = response.choices[0].message
+            logger.debug("llm_response content=%s tool_calls=%s",
+                         self._truncate(message.content or ""), message.tool_calls)
 
             assistant_message: dict[str, Any] = {
                 "role": "assistant",
@@ -313,5 +316,5 @@ class AgentLoop:
 def run_agent(query: str, max_turns: int = 8) -> str:
     if not logging.root.handlers:
         logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
-    with AgentLoop(client=init_client(), max_turns=max_turns) as loop:
+    with AgentLoop(max_turns=max_turns) as loop:
         return loop.run(query)

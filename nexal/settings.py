@@ -10,7 +10,7 @@ logger = logging.getLogger("nexal.agent")
 
 @dataclass
 class AgentSettings:
-    llm_api_endpoint: str = ""
+    llm_api_base: str = ""
     llm_api_key: str = ""
     llm_model: str = ""
     sandbox_session_id: str = ""
@@ -38,16 +38,14 @@ _settings_loaded = False
 
 def load_settings() -> None:
     global _settings_loaded
-    endpoint = os.getenv("LLM_ENDPOINT", "https://openrouter.ai/api/v1")
+    api_base = os.getenv("LLM_API_BASE", "")
     model = os.getenv("LLM_MODEL", "openai/gpt-4o")
-    api_key = os.getenv("LLM_API_KEY")
+    api_key = os.getenv("LLM_API_KEY", "")
     sandbox_session_id = os.getenv("SANDBOX_SESSION_ID", "").strip()
     workspace_read_only_env = os.getenv("SANDBOX_WORKSPACE_READ_ONLY", "").strip().lower()
     sandbox_network_env = os.getenv("SANDBOX_NETWORK_ENABLED", "").strip().lower()
-    if not api_key:
-        raise RuntimeError("LLM_API_KEY environment variable is required")
 
-    settings.llm_api_endpoint = endpoint
+    settings.llm_api_base = api_base
     settings.llm_api_key = api_key
     settings.llm_model = model
     settings.sandbox_session_id = sandbox_session_id

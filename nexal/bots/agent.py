@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, TYPE_CHECKING
 
-from openai import OpenAI
+import litellm
 from uuid6 import uuid7
 
 from nexal.settings import settings
@@ -106,9 +106,18 @@ def _build_tools() -> list[FunctionTool]:
     ]
 
 
+def _llm_kwargs() -> dict[str, Any]:
+    """Common kwargs for litellm.completion calls."""
+    kwargs: dict[str, Any] = {"model": settings.llm_model, "timeout": 300.0}
+    if settings.llm_api_key:
+        kwargs["api_key"] = settings.llm_api_key
+    if settings.llm_api_base:
+        kwargs["api_base"] = settings.llm_api_base
+    return kwargs
+
+
 @dataclass
 class BotAgentLoop:
-    client: OpenAI
     tools: list[FunctionTool]
     max_turns: int = 8
 
@@ -149,11 +158,11 @@ class BotAgentLoop:
             raise
 
     def _call_llm(self, messages: list[dict[str, Any]], **kwargs: Any) -> Any:
-        return self.client.chat.completions.create(
-            model=settings.llm_model,
+        return litellm.completion(
+            **_llm_kwargs(),
             temperature=settings.llm_temperature,
             top_p=settings.llm_top_p,
-            messages=messages,  # type: ignore[arg-type]
+            messages=messages,
             **kwargs,
         )
 
@@ -266,13 +275,8 @@ def run_bot_agent(
     max_turns: int = 8,
 ) -> None:
     """Run the bot agent for a single incoming message."""
-    client = OpenAI(
-        base_url=settings.llm_api_endpoint,
-        api_key=settings.llm_api_key,
-        timeout=300.0,
-    )
     tools = _build_tools()
-    with BotAgentLoop(client=client, tools=tools, max_turns=max_turns) as agent:
+    with BotAgentLoop(tools=tools, max_turns=max_turns) as agent:
         agent.run(
             msg=msg,
             persona=persona,

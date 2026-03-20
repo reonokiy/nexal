@@ -16,10 +16,11 @@ import random
 import re
 import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
+from typing import Any
 from pathlib import Path
 
 import pandas
-from openai import OpenAI
+import litellm
 
 from nexal.agent import run_agent
 from nexal.settings import load_settings, settings
@@ -122,7 +123,16 @@ def write_jsonl(path: Path, rows: list[dict]) -> None:
             f.write(json.dumps(row, ensure_ascii=False) + "\n")
 
 
-def judge_answer(client: OpenAI, model: str, question: str, reference: str, agent_answer: str) -> str:
+def _judge_llm_kwargs() -> dict[str, Any]:
+    kwargs: dict[str, Any] = {"timeout": 300.0}
+    if settings.llm_api_key:
+        kwargs["api_key"] = settings.llm_api_key
+    if settings.llm_api_base:
+        kwargs["api_base"] = settings.llm_api_base
+    return kwargs
+
+
+def judge_answer(model: str, question: str, reference: str, agent_answer: str) -> str:
     """Grade using the official BrowseComp grader template. Returns 'CORRECT' or 'INCORRECT'."""
     prompt = GRADER_TEMPLATE.format(
         question=question,
@@ -130,10 +140,11 @@ def judge_answer(client: OpenAI, model: str, question: str, reference: str, agen
         response=agent_answer[:8000],
     )
     try:
-        response = client.chat.completions.create(
+        response = litellm.completion(
             model=model,
             messages=[{"role": "user", "content": prompt}],
             max_tokens=512,
+            **_judge_llm_kwargs(),
         )
         grading = response.choices[0].message.content or ""
         match = re.search(r"correct:\s*(yes|no)", grading, re.IGNORECASE)
@@ -144,12 +155,12 @@ def judge_answer(client: OpenAI, model: str, question: str, reference: str, agen
         return "ERROR"
 
 
-def score_results(results: list[dict], client: OpenAI, model: str) -> list[dict]:
+def score_results(results: list[dict], model: str) -> list[dict]:
     for i, row in enumerate(results):
         if row.get("verdict"):
             continue
         verdict = judge_answer(
-            client, model,
+            model,
             question=row["problem"],
             reference=row["answer"],
             agent_answer=row.get("agent_answer", ""),
@@ -223,7 +234,6 @@ def main() -> None:
     settings.sandbox_network_enabled = args.sandbox_network
 
     judge_model = args.judge_model or settings.llm_model
-    client = OpenAI(base_url=settings.llm_api_endpoint, api_key=settings.llm_api_key)
 
     output_path = Path(args.output) if args.output else OUTPUT_DIR / "results.jsonl"
 
@@ -233,7 +243,7 @@ def main() -> None:
             print(f"No results found at {output_path}")
             return
         results = list(existing.values())
-        results = score_results(results, client, judge_model)
+        results = score_results(results, judge_model)
         write_jsonl(output_path, results)
         print_summary(results)
         return
@@ -272,7 +282,7 @@ def main() -> None:
                             "agent_answer": f"[ERROR] {e}",
                         }
 
-                    verdict = judge_answer(client, judge_model, q["problem"], q["answer"], result["agent_answer"])
+                    verdict = judge_answer(judge_model, q["problem"], q["answer"], result["agent_answer"])
                     logger.info("id=%d verdict=%s answer_preview=%s", qid, verdict, result["agent_answer"][:200])
                     result["verdict"] = verdict
                     results_by_id[qid] = result
@@ -298,7 +308,7 @@ def main() -> None:
                 logger.error("agent_error id=%d: %s", qid, e)
                 agent_answer = f"[ERROR] {e}"
 
-            verdict = judge_answer(client, judge_model, q["problem"], q["answer"], agent_answer)
+            verdict = judge_answer(judge_model, q["problem"], q["answer"], agent_answer)
             logger.info("  verdict=%s answer_preview=%s", verdict, agent_answer[:200])
 
             results_by_id[qid] = {
