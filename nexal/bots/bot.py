@@ -168,11 +168,17 @@ class Bot:
                         from nexal.bots.agent import run_refiner
 
                         persona = read_agents_file("SOUL.md") or _DEFAULT_SOUL
+                        refiner_ctx = load_chat_context(
+                            limit=16,
+                            channel=msg.channel,
+                            chat_id=msg.chat_id,
+                        )
                         await asyncio.to_thread(
                             run_refiner,
                             text=response,
                             persona=persona,
                             on_exec_output=exec_hook,
+                            chat_context=refiner_ctx,
                         )
                     if is_direct and response and response.strip():
                         save_chat_entry(

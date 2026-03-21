@@ -163,10 +163,6 @@ class BotAgentLoop:
                 "role": "assistant",
                 "content": msg.content or "",
             }
-            # Preserve reasoning_content for models that use thinking/reasoning.
-            reasoning = getattr(msg, "reasoning_content", None)
-            if reasoning:
-                assistant_message["reasoning_content"] = reasoning
             if msg.tool_calls:
                 assistant_message["tool_calls"] = [
                     {
@@ -316,6 +312,7 @@ def run_refiner(
     text: str,
     persona: str,
     on_exec_output: Callable[[str], None],
+    chat_context: str = "",
     max_turns: int = 6,
 ) -> None:
     """Deliver *text* as multiple natural chat messages via exec."""
@@ -324,9 +321,16 @@ def run_refiner(
     openai_tools = [t.to_openai_tool() for t in tools]
     tool_map: dict[str, FunctionTool] = {t.name: t for t in tools}
 
+    user_content = text
+    if chat_context:
+        user_content = (
+            f"## Recent conversation\n{chat_context}\n\n"
+            f"## Content to deliver\n{text}"
+        )
+
     messages: list[dict[str, Any]] = [
         {"role": "system", "content": _REFINER_PROMPT.format(persona=persona)},
-        {"role": "user", "content": text},
+        {"role": "user", "content": user_content},
     ]
 
     try:

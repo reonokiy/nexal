@@ -173,10 +173,6 @@ class AgentLoop:
                 "role": "assistant",
                 "content": message.content or "",
             }
-            # Preserve reasoning_content for models with extended thinking.
-            reasoning = getattr(message, "reasoning_content", None)
-            if reasoning:
-                assistant_message["reasoning_content"] = reasoning
             if message.tool_calls:
                 assistant_message["tool_calls"] = [
                     {

@@ -57,11 +57,16 @@ def main() -> None:
 
     bot = Bot(max_turns=args.max_turns)
 
+    _add_daemon_channels(bot)
     if args.interactive:
         from nexal.channels.cli import CLIChannel
         bot.add_channel(CLIChannel())
-    else:
-        _add_daemon_channels(bot)
+
+    if not bot.channels:
+        raise RuntimeError(
+            "No channels configured. Set TELEGRAM_BOT_TOKEN / DISCORD_BOT_TOKEN, "
+            "or use -i for interactive mode."
+        )
 
     try:
         asyncio.run(bot.start())
@@ -110,9 +115,3 @@ def _add_daemon_channels(bot) -> None:  # noqa: ANN001
             allow_channels=settings.discord_allow_channels,
         ))
         log.info("discord channel enabled")
-
-    if not bot.channels:
-        raise RuntimeError(
-            "No channels configured. Set TELEGRAM_BOT_TOKEN / DISCORD_BOT_TOKEN, "
-            "or use -i for interactive mode."
-        )
