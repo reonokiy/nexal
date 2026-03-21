@@ -159,6 +159,7 @@ class AgentLoop:
         logger.info("context_compressed old_messages=%d new_summary_len=%d", len(middle), len(summary))
 
     def _loop(self, messages: list[dict[str, Any]], openai_tools: list[dict[str, Any]]) -> str:
+        thinking = False
         for _ in range(self.max_turns):
             response = self._call_llm(
                 messages,
@@ -169,10 +170,16 @@ class AgentLoop:
             logger.debug("llm_response content=%s tool_calls=%s",
                          self._truncate(message.content or ""), message.tool_calls)
 
+            reasoning = getattr(message, "reasoning_content", None)
+            if reasoning is not None:
+                thinking = True
+
             assistant_message: dict[str, Any] = {
                 "role": "assistant",
                 "content": message.content or "",
             }
+            if thinking:
+                assistant_message["reasoning_content"] = reasoning or ""
             if message.tool_calls:
                 assistant_message["tool_calls"] = [
                     {

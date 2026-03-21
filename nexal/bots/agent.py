@@ -155,14 +155,23 @@ class BotAgentLoop:
         )
 
     def _loop(self, messages: list[dict[str, Any]], openai_tools: list[dict[str, Any]]) -> str:
+        thinking = False  # tracks whether the model uses reasoning/thinking
         for turn in range(self.max_turns):
             response = self._call_llm(messages, tools=openai_tools, tool_choice="auto")
             msg = response.choices[0].message
+
+            reasoning = getattr(msg, "reasoning_content", None)
+            if reasoning is not None:
+                thinking = True
 
             assistant_message: dict[str, Any] = {
                 "role": "assistant",
                 "content": msg.content or "",
             }
+            # If the model uses thinking, ALL assistant messages must carry
+            # reasoning_content (even empty) or the provider rejects the replay.
+            if thinking:
+                assistant_message["reasoning_content"] = reasoning or ""
             if msg.tool_calls:
                 assistant_message["tool_calls"] = [
                     {
@@ -334,6 +343,7 @@ def run_refiner(
     ]
 
     try:
+        thinking = False
         for _ in range(max_turns):
             resp = litellm.completion(
                 **llm_kwargs(),
@@ -344,10 +354,16 @@ def run_refiner(
             )
             msg = resp.choices[0].message
 
+            reasoning = getattr(msg, "reasoning_content", None)
+            if reasoning is not None:
+                thinking = True
+
             assistant_msg: dict[str, Any] = {
                 "role": "assistant",
                 "content": msg.content or "",
             }
+            if thinking:
+                assistant_msg["reasoning_content"] = reasoning or ""
             if msg.tool_calls:
                 assistant_msg["tool_calls"] = [
                     {"id": tc.id, "type": tc.type,
