@@ -1,0 +1,19 @@
+services:
+  nexal:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+
+    # Podman-in-Docker requires privileged mode — fine-grained caps are not
+    # sufficient because nested containers need writable /proc/sys and
+    # /sys/fs/cgroup, which Docker only exposes under privileged.
+    privileged: true
+
+    volumes:
+      - nexal-data:/root/.nexal
+
+    # Override max turns or add --sandbox-network via command.
+    # command: ["--max-turns", "12", "--sandbox-network"]
+
+volumes:
+  nexal-data:

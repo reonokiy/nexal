@@ -72,6 +72,12 @@ def _build_env_args(env: dict[str, str] | None) -> list[str]:
     return args
 
 
+def _build_runtime_args(runtime: str | None) -> list[str]:
+    if not runtime:
+        return []
+    return ["--runtime", runtime]
+
+
 def _container_name(session_id: str) -> str:
     if not session_id:
         raise ValueError("session_id must not be empty")
@@ -132,6 +138,7 @@ def run_podman_command(config: EphemeralSandboxConfig, request: SandboxExecReque
     )
     podman_args.extend(_build_mount_args(config.shared_dirs))
     podman_args.extend(_build_env_args(config.env))
+    podman_args.extend(_build_runtime_args(config.runtime))
     podman_args.append(image_name)
     if isinstance(request.command, str):
         podman_args.extend(["bash", "-c", request.command])
@@ -179,6 +186,7 @@ def build_create_args(config: SandboxConfig) -> list[str]:
     args.extend(_build_workspace_mount_args(config.workspace_dir, read_only=config.workspace_read_only))
     args.extend(_build_mount_args(config.shared_dirs))
     args.extend(_build_env_args(config.env))
+    args.extend(_build_runtime_args(config.runtime))
     args.extend([image_name, "sleep", "infinity"])
     return args
 

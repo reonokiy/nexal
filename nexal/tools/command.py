@@ -123,6 +123,7 @@ class ExecTool(FunctionTool):
                 workspace_read_only=settings.sandbox_workspace_read_only,
                 shared_dirs=shared_dirs,
                 env=env,
+                runtime=settings.sandbox_runtime or None,
                 network=network,
             )
         ).start()

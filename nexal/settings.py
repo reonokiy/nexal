@@ -16,6 +16,7 @@ class AgentSettings:
     sandbox_session_id: str = ""
     sandbox_workspace_read_only: bool = False
     sandbox_workspace_dir: str = ""
+    sandbox_runtime: str = ""
     sandbox_network_enabled: bool = False
     llm_max_context_tokens: int = 128_000
     llm_temperature: float = 0.6
@@ -51,6 +52,7 @@ def load_settings() -> None:
     settings.llm_model = model
     settings.sandbox_session_id = sandbox_session_id
     settings.sandbox_workspace_read_only = workspace_read_only_env in {"1", "true", "yes", "on"}
+    settings.sandbox_runtime = os.getenv("SANDBOX_RUNTIME", "").strip()
     settings.sandbox_network_enabled = sandbox_network_env in {"1", "true", "yes", "on"}
     settings.llm_max_context_tokens = int(os.getenv("LLM_MAX_CONTEXT_TOKENS", "128000"))
     settings.llm_temperature = float(os.getenv("LLM_TEMPERATURE", "0.6"))

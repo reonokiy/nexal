@@ -16,6 +16,7 @@ class BaseSandboxConfig:
     workspace_read_only: bool = False
     shared_dirs: list[SandboxMount] = field(default_factory=list)
     env: dict[str, str] = field(default_factory=dict)
+    runtime: str | None = None
     network: str = "none"
     memory: str = "512m"
     cpus: float = 1.0
