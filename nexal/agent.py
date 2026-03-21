@@ -9,7 +9,7 @@ from typing import Any
 import litellm
 from uuid6 import uuid7
 
-from nexal.chatlog import save_tool_call
+from nexal.db import save_tool_call
 from nexal.prompts import SYSTEM_PROMPT, CONTEXT_COMPRESSION_PROMPT
 from nexal.settings import settings, ensure_sandbox_session, llm_kwargs
 from nexal.tools.base import FunctionTool

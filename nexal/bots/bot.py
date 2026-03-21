@@ -9,7 +9,7 @@ import logging
 from nexal.settings import settings, ensure_sandbox_session
 from nexal.channels import Channel, IncomingMessage
 from nexal.channels.runner import SessionRunner
-from nexal.chatlog import save_chat_entry, load_chat_context
+from nexal.db import save_chat_entry, load_chat_context
 from nexal.workspace import read_agents_file, write_agents_file
 
 logger = logging.getLogger("nexal.bots")

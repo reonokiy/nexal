@@ -12,7 +12,7 @@ from typing import Any
 
 from nexal.settings import settings
 
-logger = logging.getLogger("nexal.chatlog")
+logger = logging.getLogger("nexal.db")
 
 _AGENTS_DIR = "agents"
 

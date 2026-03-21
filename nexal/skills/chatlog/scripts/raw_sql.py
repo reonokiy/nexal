@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Execute a read-only SQL query against the chatlog database."""
+"""Execute a read-only SQL query against the nexal database."""
 
 import argparse
 import json
@@ -42,7 +42,7 @@ def run_query(sql: str, limit: int = _MAX_ROWS) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Run read-only SQL on chatlog database")
+    parser = argparse.ArgumentParser(description="Run read-only SQL on nexal database")
     parser.add_argument("sql", help="SQL query to execute (SELECT only)")
     args = parser.parse_args()
     run_query(args.sql)

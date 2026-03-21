@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Query chat messages from the chatlog database."""
+"""Query chat messages from the nexal database."""
 
 import argparse
 import json

@@ -89,18 +89,7 @@ class PodmanSandboxManager(SandboxManagerBackend):
         created_now = False
 
         # Try to create; ignore "already exists" errors (avoids TOCTOU race).
-        create_args = build_create_args(
-            config.session_id,
-            image=config.image,
-            workspace_dir=config.workspace_dir,
-            workspace_read_only=config.workspace_read_only,
-            shared_dirs=config.shared_dirs,
-            env=config.env,
-            network=config.network,
-            memory=config.memory,
-            cpus=config.cpus,
-            pids_limit=config.pids_limit,
-        )
+        create_args = build_create_args(config)
         created = run_subprocess(create_args)
         if created.returncode == 0:
             created_now = True

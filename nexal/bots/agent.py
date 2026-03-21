@@ -15,7 +15,7 @@ from typing import Any, TYPE_CHECKING
 import litellm
 from uuid6 import uuid7
 
-from nexal.chatlog import save_tool_call
+from nexal.db import save_tool_call
 from nexal.settings import settings, llm_kwargs
 from nexal.tools.base import FunctionTool
 from nexal.tools.command import ExecTool

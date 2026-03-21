@@ -1,4 +1,3 @@
-from dataclasses import asdict
 import os
 import shlex
 import subprocess
@@ -6,25 +5,26 @@ from pathlib import Path
 from nexal.sandbox.base import (
     EphemeralSandboxConfig,
     EphemeralSandboxResult,
+    SandboxConfig,
     SandboxExecRequest,
     SandboxMount,
-    SandboxSessionExecResult,
-    SandboxSessionStartResult,
-    SandboxSessionStopResult,
 )
+
+_DEFAULT_IMAGE = "ghcr.io/reonokiy/nexal-sandbox:python3.13-debian13"
 
 
 def _workspace_root() -> Path:
     return Path(os.getenv("SANDBOX_WORKSPACE_ROOT", Path.cwd())).resolve()
 
 
-def _resolve_host_path(raw_path: str) -> Path:
+def _resolve_host_path(raw_path: str, workspace_root: Path | None = None) -> Path:
+    if workspace_root is None:
+        workspace_root = _workspace_root()
     path = Path(raw_path)
     if not path.is_absolute():
-        path = _workspace_root() / path
+        path = workspace_root / path
     path = path.resolve()
 
-    workspace_root = _workspace_root()
     try:
         path.relative_to(workspace_root)
     except ValueError as exc:
@@ -37,9 +37,10 @@ def _build_mount_args(shared_dirs: list[SandboxMount]) -> list[str]:
     if not shared_dirs:
         return []
 
+    workspace_root = _workspace_root()
     args: list[str] = []
     for item in shared_dirs:
-        host_path = _resolve_host_path(item.host_path)
+        host_path = _resolve_host_path(item.host_path, workspace_root)
         container_path = item.container_path or "/workspace/shared"
         mount_spec = f"type=bind,src={host_path},target={container_path}"
         if item.read_only:
@@ -83,7 +84,8 @@ def _container_name(session_id: str) -> str:
 
 _DEFAULT_TIMEOUT = 30
 
-def _run_subprocess(args: list[str], timeout_seconds: int | None = _DEFAULT_TIMEOUT) -> subprocess.CompletedProcess[str]:
+
+def run_subprocess(args: list[str], timeout_seconds: int | None = _DEFAULT_TIMEOUT) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         args,
         capture_output=True,
@@ -94,22 +96,18 @@ def _run_subprocess(args: list[str], timeout_seconds: int | None = _DEFAULT_TIME
     )
 
 
-def run_subprocess(args: list[str], timeout_seconds: int | None = _DEFAULT_TIMEOUT) -> subprocess.CompletedProcess[str]:
-    return _run_subprocess(args, timeout_seconds=timeout_seconds)
-
-
 def container_exists(container_name: str) -> bool:
-    completed = _run_subprocess(["podman", "container", "exists", container_name])
+    completed = run_subprocess(["podman", "container", "exists", container_name])
     return completed.returncode == 0
 
 
 def container_running(container_name: str) -> bool:
-    completed = _run_subprocess(["podman", "inspect", "-f", "{{.State.Running}}", container_name])
+    completed = run_subprocess(["podman", "inspect", "-f", "{{.State.Running}}", container_name])
     return completed.returncode == 0 and completed.stdout.strip().lower() == "true"
 
 
 def run_podman_command(config: EphemeralSandboxConfig, request: SandboxExecRequest) -> EphemeralSandboxResult:
-    image_name = config.image or os.getenv("SANDBOX_IMAGE", "ghcr.io/reonokiy/nexal-sandbox:python3.13-debian13")
+    image_name = config.image or os.getenv("SANDBOX_IMAGE", _DEFAULT_IMAGE)
     podman_args = [
         "podman",
         "run",
@@ -140,7 +138,7 @@ def run_podman_command(config: EphemeralSandboxConfig, request: SandboxExecReque
     else:
         podman_args.extend(request.command)
 
-    completed = _run_subprocess(podman_args, timeout_seconds=request.timeout_seconds)
+    completed = run_subprocess(podman_args, timeout_seconds=request.timeout_seconds)
     return EphemeralSandboxResult(
         config=config,
         request=request,
@@ -156,53 +154,32 @@ def container_name(session_id: str) -> str:
     return _container_name(session_id)
 
 
-def build_create_args(
-    session_id: str,
-    *,
-    image: str | None,
-    workspace_dir: str | None,
-    workspace_read_only: bool,
-    shared_dirs: list[SandboxMount],
-    env: dict[str, str],
-    network: str,
-    memory: str,
-    cpus: float,
-    pids_limit: int,
-) -> list[str]:
-    image_name = image or os.getenv("SANDBOX_IMAGE", "ghcr.io/reonokiy/nexal-sandbox:python3.13-debian13")
+def build_create_args(config: SandboxConfig) -> list[str]:
+    image_name = config.image or os.getenv("SANDBOX_IMAGE", _DEFAULT_IMAGE)
     args = [
         "podman",
         "create",
         "--name",
-        _container_name(session_id),
+        _container_name(config.session_id),
         "--userns=keep-id",
         "--security-opt",
         "no-new-privileges",
         "--cap-drop=ALL",
         "--pids-limit",
-        str(pids_limit),
+        str(config.pids_limit),
         "--memory",
-        memory,
+        config.memory,
         "--cpus",
-        str(cpus),
+        str(config.cpus),
         "--network",
-        network,
+        config.network,
         "--workdir",
         "/workspace",
     ]
-    args.extend(_build_workspace_mount_args(workspace_dir, read_only=workspace_read_only))
-    args.extend(_build_mount_args(shared_dirs))
-    args.extend(_build_env_args(env))
+    args.extend(_build_workspace_mount_args(config.workspace_dir, read_only=config.workspace_read_only))
+    args.extend(_build_mount_args(config.shared_dirs))
+    args.extend(_build_env_args(config.env))
     args.extend([image_name, "sleep", "infinity"])
-    return args
-
-
-def build_exec_args(session_id: str, request: SandboxExecRequest) -> list[str]:
-    args = ["podman", "exec", _container_name(session_id)]
-    if isinstance(request.command, str):
-        args.extend(["bash", "-c", request.command])
-    else:
-        args.extend(request.command)
     return args
 
 
