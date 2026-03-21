@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time as _time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -14,6 +15,7 @@ from typing import Any, TYPE_CHECKING
 import litellm
 from uuid6 import uuid7
 
+from nexal.chatlog import save_tool_call
 from nexal.settings import settings, llm_kwargs
 from nexal.tools.base import FunctionTool
 from nexal.tools.command import ExecTool
@@ -67,9 +69,24 @@ _CONTAINER_SKILLS_DIR = "/workspace/agents/skills"
 
 
 def _load_skill_docs(channel_names: list[str]) -> str:
-    """Load SKILL.md content for each active channel, using container-side paths."""
+    """Load SKILL.md content for each active channel + always-load skills, using container-side paths."""
     parts: list[str] = []
-    for name in channel_names:
+    # Collect skill names: active channels + skills marked always_load.
+    skill_names = list(channel_names)
+    for skill_dir in _SKILLS_DIR.iterdir():
+        if not skill_dir.is_dir() or skill_dir.name in skill_names:
+            continue
+        skill_md = skill_dir / "SKILL.md"
+        if skill_md.is_file():
+            raw = skill_md.read_text(encoding="utf-8")
+            # Only check frontmatter (between --- delimiters) for always_load.
+            if raw.startswith("---"):
+                end = raw.find("---", 3)
+                frontmatter = raw[3:end] if end != -1 else ""
+                if "always_load: true" in frontmatter:
+                    skill_names.append(skill_dir.name)
+
+    for name in skill_names:
         skill_dir = _SKILLS_DIR / name
         skill_md = skill_dir / "SKILL.md"
         if skill_md.is_file():
@@ -111,6 +128,8 @@ class BotAgentLoop:
 
     def __post_init__(self) -> None:
         self._tool_map: dict[str, FunctionTool] = {t.name: t for t in self.tools}
+        self._channel: str = ""
+        self._chat_id: str = ""
 
     def run(
         self,
@@ -119,6 +138,8 @@ class BotAgentLoop:
         memory_context: str,
         channel_names: list[str],
     ) -> str:
+        self._channel = msg.channel
+        self._chat_id = msg.chat_id
         skills_doc = _load_skill_docs(channel_names)
         system_prompt = BOT_SYSTEM_TEMPLATE.format(
             persona=persona,
@@ -192,11 +213,30 @@ class BotAgentLoop:
 
             for tc in msg.tool_calls:
                 tool_name = tc.function.name.strip()
+                t0 = _time.monotonic()
+                status = "ok"
                 try:
                     raw_output = self._execute_tool(tool_name, tc.function.arguments)
                 except Exception as e:
                     logger.exception("tool_call_error name=%s", tool_name)
                     raw_output = json.dumps({"error": str(e)})
+                    status = "error"
+                duration_ms = int((_time.monotonic() - t0) * 1000)
+
+                # Persist tool call to database.
+                try:
+                    save_tool_call(
+                        channel=self._channel,
+                        chat_id=self._chat_id,
+                        tool_call_id=tc.id,
+                        tool_name=tool_name,
+                        arguments=tc.function.arguments or "{}",
+                        output=raw_output,
+                        status=status,
+                        duration_ms=duration_ms,
+                    )
+                except Exception:
+                    logger.warning("failed to save tool call to db", exc_info=True)
 
                 # Route exec stdout to the channel so the user sees it live.
                 if tool_name == "exec" and self.on_exec_output:

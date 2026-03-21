@@ -90,8 +90,8 @@ def ensure_sandbox_session() -> None:
     if settings.sandbox_workspace_dir:
         return
 
-    root = Path(os.getenv("SANDBOX_SESSIONS_DIR", ".workspace")).resolve()
-    root.mkdir(parents=True, exist_ok=True)
+    default_root = str(Path.home().joinpath(".nexal", "sessions"))
+    root = Path(os.getenv("SANDBOX_SESSIONS_DIR", default_root))
     session_name = settings.sandbox_session_id or str(uuid7())
     workspace_dir = root / session_name
     workspace_dir.mkdir(parents=True, exist_ok=True)

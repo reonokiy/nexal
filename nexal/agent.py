@@ -1,6 +1,7 @@
 import json
 import logging
 import re
+import time as _time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
@@ -8,6 +9,7 @@ from typing import Any
 import litellm
 from uuid6 import uuid7
 
+from nexal.chatlog import save_tool_call
 from nexal.prompts import SYSTEM_PROMPT, CONTEXT_COMPRESSION_PROMPT
 from nexal.settings import settings, ensure_sandbox_session, llm_kwargs
 from nexal.tools.base import FunctionTool
@@ -201,17 +203,37 @@ class AgentLoop:
 
             # --- Execute tools ---
             for tc in message.tool_calls:
+                tool_name = tc.function.name.strip()
+                t0 = _time.monotonic()
+                status = "ok"
                 try:
-                    raw_output = self._execute_tool(tc.function.name, tc.function.arguments)
+                    raw_output = self._execute_tool(tool_name, tc.function.arguments)
                 except Exception as e:
-                    logger.exception("tool_call_error name=%s", tc.function.name)
+                    logger.exception("tool_call_error name=%s", tool_name)
                     raw_output = json.dumps({"error": str(e)})
+                    status = "error"
+                duration_ms = int((_time.monotonic() - t0) * 1000)
 
-                if tc.function.name == _FINAL_ANSWER_TOOL:
+                # Persist tool call to database.
+                try:
+                    save_tool_call(
+                        channel="agent",
+                        chat_id=settings.sandbox_session_id or "default",
+                        tool_call_id=tc.id,
+                        tool_name=tool_name,
+                        arguments=tc.function.arguments or "{}",
+                        output=raw_output,
+                        status=status,
+                        duration_ms=duration_ms,
+                    )
+                except Exception:
+                    logger.warning("failed to save tool call to db", exc_info=True)
+
+                if tool_name == _FINAL_ANSWER_TOOL:
                     logger.info("agent_finish turns_used=%d", _ + 1)
                     return raw_output
 
-                observation = self._save_and_build_observation(tc.function.name, raw_output)
+                observation = self._save_and_build_observation(tool_name, raw_output)
                 messages.append({
                     "role": "tool",
                     "tool_call_id": tc.id,

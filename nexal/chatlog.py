@@ -33,6 +33,25 @@ CREATE INDEX IF NOT EXISTS idx_messages_timestamp
     ON messages (timestamp);
 CREATE INDEX IF NOT EXISTS idx_messages_sender
     ON messages (sender);
+
+CREATE TABLE IF NOT EXISTS tool_calls (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    channel         TEXT    NOT NULL,
+    chat_id         TEXT    NOT NULL,
+    tool_call_id    TEXT    NOT NULL,
+    tool_name       TEXT    NOT NULL,
+    arguments       TEXT    NOT NULL DEFAULT '{}',
+    output          TEXT    NOT NULL DEFAULT '',
+    status          TEXT    NOT NULL DEFAULT 'ok',
+    duration_ms     INTEGER,
+    timestamp       TEXT    NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_tool_calls_channel_chat
+    ON tool_calls (channel, chat_id, timestamp);
+CREATE INDEX IF NOT EXISTS idx_tool_calls_tool_name
+    ON tool_calls (tool_name);
+CREATE INDEX IF NOT EXISTS idx_tool_calls_timestamp
+    ON tool_calls (timestamp);
 """
 
 _local = threading.local()
@@ -42,7 +61,7 @@ def _db_path() -> Path:
     workspace = settings.sandbox_workspace_dir
     if not workspace:
         raise RuntimeError("sandbox_workspace_dir is not set")
-    return Path(workspace) / _AGENTS_DIR / "chatlog.db"
+    return Path(workspace) / _AGENTS_DIR / "nexal.db"
 
 
 def _get_conn() -> sqlite3.Connection:
@@ -86,7 +105,72 @@ def save_chat_entry(
     return cur.lastrowid  # type: ignore[return-value]
 
 
+def save_tool_call(
+    channel: str,
+    chat_id: str,
+    tool_call_id: str,
+    tool_name: str,
+    arguments: str,
+    output: str,
+    status: str = "ok",
+    duration_ms: int | None = None,
+) -> int:
+    """Insert a tool call record. Returns the row id."""
+    now = datetime.now(timezone.utc).isoformat()
+    conn = _get_conn()
+    cur = conn.execute(
+        "INSERT INTO tool_calls (channel, chat_id, tool_call_id, tool_name, arguments, output, status, duration_ms, timestamp)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (channel, chat_id, tool_call_id, tool_name, arguments, output, status, duration_ms, now),
+    )
+    conn.commit()
+    return cur.lastrowid  # type: ignore[return-value]
+
+
 # ── Read ─────────────────────────────────────────────────────────
+
+
+def query_tool_calls(
+    *,
+    channel: str | None = None,
+    chat_id: str | None = None,
+    tool_name: str | None = None,
+    status: str | None = None,
+    since: str | None = None,
+    until: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> list[dict[str, Any]]:
+    """Query tool call records with optional filters."""
+    clauses: list[str] = []
+    params: list[Any] = []
+
+    if channel:
+        clauses.append("channel = ?")
+        params.append(channel)
+    if chat_id:
+        clauses.append("chat_id = ?")
+        params.append(chat_id)
+    if tool_name:
+        clauses.append("tool_name = ?")
+        params.append(tool_name)
+    if status:
+        clauses.append("status = ?")
+        params.append(status)
+    if since:
+        clauses.append("timestamp >= ?")
+        params.append(since)
+    if until:
+        clauses.append("timestamp <= ?")
+        params.append(until)
+
+    where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+    sql = f"SELECT * FROM tool_calls{where} ORDER BY timestamp DESC, id DESC LIMIT ? OFFSET ?"
+    params.extend([limit, offset])
+
+    conn = _get_conn()
+    rows = conn.execute(sql, params).fetchall()
+    return [dict(r) for r in reversed(rows)]
 
 
 def load_chat_context(

@@ -133,12 +133,13 @@ class Bot:
                 try:
                     from nexal.bots.agent import run_bot_agent
 
-                    # For direct-response channels, route exec stdout
-                    # to the channel so the user sees programmatic output.
+                    # Route exec stdout to the channel so the user sees
+                    # programmatic output (skill scripts, refiner, etc.).
                     channel = self.channels.get(msg.channel)
                     exec_hook = None
                     exec_sent = False
                     is_direct = channel is not None and channel.direct_response
+
                     if is_direct:
                         loop = asyncio.get_running_loop()
 
@@ -151,6 +152,14 @@ class Bot:
                             future.result(timeout=30)
 
                         exec_hook = _send_sync
+                    else:
+                        # For non-direct channels (Telegram/Discord), skill scripts
+                        # send messages themselves. Just track that exec was called.
+                        def _mark_sent(text: str) -> None:
+                            nonlocal exec_sent
+                            exec_sent = True
+
+                        exec_hook = _mark_sent
 
                     response = await asyncio.to_thread(
                         run_bot_agent,
@@ -162,25 +171,30 @@ class Bot:
                         on_exec_output=exec_hook,
                     )
 
-                    # Deliver the agent's text through the refiner agent,
-                    # which splits it into natural multi-message output.
-                    if is_direct and not exec_sent and response and response.strip():
-                        from nexal.bots.agent import run_refiner
+                    # If agent returned text but never sent it via skill/exec,
+                    # deliver it through the refiner (direct channels) or
+                    # fall back to channel.send (Telegram/Discord).
+                    if not exec_sent and response and response.strip():
+                        if is_direct:
+                            from nexal.bots.agent import run_refiner
 
-                        persona = read_agents_file("SOUL.md") or _DEFAULT_SOUL
-                        refiner_ctx = load_chat_context(
-                            limit=16,
-                            channel=msg.channel,
-                            chat_id=msg.chat_id,
-                        )
-                        await asyncio.to_thread(
-                            run_refiner,
-                            text=response,
-                            persona=persona,
-                            on_exec_output=exec_hook,
-                            chat_context=refiner_ctx,
-                        )
-                    if is_direct and response and response.strip():
+                            persona = read_agents_file("SOUL.md") or _DEFAULT_SOUL
+                            refiner_ctx = load_chat_context(
+                                limit=16,
+                                channel=msg.channel,
+                                chat_id=msg.chat_id,
+                            )
+                            await asyncio.to_thread(
+                                run_refiner,
+                                text=response,
+                                persona=persona,
+                                on_exec_output=exec_hook,
+                                chat_context=refiner_ctx,
+                            )
+                        elif channel is not None:
+                            await channel.send(msg.chat_id, response)
+
+                    if response and response.strip():
                         save_chat_entry(
                             channel=msg.channel,
                             chat_id=msg.chat_id,

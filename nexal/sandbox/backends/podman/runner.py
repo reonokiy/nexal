@@ -53,7 +53,7 @@ def _build_workspace_mount_args(workspace_dir: str | None, read_only: bool = Fal
     if not workspace_dir:
         return []
 
-    host_path = _resolve_host_path(workspace_dir)
+    host_path = Path(workspace_dir).resolve()
     host_path.mkdir(parents=True, exist_ok=True)
     mount_spec = f"type=bind,src={host_path},target=/workspace"
     if read_only:
