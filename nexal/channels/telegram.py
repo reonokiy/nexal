@@ -9,7 +9,7 @@ from collections.abc import AsyncGenerator
 from typing import TYPE_CHECKING, Any
 
 from nexal.channels import chunk_message
-from nexal.channels.channel import Channel, IncomingMessage
+from nexal.channels.channel import Channel, ImageAttachment, IncomingMessage
 
 if TYPE_CHECKING:
     from nexal.channels.channel import OnMessage
@@ -321,6 +321,52 @@ class TelegramChannel(Channel):
         "video_note": _parse_video_note,
     }
 
+    # ── Image download ────────────────────────────────────────────────
+
+    _IMAGE_MIME: dict[str, str] = {
+        ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
+        ".gif": "image/gif", ".webp": "image/webp", ".bmp": "image/bmp",
+    }
+    _MAX_IMAGE_BYTES: int = 10_000_000
+
+    async def _download_photo(self, message: Any) -> list[ImageAttachment]:
+        """Download photo(s) from a Telegram message, returning ImageAttachment list."""
+        from aiogram import Bot
+        import io
+
+        bot: Bot = self._bot  # type: ignore[assignment]
+        if bot is None:
+            return []
+
+        photos = getattr(message, "photo", None) or []
+        if not photos:
+            return []
+
+        # Telegram sends multiple sizes; take the largest.
+        largest = photos[-1]
+        file_size = getattr(largest, "file_size", None) or 0
+        if file_size > self._MAX_IMAGE_BYTES:
+            logger.warning("telegram_photo_too_large size=%d", file_size)
+            return []
+
+        try:
+            file = await bot.get_file(largest.file_id)
+            buf = io.BytesIO()
+            await bot.download_file(file.file_path, buf)
+            data = buf.getvalue()
+        except Exception:
+            logger.warning("telegram_photo_download_failed", exc_info=True)
+            return []
+
+        # Determine MIME from file extension.
+        ext = ""
+        if file.file_path:
+            ext = "." + file.file_path.rsplit(".", 1)[-1].lower() if "." in file.file_path else ""
+        mime = self._IMAGE_MIME.get(ext, "image/jpeg")
+        filename = file.file_path.rsplit("/", 1)[-1] if file.file_path else "photo.jpg"
+
+        return [ImageAttachment(data=data, mime_type=mime, filename=filename)]
+
     # ── Reply metadata ───────────────────────────────────────────────
 
     @staticmethod
@@ -391,6 +437,11 @@ class TelegramChannel(Channel):
                 if reply_meta:
                     metadata["reply_to_message"] = reply_meta
 
+                # Download images for multimodal input.
+                images: list[ImageAttachment] = []
+                if _message_type(message) == "photo":
+                    images = await self._download_photo(message)
+
                 msg = IncomingMessage(
                     channel="telegram",
                     chat_id=str(message.chat.id),
@@ -399,6 +450,7 @@ class TelegramChannel(Channel):
                     timestamp=message.date,
                     is_mentioned=is_mentioned,
                     metadata=metadata,
+                    images=images,
                     typing_fn=lambda: self._typing(message.chat.id),
                 )
 

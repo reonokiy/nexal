@@ -25,6 +25,7 @@ from nexal.sandbox.base import (
 
 _STATE_FILE = "/workspace/agents/.bash_state"
 _AGENT_DIR = "/workspace/agents"
+_PROXY_DIR = "/workspace/agents/proxy"
 
 
 class PodmanEphemeralSandbox(EphemeralSandboxBackend):
@@ -45,6 +46,7 @@ class PodmanSandboxSession(SandboxSession):
         parts: list[str] = [
             f"[ -f {_STATE_FILE} ] && . {_STATE_FILE}",
             f"chmod -R a-w {_AGENT_DIR} 2>/dev/null",
+            f"chmod a+w {_PROXY_DIR}/* 2>/dev/null",
             cmd_str,
             "__rc=$?",
             f"chmod -R u+w {_AGENT_DIR} 2>/dev/null",

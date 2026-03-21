@@ -7,7 +7,7 @@ from collections import OrderedDict
 from typing import TYPE_CHECKING, Any
 
 from nexal.channels import chunk_message
-from nexal.channels.channel import Channel, IncomingMessage
+from nexal.channels.channel import Channel, ImageAttachment, IncomingMessage
 
 if TYPE_CHECKING:
     from nexal.channels.channel import OnMessage
@@ -158,6 +158,31 @@ class DiscordChannel(Channel):
             "text": (resolved.content or "")[:100],
         })
 
+    # ── Image download ────────────────────────────────────────────────
+
+    _IMAGE_CONTENT_TYPES: set[str] = {
+        "image/png", "image/jpeg", "image/gif", "image/webp", "image/bmp",
+    }
+    _MAX_IMAGE_BYTES: int = 10_000_000
+
+    @classmethod
+    async def _download_images(cls, message: Any) -> list[ImageAttachment]:
+        """Download image attachments from a Discord message."""
+        images: list[ImageAttachment] = []
+        for att in (message.attachments or []):
+            mime = (att.content_type or "").split(";")[0].strip()
+            if mime not in cls._IMAGE_CONTENT_TYPES:
+                continue
+            if att.size > cls._MAX_IMAGE_BYTES:
+                logger.warning("discord_image_too_large filename=%s size=%d", att.filename, att.size)
+                continue
+            try:
+                data = await att.read()
+                images.append(ImageAttachment(data=data, mime_type=mime, filename=att.filename))
+            except Exception:
+                logger.warning("discord_image_download_failed filename=%s", att.filename, exc_info=True)
+        return images
+
     # ── Start / Send / Stop ──────────────────────────────────────────
 
     async def start(self, on_message: OnMessage) -> None:
@@ -216,6 +241,9 @@ class DiscordChannel(Channel):
             if len(self._latest_message) > self._max_cached_messages:
                 self._latest_message.popitem(last=False)
 
+            # Download images for multimodal input.
+            images = await self._download_images(message)
+
             msg = IncomingMessage(
                 channel="discord",
                 chat_id=str(message.channel.id),
@@ -224,6 +252,7 @@ class DiscordChannel(Channel):
                 timestamp=message.created_at,
                 is_mentioned=is_mentioned,
                 metadata=_exclude_none(metadata),
+                images=images,
                 typing_fn=lambda: message.channel.typing(),
             )
 

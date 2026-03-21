@@ -77,47 +77,65 @@ class FunctionTool:
                     return f"Parameter '{param}[{dk}]' must be {inner[1].__name__}"
         return None
 
+    def _parse_params(self, arguments: str) -> tuple[Any, str | None]:
+        """Parse and validate arguments against params_type.
+
+        Returns (params, None) on success or (None, error_json) on failure.
+        """
+        if self.params_type is None:
+            return None, None
+
+        try:
+            parsed = json.loads(arguments or "{}")
+        except json.JSONDecodeError as e:
+            return None, json.dumps({"error": f"Invalid JSON arguments: {e}"})
+        if not isinstance(parsed, dict):
+            return None, json.dumps({"error": "Arguments must be a JSON object"})
+        valid_fields = {f.name: f for f in fields(self.params_type)}
+        # Check required fields (fields without defaults).
+        for fname, f in valid_fields.items():
+            has_default = (
+                f.default is not MISSING or f.default_factory is not MISSING  # type: ignore[comparison-overlap]
+            )
+            if not has_default and fname not in parsed:
+                return None, json.dumps({"error": f"Missing required parameter: '{fname}'"})
+        filtered = {}
+        for k, v in parsed.items():
+            if k not in valid_fields:
+                return None, json.dumps({"error": f"Unknown parameter: '{k}'"})
+            expected = self._expected_types(valid_fields[k].type)
+            if expected is not None:
+                # bool is a subclass of int; reject bool when int is expected.
+                if expected == (int,) and isinstance(v, bool):
+                    return None, json.dumps({"error": f"Parameter '{k}' must be an integer"})
+                if not isinstance(v, expected):
+                    names = "/".join(t.__name__ for t in expected)
+                    return None, json.dumps({"error": f"Parameter '{k}' must be {names}"})
+                # Validate inner element types for list[T] and dict[K, V].
+                inner = self._inner_type(valid_fields[k].type)
+                if inner is not None:
+                    err = self._check_inner(k, v, expected[0], inner)
+                    if err:
+                        return None, json.dumps({"error": err})
+            filtered[k] = v
+        try:
+            params = self.params_type(**filtered)
+        except TypeError as e:
+            return None, json.dumps({"error": f"Invalid parameters: {e}"})
+        return params, None
+
+    def run_multimodal(self, arguments: str) -> str | list[dict[str, Any]]:
+        """Run the tool, potentially returning multimodal content blocks.
+
+        Override this in tools that can return non-text content (e.g. images).
+        Default implementation delegates to run() which always returns str.
+        """
+        return self.run(arguments)
+
     def run(self, arguments: str) -> str:
-        if self.params_type is not None:
-            try:
-                parsed = json.loads(arguments or "{}")
-            except json.JSONDecodeError as e:
-                return json.dumps({"error": f"Invalid JSON arguments: {e}"})
-            if not isinstance(parsed, dict):
-                return json.dumps({"error": "Arguments must be a JSON object"})
-            valid_fields = {f.name: f for f in fields(self.params_type)}
-            # Check required fields (fields without defaults).
-            for fname, f in valid_fields.items():
-                has_default = (
-                    f.default is not MISSING or f.default_factory is not MISSING  # type: ignore[comparison-overlap]
-                )
-                if not has_default and fname not in parsed:
-                    return json.dumps({"error": f"Missing required parameter: '{fname}'"})
-            filtered = {}
-            for k, v in parsed.items():
-                if k not in valid_fields:
-                    return json.dumps({"error": f"Unknown parameter: '{k}'"})
-                expected = self._expected_types(valid_fields[k].type)
-                if expected is not None:
-                    # bool is a subclass of int; reject bool when int is expected.
-                    if expected == (int,) and isinstance(v, bool):
-                        return json.dumps({"error": f"Parameter '{k}' must be an integer"})
-                    if not isinstance(v, expected):
-                        names = "/".join(t.__name__ for t in expected)
-                        return json.dumps({"error": f"Parameter '{k}' must be {names}"})
-                    # Validate inner element types for list[T] and dict[K, V].
-                    inner = self._inner_type(valid_fields[k].type)
-                    if inner is not None:
-                        err = self._check_inner(k, v, expected[0], inner)
-                        if err:
-                            return json.dumps({"error": err})
-                filtered[k] = v
-            try:
-                params = self.params_type(**filtered)
-            except TypeError as e:
-                return json.dumps({"error": f"Invalid parameters: {e}"})
-        else:
-            params = None
+        params, error = self._parse_params(arguments)
+        if error is not None:
+            return error
         return self.execute(params)
 
     def execute(self, params: Any) -> str:

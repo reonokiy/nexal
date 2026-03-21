@@ -14,13 +14,57 @@ logger = logging.getLogger("nexal.workspace")
 
 _AGENTS_DIR = "agents"
 
+# ---------------------------------------------------------------------------
+# Workspace root helpers (full /workspace)
+# ---------------------------------------------------------------------------
 
-def _host_agents_dir() -> Path:
-    """Return the host-side path for /workspace/agents/."""
+
+def _host_workspace_dir() -> Path:
+    """Return the host-side path for /workspace/."""
     workspace_dir = settings.sandbox_workspace_dir
     if not workspace_dir:
         raise RuntimeError("sandbox_workspace_dir is not set")
-    return Path(workspace_dir) / _AGENTS_DIR
+    return Path(workspace_dir)
+
+
+def resolve_workspace_path(file_path: str) -> Path:
+    """Resolve a container-side path to its host-side location.
+
+    Accepts paths like ``/workspace/foo.txt`` or relative paths like ``foo.txt``.
+    Rejects path traversal outside the workspace root.
+    """
+    # Strip the /workspace/ prefix if present.
+    stripped = file_path.lstrip("/")
+    if stripped.startswith("workspace/"):
+        stripped = stripped[len("workspace/"):]
+    elif stripped == "workspace":
+        stripped = ""
+
+    base = _host_workspace_dir().resolve()
+    resolved = (base / stripped).resolve()
+    if not resolved.is_relative_to(base):
+        raise ValueError(f"Path escapes workspace directory: {file_path}")
+    return resolved
+
+
+def to_container_path(file_path: str) -> str:
+    """Normalise *file_path* to its canonical container-side form ``/workspace/…``."""
+    stripped = file_path.lstrip("/")
+    if stripped.startswith("workspace/"):
+        return "/" + stripped
+    if stripped == "workspace":
+        return "/workspace"
+    return "/workspace/" + stripped
+
+
+# ---------------------------------------------------------------------------
+# Agents sub-directory helpers (/workspace/agents)
+# ---------------------------------------------------------------------------
+
+
+def _host_agents_dir() -> Path:
+    """Return the host-side path for /workspace/agents/."""
+    return _host_workspace_dir() / _AGENTS_DIR
 
 
 def _safe_resolve(rel_path: str) -> Path:

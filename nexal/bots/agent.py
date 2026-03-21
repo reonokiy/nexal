@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import logging
 import re
@@ -19,10 +20,13 @@ from nexal.db import save_tool_call
 from nexal.settings import settings, llm_kwargs
 from nexal.tools.base import FunctionTool
 from nexal.tools.command import ExecTool
+from nexal.tools.edit import EditTool
 from nexal.tools.fetch import WebFetchTool
+from nexal.tools.read import ReadTool
 from nexal.tools.search.tavily import WebSearchTool
 from nexal.tools.time import TimeTool
 from nexal.tools.todo import TodoTool
+from nexal.tools.write import WriteTool
 from nexal.workspace import write_agents_file
 
 if TYPE_CHECKING:
@@ -48,6 +52,9 @@ You are connected to these channels: {channels}
 
 ## Available Tools
 - **exec**(command): Execute shell commands. Use this to run channel skill scripts.
+- **read**(file_path, offset?, limit?): Read a file from /workspace. Returns text with line numbers. For images (png, jpg, gif, webp, bmp), returns the image content directly.
+- **edit**(file_path, old_string, new_string, replace_all?): Exact string replacement in a file.
+- **write**(file_path, content): Create or overwrite a file.
 - **web_search**(query): Search the web for information.
 - **web_fetch**(url): Fetch a web page and return its content as Markdown.
 - **time**(): Get current date and time.
@@ -115,6 +122,9 @@ def _build_tools() -> list[FunctionTool]:
         WebFetchTool(),
         TimeTool(),
         ExecTool(),
+        ReadTool(),
+        EditTool(),
+        WriteTool(),
         TodoTool(),
     ]
 
@@ -147,12 +157,24 @@ class BotAgentLoop:
             memory=memory_context,
             skills=skills_doc,
         )
-        user_content = (
+        text_content = (
             f"[New message from {msg.channel}:{msg.chat_id}]\n"
             f"{msg.sender}: {msg.text}"
         )
         if msg.metadata:
-            user_content += f"\n\nMessage metadata: {json.dumps(msg.metadata, ensure_ascii=False, default=str)}"
+            text_content += f"\n\nMessage metadata: {json.dumps(msg.metadata, ensure_ascii=False, default=str)}"
+
+        # Build multimodal user content if images are present.
+        user_content: str | list[dict[str, Any]] = text_content
+        if msg.images and settings.llm_supports_images:
+            blocks: list[dict[str, Any]] = [{"type": "text", "text": text_content}]
+            for img in msg.images:
+                b64 = base64.b64encode(img.data).decode("ascii")
+                blocks.append({
+                    "type": "image_url",
+                    "image_url": {"url": f"data:{img.mime_type};base64,{b64}"},
+                })
+            user_content = blocks
 
         messages: list[dict[str, Any]] = [
             {"role": "system", "content": system_prompt},
@@ -224,6 +246,7 @@ class BotAgentLoop:
                 duration_ms = int((_time.monotonic() - t0) * 1000)
 
                 # Persist tool call to database.
+                db_output = raw_output if isinstance(raw_output, str) else "[multimodal content]"
                 try:
                     save_tool_call(
                         channel=self._channel,
@@ -231,7 +254,7 @@ class BotAgentLoop:
                         tool_call_id=tc.id,
                         tool_name=tool_name,
                         arguments=tc.function.arguments or "{}",
-                        output=raw_output,
+                        output=db_output,
                         status=status,
                         duration_ms=duration_ms,
                     )
@@ -239,7 +262,7 @@ class BotAgentLoop:
                     logger.warning("failed to save tool call to db", exc_info=True)
 
                 # Route exec stdout to the channel so the user sees it live.
-                if tool_name == "exec" and self.on_exec_output:
+                if tool_name == "exec" and self.on_exec_output and isinstance(raw_output, str):
                     try:
                         parsed = json.loads(raw_output)
                         stdout = parsed.get("stdout", "").strip()
@@ -248,12 +271,20 @@ class BotAgentLoop:
                     if stdout:
                         self.on_exec_output(stdout)
 
-                observation = self._save_and_build_observation(tool_name, raw_output)
-                messages.append({
-                    "role": "tool",
-                    "tool_call_id": tc.id,
-                    "content": observation,
-                })
+                # Multimodal content (e.g. image from Read tool) — pass through as-is.
+                if isinstance(raw_output, list):
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": tc.id,
+                        "content": raw_output,
+                    })
+                else:
+                    observation = self._save_and_build_observation(tool_name, raw_output)
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": tc.id,
+                        "content": observation,
+                    })
 
         logger.info("bot_agent_max_turns_reached")
         return ""
@@ -283,14 +314,17 @@ class BotAgentLoop:
     def _truncate(text: str, limit: int = 500) -> str:
         return text[:limit] + "..." if len(text) > limit else text
 
-    def _execute_tool(self, name: str, arguments: str) -> str:
+    def _execute_tool(self, name: str, arguments: str) -> str | list[dict[str, Any]]:
         name = name.strip()
         logger.info("tool_call_start name=%s args=%s", name, self._truncate(arguments or "{}"))
         tool = self._tool_map.get(name)
         if tool is None:
             raise ValueError(f"Unknown tool: {name}")
-        result = tool.run(arguments)
-        logger.info("tool_call_end name=%s output=%s", name, self._truncate(result))
+        result = tool.run_multimodal(arguments)
+        if isinstance(result, str):
+            logger.info("tool_call_end name=%s output=%s", name, self._truncate(result))
+        else:
+            logger.info("tool_call_end name=%s output=[multimodal content]", name)
         return result
 
     def close(self) -> None:

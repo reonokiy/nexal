@@ -1,3 +1,4 @@
+import base64
 import json
 import logging
 import re
@@ -43,15 +44,32 @@ class AgentLoop:
         ensure_sandbox_session()
         self._tool_map: dict[str, FunctionTool] = {t.name: t for t in self.tools}
 
-    def run(self, query: str) -> str:
+    def run(self, query: str, images: list[tuple[bytes, str]] | None = None) -> str:
+        """Run the agent loop.
+
+        Args:
+            query: The user's text query.
+            images: Optional list of (data, mime_type) tuples for multimodal input.
+        """
         logger.info(
             "agent_start session_id=%s workspace_dir=%s",
             settings.sandbox_session_id,
             settings.sandbox_workspace_dir,
         )
+        user_content: str | list[dict[str, Any]] = query
+        if images:
+            blocks: list[dict[str, Any]] = [{"type": "text", "text": query}]
+            for data, mime in images:
+                b64 = base64.b64encode(data).decode("ascii")
+                blocks.append({
+                    "type": "image_url",
+                    "image_url": {"url": f"data:{mime};base64,{b64}"},
+                })
+            user_content = blocks
+
         messages: list[dict[str, Any]] = [
             {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": query},
+            {"role": "user", "content": user_content},
         ]
 
         openai_tools = [t.to_openai_tool() for t in self.tools]
@@ -64,10 +82,18 @@ class AgentLoop:
 
     @staticmethod
     def _estimate_tokens(messages: list[dict[str, Any]]) -> int:
-        """Rough token estimate: ~4 chars per token."""
+        """Rough token estimate: ~4 chars per token.  Multimodal images count as ~1000 tokens each."""
         total_chars = 0
         for msg in messages:
-            total_chars += len(msg.get("content", "") or "")
+            content = msg.get("content", "") or ""
+            if isinstance(content, str):
+                total_chars += len(content)
+            elif isinstance(content, list):
+                for block in content:
+                    if isinstance(block, dict) and block.get("type") == "text":
+                        total_chars += len(block.get("text", ""))
+                    elif isinstance(block, dict) and block.get("type") == "image_url":
+                        total_chars += 4000  # ~1000 tokens for an image
             for tc in msg.get("tool_calls", []):
                 total_chars += len(tc.get("function", {}).get("arguments", ""))
         return total_chars // 4
@@ -109,11 +135,18 @@ class AgentLoop:
         if len(messages) <= 3:
             return
 
-        original_query = messages[1]["content"]
+        raw_query = messages[1]["content"]
+        # Extract text from multimodal content for the summary prompt.
+        if isinstance(raw_query, list):
+            original_query = " ".join(
+                block.get("text", "") for block in raw_query if isinstance(block, dict) and block.get("type") == "text"
+            )
+        else:
+            original_query = raw_query
         middle = messages[2:]
 
         # Save full conversation to history before compressing.
-        full_dump = json.dumps(messages, ensure_ascii=False, indent=2)
+        full_dump = json.dumps(messages, ensure_ascii=False, indent=2, default=str)
         saved = self._save_to_history("context_pre_compression", full_dump)
         if saved:
             logger.info("context_saved_before_compression path=%s", saved)
@@ -123,6 +156,12 @@ class AgentLoop:
         for msg in middle:
             role = msg.get("role", "unknown")
             content = msg.get("content", "")
+            if isinstance(content, list):
+                # Extract text parts from multimodal content.
+                content = " ".join(
+                    block.get("text", "") for block in content
+                    if isinstance(block, dict) and block.get("type") == "text"
+                )
             if role == "assistant" and msg.get("tool_calls"):
                 tool_names = [tc["function"]["name"] for tc in msg["tool_calls"]]
                 conversation_text.append(f"[Assistant called tools: {', '.join(tool_names)}]")
@@ -215,6 +254,7 @@ class AgentLoop:
                 duration_ms = int((_time.monotonic() - t0) * 1000)
 
                 # Persist tool call to database.
+                db_output = raw_output if isinstance(raw_output, str) else "[multimodal content]"
                 try:
                     save_tool_call(
                         channel="agent",
@@ -222,7 +262,7 @@ class AgentLoop:
                         tool_call_id=tc.id,
                         tool_name=tool_name,
                         arguments=tc.function.arguments or "{}",
-                        output=raw_output,
+                        output=db_output,
                         status=status,
                         duration_ms=duration_ms,
                     )
@@ -231,14 +271,22 @@ class AgentLoop:
 
                 if tool_name == _FINAL_ANSWER_TOOL:
                     logger.info("agent_finish turns_used=%d", _ + 1)
-                    return raw_output
+                    return raw_output if isinstance(raw_output, str) else json.dumps(raw_output)
 
-                observation = self._save_and_build_observation(tool_name, raw_output)
-                messages.append({
-                    "role": "tool",
-                    "tool_call_id": tc.id,
-                    "content": observation,
-                })
+                # Multimodal content (e.g. image from Read tool) — pass through as-is.
+                if isinstance(raw_output, list):
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": tc.id,
+                        "content": raw_output,
+                    })
+                else:
+                    observation = self._save_and_build_observation(tool_name, raw_output)
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": tc.id,
+                        "content": observation,
+                    })
 
         # Max turns reached — force final answer.
         final_tool = self._tool_map.get(_FINAL_ANSWER_TOOL)
@@ -266,7 +314,8 @@ class AgentLoop:
         if message.tool_calls:
             for tc in message.tool_calls:
                 if tc.function.name.strip() == _FINAL_ANSWER_TOOL:
-                    return self._execute_tool(_FINAL_ANSWER_TOOL, tc.function.arguments)
+                    result = self._execute_tool(_FINAL_ANSWER_TOOL, tc.function.arguments)
+                    return result if isinstance(result, str) else json.dumps(result)
         return message.content or ""
 
     def _save_and_build_observation(self, tool_name: str, raw_output: str) -> str:
@@ -305,14 +354,19 @@ class AgentLoop:
     def _truncate(text: str, limit: int = 500) -> str:
         return text[:limit] + "..." if len(text) > limit else text
 
-    def _execute_tool(self, name: str, arguments: str) -> str:
+    def _execute_tool(self, name: str, arguments: str) -> str | list[dict[str, Any]]:
         name = name.strip()
         logger.info("tool_call_start name=%s args=%s", name, self._truncate(arguments or "{}"))
         tool = self._tool_map.get(name)
         if tool is None:
             raise ValueError(f"Unknown tool: {name}")
-        result = tool.run(arguments)
-        logger.info("tool_call_end name=%s output=%s", name, self._truncate(result))
+
+        result = tool.run_multimodal(arguments)
+
+        if isinstance(result, str):
+            logger.info("tool_call_end name=%s output=%s", name, self._truncate(result))
+        else:
+            logger.info("tool_call_end name=%s output=[multimodal content]", name)
         return result
 
     def close(self) -> None:
@@ -329,8 +383,12 @@ class AgentLoop:
         self.close()
 
 
-def run_agent(query: str, max_turns: int = 8) -> str:
+def run_agent(
+    query: str,
+    max_turns: int = 8,
+    images: list[tuple[bytes, str]] | None = None,
+) -> str:
     if not logging.root.handlers:
         logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
     with AgentLoop(max_turns=max_turns) as loop:
-        return loop.run(query)
+        return loop.run(query, images=images)

@@ -1,4 +1,4 @@
-from nexal.channels.channel import Channel, IncomingMessage, OnMessage
+from nexal.channels.channel import Channel, ImageAttachment, IncomingMessage, OnMessage
 
 
 def chunk_message(text: str, max_len: int) -> list[str]:
@@ -28,4 +28,4 @@ def chunk_message(text: str, max_len: int) -> list[str]:
     return chunks
 
 
-__all__ = ["Channel", "IncomingMessage", "OnMessage", "chunk_message"]
+__all__ = ["Channel", "ImageAttachment", "IncomingMessage", "OnMessage", "chunk_message"]

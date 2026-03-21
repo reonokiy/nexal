@@ -12,6 +12,14 @@ OnMessage = Callable[["IncomingMessage"], Coroutine[Any, Any, None]]
 
 
 @dataclass
+class ImageAttachment:
+    """An image downloaded from a channel message."""
+    data: bytes
+    mime_type: str
+    filename: str = ""
+
+
+@dataclass
 class IncomingMessage:
     channel: str
     chat_id: str
@@ -20,6 +28,7 @@ class IncomingMessage:
     timestamp: datetime
     is_mentioned: bool = True
     metadata: dict[str, Any] = field(default_factory=dict)
+    images: list[ImageAttachment] = field(default_factory=list)
     typing_fn: Callable[[], contextlib.AbstractAsyncContextManager[None]] | None = field(
         default=None, repr=False, compare=False,
     )

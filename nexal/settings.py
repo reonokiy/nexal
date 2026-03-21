@@ -20,6 +20,7 @@ class AgentSettings:
     llm_max_context_tokens: int = 128_000
     llm_temperature: float = 0.6
     llm_top_p: float = 0.95
+    llm_supports_images: bool = True
     telegram_bot_token: str = ""
     telegram_allow_from: list[str] | None = None
     telegram_allow_chats: list[str] | None = None
@@ -54,6 +55,8 @@ def load_settings() -> None:
     settings.llm_max_context_tokens = int(os.getenv("LLM_MAX_CONTEXT_TOKENS", "128000"))
     settings.llm_temperature = float(os.getenv("LLM_TEMPERATURE", "0.6"))
     settings.llm_top_p = float(os.getenv("LLM_TOP_P", "0.95"))
+    llm_images_env = os.getenv("LLM_SUPPORTS_IMAGES", "").strip().lower()
+    settings.llm_supports_images = llm_images_env not in {"0", "false", "no", "off"}
     settings.telegram_bot_token = os.getenv("TELEGRAM_BOT_TOKEN", "")
     settings.telegram_allow_from = _parse_list_env("TELEGRAM_ALLOW_FROM")
     settings.telegram_allow_chats = _parse_list_env("TELEGRAM_ALLOW_CHATS")
