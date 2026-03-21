@@ -10,7 +10,7 @@ metadata:
 
 # Discord Skill
 
-Assumption: `DISCORD_BOT_TOKEN` is already available in environment.
+Messages are sent through the nexal proxy (via Unix socket). No bot token is needed in the sandbox.
 
 ## Command Templates
 
@@ -21,12 +21,6 @@ Paths are relative to this skill directory.
 uv run ./scripts/discord_send.py \
   --channel <CHANNEL_ID> \
   --message "<TEXT>"
-
-# Send as embed
-uv run ./scripts/discord_send.py \
-  --channel <CHANNEL_ID> \
-  --message "<TEXT>" \
-  --embed
 ```
 
 ## Response Contract

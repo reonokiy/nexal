@@ -2,24 +2,25 @@
 # /// script
 # requires-python = ">=3.10"
 # dependencies = [
-#     "requests>=2.31.0",
 #     "telegramify-markdown>=0.5.0",
 # ]
 # ///
 
-"""Edit an existing message via Telegram Bot API."""
+"""Edit an existing Telegram message through the nexal token proxy."""
 
 import argparse
-import os
+import http.client
+import json
+import socket
 import sys
-
-import requests
 
 try:
     from telegramify_markdown import markdownify
+    HAS_MARKDOWNIFY = True
 except ImportError:
-    print("Error: telegramify_markdown not installed. Run: pip install telegramify-markdown")
-    sys.exit(1)
+    HAS_MARKDOWNIFY = False
+
+PROXY_SOCK = "/workspace/agents/proxy/api.telegram.org"
 
 
 def unescape_newlines(text: str) -> str:
@@ -29,23 +30,44 @@ def unescape_newlines(text: str) -> str:
     return result
 
 
-def edit_message(bot_token: str, chat_id: str, message_id: int, text: str) -> dict:
-    url = f"https://api.telegram.org/bot{bot_token}/editMessageText"
+def _proxy_post(method: str, data: dict) -> dict:
+    body = json.dumps(data, ensure_ascii=False).encode()
+    conn = http.client.HTTPConnection("localhost")
+    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    sock.connect(PROXY_SOCK)
+    conn.sock = sock
+    try:
+        conn.request("POST", f"/{method}", body=body,
+                      headers={"Content-Type": "application/json"})
+        resp = conn.getresponse()
+        result = json.loads(resp.read())
+        if resp.status >= 400:
+            print(f"API error ({resp.status}): {json.dumps(result)}", file=sys.stderr)
+            sys.exit(1)
+        return result
+    finally:
+        conn.close()
 
+
+def edit_message(chat_id: str, message_id: int, text: str) -> dict:
     text = unescape_newlines(text)
-    converted_text = markdownify(text).rstrip("\n")
 
-    payload = {
+    if HAS_MARKDOWNIFY:
+        converted_text = markdownify(text).rstrip("\n")
+        parse_mode = "MarkdownV2"
+    else:
+        converted_text = text
+        parse_mode = ""
+
+    payload: dict = {
         "chat_id": chat_id,
         "message_id": message_id,
         "text": converted_text,
-        "parse_mode": "MarkdownV2",
     }
+    if parse_mode:
+        payload["parse_mode"] = parse_mode
 
-    response = requests.post(url, json=payload, timeout=30)
-    response.raise_for_status()
-
-    return response.json()
+    return _proxy_post("editMessageText", payload)
 
 
 def main():
@@ -53,22 +75,12 @@ def main():
     parser.add_argument("--chat-id", "-c", required=True, help="Target chat ID")
     parser.add_argument("--message-id", "-m", type=int, required=True, help="Message ID to edit")
     parser.add_argument("--text", "-t", required=True, help="New message text (markdown supported)")
-    parser.add_argument("--token", help="Bot token (defaults to TELEGRAM_BOT_TOKEN env var)")
 
     args = parser.parse_args()
 
-    bot_token = args.token or os.environ.get("TELEGRAM_BOT_TOKEN")
-    if not bot_token:
-        print("Error: Bot token required. Set TELEGRAM_BOT_TOKEN env var or use --token")
-        sys.exit(1)
-
     try:
-        edit_message(bot_token, args.chat_id, args.message_id, args.text)
+        edit_message(args.chat_id, args.message_id, args.text)
         print(f"Message {args.message_id} edited")
-    except requests.HTTPError as e:
-        print(f"HTTP Error: {e}")
-        print(f"Response: {e.response.text}")
-        sys.exit(1)
     except Exception as e:
         print(f"Error: {e}")
         sys.exit(1)

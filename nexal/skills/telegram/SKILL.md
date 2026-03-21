@@ -10,7 +10,7 @@ metadata:
 
 # Telegram Skill
 
-Assumption: `TELEGRAM_BOT_TOKEN` is already available in environment.
+Messages are sent through the nexal proxy (via Unix socket at `/workspace/agents/proxy/api.telegram.org`). No bot token is needed in the sandbox.
 
 ## Required Inputs
 
@@ -56,7 +56,7 @@ uv run ./scripts/telegram_edit.py \
   --text "<TEXT>"
 ```
 
-For other Telegram Bot API actions, use `curl` directly.
+For other Telegram Bot API actions, send requests to the proxy socket at `/workspace/agents/proxy/api.telegram.org` — the path maps directly to the Bot API method (e.g. POST `/getMe`).
 
 ## Failure Handling
 

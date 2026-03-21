@@ -1,67 +1,55 @@
 #!/usr/bin/env uv run
 # /// script
 # requires-python = ">=3.10"
-# dependencies = [
-#     "discord.py>=2.3.0",
-# ]
+# dependencies = []
 # ///
 
-"""Send messages to Discord channels."""
+"""Send messages to Discord channels through the nexal token proxy."""
 
 import argparse
-import asyncio
-import os
+import http.client
+import json
+import socket
 import sys
 
-import discord
+PROXY_SOCK = "/workspace/agents/proxy/discord.com"
 
 
-async def send_message(
-    token: str,
-    channel_id: int,
-    message: str,
-    embed: bool = False,
-) -> None:
-    intents = discord.Intents.default()
-    intents.message_content = True
-
-    client = discord.Client(intents=intents)
-
-    @client.event
-    async def on_ready():
-        try:
-            channel = client.get_channel(channel_id)
-            if channel is None:
-                print(f"Channel {channel_id} not found")
-                sys.exit(1)
-
-            if embed:
-                emb = discord.Embed(description=message)
-                await channel.send(embed=emb)
-            else:
-                await channel.send(message)
-
-            print(f"Message sent to channel {channel_id}")
-        finally:
-            await client.close()
-
-    await client.start(token)
+def _proxy_post(path: str, data: dict) -> dict:
+    """POST to the Discord proxy. path is the Discord API path (e.g. /channels/123/messages)."""
+    body = json.dumps(data, ensure_ascii=False).encode()
+    conn = http.client.HTTPConnection("localhost")
+    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    sock.connect(PROXY_SOCK)
+    conn.sock = sock
+    try:
+        conn.request("POST", path, body=body,
+                      headers={"Content-Type": "application/json"})
+        resp = conn.getresponse()
+        result = json.loads(resp.read())
+        if resp.status >= 400:
+            print(f"API error ({resp.status}): {json.dumps(result)}", file=sys.stderr)
+            sys.exit(1)
+        return result
+    finally:
+        conn.close()
 
 
 def main():
     parser = argparse.ArgumentParser(description="Send message to Discord")
-    parser.add_argument("--token", "-t", default=os.environ.get("DISCORD_BOT_TOKEN"))
     parser.add_argument("--channel", "-c", type=int, required=True, help="Channel ID")
     parser.add_argument("--message", "-m", required=True, help="Message to send")
-    parser.add_argument("--embed", "-e", action="store_true", help="Send as embed")
 
     args = parser.parse_args()
 
-    if not args.token:
-        print("Error: DISCORD_BOT_TOKEN not set")
+    try:
+        _proxy_post(f"/channels/{args.channel}/messages", {
+            "content": args.message,
+        })
+        print(f"Message sent to channel {args.channel}")
+    except Exception as e:
+        print(f"Error: {e}")
         sys.exit(1)
-
-    asyncio.run(send_message(args.token, args.channel, args.message, args.embed))
 
 
 if __name__ == "__main__":

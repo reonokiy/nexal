@@ -4,6 +4,7 @@ import logging
 from pathlib import Path
 from typing import Any, ClassVar
 
+from nexal.proxy import start_proxies
 from nexal.sandbox import Sandbox, SandboxConfig, SandboxExecRequest
 from nexal.sandbox.base import SandboxMount, SandboxSession
 from nexal.settings import settings
@@ -55,6 +56,7 @@ class ExecTool(FunctionTool):
     )
     params_type: ClassVar[type] = ExecParams
     _session: SandboxSession | None = field(default=None, init=False, repr=False)
+    _proxy_servers: list = field(default_factory=list, init=False, repr=False)
 
     def execute(self, params: ExecParams) -> str:
         timeout = max(1, min(params.timeout_seconds, 600))
@@ -72,6 +74,12 @@ class ExecTool(FunctionTool):
         }, ensure_ascii=False)
 
     def close(self) -> None:
+        for srv in self._proxy_servers:
+            try:
+                srv.shutdown()
+            except Exception:
+                pass
+        self._proxy_servers = []
         if self._session is None:
             return
         try:
@@ -96,12 +104,18 @@ class ExecTool(FunctionTool):
                 container_path=_CONTAINER_SKILLS_DIR,
                 read_only=True,
             ))
-        # Forward channel tokens into sandbox so skill scripts can use them.
+        # Start token proxies — tokens stay on the host, only the sockets
+        # are accessible inside the container via the workspace bind mount.
         env: dict[str, str] = {}
-        if settings.telegram_bot_token:
-            env["TELEGRAM_BOT_TOKEN"] = settings.telegram_bot_token
-        if settings.discord_bot_token:
-            env["DISCORD_BOT_TOKEN"] = settings.discord_bot_token
+        if settings.sandbox_workspace_dir and (
+            settings.telegram_bot_token or settings.discord_bot_token
+        ):
+            self._proxy_servers = start_proxies(
+                workspace_dir=settings.sandbox_workspace_dir,
+                telegram_token=settings.telegram_bot_token or None,
+                discord_token=settings.discord_bot_token or None,
+            )
+
         return Sandbox(
             config=SandboxConfig(
                 session_id=settings.sandbox_session_id,
