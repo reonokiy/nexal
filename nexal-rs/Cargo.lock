@@ -4767,11 +4767,6 @@ dependencies = [
 [[package]]
 name = "nexal-backend-openapi-models"
 version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
- "serde_with 3.18.0",
-]
 
 [[package]]
 name = "nexal-channel-discord"
@@ -4805,16 +4800,9 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
- "nexal-connectors",
  "nexal-core",
- "nexal-git-utils",
- "nexal-utils-cargo-bin",
  "nexal-utils-cli",
- "pretty_assertions",
  "serde",
- "serde_json",
- "tempfile",
- "tokio",
 ]
 
 [[package]]

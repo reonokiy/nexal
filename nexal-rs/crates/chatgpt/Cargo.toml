@@ -10,15 +10,6 @@ workspace = true
 [dependencies]
 anyhow = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
-nexal-connectors = { workspace = true }
 nexal-core = { workspace = true }
 nexal-utils-cli = { workspace = true }
-nexal-utils-cargo-bin = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
-serde_json = { workspace = true }
-tokio = { workspace = true, features = ["full"] }
-nexal-git-utils = { workspace = true }
-
-[dev-dependencies]
-pretty_assertions = { workspace = true }
-tempfile = { workspace = true }
