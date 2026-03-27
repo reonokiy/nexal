@@ -9,7 +9,7 @@ use nexal_channel_core::{Channel, IncomingMessage, MessageCallback};
 use nexal_config::NexalConfig;
 use serenity::all::{Context, EventHandler, GatewayIntents, Message, Ready};
 use serenity::Client;
-use tracing::{error, info, warn};
+use tracing::{info, warn};
 
 /// Discord channel that implements the [`Channel`] trait.
 pub struct DiscordChannel {

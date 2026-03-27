@@ -10,7 +10,7 @@
 
 use std::path::Path;
 
-use tracing::{debug, warn};
+use tracing::debug;
 
 /// Container-side path where skills are mounted.
 const CONTAINER_SKILLS_DIR: &str = "/workspace/agents/skills";
