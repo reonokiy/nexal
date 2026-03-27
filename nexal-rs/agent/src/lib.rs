@@ -2,6 +2,7 @@ mod bot;
 mod podman;
 mod pool;
 mod runner;
+pub mod skills;
 
 pub use bot::Bot;
 pub use pool::AgentPool;

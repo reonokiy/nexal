@@ -1,9 +1,15 @@
 //! Podman container lifecycle management for sandbox sessions.
 //!
-//! Each agent session gets its own long-lived container running the codex
+//! Each agent session gets its own long-lived container running the nexal
 //! `app-server` on a WebSocket port.  The host connects via
 //! [`RemoteAppServerClient`] and sends requests over the wire.  All command
 //! execution happens inside the container — no bwrap needed.
+//!
+//! Features:
+//! - Per-session containers with configurable resource limits
+//! - Health checking via `podman inspect`
+//! - Container recycling on crash/OOM
+//! - Workspace mount validation
 
 use anyhow::Context;
 use nexal_config::NexalConfig;
@@ -124,6 +130,21 @@ impl PodmanContainer {
         format!("ws://127.0.0.1:{}", self.ws_port)
     }
 
+    /// Check if the container is healthy (running).
+    pub async fn is_healthy(&self) -> bool {
+        let output = Command::new("podman")
+            .args(["inspect", "--format", "{{.State.Status}}", &self.name])
+            .output()
+            .await;
+        match output {
+            Ok(o) if o.status.success() => {
+                let status = String::from_utf8_lossy(&o.stdout).trim().to_string();
+                status == "running"
+            }
+            _ => false,
+        }
+    }
+
     /// Force-remove the container.
     pub async fn stop(&self) {
         let output = Command::new("podman")
@@ -143,6 +164,45 @@ impl PodmanContainer {
             }
         }
     }
+
+    /// Stop and restart the container (recycle on crash/OOM).
+    pub async fn recycle(
+        &self,
+        session_key: &str,
+        config: &NexalConfig,
+        app_server_bin: &str,
+    ) -> anyhow::Result<Self> {
+        warn!(container = %self.name, "recycling container");
+        self.stop().await;
+        Self::start(session_key, config, app_server_bin).await
+    }
+}
+
+/// Validate that the workspace directory exists and is suitable for mounting.
+pub fn validate_workspace(workspace_dir: &std::path::Path) -> anyhow::Result<()> {
+    if !workspace_dir.exists() {
+        anyhow::bail!(
+            "workspace directory does not exist: {}",
+            workspace_dir.display()
+        );
+    }
+    if !workspace_dir.is_dir() {
+        anyhow::bail!(
+            "workspace path is not a directory: {}",
+            workspace_dir.display()
+        );
+    }
+    // Check that the agents subdirectory exists or can be created
+    let agents_dir = workspace_dir.join("agents");
+    if !agents_dir.exists() {
+        std::fs::create_dir_all(&agents_dir).map_err(|e| {
+            anyhow::anyhow!(
+                "cannot create agents dir at {}: {e}",
+                agents_dir.display()
+            )
+        })?;
+    }
+    Ok(())
 }
 
 fn container_name(session_key: &str) -> String {
