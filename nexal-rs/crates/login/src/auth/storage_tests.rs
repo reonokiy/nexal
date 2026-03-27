@@ -211,7 +211,7 @@ fn keyring_auth_storage_load_returns_deserialized_auth() -> anyhow::Result<()> {
 
 #[test]
 fn keyring_auth_storage_compute_store_key_for_home_directory() -> anyhow::Result<()> {
-    let nexal_home = PathBuf::from("~/.codex");
+    let nexal_home = PathBuf::from("~/.nexal");
 
     let key = compute_store_key(nexal_home.as_path())?;
 

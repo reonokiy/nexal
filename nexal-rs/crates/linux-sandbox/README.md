@@ -41,7 +41,7 @@ know it is falling back to the vendored helper.
 - When the default bubblewrap pipeline is active, writable roots are layered with `--bind <root> <root>`.
 - When the default bubblewrap pipeline is active, protected subpaths under writable roots (for
   example `.git`,
-  resolved `gitdir:`, and `.codex`) are re-applied as read-only via `--ro-bind`.
+  resolved `gitdir:`, and `.nexal`) are re-applied as read-only via `--ro-bind`.
 - When the default bubblewrap pipeline is active, overlapping split-policy
   entries are applied in path-specificity order so narrower writable children
   can reopen broader read-only or denied parents while narrower denied subpaths

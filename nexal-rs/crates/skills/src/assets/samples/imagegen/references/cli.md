@@ -12,10 +12,10 @@ This file is for the fallback CLI mode only. Read it only after the user explici
 Real API calls require **network access** + `OPENAI_API_KEY`. `--dry-run` does not.
 
 ## Quick start (works from any repo)
-Set a stable path to the skill CLI (default `NEXAL_HOME` is `~/.codex`):
+Set a stable path to the skill CLI (default `NEXAL_HOME` is `~/.nexal`):
 
 ```
-export NEXAL_HOME="${NEXAL_HOME:-$HOME/.codex}"
+export NEXAL_HOME="${NEXAL_HOME:-$HOME/.nexal}"
 export IMAGE_GEN="$NEXAL_HOME/skills/imagegen/scripts/image_gen.py"
 ```
 

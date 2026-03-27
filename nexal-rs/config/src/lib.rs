@@ -11,11 +11,14 @@ Guidelines:
 "#;
 
 /// Nexal configuration loaded from environment variables.
-/// These are the nexal-specific settings; LLM/provider config
-/// is handled by the standard codex config (~/.codex/config.toml).
+///
+/// These are the nexal-specific settings (channels, sandbox, debounce).
+/// LLM model/provider config is handled by `~/.nexal/config.toml`
+/// (the forked codex config system), supporting OpenAI, Ollama, LMStudio,
+/// and any OpenAI-compatible endpoint via custom `[model_providers.*]`.
 #[derive(Debug, Clone)]
 pub struct NexalConfig {
-    /// Override the codex config home (default: ~/.codex)
+    /// Override the nexal config home (default: ~/.nexal)
     pub nexal_home: Option<PathBuf>,
 
     /// Workspace root directory (default: ~/.nexal/workspace)
@@ -36,8 +39,14 @@ pub struct NexalConfig {
     /// Comma-separated list of allowed Discord guild IDs (empty = allow all)
     pub discord_allow_guilds: Vec<String>,
 
-    /// Message debounce delay in seconds (default: 1.0)
+    /// Message debounce delay after mention in seconds (default: 1.0)
     pub debounce_secs: f64,
+
+    /// Delay for follow-up messages in active window in seconds (default: 10.0)
+    pub message_delay_secs: f64,
+
+    /// Active conversation window after mention in seconds (default: 60.0)
+    pub active_window_secs: f64,
 
     /// Enable network access inside sandbox (default: false)
     pub sandbox_network: bool,
@@ -109,6 +118,16 @@ impl NexalConfig {
             .and_then(|v| v.parse().ok())
             .unwrap_or(1.0);
 
+        let message_delay_secs = std::env::var("NEXAL_MESSAGE_DELAY_SECS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(10.0);
+
+        let active_window_secs = std::env::var("NEXAL_ACTIVE_WINDOW_SECS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(60.0);
+
         let sandbox_network = std::env::var("SANDBOX_NETWORK_ENABLED")
             .map(|v| matches!(v.to_lowercase().as_str(), "1" | "true" | "yes"))
             .unwrap_or(false);
@@ -145,6 +164,8 @@ impl NexalConfig {
             discord_bot_token,
             discord_allow_guilds,
             debounce_secs,
+            message_delay_secs,
+            active_window_secs,
             sandbox_network,
             sandbox_backend,
             sandbox_image,
