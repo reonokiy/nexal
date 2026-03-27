@@ -414,7 +414,7 @@ impl HistoryCell for StatusHistoryCell {
         let mut lines: Vec<Line<'static>> = Vec::new();
         lines.push(Line::from(vec![
             Span::from(format!("{}>_ ", FieldFormatter::INDENT)).dim(),
-            Span::from("OpenAI Nexal").bold(),
+            Span::from("Nexal").bold(),
             Span::from(" ").dim(),
             Span::from(format!("(v{NEXAL_CLI_VERSION})")).dim(),
         ]));
@@ -430,10 +430,10 @@ impl HistoryCell for StatusHistoryCell {
                 (Some(email), Some(plan)) => format!("{email} ({plan})"),
                 (Some(email), None) => email.clone(),
                 (None, Some(plan)) => plan.clone(),
-                (None, None) => "ChatGPT".to_string(),
+                (None, None) => "Nexal".to_string(),
             },
             StatusAccountDisplay::ApiKey => {
-                "API key configured (run nexal login to use ChatGPT)".to_string()
+                "API key configured".to_string()
             }
         });
 
@@ -474,7 +474,7 @@ impl HistoryCell for StatusHistoryCell {
 
         let note_first_line = Line::from(vec![
             Span::from("Visit ").cyan(),
-            "https://chatgpt.com/nexal/settings/usage"
+            "#"
                 .cyan()
                 .underlined(),
             Span::from(" for up-to-date").cyan(),

@@ -478,7 +478,7 @@ mod tests {
     #[test]
     fn debug_config_output_lists_requirement_sources() {
         let requirements_file = if cfg!(windows) {
-            absolute_path("C:\\ProgramData\\OpenAI\\Nexal\\requirements.toml")
+            absolute_path("C:\\ProgramData\\Nexal\\requirements.toml")
         } else {
             absolute_path("/etc/nexal/requirements.toml")
         };

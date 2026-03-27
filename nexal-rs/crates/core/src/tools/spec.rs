@@ -3142,7 +3142,7 @@ pub(crate) fn build_specs_with_discoverable_tools(
                     builder.register_handler(name, mcp_handler.clone());
                 }
                 Err(e) => {
-                    tracing::error!("Failed to convert {name:?} MCP tool to OpenAI tool: {e:?}");
+                    tracing::error!("Failed to convert {name:?} MCP tool to API tool: {e:?}");
                 }
             }
         }
@@ -3162,7 +3162,7 @@ pub(crate) fn build_specs_with_discoverable_tools(
                 }
                 Err(e) => {
                     tracing::error!(
-                        "Failed to convert dynamic tool {:?} to OpenAI tool: {e:?}",
+                        "Failed to convert dynamic tool {:?} to API tool: {e:?}",
                         tool.name
                     );
                 }

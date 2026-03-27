@@ -116,7 +116,7 @@ mod tests {
 
         let context = extract_response_debug_context(&TransportError::Http {
             status: StatusCode::UNAUTHORIZED,
-            url: Some("https://chatgpt.com/backend-api/nexal/models".to_string()),
+            url: Some("https://api.openai.com/v1/nexal/models".to_string()),
             headers: Some(headers),
             body: Some(r#"{"error":{"message":"plain text error"},"status":401}"#.to_string()),
         });
@@ -136,7 +136,7 @@ mod tests {
     fn telemetry_error_messages_omit_http_bodies() {
         let transport = TransportError::Http {
             status: StatusCode::UNAUTHORIZED,
-            url: Some("https://chatgpt.com/backend-api/nexal/responses".to_string()),
+            url: Some("https://api.openai.com/v1/nexal/responses".to_string()),
             headers: None,
             body: Some(r#"{"error":{"message":"secret token leaked"}}"#.to_string()),
         };

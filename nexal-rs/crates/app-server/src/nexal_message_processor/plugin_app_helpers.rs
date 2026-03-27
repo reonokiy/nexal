@@ -126,7 +126,7 @@ mod tests {
             branding: None,
             app_metadata: None,
             labels: None,
-            install_url: Some("https://chatgpt.com/apps/alpha/alpha".to_string()),
+            install_url: Some("#".to_string()),
             is_accessible: false,
             is_enabled: true,
             plugin_display_names: Vec::new(),

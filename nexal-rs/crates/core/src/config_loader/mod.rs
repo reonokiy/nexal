@@ -423,7 +423,7 @@ fn windows_nexal_system_dir() -> PathBuf {
         );
         PathBuf::from(DEFAULT_PROGRAM_DATA_DIR_WINDOWS)
     });
-    program_data.join("OpenAI").join("Nexal")
+    program_data.join("Nexal").join("Nexal")
 }
 
 #[cfg(windows)]
@@ -960,7 +960,7 @@ foo = "xyzzy"
     fn windows_system_requirements_toml_file_uses_expected_suffix() {
         let expected = windows_program_data_dir_from_known_folder()
             .unwrap_or_else(|_| PathBuf::from(DEFAULT_PROGRAM_DATA_DIR_WINDOWS))
-            .join("OpenAI")
+            .join("Nexal")
             .join("Nexal")
             .join("requirements.toml");
         assert_eq!(
@@ -973,7 +973,7 @@ foo = "xyzzy"
             windows_system_requirements_toml_file()
                 .expect("requirements.toml path")
                 .as_path()
-                .ends_with(Path::new("OpenAI").join("Nexal").join("requirements.toml"))
+                .ends_with(Path::new("Nexal").join("Nexal").join("requirements.toml"))
         );
     }
 
@@ -982,7 +982,7 @@ foo = "xyzzy"
     fn windows_system_config_toml_file_uses_expected_suffix() {
         let expected = windows_program_data_dir_from_known_folder()
             .unwrap_or_else(|_| PathBuf::from(DEFAULT_PROGRAM_DATA_DIR_WINDOWS))
-            .join("OpenAI")
+            .join("Nexal")
             .join("Nexal")
             .join("config.toml");
         assert_eq!(
@@ -995,7 +995,7 @@ foo = "xyzzy"
             windows_system_config_toml_file()
                 .expect("config.toml path")
                 .as_path()
-                .ends_with(Path::new("OpenAI").join("Nexal").join("config.toml"))
+                .ends_with(Path::new("Nexal").join("Nexal").join("config.toml"))
         );
     }
 }

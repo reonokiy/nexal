@@ -915,7 +915,7 @@ fn normalize_chatgpt_base_url(input: &str) -> String {
     while base_url.ends_with('/') {
         base_url.pop();
     }
-    if (base_url.starts_with("https://chatgpt.com")
+    if (base_url.starts_with("https://api.openai.com")
         || base_url.starts_with("https://chat.openai.com"))
         && !base_url.contains("/backend-api")
     {
@@ -970,7 +970,7 @@ async fn transcribe_bytes(
                 .multipart(form)
                 .header("User-Agent", get_nexal_user_agent());
             if let Some(acc) = auth.chatgpt_account_id {
-                req = req.header("ChatGPT-Account-Id", acc);
+                req = req.header("X-Account-Id", acc);
             }
             (endpoint, req)
         } else {

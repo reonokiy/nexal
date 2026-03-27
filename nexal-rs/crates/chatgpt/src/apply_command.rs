@@ -16,5 +16,5 @@ pub async fn run_apply_command(
     _apply_cli: ApplyCommand,
     _cwd: Option<PathBuf>,
 ) -> anyhow::Result<()> {
-    anyhow::bail!("ChatGPT apply command is not available in this build")
+    anyhow::bail!("Apply command is not available in this build")
 }

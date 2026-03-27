@@ -5,7 +5,6 @@
 //!   2. User-defined entries inside `~/.nexal/config.toml` under the `model_providers`
 //!      key. These override or extend the defaults at runtime.
 
-use crate::auth::AuthMode;
 use crate::error::EnvVarError;
 use nexal_api::Provider as ApiProvider;
 use nexal_api::provider::RetryConfig as ApiRetryConfig;
@@ -28,7 +27,7 @@ const MAX_STREAM_MAX_RETRIES: u64 = 100;
 /// Hard cap for user-configured `request_max_retries`.
 const MAX_REQUEST_MAX_RETRIES: u64 = 100;
 
-const OPENAI_PROVIDER_NAME: &str = "OpenAI";
+const OPENAI_PROVIDER_NAME: &str = "openai";
 pub const OPENAI_PROVIDER_ID: &str = "openai";
 const CHAT_WIRE_API_REMOVED_ERROR: &str = "`wire_api = \"chat\"` is no longer supported.\nHow to fix: set `wire_api = \"responses\"` in your provider config.\nMore info: https://github.com/openai/nexal/discussions/7782";
 pub(crate) const LEGACY_OLLAMA_CHAT_PROVIDER_ID: &str = "ollama-chat";
@@ -159,17 +158,12 @@ impl ModelProviderInfo {
 
     pub(crate) fn to_api_provider(
         &self,
-        auth_mode: Option<AuthMode>,
+        _auth_mode: Option<crate::auth::AuthMode>,
     ) -> crate::error::Result<ApiProvider> {
-        let default_base_url = if matches!(auth_mode, Some(AuthMode::Chatgpt)) {
-            "https://chatgpt.com/backend-api/nexal"
-        } else {
-            "https://api.openai.com/v1"
-        };
         let base_url = self
             .base_url
             .clone()
-            .unwrap_or_else(|| default_base_url.to_string());
+            .unwrap_or_else(|| "https://api.openai.com/v1".to_string());
 
         let headers = self.build_header_map()?;
         let retry = ApiRetryConfig {
@@ -243,8 +237,10 @@ impl ModelProviderInfo {
         ModelProviderInfo {
             name: OPENAI_PROVIDER_NAME.into(),
             base_url,
-            env_key: None,
-            env_key_instructions: None,
+            env_key: Some("OPENAI_API_KEY".into()),
+            env_key_instructions: Some(
+                "Set the OPENAI_API_KEY environment variable with your API key from https://platform.openai.com/api-keys".into(),
+            ),
             experimental_bearer_token: None,
             wire_api: WireApi::Responses,
             query_params: None,
@@ -253,23 +249,15 @@ impl ModelProviderInfo {
                     .into_iter()
                     .collect(),
             ),
-            env_http_headers: Some(
-                [
-                    (
-                        "OpenAI-Organization".to_string(),
-                        "OPENAI_ORGANIZATION".to_string(),
-                    ),
-                    ("OpenAI-Project".to_string(), "OPENAI_PROJECT".to_string()),
-                ]
-                .into_iter()
-                .collect(),
-            ),
+            // OpenAI-Organization and OpenAI-Project headers can be configured
+            // via `env_http_headers` in config.toml if needed.
+            env_http_headers: None,
             // Use global defaults for retry/timeout unless overridden in config.toml.
             request_max_retries: None,
             stream_max_retries: None,
             stream_idle_timeout_ms: None,
             websocket_connect_timeout_ms: None,
-            requires_openai_auth: true,
+            requires_openai_auth: false,
             supports_websockets: true,
         }
     }

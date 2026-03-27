@@ -132,7 +132,7 @@ pub enum NexalErr {
     QuotaExceeded,
 
     #[error(
-        "To use Nexal with your ChatGPT plan, upgrade to Plus: https://chatgpt.com/explore/plus."
+        "API key required. Set your API key via OPENAI_API_KEY environment variable."
     )]
     UsageNotIncluded,
 
@@ -436,7 +436,7 @@ impl std::fmt::Display for UsageLimitReachedError {
 
         let message = match self.plan_type.as_ref() {
             Some(PlanType::Known(KnownPlan::Plus)) => format!(
-                "You've hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro), visit https://chatgpt.com/nexal/settings/usage to purchase more credits{}",
+                "You've hit your usage limit. Check your API provider's dashboard for details{}",
                 retry_suffix_after_or(self.resets_at.as_ref())
             ),
             Some(PlanType::Known(KnownPlan::Team)) | Some(PlanType::Known(KnownPlan::Business)) => {
@@ -447,12 +447,12 @@ impl std::fmt::Display for UsageLimitReachedError {
             }
             Some(PlanType::Known(KnownPlan::Free)) | Some(PlanType::Known(KnownPlan::Go)) => {
                 format!(
-                    "You've hit your usage limit. Upgrade to Plus to continue using Nexal (https://chatgpt.com/explore/plus),{}",
+                    "You've hit your usage limit.{}",
                     retry_suffix_after_or(self.resets_at.as_ref())
                 )
             }
             Some(PlanType::Known(KnownPlan::Pro)) => format!(
-                "You've hit your usage limit. Visit https://chatgpt.com/nexal/settings/usage to purchase more credits{}",
+                "You've hit your usage limit. Check your API provider's dashboard{}",
                 retry_suffix_after_or(self.resets_at.as_ref())
             ),
             Some(PlanType::Known(KnownPlan::Enterprise))

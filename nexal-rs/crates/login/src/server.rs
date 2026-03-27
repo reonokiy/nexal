@@ -92,6 +92,6 @@ impl ShutdownHandle {
 /// Returns an error directing the caller to use API-key authentication.
 pub fn run_login_server(_opts: ServerOptions) -> io::Result<LoginServer> {
     Err(io::Error::other(
-        "ChatGPT OAuth login is not supported. Use an API key instead.",
+        "Browser login is not supported. Use an API key instead.",
     ))
 }

@@ -119,7 +119,7 @@ impl AppLinkView {
             AppLinkScreen::Link => {
                 if self.is_installed {
                     vec![
-                        "Manage on ChatGPT",
+                        "Manage app",
                         if self.is_enabled {
                             "Disable app"
                         } else {
@@ -128,7 +128,7 @@ impl AppLinkView {
                         "Back",
                     ]
                 } else {
-                    vec!["Install on ChatGPT", "Back"]
+                    vec!["Install app", "Back"]
                 }
             }
             AppLinkScreen::InstallConfirmation => vec!["I already Installed it", "Back"],
@@ -319,7 +319,7 @@ impl AppLinkView {
         lines.push(Line::from(""));
 
         for line in wrap(
-            "Complete app setup on ChatGPT in the browser window that just opened.",
+            "Complete app setup in the browser.",
             usable_width,
         ) {
             lines.push(Line::from(line.into_owned()));
@@ -604,7 +604,7 @@ mod tests {
 
         assert_eq!(
             view.action_labels(),
-            vec!["Manage on ChatGPT", "Disable app", "Back"]
+            vec!["Manage app", "Disable app", "Back"]
         );
     }
 
@@ -641,7 +641,7 @@ mod tests {
 
         assert_eq!(
             view.action_labels(),
-            vec!["Manage on ChatGPT", "Enable app", "Back"]
+            vec!["Manage app", "Enable app", "Back"]
         );
     }
 

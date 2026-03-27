@@ -116,7 +116,7 @@ fn nexal_apps_mcp_http_headers(auth: Option<&NexalAuth>) -> Option<HashMap<Strin
         headers.insert("Authorization".to_string(), format!("Bearer {token}"));
     }
     if let Some(account_id) = auth.and_then(NexalAuth::get_account_id) {
-        headers.insert("ChatGPT-Account-ID".to_string(), account_id);
+        headers.insert("X-Account-ID".to_string(), account_id);
     }
     if headers.is_empty() {
         None
@@ -127,7 +127,7 @@ fn nexal_apps_mcp_http_headers(auth: Option<&NexalAuth>) -> Option<HashMap<Strin
 
 fn normalize_nexal_apps_base_url(base_url: &str) -> String {
     let mut base_url = base_url.trim_end_matches('/').to_string();
-    if (base_url.starts_with("https://chatgpt.com")
+    if (base_url.starts_with("https://api.openai.com")
         || base_url.starts_with("https://chat.openai.com"))
         && !base_url.contains("/backend-api")
     {

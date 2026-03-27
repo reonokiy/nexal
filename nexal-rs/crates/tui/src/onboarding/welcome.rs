@@ -87,7 +87,6 @@ impl WidgetRef for &WelcomeWidget {
             "  ".into(),
             "Welcome to ".into(),
             "Nexal".bold(),
-            ", OpenAI's command-line coding agent".into(),
         ]));
 
         Paragraph::new(lines)

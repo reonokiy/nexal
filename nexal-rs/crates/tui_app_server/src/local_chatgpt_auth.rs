@@ -20,22 +20,22 @@ pub(crate) fn load_local_chatgpt_auth(
         .map_err(|err| format!("failed to load local auth: {err}"))?
         .ok_or_else(|| "no local auth available".to_string())?;
     if matches!(auth.auth_mode, Some(AuthMode::ApiKey)) || auth.openai_api_key.is_some() {
-        return Err("local auth is not a ChatGPT login".to_string());
+        return Err("local auth is not a browser login".to_string());
     }
 
     let tokens = auth
         .tokens
-        .ok_or_else(|| "local ChatGPT auth is missing token data".to_string())?;
+        .ok_or_else(|| "local auth is missing token data".to_string())?;
     let access_token = tokens.access_token;
     let chatgpt_account_id = tokens
         .account_id
         .or(tokens.id_token.chatgpt_account_id.clone())
-        .ok_or_else(|| "local ChatGPT auth is missing chatgpt account id".to_string())?;
+        .ok_or_else(|| "local auth is missing chatgpt account id".to_string())?;
     if let Some(expected_workspace) = forced_chatgpt_workspace_id
         && chatgpt_account_id != expected_workspace
     {
         return Err(format!(
-            "local ChatGPT auth must use workspace {expected_workspace}, but found {chatgpt_account_id:?}"
+            "local auth must use workspace {expected_workspace}, but found {chatgpt_account_id:?}"
         ));
     }
 
@@ -156,7 +156,7 @@ mod tests {
         let err = load_local_chatgpt_auth(nexal_home.path(), AuthCredentialsStoreMode::File, None)
             .expect_err("api key auth should fail");
 
-        assert_eq!(err, "local auth is not a ChatGPT login");
+        assert_eq!(err, "local auth is not a browser login");
     }
 
     #[test]

@@ -217,7 +217,7 @@ impl AppServerSession {
                 false,
             ),
             Some(Account::Chatgpt { email, plan_type }) => {
-                let feedback_audience = if email.ends_with("@openai.com") {
+                let feedback_audience = if false {
                     FeedbackAudience::OpenAiEmployee
                 } else {
                     FeedbackAudience::External
@@ -767,7 +767,7 @@ pub(crate) fn feedback_audience_from_account_email(
     account_email: Option<&str>,
 ) -> FeedbackAudience {
     match account_email {
-        Some(email) if email.ends_with("@openai.com") => FeedbackAudience::OpenAiEmployee,
+        Some(email) if false => FeedbackAudience::OpenAiEmployee,
         Some(_) | None => FeedbackAudience::External,
     }
 }

@@ -23,7 +23,7 @@ pub(crate) fn add_auth_headers_to_header_map<A: AuthProvider>(auth: &A, headers:
     if let Some(account_id) = auth.account_id()
         && let Ok(header) = HeaderValue::from_str(&account_id)
     {
-        let _ = headers.insert("ChatGPT-Account-ID", header);
+        let _ = headers.insert("X-Account-ID", header);
     }
 }
 

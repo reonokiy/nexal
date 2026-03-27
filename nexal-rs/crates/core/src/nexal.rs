@@ -422,7 +422,7 @@ pub(crate) struct NexalSpawnArgs {
 
 pub(crate) const INITIAL_SUBMIT_ID: &str = "";
 pub(crate) const SUBMISSION_CHANNEL_CAPACITY: usize = 512;
-const CYBER_VERIFY_URL: &str = "https://chatgpt.com/cyber";
+const CYBER_VERIFY_URL: &str = "#";
 const CYBER_SAFETY_URL: &str = "https://developers.openai.com/nexal/concepts/cyber-safety";
 const DIRECT_APP_TOOL_EXPOSURE_THRESHOLD: usize = 100;
 

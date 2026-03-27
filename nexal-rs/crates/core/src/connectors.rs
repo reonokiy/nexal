@@ -958,7 +958,7 @@ fn normalize_connector_value(value: Option<&str>) -> Option<String> {
 
 pub fn connector_install_url(name: &str, connector_id: &str) -> String {
     let slug = sanitize_slug(name);
-    format!("https://chatgpt.com/apps/{slug}/{connector_id}")
+    format!("#{connector_id}")
 }
 
 pub fn sanitize_name(name: &str) -> String {

@@ -366,7 +366,7 @@ pub async fn run_main(
     let chatgpt_base_url = config_toml
         .chatgpt_base_url
         .clone()
-        .unwrap_or_else(|| "https://chatgpt.com/backend-api/".to_string());
+        .unwrap_or_else(|| "https://api.openai.com/v1/".to_string());
     let cloud_requirements = cloud_requirements_loader(
         cloud_auth_manager,
         chatgpt_base_url,

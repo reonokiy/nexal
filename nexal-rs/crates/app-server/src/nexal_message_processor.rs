@@ -993,7 +993,7 @@ impl NexalMessageProcessor {
         ) {
             return Err(JSONRPCErrorError {
                 code: INVALID_REQUEST_ERROR_CODE,
-                message: "API key login is disabled. Use ChatGPT login instead.".to_string(),
+                message: "API key login is not available.".to_string(),
                 data: None,
             });
         }
@@ -1069,7 +1069,7 @@ impl NexalMessageProcessor {
         if matches!(config.forced_login_method, Some(ForcedLoginMethod::Api)) {
             return Err(JSONRPCErrorError {
                 code: INVALID_REQUEST_ERROR_CODE,
-                message: "ChatGPT login is disabled. Use API key login instead.".to_string(),
+                message: "Use API key to authenticate.".to_string(),
                 data: None,
             });
         }
@@ -1248,7 +1248,7 @@ impl NexalMessageProcessor {
         ) {
             let error = JSONRPCErrorError {
                 code: INVALID_REQUEST_ERROR_CODE,
-                message: "External ChatGPT auth is disabled. Use API key login instead."
+                message: "Use API key to authenticate."
                     .to_string(),
                 data: None,
             };

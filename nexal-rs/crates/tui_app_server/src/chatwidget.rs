@@ -7743,7 +7743,7 @@ impl ChatWidget {
     fn model_menu_warning_line(&self) -> Option<Line<'static>> {
         let base_url = self.custom_openai_base_url()?;
         let warning = format!(
-            "Warning: OpenAI base URL is overridden to {base_url}. Selecting models may not be supported or work properly."
+            "Warning: API base URL is overridden to {base_url}. Selecting models may not be supported or work properly."
         );
         Some(Line::from(warning.red()))
     }
@@ -8823,7 +8823,7 @@ impl ChatWidget {
             header.push(*Box::new(
                 Paragraph::new(vec![
                     line!["Agent mode on Windows uses an experimental sandbox to limit network and filesystem access.".bold()],
-                    line!["Learn more: https://developers.openai.com/nexal/windows"],
+                    line!["Learn more: https://github.com/anthropics/claude-code"],
                 ])
                 .wrap(Wrap { trim: false }),
             ));
@@ -8872,7 +8872,7 @@ impl ChatWidget {
         let mut header = ColumnRenderable::new();
         header.push(*Box::new(
             Paragraph::new(vec![
-                line!["Set up the Nexal agent sandbox to protect your files and control network access. Learn more <https://developers.openai.com/nexal/windows>"],
+                line!["Set up the Nexal agent sandbox to protect your files and control network access. Learn more <https://github.com/anthropics/claude-code>"],
             ])
             .wrap(Wrap { trim: false }),
         ));
@@ -8955,7 +8955,7 @@ impl ChatWidget {
             "You can still use Nexal in a non-admin sandbox. It carries greater risk if prompt injected."
         ]);
         lines.push(line![
-            "Learn more <https://developers.openai.com/nexal/windows>"
+            "Learn more <https://github.com/anthropics/claude-code>"
         ]);
 
         let mut header = ColumnRenderable::new();

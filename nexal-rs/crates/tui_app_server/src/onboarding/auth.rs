@@ -315,11 +315,7 @@ impl AuthModeWidget {
         let mut lines: Vec<Line> = vec![
             Line::from(vec![
                 "  ".into(),
-                "Sign in with ChatGPT to use Nexal as part of your paid plan".into(),
-            ]),
-            Line::from(vec![
-                "  ".into(),
-                "or connect an API key for usage-based billing".into(),
+                "Configure your API key to get started".into(),
             ]),
             "".into(),
         ];
@@ -354,9 +350,9 @@ impl AuthModeWidget {
         };
 
         let chatgpt_description = if !self.is_chatgpt_login_allowed() {
-            "ChatGPT login is disabled"
+            "Browser login is disabled"
         } else {
-            "Usage included with Plus, Pro, Business, and Enterprise plans"
+            "Sign in via your browser"
         };
         let device_code_description = "Sign in from another device with a one-time code";
 
@@ -366,7 +362,7 @@ impl AuthModeWidget {
                     lines.extend(create_mode_item(
                         idx,
                         option,
-                        "Sign in with ChatGPT",
+                        "Sign in via browser",
                         chatgpt_description,
                     ));
                 }
@@ -392,7 +388,7 @@ impl AuthModeWidget {
 
         if !self.is_api_login_allowed() {
             lines.push(
-                "  API key login is disabled by this workspace. Sign in with ChatGPT to continue."
+                "  API key login is disabled by this workspace. Sign in via browser to continue."
                     .dim()
                     .into(),
             );
@@ -461,26 +457,14 @@ impl AuthModeWidget {
 
     fn render_chatgpt_success_message(&self, area: Rect, buf: &mut Buffer) {
         let lines = vec![
-            "✓ Signed in with your ChatGPT account".fg(Color::Green).into(),
+            "✓ Connected".fg(Color::Green).into(),
             "".into(),
             "  Before you start:".into(),
             "".into(),
             "  Decide how much autonomy you want to grant Nexal".into(),
-            Line::from(vec![
-                "  For more details see the ".into(),
-                "\u{1b}]8;;https://developers.openai.com/nexal/security\u{7}Nexal docs\u{1b}]8;;\u{7}".underlined(),
-            ])
-            .dim(),
             "".into(),
             "  Nexal can make mistakes".into(),
             "  Review the code it writes and commands it runs".dim().into(),
-            "".into(),
-            "  Powered by your ChatGPT account".into(),
-            Line::from(vec![
-                "  Uses your plan's rate limits and ".into(),
-                "\u{1b}]8;;https://chatgpt.com/#settings\u{7}training data preferences\u{1b}]8;;\u{7}".underlined(),
-            ])
-            .dim(),
             "".into(),
             "  Press Enter to continue".fg(Color::Cyan).into(),
         ];
@@ -492,7 +476,7 @@ impl AuthModeWidget {
 
     fn render_chatgpt_success(&self, area: Rect, buf: &mut Buffer) {
         let lines = vec![
-            "✓ Signed in with your ChatGPT account"
+            "✓ Connected"
                 .fg(Color::Green)
                 .into(),
         ];
@@ -525,7 +509,7 @@ impl AuthModeWidget {
         let mut intro_lines: Vec<Line> = vec![
             Line::from(vec![
                 "> ".into(),
-                "Use your own OpenAI API key for usage-based billing".bold(),
+                "Use your own API key".bold(),
             ]),
             "".into(),
             "  Paste or type your API key below. It will be stored locally in auth.json.".into(),
