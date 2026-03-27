@@ -1,18 +1,15 @@
 use crate::config::OtelExporter;
 use crate::metrics::Result;
-use crate::metrics::validation::validate_tag_key;
-use crate::metrics::validation::validate_tag_value;
-use opentelemetry_sdk::metrics::InMemoryMetricExporter;
 use std::collections::BTreeMap;
 use std::time::Duration;
 
 #[derive(Clone, Debug)]
 pub enum MetricsExporter {
     Otlp(OtelExporter),
-    InMemory(InMemoryMetricExporter),
 }
 
 #[derive(Clone, Debug)]
+#[allow(dead_code)]
 pub struct MetricsConfig {
     pub(crate) environment: String,
     pub(crate) service_name: String,
@@ -41,42 +38,22 @@ impl MetricsConfig {
         }
     }
 
-    /// Create an in-memory config (used in tests).
-    pub fn in_memory(
-        environment: impl Into<String>,
-        service_name: impl Into<String>,
-        service_version: impl Into<String>,
-        exporter: InMemoryMetricExporter,
-    ) -> Self {
-        Self {
-            environment: environment.into(),
-            service_name: service_name.into(),
-            service_version: service_version.into(),
-            exporter: MetricsExporter::InMemory(exporter),
-            export_interval: None,
-            runtime_reader: false,
-            default_tags: BTreeMap::new(),
-        }
-    }
-
-    /// Override the interval between periodic metric exports.
+    /// Override the interval between periodic metric exports (no-op).
     pub fn with_export_interval(mut self, interval: Duration) -> Self {
         self.export_interval = Some(interval);
         self
     }
 
-    /// Enable a manual reader for on-demand runtime snapshots.
+    /// Enable a manual reader for on-demand runtime snapshots (no-op).
     pub fn with_runtime_reader(mut self) -> Self {
         self.runtime_reader = true;
         self
     }
 
-    /// Add a default tag that will be sent with every metric.
+    /// Add a default tag that will be sent with every metric (no-op).
     pub fn with_tag(mut self, key: impl Into<String>, value: impl Into<String>) -> Result<Self> {
         let key = key.into();
         let value = value.into();
-        validate_tag_key(&key)?;
-        validate_tag_value(&value)?;
         self.default_tags.insert(key, value);
         Ok(self)
     }

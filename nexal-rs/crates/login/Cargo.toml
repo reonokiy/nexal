@@ -19,14 +19,12 @@ nexal-protocol = { workspace = true }
 nexal-terminal-detection = { workspace = true }
 once_cell = { workspace = true }
 os_info = { workspace = true }
-rand = { workspace = true }
 reqwest = { workspace = true, features = ["json", "blocking"] }
 schemars = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
 thiserror = { workspace = true }
-tiny_http = { workspace = true }
 tokio = { workspace = true, features = [
     "io-std",
     "macros",
@@ -35,9 +33,6 @@ tokio = { workspace = true, features = [
     "signal",
 ] }
 tracing = { workspace = true }
-url = { workspace = true }
-urlencoding = { workspace = true }
-webbrowser = { workspace = true }
 
 [dev-dependencies]
 anyhow = { workspace = true }

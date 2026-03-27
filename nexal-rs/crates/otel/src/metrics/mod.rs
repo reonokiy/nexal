@@ -16,6 +16,7 @@ use std::sync::OnceLock;
 
 static GLOBAL_METRICS: OnceLock<MetricsClient> = OnceLock::new();
 
+#[allow(dead_code)]
 pub(crate) fn install_global(metrics: MetricsClient) {
     let _ = GLOBAL_METRICS.set(metrics);
 }

@@ -4,7 +4,6 @@ pub type Result<T> = std::result::Result<T, MetricsError>;
 
 #[derive(Debug, Error)]
 pub enum MetricsError {
-    // Metrics.
     #[error("metric name cannot be empty")]
     EmptyMetricName,
     #[error("metric name contains invalid characters: {name}")]
@@ -20,27 +19,18 @@ pub enum MetricsError {
     #[error("counter increment must be non-negative for {name}: {inc}")]
     NegativeCounterIncrement { name: String, inc: i64 },
 
-    #[error("failed to build OTLP metrics exporter")]
-    ExporterBuild {
-        #[source]
-        source: opentelemetry_otlp::ExporterBuildError,
-    },
+    #[error("failed to build OTLP metrics exporter: {message}")]
+    ExporterBuild { message: String },
 
     #[error("invalid OTLP metrics configuration: {message}")]
     InvalidConfig { message: String },
 
-    #[error("failed to flush or shutdown metrics provider")]
-    ProviderShutdown {
-        #[source]
-        source: opentelemetry_sdk::error::OTelSdkError,
-    },
+    #[error("failed to flush or shutdown metrics provider: {message}")]
+    ProviderShutdown { message: String },
 
     #[error("runtime metrics snapshot reader is not enabled")]
     RuntimeSnapshotUnavailable,
 
-    #[error("failed to collect runtime metrics snapshot from metrics reader")]
-    RuntimeSnapshotCollect {
-        #[source]
-        source: opentelemetry_sdk::error::OTelSdkError,
-    },
+    #[error("failed to collect runtime metrics snapshot from metrics reader: {message}")]
+    RuntimeSnapshotCollect { message: String },
 }

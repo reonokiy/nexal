@@ -1,5 +1,6 @@
 use tracing::debug;
 
+#[allow(dead_code)]
 pub(crate) fn try_parse_error_message(text: &str) -> String {
     debug!("Parsing server error response: {}", text);
     let json = serde_json::from_str::<serde_json::Value>(text).unwrap_or_default();

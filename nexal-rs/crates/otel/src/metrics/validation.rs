@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use crate::metrics::error::MetricsError;
 use crate::metrics::error::Result;
 use std::collections::BTreeMap;

@@ -1,3 +1,9 @@
+//! Stubbed-out cloud-tasks-client crate.
+//!
+//! The ChatGPT-backend cloud task queue integration has been removed.
+//! This crate retains the public type definitions so that downstream code
+//! continues to compile, but all runtime functionality is a no-op.
+
 mod api;
 
 pub use api::ApplyOutcome;
@@ -14,17 +20,3 @@ pub use api::TaskStatus;
 pub use api::TaskSummary;
 pub use api::TaskText;
 pub use api::TurnAttempt;
-
-#[cfg(feature = "mock")]
-mod mock;
-
-#[cfg(feature = "online")]
-mod http;
-
-#[cfg(feature = "mock")]
-pub use mock::MockClient;
-
-#[cfg(feature = "online")]
-pub use http::HttpClient;
-
-// Reusable apply engine now lives in the shared crate `nexal-git-utils`.

@@ -3,29 +3,10 @@ use std::path::PathBuf;
 
 use nexal_utils_absolute_path::AbsolutePathBuf;
 
-pub(crate) const STATSIG_OTLP_HTTP_ENDPOINT: &str = "https://ab.chatgpt.com/otlp/v1/metrics";
-pub(crate) const STATSIG_API_KEY_HEADER: &str = "statsig-api-key";
-pub(crate) const STATSIG_API_KEY: &str = "client-MkRuleRQBd6qakfnDYqJVR9JuXcY57Ljly3vi5JVUIO";
-
-pub(crate) fn resolve_exporter(exporter: &OtelExporter) -> OtelExporter {
-    match exporter {
-        OtelExporter::Statsig => {
-            if cfg!(test) || cfg!(feature = "disable-default-metrics-exporter") {
-                return OtelExporter::None;
-            }
-
-            OtelExporter::OtlpHttp {
-                endpoint: STATSIG_OTLP_HTTP_ENDPOINT.to_string(),
-                headers: HashMap::from([(
-                    STATSIG_API_KEY_HEADER.to_string(),
-                    STATSIG_API_KEY.to_string(),
-                )]),
-                protocol: OtelHttpProtocol::Json,
-                tls: None,
-            }
-        }
-        _ => exporter.clone(),
-    }
+/// No-op: resolve_exporter always returns OtelExporter::None.
+#[allow(dead_code)]
+pub(crate) fn resolve_exporter(_exporter: &OtelExporter) -> OtelExporter {
+    OtelExporter::None
 }
 
 #[derive(Clone, Debug)]

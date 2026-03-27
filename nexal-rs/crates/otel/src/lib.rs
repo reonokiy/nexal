@@ -4,9 +4,6 @@ pub mod metrics;
 pub mod provider;
 pub mod trace_context;
 
-mod otlp;
-mod targets;
-
 use crate::metrics::MetricsError;
 use crate::metrics::Result as MetricsResult;
 use serde::Serialize;
@@ -53,7 +50,7 @@ impl From<nexal_app_server_protocol::AuthMode> for TelemetryAuthMode {
     }
 }
 
-/// Start a metrics timer using the globally installed metrics client.
+/// Start a metrics timer using the globally installed metrics client (no-op).
 pub fn start_global_timer(name: &str, tags: &[(&str, &str)]) -> MetricsResult<Timer> {
     let Some(metrics) = crate::metrics::global() else {
         return Err(MetricsError::ExporterDisabled);
