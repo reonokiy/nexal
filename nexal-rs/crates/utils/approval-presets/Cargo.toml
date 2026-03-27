@@ -1,0 +1,11 @@
+[package]
+name = "nexal-utils-approval-presets"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+nexal-protocol = { workspace = true }

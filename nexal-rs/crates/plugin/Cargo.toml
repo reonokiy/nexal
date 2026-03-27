@@ -1,0 +1,18 @@
+[package]
+edition.workspace = true
+license.workspace = true
+name = "nexal-plugin"
+version.workspace = true
+
+[lib]
+doctest = false
+name = "nexal_plugin"
+path = "src/lib.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+nexal-utils-absolute-path = { workspace = true }
+nexal-utils-plugins = { workspace = true }
+thiserror = { workspace = true }

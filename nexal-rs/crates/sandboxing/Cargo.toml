@@ -1,0 +1,27 @@
+[package]
+name = "nexal-sandboxing"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "nexal_sandboxing"
+path = "src/lib.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+nexal-network-proxy = { workspace = true }
+nexal-protocol = { workspace = true }
+nexal-utils-absolute-path = { workspace = true }
+dirs = { workspace = true }
+dunce = { workspace = true }
+libc = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true, features = ["log"] }
+url = { workspace = true }
+
+[dev-dependencies]
+pretty_assertions = { workspace = true }
+tempfile = { workspace = true }

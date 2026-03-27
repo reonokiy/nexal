@@ -1,0 +1,22 @@
+[package]
+name = "nexal-agent"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+nexal-config = { workspace = true }
+nexal-state = { workspace = true }
+
+nexal-app-server-client = { workspace = true }
+nexal-app-server-protocol = { workspace = true }
+nexal-arg0 = { workspace = true }
+nexal-cloud-requirements = { workspace = true }
+nexal-core = { workspace = true }
+nexal-feedback = { workspace = true }
+nexal-protocol = { workspace = true }
+nexal-config-loader = { workspace = true }
+
+anyhow = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }

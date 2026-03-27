@@ -1,0 +1,18 @@
+[package]
+name = "nexal-terminal-detection"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "nexal_terminal_detection"
+path = "src/lib.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+tracing = { workspace = true }
+
+[dev-dependencies]
+pretty_assertions = { workspace = true }

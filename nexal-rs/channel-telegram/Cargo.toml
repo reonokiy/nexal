@@ -1,0 +1,14 @@
+[package]
+name = "nexal-channel-telegram"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+nexal-config = { workspace = true }
+nexal-agent = { workspace = true }
+nexal-state = { workspace = true }
+
+anyhow = { workspace = true }
+teloxide = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }

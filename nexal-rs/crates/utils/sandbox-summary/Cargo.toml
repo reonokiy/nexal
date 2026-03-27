@@ -1,0 +1,16 @@
+[package]
+name = "nexal-utils-sandbox-summary"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+nexal-core = { workspace = true }
+nexal-protocol = { workspace = true }
+
+[dev-dependencies]
+nexal-utils-absolute-path = { workspace = true }
+pretty_assertions = { workspace = true }

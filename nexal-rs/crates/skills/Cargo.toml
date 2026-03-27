@@ -1,0 +1,19 @@
+[package]
+edition.workspace = true
+license.workspace = true
+name = "nexal-skills"
+version.workspace = true
+build = "build.rs"
+
+[lib]
+doctest = false
+name = "nexal_skills"
+path = "src/lib.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+nexal-utils-absolute-path = { workspace = true }
+include_dir = { workspace = true }
+thiserror = { workspace = true }

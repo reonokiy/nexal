@@ -1,0 +1,23 @@
+[package]
+name = "nexal-arg0"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "nexal_arg0"
+path = "src/lib.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+nexal-apply-patch = { workspace = true }
+nexal-linux-sandbox = { workspace = true }
+nexal-sandboxing = { workspace = true }
+nexal-shell-escalation = { workspace = true }
+nexal-utils-home-dir = { workspace = true }
+dotenvy = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread"] }
