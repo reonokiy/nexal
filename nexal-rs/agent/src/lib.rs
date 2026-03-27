@@ -1,7 +1,9 @@
+mod bot;
 mod podman;
 mod pool;
 mod runner;
 
+pub use bot::Bot;
 pub use pool::AgentPool;
 
 /// Split a model response into ≤4096-char chunks at blank lines,

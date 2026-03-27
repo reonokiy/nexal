@@ -24,7 +24,7 @@ pub trait Channel: Send + Sync + 'static {
     /// This method should block (async) until the channel shuts down.
     async fn start(
         &self,
-        on_message: Box<dyn Fn(IncomingMessage) -> futures_like::BoxSendFut + Send + Sync>,
+        on_message: MessageCallback,
     ) -> anyhow::Result<()>;
 
     /// Send a text message to a specific chat.
@@ -36,18 +36,12 @@ pub trait Channel: Send + Sync + 'static {
     }
 }
 
-/// Helper module for the callback type used in [`Channel::start`].
+/// Callback type for [`Channel::start`]: receives a message, spawns handling.
 ///
-/// We avoid pulling in the full `futures` crate by defining a minimal
-/// boxed-future type alias.
-mod futures_like {
-    use std::future::Future;
-    use std::pin::Pin;
+/// Returns a `JoinHandle` so the channel can optionally track tasks, but
+/// typically the result is just ignored (fire-and-forget).
+pub type MessageCallback =
+    Box<dyn Fn(IncomingMessage) -> tokio::task::JoinHandle<()> + Send + Sync>;
 
-    /// A boxed, Send future returning `()`.
-    pub type BoxSendFut = Pin<Box<dyn Future<Output = ()> + Send>>;
-}
-
-// Re-export for use by channel implementations.
-#[allow(unused_imports)]
-pub use futures_like::BoxSendFut;
+/// A boxed, Send future returning `()`.
+pub type BoxSendFut = std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>;
