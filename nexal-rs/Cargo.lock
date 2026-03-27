@@ -4769,6 +4769,18 @@ name = "nexal-backend-openapi-models"
 version = "0.1.0"
 
 [[package]]
+name = "nexal-channel-core"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "nexal-channel-discord"
 version = "0.1.0"
 dependencies = [

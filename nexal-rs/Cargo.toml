@@ -4,6 +4,7 @@ members = [
     "nexal",
     "config",
     "agent",
+    "channel-core",
     "channel-telegram",
     "channel-discord",
     "state",
@@ -109,6 +110,7 @@ license = "Apache-2.0"
 nexal-config = { path = "config" }
 nexal-agent = { path = "agent" }
 nexal-state = { path = "state" }
+nexal-channel-core = { path = "channel-core" }
 nexal-channel-telegram = { path = "channel-telegram" }
 nexal-channel-discord = { path = "channel-discord" }
 
