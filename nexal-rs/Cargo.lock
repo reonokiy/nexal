@@ -4513,6 +4513,7 @@ dependencies = [
  "dotenvy",
  "nexal-agent",
  "nexal-arg0",
+ "nexal-channel-core",
  "nexal-channel-discord",
  "nexal-channel-telegram",
  "nexal-config",
@@ -4801,9 +4802,10 @@ name = "nexal-channel-discord"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "nexal-agent",
+ "async-trait",
+ "nexal-channel-core",
  "nexal-config",
- "nexal-state",
+ "serde_json",
  "serenity",
  "tokio",
  "tracing",
@@ -4814,9 +4816,10 @@ name = "nexal-channel-telegram"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "nexal-agent",
+ "async-trait",
+ "nexal-channel-core",
  "nexal-config",
- "nexal-state",
+ "serde_json",
  "teloxide",
  "tokio",
  "tracing",

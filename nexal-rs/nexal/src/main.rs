@@ -3,12 +3,13 @@ use std::sync::Arc;
 use anyhow::Context;
 use clap::Parser;
 use clap::Subcommand;
+use nexal_agent::{AgentPool, Bot};
 use nexal_arg0::Arg0DispatchPaths;
-use nexal_config_loader::LoaderOverrides;
-use nexal_tui::Cli as TuiCli;
-use nexal_agent::AgentPool;
+use nexal_channel_core::DebounceConfig;
 use nexal_config::NexalConfig;
+use nexal_config_loader::LoaderOverrides;
 use nexal_state::StateDb;
+use nexal_tui::Cli as TuiCli;
 use tracing::info;
 
 #[derive(Parser)]
@@ -62,14 +63,14 @@ async fn run_tui() -> anyhow::Result<()> {
         .await
         .context("creating workspace dir")?;
 
-    // Sync skill directories into workspace so codex discovers SKILL.md files
+    // Sync skill directories into workspace
     sync_skills(&config).await?;
 
     // Build TUI CLI with nexal defaults
     let mut tui_cli = TuiCli::parse_from(["nexal"]);
     tui_cli.cwd = Some(config.workspace_dir.clone());
 
-    // Tell codex to also look for SOUL.md as project-level instructions
+    // Tell nexal to also look for SOUL.md as project-level instructions
     tui_cli
         .config_overrides
         .raw_overrides
@@ -86,13 +87,7 @@ async fn run_tui() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Ensure skill directories are visible in the workspace so codex
-/// discovers their SKILL.md files.
-///
-/// Priority for skills source:
-/// 1. `NEXAL_SKILLS_DIR` env var
-/// 2. `nexal/skills/` in the repo (development layout)
-/// 3. Already present at `<workspace>/skills/`
+/// Ensure skill directories are visible in the workspace.
 async fn sync_skills(config: &NexalConfig) -> anyhow::Result<()> {
     let skills_dst = config.workspace_dir.join("skills");
 
@@ -136,7 +131,15 @@ fn init_tracing() {
 }
 
 async fn run_idle(args: IdleArgs, config: Arc<NexalConfig>) -> anyhow::Result<()> {
+    // Ensure workspace exists
+    tokio::fs::create_dir_all(&config.workspace_dir)
+        .await
+        .context("creating workspace dir")?;
+
+    sync_skills(&config).await?;
+
     let db_path = config.workspace_dir.join("agents").join("nexal.db");
+    tokio::fs::create_dir_all(db_path.parent().unwrap()).await?;
     let db = Arc::new(
         StateDb::open(&db_path)
             .await
@@ -147,39 +150,41 @@ async fn run_idle(args: IdleArgs, config: Arc<NexalConfig>) -> anyhow::Result<()
 
     let pool = AgentPool::new(Arc::clone(&config));
 
+    let debounce_config = DebounceConfig {
+        debounce_secs: config.debounce_secs,
+        delay_secs: config.message_delay_secs,
+        active_window_secs: config.active_window_secs,
+    };
+
+    let mut bot = Bot::new(
+        Arc::clone(&pool),
+        Arc::clone(&config),
+        Arc::clone(&db),
+        debounce_config,
+    );
+
+    // Register channels based on args / configured tokens
     let run_telegram = args.telegram || config.telegram_bot_token.is_some();
     let run_discord = args.discord || config.discord_bot_token.is_some();
 
-    let idle_future = async {
-        match (run_telegram, run_discord) {
-            (true, true) => {
-                tokio::try_join!(
-                    nexal_channel_telegram::run(
-                        Arc::clone(&pool),
-                        Arc::clone(&config),
-                        Arc::clone(&db),
-                    ),
-                    nexal_channel_discord::run(
-                        Arc::clone(&pool),
-                        Arc::clone(&config),
-                        Arc::clone(&db),
-                    ),
-                )?;
-            }
-            (true, false) => {
-                nexal_channel_telegram::run(pool, config, db).await?;
-            }
-            (false, true) => {
-                nexal_channel_discord::run(pool, config, db).await?;
-            }
-            (false, false) => {
-                anyhow::bail!(
-                    "No channel token configured. Set TELEGRAM_BOT_TOKEN and/or DISCORD_BOT_TOKEN."
-                );
-            }
-        }
-        Ok(())
-    };
+    if run_telegram {
+        bot.add_channel(nexal_channel_telegram::TelegramChannel::new(
+            Arc::clone(&config),
+        ));
+    }
+    if run_discord {
+        bot.add_channel(nexal_channel_discord::DiscordChannel::new(
+            Arc::clone(&config),
+        ));
+    }
+
+    if !run_telegram && !run_discord {
+        anyhow::bail!(
+            "No channel token configured. Set TELEGRAM_BOT_TOKEN and/or DISCORD_BOT_TOKEN."
+        );
+    }
+
+    let idle_future = bot.run();
 
     tokio::select! {
         result = idle_future => result,

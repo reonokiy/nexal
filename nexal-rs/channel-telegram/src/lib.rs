@@ -1,114 +1,132 @@
+//! Telegram channel adapter for nexal.
+//!
+//! Implements the [`Channel`] trait, routing Telegram messages through
+//! the Bot orchestrator's debounce/agent pipeline.
+
 use std::sync::Arc;
 
-use nexal_agent::AgentPool;
+use nexal_channel_core::{Channel, IncomingMessage, MessageCallback};
 use nexal_config::NexalConfig;
-use nexal_state::StateDb;
-use teloxide::dispatching::UpdateHandler;
 use teloxide::prelude::*;
-use tracing::error;
-use tracing::info;
-use tracing::warn;
+use tracing::{info, warn};
 
-/// Run the Telegram bot until the process is killed.
-pub async fn run(
-    pool: Arc<AgentPool>,
+/// Telegram channel that implements the [`Channel`] trait.
+pub struct TelegramChannel {
     config: Arc<NexalConfig>,
-    db: Arc<StateDb>,
-) -> anyhow::Result<()> {
-    let token = config
-        .telegram_bot_token
-        .as_ref()
-        .ok_or_else(|| anyhow::anyhow!("TELEGRAM_BOT_TOKEN is not set"))?
-        .clone();
-
-    info!("starting Telegram bot");
-    let bot = Bot::new(token);
-
-    Dispatcher::builder(bot, schema())
-        .dependencies(dptree::deps![pool, config, db])
-        .build()
-        .dispatch()
-        .await;
-
-    Ok(())
 }
 
-fn schema() -> UpdateHandler<anyhow::Error> {
-    Update::filter_message()
-        .filter_map(|msg: Message| msg.text().map(str::to_string))
-        .endpoint(handle_message)
+impl TelegramChannel {
+    pub fn new(config: Arc<NexalConfig>) -> Self {
+        Self { config }
+    }
 }
 
-async fn handle_message(
-    bot: Bot,
-    msg: Message,
-    text: String,
-    pool: Arc<AgentPool>,
-    config: Arc<NexalConfig>,
-    db: Arc<StateDb>,
-) -> anyhow::Result<()> {
-    let chat_id = msg.chat.id.0.to_string();
-    let username = msg
-        .from
-        .as_ref()
-        .and_then(|u| u.username.as_deref())
-        .unwrap_or("unknown");
-
-    // Access control
-    if !config.is_telegram_allowed_chat(&chat_id) {
-        warn!("rejected message from chat {chat_id}");
-        return Ok(());
-    }
-    if !config.is_telegram_allowed_user(username) {
-        warn!("rejected message from user @{username}");
-        return Ok(());
+#[async_trait::async_trait]
+impl Channel for TelegramChannel {
+    fn name(&self) -> &str {
+        "telegram"
     }
 
-    info!("telegram message from @{username} in {chat_id}: {text:?}");
+    async fn start(&self, on_message: MessageCallback) -> anyhow::Result<()> {
+        let token = self
+            .config
+            .telegram_bot_token
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("TELEGRAM_BOT_TOKEN is not set"))?
+            .clone();
 
-    // Load or create session record for DB tracking
-    let mut session = db
-        .get_or_create_session("telegram", &chat_id)
-        .await
-        .map_err(|e| {
-            error!("db error: {e}");
-            e
-        })?;
+        info!("starting Telegram channel");
+        let bot = Bot::new(token);
+        let config = Arc::clone(&self.config);
+        let on_message = Arc::new(on_message);
 
-    let _ = db
-        .save_message(&session.id, username, "user", &text)
-        .await;
+        let handler = Update::filter_message()
+            .filter_map(|msg: Message| msg.text().map(str::to_string))
+            .endpoint(
+                move |_bot: Bot, msg: Message, text: String| {
+                    let config = Arc::clone(&config);
+                    let on_message = Arc::clone(&on_message);
+                    async move {
+                        let chat_id = msg.chat.id.0.to_string();
+                        let username = msg
+                            .from
+                            .as_ref()
+                            .and_then(|u| u.username.as_deref())
+                            .unwrap_or("unknown");
 
-    let session_key = format!("telegram:{chat_id}");
-    let (messages, thread_id) = match pool.run_turn(&session_key, text).await {
-        Ok(r) => r,
-        Err(e) => {
-            error!("agent error: {e}");
-            (vec![format!("⚠️ Error: {e}")], String::new())
-        }
-    };
+                        // Access control
+                        if !config.is_telegram_allowed_chat(&chat_id) {
+                            warn!("rejected message from chat {chat_id}");
+                            return Ok(());
+                        }
+                        if !config.is_telegram_allowed_user(username) {
+                            warn!("rejected message from user @{username}");
+                            return Ok(());
+                        }
 
-    if !thread_id.is_empty() {
-        session.thread_id = Some(thread_id);
+                        info!("telegram message from @{username} in {chat_id}");
+
+                        // Detect if bot was mentioned (for group chats)
+                        let is_mentioned = msg.chat.is_private()
+                            || msg
+                                .reply_to_message()
+                                .and_then(|r| r.from.as_ref())
+                                .map(|u| u.is_bot)
+                                .unwrap_or(false);
+
+                        let incoming = IncomingMessage {
+                            channel: "telegram".to_string(),
+                            chat_id,
+                            sender: username.to_string(),
+                            text,
+                            timestamp: msg.date.timestamp_millis(),
+                            is_mentioned,
+                            metadata: serde_json::json!({
+                                "message_id": msg.id.0,
+                            }),
+                            images: Vec::new(),
+                        };
+
+                        on_message(incoming);
+                        Ok::<(), anyhow::Error>(())
+                    }
+                },
+            );
+
+        Dispatcher::builder(bot, handler)
+            .build()
+            .dispatch()
+            .await;
+
+        Ok(())
     }
-    let _ = db.upsert_session(&session).await;
 
-    for message in &messages {
+    async fn send(&self, chat_id: &str, text: &str) -> anyhow::Result<()> {
+        let token = self
+            .config
+            .telegram_bot_token
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("TELEGRAM_BOT_TOKEN not set"))?;
+
+        let bot = Bot::new(token);
+        let chat: ChatId = ChatId(
+            chat_id
+                .parse()
+                .map_err(|_| anyhow::anyhow!("invalid chat_id: {chat_id}"))?,
+        );
+
         let send_result = bot
-            .send_message(msg.chat.id, message.clone())
+            .send_message(chat, text)
             .parse_mode(teloxide::types::ParseMode::MarkdownV2)
             .await;
+
         if send_result.is_err() {
             // Fallback: plain text if markdown parsing fails
-            bot.send_message(msg.chat.id, message)
+            bot.send_message(chat, text)
                 .await
-                .map_err(|e| anyhow::anyhow!("send_message failed: {e}"))?;
+                .map_err(|e| anyhow::anyhow!("telegram send failed: {e}"))?;
         }
 
-        let _ = db
-            .save_message(&session.id, "nexal", "assistant", message)
-            .await;
+        Ok(())
     }
-
-    Ok(())
 }

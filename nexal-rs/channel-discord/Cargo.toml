@@ -5,10 +5,11 @@ edition.workspace = true
 
 [dependencies]
 nexal-config = { workspace = true }
-nexal-agent = { workspace = true }
-nexal-state = { workspace = true }
+nexal-channel-core = { workspace = true }
 
 anyhow = { workspace = true }
+async-trait = { workspace = true }
+serde_json = { workspace = true }
 serenity = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
