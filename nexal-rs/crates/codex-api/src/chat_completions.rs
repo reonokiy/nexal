@@ -352,6 +352,10 @@ pub struct ChatMessage {
     pub tool_calls: Option<Vec<ChatToolCallMessage>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_call_id: Option<String>,
+    /// Required by providers with thinking/reasoning mode (e.g. Kimi).
+    /// Set via `thinking_mode = true` in provider config.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reasoning_content: Option<String>,
 }
 
 #[derive(Debug, Serialize, Clone)]

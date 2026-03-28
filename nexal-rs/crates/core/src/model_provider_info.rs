@@ -132,6 +132,11 @@ pub struct ModelProviderInfo {
     /// Whether this provider supports the Responses API WebSocket transport.
     #[serde(default)]
     pub supports_websockets: bool,
+
+    /// Whether this provider uses thinking/reasoning mode (e.g. Kimi).
+    /// When true, assistant messages include `reasoning_content` field.
+    #[serde(default)]
+    pub thinking_mode: bool,
 }
 
 impl ModelProviderInfo {
@@ -293,6 +298,7 @@ impl ModelProviderInfo {
             websocket_connect_timeout_ms: None,
             requires_openai_auth: false,
             supports_websockets: true,
+            thinking_mode: false,
         }
     }
 
@@ -370,6 +376,7 @@ pub fn create_oss_provider_with_base_url(base_url: &str, wire_api: WireApi) -> M
         websocket_connect_timeout_ms: None,
         requires_openai_auth: false,
         supports_websockets: false,
+        thinking_mode: false,
     }
 }
 

@@ -1370,7 +1370,8 @@ impl ModelClientSession {
         let http_client = reqwest::Client::new();
         let session = ChatCompletionsSession::new(base_url, headers, http_client);
 
-        let messages = convert_prompt_to_chat_messages(&prompt.input);
+        let thinking_mode = provider_info.thinking_mode;
+        let messages = convert_prompt_to_chat_messages(&prompt.input, thinking_mode);
         let tools = convert_tools_to_chat_format(&prompt.tools);
 
         // Debug: log the messages being sent
@@ -1433,6 +1434,7 @@ impl ModelClientSession {
 /// - ResponseItem::FunctionCallOutput → ChatMessage {role:"tool"}
 fn convert_prompt_to_chat_messages(
     items: &[nexal_protocol::models::ResponseItem],
+    thinking_mode: bool,
 ) -> Vec<nexal_api::chat_completions::ChatMessage> {
     use nexal_api::chat_completions::{ChatFunctionCall, ChatMessage, ChatToolCallMessage};
     use nexal_protocol::models::ResponseItem;
@@ -1480,6 +1482,7 @@ fn convert_prompt_to_chat_messages(
                     name: None,
                     tool_calls: None,
                     tool_call_id: None,
+                    reasoning_content: None,
                 });
             }
             ResponseItem::FunctionCall {
@@ -1489,7 +1492,6 @@ fn convert_prompt_to_chat_messages(
                 ..
             } => {
                 // Emit as assistant message with tool_calls.
-                // Use empty string content (not null) for provider compatibility.
                 messages.push(ChatMessage {
                     role: "assistant".to_string(),
                     content: Some(serde_json::Value::String(String::new())),
@@ -1503,6 +1505,8 @@ fn convert_prompt_to_chat_messages(
                         },
                     }]),
                     tool_call_id: None,
+                    // Kimi's thinking mode requires reasoning_content on tool call messages
+                    reasoning_content: if thinking_mode { Some(String::new()) } else { None },
                 });
             }
             ResponseItem::FunctionCallOutput {
@@ -1520,6 +1524,7 @@ fn convert_prompt_to_chat_messages(
                     name: None,
                     tool_calls: None,
                     tool_call_id: Some(call_id.clone()),
+                    reasoning_content: None,
                 });
             }
             // Skip reasoning, local shell calls, etc. for chat completions
@@ -1539,6 +1544,7 @@ fn convert_prompt_to_chat_messages(
                 name: None,
                 tool_calls: None,
                 tool_call_id: None,
+                reasoning_content: None,
             },
         );
     }
