@@ -371,7 +371,7 @@ async fn sync_skills(config: &NexalConfig) -> anyhow::Result<()> {
 
     let candidates: Vec<std::path::PathBuf> = [
         config.skills_dir.clone(),
-        Some(std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../nexal/skills")),
+        Some(std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../skills")),
     ]
     .into_iter()
     .flatten()

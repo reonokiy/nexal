@@ -1,18 +1,10 @@
-# Python-generated files
+# Build
+target/
 __pycache__/
-*.py[oc]
-build/
-dist/
-wheels/
-*.egg-info
+*.pyc
 
-# Virtual environments
-.venv
+# Environment
 .env
-.pytest_cache
-.workspace
+.venv
 .vscode
-.uv-cache
 .claude
-
-nexal-rs/target/*
