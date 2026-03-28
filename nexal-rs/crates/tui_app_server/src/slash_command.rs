@@ -22,6 +22,7 @@ pub enum SlashCommand {
     SandboxReadRoot,
     Experimental,
     Skills,
+    Channels,
     Review,
     Rename,
     New,
@@ -85,6 +86,7 @@ impl SlashCommand {
             SlashCommand::Copy => "copy the latest Nexal output to your clipboard",
             SlashCommand::Mention => "mention a file",
             SlashCommand::Skills => "use skills to improve how Nexal performs specific tasks",
+            SlashCommand::Channels => "manage active channels (Telegram, Discord)",
             SlashCommand::Status => "show current session configuration and token usage",
             SlashCommand::DebugConfig => "show config layers and requirement sources for debugging",
             SlashCommand::Title => "configure which items appear in the terminal title",
@@ -164,6 +166,7 @@ impl SlashCommand {
             | SlashCommand::Rename
             | SlashCommand::Mention
             | SlashCommand::Skills
+            | SlashCommand::Channels
             | SlashCommand::Status
             | SlashCommand::DebugConfig
             | SlashCommand::Ps

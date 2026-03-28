@@ -346,6 +346,7 @@ mod interrupts;
 use self::interrupts::InterruptManager;
 mod session_header;
 use self::session_header::SessionHeader;
+mod channels;
 mod skills;
 use self::skills::collect_tool_mentions;
 use self::skills::find_app_mentions;
@@ -5092,6 +5093,9 @@ impl ChatWidget {
             }
             SlashCommand::Skills => {
                 self.open_skills_menu();
+            }
+            SlashCommand::Channels => {
+                self.open_channels_menu();
             }
             SlashCommand::Status => {
                 self.add_status_output();
