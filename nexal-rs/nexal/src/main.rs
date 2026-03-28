@@ -17,11 +17,19 @@ use tracing::info;
 struct Cli {
     #[command(subcommand)]
     command: Option<Command>,
+
+    /// Also listen on Telegram (requires TELEGRAM_BOT_TOKEN)
+    #[arg(long)]
+    telegram: bool,
+
+    /// Also listen on Discord (requires DISCORD_BOT_TOKEN)
+    #[arg(long)]
+    discord: bool,
 }
 
 #[derive(Subcommand)]
 enum Command {
-    /// Run as a background daemon serving Telegram and/or Discord
+    /// Run as a headless daemon (no TUI, channels only)
     Idle(IdleArgs),
 }
 
@@ -49,27 +57,25 @@ async fn main() -> anyhow::Result<()> {
             run_idle(args, config).await
         }
         None => {
-            // Default: launch interactive TUI
-            run_tui().await
+            // Default: TUI, optionally with channels running alongside
+            run_tui(cli.telegram, cli.discord).await
         }
     }
 }
 
-async fn run_tui() -> anyhow::Result<()> {
-    let config = NexalConfig::from_env();
+async fn run_tui(enable_telegram: bool, enable_discord: bool) -> anyhow::Result<()> {
+    let config = Arc::new(NexalConfig::from_env());
 
     // Ensure workspace exists
     tokio::fs::create_dir_all(&config.workspace_dir)
         .await
         .context("creating workspace dir")?;
 
-    // Sync skill directories into workspace
     sync_skills(&config).await?;
 
     // If NEXAL_SANDBOX=podman, create a persistent container for this session.
     let sandbox_container = if is_podman_sandbox() {
         let container = create_sandbox_container(&config).await?;
-        // Publish the container name so the sandbox transform uses `podman exec`.
         // SAFETY: we are single-threaded at this point (before TUI starts).
         unsafe { std::env::set_var("NEXAL_SANDBOX_CONTAINER", &container) };
         Some(container)
@@ -79,21 +85,25 @@ async fn run_tui() -> anyhow::Result<()> {
 
     // Build TUI CLI with nexal defaults
     let mut tui_cli = TuiCli::parse_from(["nexal"]);
-
-    // When using Podman, set cwd to /workspace (container-side path).
-    // Otherwise use the host workspace directory.
     if sandbox_container.is_some() {
         tui_cli.cwd = Some("/workspace".into());
     } else {
         tui_cli.cwd = Some(config.workspace_dir.clone());
     }
-
-    // Tell nexal to also look for SOUL.md as project-level instructions
     tui_cli
         .config_overrides
         .raw_overrides
         .push("project_doc_fallback_filenames=[\"SOUL.md\"]".to_string());
 
+    // Start channel listeners alongside TUI if requested.
+    let bot_handle = maybe_start_channels(
+        enable_telegram,
+        enable_discord,
+        Arc::clone(&config),
+    )
+    .await?;
+
+    // Run TUI (blocks until exit)
     let result = nexal_tui::run_main(
         tui_cli,
         Arg0DispatchPaths::default(),
@@ -101,13 +111,82 @@ async fn run_tui() -> anyhow::Result<()> {
     )
     .await;
 
-    // Cleanup: remove the persistent container on exit.
+    // Cleanup
+    if let Some(handle) = bot_handle {
+        handle.abort();
+    }
     if let Some(name) = sandbox_container {
         cleanup_sandbox_container(&name).await;
     }
 
     result.map_err(|e| anyhow::anyhow!("TUI error: {e}"))?;
     Ok(())
+}
+
+/// Start channel bot in the background if any channels are requested.
+/// Returns a JoinHandle that can be aborted on TUI exit.
+async fn maybe_start_channels(
+    enable_telegram: bool,
+    enable_discord: bool,
+    config: Arc<NexalConfig>,
+) -> anyhow::Result<Option<tokio::task::JoinHandle<()>>> {
+    let run_telegram = enable_telegram || config.telegram_bot_token.is_some();
+    let run_discord = enable_discord || config.discord_bot_token.is_some();
+
+    // Auto-detect: if tokens are configured, start the channels.
+    // If --telegram/--discord flags are passed without tokens, they'll
+    // error at channel startup.
+    if !run_telegram && !run_discord {
+        return Ok(None);
+    }
+
+    init_tracing();
+
+    let db_path = config.workspace_dir.join("agents").join("nexal.db");
+    tokio::fs::create_dir_all(db_path.parent().unwrap()).await?;
+    let db = Arc::new(
+        StateDb::open(&db_path)
+            .await
+            .context("opening state db for channels")?,
+    );
+
+    let pool = AgentPool::new(Arc::clone(&config));
+    let debounce_config = DebounceConfig {
+        debounce_secs: config.debounce_secs,
+        delay_secs: config.message_delay_secs,
+        active_window_secs: config.active_window_secs,
+    };
+
+    let mut bot = Bot::new(
+        Arc::clone(&pool),
+        Arc::clone(&config),
+        Arc::clone(&db),
+        debounce_config,
+    );
+
+    if run_telegram {
+        bot.add_channel(nexal_channel_telegram::TelegramChannel::new(
+            Arc::clone(&config),
+        ));
+    }
+    if run_discord {
+        bot.add_channel(nexal_channel_discord::DiscordChannel::new(
+            Arc::clone(&config),
+        ));
+    }
+
+    let mut channels: Vec<&str> = Vec::new();
+    if run_telegram { channels.push("telegram"); }
+    if run_discord { channels.push("discord"); }
+    info!("starting channels alongside TUI: {}", channels.join(", "));
+
+    let handle = tokio::spawn(async move {
+        if let Err(e) = bot.run().await {
+            tracing::error!("channel bot error: {e}");
+        }
+    });
+
+    Ok(Some(handle))
 }
 
 fn is_podman_sandbox() -> bool {
@@ -117,18 +196,12 @@ fn is_podman_sandbox() -> bool {
     )
 }
 
-/// Create a persistent Podman container for the TUI session.
-///
-/// The container runs `sleep infinity` and commands execute via `podman exec`.
-/// This preserves state (env vars, installed packages, working directory)
-/// across tool calls within the session.
 async fn create_sandbox_container(config: &NexalConfig) -> anyhow::Result<String> {
     let name = format!("nexal-tui-{}", std::process::id());
     let image = std::env::var("SANDBOX_IMAGE")
         .unwrap_or_else(|_| config.sandbox_image.clone());
     let network = if config.sandbox_network { "pasta" } else { "none" };
 
-    // Remove any leftover container with the same name
     let _ = tokio::process::Command::new("podman")
         .args(["rm", "-f", &name])
         .output()
@@ -172,7 +245,6 @@ async fn create_sandbox_container(config: &NexalConfig) -> anyhow::Result<String
         anyhow::bail!("podman create failed: {stderr}");
     }
 
-    // Start the container
     let output = tokio::process::Command::new("podman")
         .args(["start", &name])
         .output()
@@ -196,18 +268,15 @@ async fn cleanup_sandbox_container(name: &str) {
     info!("sandbox container removed: {name}");
 }
 
-/// Ensure skill directories are visible in the workspace.
 async fn sync_skills(config: &NexalConfig) -> anyhow::Result<()> {
     let skills_dst = config.workspace_dir.join("skills");
 
-    // If skills already exist in workspace (real dir, not stale symlink), done.
     if skills_dst.is_dir() && skills_dst.read_link().is_err() {
         return Ok(());
     }
 
     let candidates: Vec<std::path::PathBuf> = [
         config.skills_dir.clone(),
-        // Dev layout: nexal-rs/nexal/../../../nexal/skills
         Some(std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../nexal/skills")),
     ]
     .into_iter()
@@ -219,7 +288,6 @@ async fn sync_skills(config: &NexalConfig) -> anyhow::Result<()> {
         return Ok(());
     };
 
-    // Remove stale symlink if present
     if skills_dst.read_link().is_ok() {
         tokio::fs::remove_file(&skills_dst).await.ok();
     }
@@ -236,11 +304,11 @@ fn init_tracing() {
             tracing_subscriber::EnvFilter::try_from_default_env()
                 .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("nexal=info,warn")),
         )
-        .init();
+        .try_init()
+        .ok(); // ignore if already initialized
 }
 
 async fn run_idle(args: IdleArgs, config: Arc<NexalConfig>) -> anyhow::Result<()> {
-    // Ensure workspace exists
     tokio::fs::create_dir_all(&config.workspace_dir)
         .await
         .context("creating workspace dir")?;
@@ -258,7 +326,6 @@ async fn run_idle(args: IdleArgs, config: Arc<NexalConfig>) -> anyhow::Result<()
     info!("state db: {}", db_path.display());
 
     let pool = AgentPool::new(Arc::clone(&config));
-
     let debounce_config = DebounceConfig {
         debounce_secs: config.debounce_secs,
         delay_secs: config.message_delay_secs,
@@ -272,7 +339,6 @@ async fn run_idle(args: IdleArgs, config: Arc<NexalConfig>) -> anyhow::Result<()
         debounce_config,
     );
 
-    // Register channels based on args / configured tokens
     let run_telegram = args.telegram || config.telegram_bot_token.is_some();
     let run_discord = args.discord || config.discord_bot_token.is_some();
 
@@ -293,10 +359,8 @@ async fn run_idle(args: IdleArgs, config: Arc<NexalConfig>) -> anyhow::Result<()
         );
     }
 
-    let idle_future = bot.run();
-
     tokio::select! {
-        result = idle_future => result,
+        result = bot.run() => result,
         _ = tokio::signal::ctrl_c() => {
             info!("received Ctrl+C, shutting down");
             std::process::exit(0);
