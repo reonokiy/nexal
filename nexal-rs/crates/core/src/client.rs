@@ -1469,8 +1469,8 @@ fn convert_prompt_to_chat_messages(
                     }
                 };
 
-                // Skip empty messages
-                if text.is_empty() && chat_role != "assistant" {
+                // Skip empty messages (providers reject empty content)
+                if text.is_empty() {
                     continue;
                 }
 
