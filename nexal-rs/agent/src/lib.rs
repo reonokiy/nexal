@@ -4,6 +4,7 @@ pub mod context;
 pub mod orchestrator;
 mod podman;
 mod pool;
+pub mod proxy;
 mod runner;
 pub mod skills;
 

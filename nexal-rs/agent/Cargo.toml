@@ -19,6 +19,7 @@ nexal-config-loader = { workspace = true }
 
 anyhow = { workspace = true }
 dashmap = { workspace = true }
+reqwest = { workspace = true }
 serde_json = { workspace = true }
 toml = { workspace = true }
 tokio = { workspace = true }

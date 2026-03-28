@@ -73,6 +73,15 @@ async fn run_tui(enable_telegram: bool, enable_discord: bool) -> anyhow::Result<
 
     sync_skills(&config).await?;
 
+    // Start token proxies (Unix sockets for Telegram/Discord API access).
+    // Tokens stay on the host; container connects via socket.
+    let _proxy_handles = nexal_agent::proxy::start_proxies(
+        &config.workspace,
+        config.telegram_bot_token.as_deref(),
+        config.discord_bot_token.as_deref(),
+    )
+    .await;
+
     // Create a persistent Podman container for this session.
     // All exec commands run inside this container.
     // Set NEXAL_SANDBOX=none to disable (not recommended).
