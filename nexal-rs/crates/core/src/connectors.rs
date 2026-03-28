@@ -957,7 +957,7 @@ fn normalize_connector_value(value: Option<&str>) -> Option<String> {
 }
 
 pub fn connector_install_url(name: &str, connector_id: &str) -> String {
-    let slug = sanitize_slug(name);
+    let _slug = sanitize_slug(name);
     format!("#{connector_id}")
 }
 

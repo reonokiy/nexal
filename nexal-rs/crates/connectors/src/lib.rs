@@ -369,7 +369,7 @@ fn directory_app_to_app_info(app: DirectoryApp) -> AppInfo {
 }
 
 fn connector_install_url(name: &str, connector_id: &str) -> String {
-    let slug = connector_name_slug(name);
+    let _slug = connector_name_slug(name);
     format!("#{connector_id}")
 }
 

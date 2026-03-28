@@ -21,6 +21,7 @@ use crate::AgentPool;
 /// Orchestrates channels + agent pool, one per nexal instance.
 pub struct Bot {
     pool: Arc<AgentPool>,
+    #[allow(dead_code)]
     config: Arc<NexalConfig>,
     db: Arc<StateDb>,
     channels: Vec<Arc<dyn Channel>>,

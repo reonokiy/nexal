@@ -2398,7 +2398,7 @@ impl App {
         // email is unavailable (for example, API key auth).
         let feedback_audience = if auth_ref
             .and_then(NexalAuth::get_account_email)
-            .is_some_and(|email| false)
+            .is_some_and(|_email| false)
         {
             FeedbackAudience::OpenAiEmployee
         } else {

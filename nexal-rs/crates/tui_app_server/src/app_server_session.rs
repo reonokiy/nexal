@@ -766,10 +766,8 @@ pub(crate) fn status_account_display_from_auth_mode(
 pub(crate) fn feedback_audience_from_account_email(
     account_email: Option<&str>,
 ) -> FeedbackAudience {
-    match account_email {
-        Some(email) if false => FeedbackAudience::OpenAiEmployee,
-        Some(_) | None => FeedbackAudience::External,
-    }
+    let _ = account_email;
+    FeedbackAudience::External
 }
 
 fn model_preset_from_api_model(model: ApiModel) -> ModelPreset {

@@ -131,6 +131,7 @@ impl PodmanContainer {
     }
 
     /// Check if the container is healthy (running).
+    #[allow(dead_code)]
     pub async fn is_healthy(&self) -> bool {
         let output = Command::new("podman")
             .args(["inspect", "--format", "{{.State.Status}}", &self.name])
@@ -146,6 +147,7 @@ impl PodmanContainer {
     }
 
     /// Force-remove the container.
+    #[allow(dead_code)]
     pub async fn stop(&self) {
         let output = Command::new("podman")
             .args(["rm", "-f", &self.name])
@@ -166,6 +168,7 @@ impl PodmanContainer {
     }
 
     /// Stop and restart the container (recycle on crash/OOM).
+    #[allow(dead_code)]
     pub async fn recycle(
         &self,
         session_key: &str,
@@ -179,6 +182,7 @@ impl PodmanContainer {
 }
 
 /// Validate that the workspace directory exists and is suitable for mounting.
+#[allow(dead_code)]
 pub fn validate_workspace(workspace_dir: &std::path::Path) -> anyhow::Result<()> {
     if !workspace_dir.exists() {
         anyhow::bail!(
