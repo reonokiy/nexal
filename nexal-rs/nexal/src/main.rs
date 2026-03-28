@@ -98,6 +98,10 @@ async fn run_tui(enable_telegram: bool, enable_discord: bool) -> anyhow::Result<
 
     // Inject providers from figment config into TUI's core config.
     for (name, provider) in &config.providers {
+        // name is required by core
+        let display = provider.name.as_deref().unwrap_or(name.as_str());
+        tui_cli.config_overrides.raw_overrides
+            .push(format!("providers.{name}.name=\"{display}\""));
         if let Some(ref url) = provider.base_url {
             tui_cli.config_overrides.raw_overrides
                 .push(format!("providers.{name}.base_url=\"{url}\""));

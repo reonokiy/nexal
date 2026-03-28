@@ -157,11 +157,12 @@ fn providers_to_cli_overrides(
                 toml::Value::Boolean(true),
             ));
         }
-        if let Some(ref display_name) = provider.name {
-            overrides.push((
-                format!("providers.{name}.name"),
-                toml::Value::String(display_name.clone()),
-            ));
+        // name is required by core's ModelProviderInfo — default to the key
+        overrides.push((
+            format!("providers.{name}.name"),
+            toml::Value::String(provider.name.clone().unwrap_or_else(|| name.clone())),
+        ));
+        if false {
         }
     }
 
