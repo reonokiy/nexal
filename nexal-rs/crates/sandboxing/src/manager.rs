@@ -27,6 +27,8 @@ pub enum SandboxType {
     MacosSeatbelt,
     LinuxSeccomp,
     WindowsRestrictedToken,
+    /// Run commands inside a Podman container.
+    Podman,
 }
 
 impl SandboxType {
@@ -36,6 +38,7 @@ impl SandboxType {
             SandboxType::MacosSeatbelt => "seatbelt",
             SandboxType::LinuxSeccomp => "seccomp",
             SandboxType::WindowsRestrictedToken => "windows_sandbox",
+            SandboxType::Podman => "podman",
         }
     }
 }
@@ -48,6 +51,19 @@ pub enum SandboxablePreference {
 }
 
 pub fn get_platform_sandbox(windows_sandbox_enabled: bool) -> Option<SandboxType> {
+    // Allow overriding via NEXAL_SANDBOX env var.
+    if let Ok(val) = std::env::var("NEXAL_SANDBOX") {
+        return match val.to_lowercase().as_str() {
+            "podman" => Some(SandboxType::Podman),
+            "none" | "off" | "disabled" => None,
+            // Fall through to platform default for other values
+            _ => get_platform_default_sandbox(windows_sandbox_enabled),
+        };
+    }
+    get_platform_default_sandbox(windows_sandbox_enabled)
+}
+
+fn get_platform_default_sandbox(windows_sandbox_enabled: bool) -> Option<SandboxType> {
     if cfg!(target_os = "macos") {
         Some(SandboxType::MacosSeatbelt)
     } else if cfg!(target_os = "linux") {
@@ -257,6 +273,39 @@ impl SandboxManager {
             SandboxType::WindowsRestrictedToken => (argv, None),
             #[cfg(not(target_os = "windows"))]
             SandboxType::WindowsRestrictedToken => (argv, None),
+            SandboxType::Podman => {
+                // Build a podman run command that:
+                // - Runs the command in a container
+                // - Mounts the workspace at /workspace
+                // - Uses the configured image
+                // - Drops all capabilities, no new privileges
+                // - Removes the container after exit
+                let image = std::env::var("SANDBOX_IMAGE")
+                    .unwrap_or_else(|_| "ghcr.io/reonokiy/nexal-sandbox:python3.13-debian13".to_string());
+                let workspace_dir = command.cwd.to_string_lossy().to_string();
+                let network = if !effective_network_policy.is_enabled() {
+                    "none"
+                } else {
+                    "pasta"
+                };
+                let mut podman_argv = vec![
+                    "podman".to_string(),
+                    "run".to_string(),
+                    "--rm".to_string(),
+                    "--userns=keep-id".to_string(),
+                    "--security-opt".to_string(),
+                    "no-new-privileges".to_string(),
+                    "--cap-drop=ALL".to_string(),
+                    format!("--network={network}"),
+                    "-v".to_string(),
+                    format!("{workspace_dir}:/workspace"),
+                    "-w".to_string(),
+                    "/workspace".to_string(),
+                    image,
+                ];
+                podman_argv.extend(argv);
+                (podman_argv, None)
+            }
         };
 
         Ok(SandboxExecRequest {
