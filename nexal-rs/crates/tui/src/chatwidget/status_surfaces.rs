@@ -455,7 +455,12 @@ impl ChatWidget {
             }
             StatusLineItem::CurrentDir => {
                 if let Ok(container) = std::env::var("NEXAL_SANDBOX_CONTAINER") {
-                    Some(format!("{container}:/workspace"))
+                    let cwd_path = self.status_line_cwd();
+                    let state_file = cwd_path.join("agents").join(".sandbox_cwd");
+                    let sandbox_cwd = std::fs::read_to_string(state_file)
+                        .map(|s| s.trim().to_string())
+                        .unwrap_or_else(|_| "/workspace".to_string());
+                    Some(format!("{container}:{sandbox_cwd}"))
                 } else {
                     Some(format_directory_display(
                         self.status_line_cwd(),
