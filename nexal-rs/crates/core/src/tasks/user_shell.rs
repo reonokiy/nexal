@@ -156,28 +156,22 @@ pub(crate) async fn execute_user_shell_command(
     let sandbox_policy = SandboxPolicy::DangerFullAccess;
 
     // When NEXAL_SANDBOX=podman, wrap the command with `podman exec`.
-    // Persistent cwd: read saved cwd from state file, cd to it before
-    // running the command, then save the new cwd after execution.
+    //
+    // Jupyter-style prefixes:
+    //   !cmd    — run in subshell, do NOT change persistent cwd
+    //   %cd dir — change persistent cwd without running a command
+    //   cmd     — run and persist new cwd afterward
     let (sandbox_type, final_command) = if matches!(
         std::env::var("NEXAL_SANDBOX").as_deref(),
         Ok(v) if v.eq_ignore_ascii_case("podman")
     ) {
         if let Ok(container) = std::env::var("NEXAL_SANDBOX_CONTAINER") {
             let saved_cwd = read_sandbox_cwd(&cwd);
-            // Wrap: cd to saved cwd, run command, save new cwd
-            let wrapped = format!(
-                "cd {saved_cwd} 2>/dev/null; {cmd}; __exit=$?; pwd > /workspace/agents/.sandbox_cwd; exit $__exit",
-                saved_cwd = shell_escape(&saved_cwd),
-                cmd = raw_command,
+            let podman_cmd = build_podman_command(
+                &container,
+                &saved_cwd,
+                &raw_command,
             );
-            let podman_cmd = vec![
-                "podman".to_string(),
-                "exec".to_string(),
-                container,
-                "bash".to_string(),
-                "-lc".to_string(),
-                wrapped,
-            ];
             (SandboxType::None, podman_cmd)
         } else {
             (SandboxType::None, exec_command.clone())
@@ -387,6 +381,27 @@ async fn persist_user_shell_output(
 }
 
 /// Map a host-side path to the container-side /workspace path.
+/// Build the podman exec command for a `!` shell command.
+///
+/// Shell commands (`!cmd`) run in the saved cwd but do NOT persist
+/// cwd changes — each command is effectively a subshell.
+/// Persistent cwd is only changed by `%cd` (handled at the TUI layer).
+fn build_podman_command(
+    container: &str,
+    saved_cwd: &str,
+    raw_command: &str,
+) -> Vec<String> {
+    let wrapped = format!(
+        "cd {cwd} 2>/dev/null; {cmd}",
+        cwd = shell_escape(saved_cwd),
+        cmd = raw_command,
+    );
+    vec![
+        "podman".into(), "exec".into(), container.into(),
+        "bash".into(), "-lc".into(), wrapped,
+    ]
+}
+
 /// Read the saved container cwd from the state file.
 /// Falls back to /workspace if no state exists yet.
 fn read_sandbox_cwd(host_cwd: &std::path::Path) -> String {

@@ -5113,6 +5113,25 @@ impl ChatWidget {
         let render_in_history = !self.agent_turn_running;
         let mut items: Vec<UserInput> = Vec::new();
 
+        // Special-case: "%cd dir" changes the persistent cwd inside the Podman sandbox.
+        if let Some(rest) = text.strip_prefix("%cd") {
+            let target = rest.trim();
+            if std::env::var("NEXAL_SANDBOX_CONTAINER").is_ok() {
+                let target_dir = if target.is_empty() { "/workspace" } else { target };
+                self.submit_op(Op::RunUserShellCommand {
+                    command: format!("cd {target_dir} && pwd > /workspace/agents/.sandbox_cwd && echo 'Changed directory to '$(pwd)"),
+                });
+            } else {
+                self.app_event_tx.send(AppEvent::InsertHistoryCell(Box::new(
+                    history_cell::new_info_event(
+                        "%cd is only available in Podman sandbox mode".to_string(),
+                        Some("Set NEXAL_SANDBOX=podman to enable".to_string()),
+                    ),
+                )));
+            }
+            return;
+        }
+
         // Special-case: "!cmd" executes a local shell command instead of sending to the model.
         if let Some(stripped) = text.strip_prefix('!') {
             let cmd = stripped.trim();
