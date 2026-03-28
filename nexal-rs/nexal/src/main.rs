@@ -131,14 +131,13 @@ async fn maybe_start_channels(
     let run_telegram = enable_telegram || config.telegram_bot_token.is_some();
     let run_discord = enable_discord || config.discord_bot_token.is_some();
 
-    // Auto-detect: if tokens are configured, start the channels.
-    // If --telegram/--discord flags are passed without tokens, they'll
-    // error at channel startup.
     if !run_telegram && !run_discord {
         return Ok(None);
     }
 
-    init_tracing();
+    // In TUI mode, redirect channel logs to a file so they don't
+    // corrupt the terminal UI.
+    init_tracing_to_file(&config.workspace_dir);
 
     let db_path = config.workspace_dir.join("agents").join("nexal.db");
     tokio::fs::create_dir_all(db_path.parent().unwrap()).await?;
@@ -296,6 +295,7 @@ async fn sync_skills(config: &NexalConfig) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Initialize tracing to stderr (for headless/idle mode).
 fn init_tracing() {
     tracing_subscriber::fmt()
         .with_env_filter(
@@ -303,7 +303,29 @@ fn init_tracing() {
                 .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("nexal=info,warn")),
         )
         .try_init()
-        .ok(); // ignore if already initialized
+        .ok();
+}
+
+/// Initialize tracing to a log file (for TUI mode, so logs don't corrupt the terminal).
+fn init_tracing_to_file(workspace_dir: &std::path::Path) {
+    let log_dir = workspace_dir.join("agents").join("logs");
+    let _ = std::fs::create_dir_all(&log_dir);
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(log_dir.join("channels.log"))
+        .ok();
+    if let Some(file) = file {
+        tracing_subscriber::fmt()
+            .with_writer(std::sync::Mutex::new(file))
+            .with_env_filter(
+                tracing_subscriber::EnvFilter::try_from_default_env()
+                    .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("nexal=info,warn")),
+            )
+            .with_ansi(false)
+            .try_init()
+            .ok();
+    }
 }
 
 async fn run_idle(args: IdleArgs, config: Arc<NexalConfig>) -> anyhow::Result<()> {
