@@ -268,3 +268,53 @@ fn dirs_home() -> PathBuf {
         .map(PathBuf::from)
         .unwrap_or_else(|_| PathBuf::from("/tmp"))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_config_has_sane_values() {
+        let cfg = NexalConfig::default();
+        assert_eq!(cfg.sandbox, "podman");
+        assert_eq!(cfg.debounce_secs, 1.0);
+        assert!(cfg.providers.is_empty());
+        assert!(cfg.sandbox_backend() == SandboxBackend::Podman);
+    }
+
+    #[test]
+    fn figment_loads_providers_from_toml_string() {
+        use figment::providers::{Format, Serialized, Toml};
+
+        let toml_str = r#"
+            [providers.test]
+            base_url = "https://example.com/v1"
+            wire_api = "chat"
+            thinking_mode = true
+        "#;
+
+        let config: NexalConfig = Figment::new()
+            .merge(Serialized::defaults(NexalConfig::default()))
+            .merge(Toml::string(toml_str))
+            .extract()
+            .unwrap();
+
+        assert_eq!(config.providers.len(), 1);
+        let p = &config.providers["test"];
+        assert_eq!(p.base_url.as_deref(), Some("https://example.com/v1"));
+        assert_eq!(p.wire_api.as_deref(), Some("chat"));
+        assert!(p.thinking_mode);
+    }
+
+    #[test]
+    fn sandbox_backend_parsing() {
+        let mut cfg = NexalConfig::default();
+        assert_eq!(cfg.sandbox_backend(), SandboxBackend::Podman);
+
+        cfg.sandbox = "none".to_string();
+        assert_eq!(cfg.sandbox_backend(), SandboxBackend::None);
+
+        cfg.sandbox = "off".to_string();
+        assert_eq!(cfg.sandbox_backend(), SandboxBackend::None);
+    }
+}
