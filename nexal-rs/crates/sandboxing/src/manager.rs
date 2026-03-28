@@ -287,15 +287,26 @@ impl SandboxManager {
                 // NEXAL_SANDBOX_CONTAINER.  If the env var is missing, fall
                 // back to an ephemeral `podman run --rm`.
                 if let Ok(container) = std::env::var("NEXAL_SANDBOX_CONTAINER") {
+                    // Map host workspace path to container-side /workspace.
+                    // The container has the host workspace bind-mounted at /workspace.
+                    let container_cwd = map_host_to_container_cwd(
+                        &command.cwd,
+                    );
                     // Persistent container: podman exec <name> <command>
                     let mut podman_argv = vec![
                         "podman".to_string(),
                         "exec".to_string(),
                         "-w".to_string(),
-                        command.cwd.to_string_lossy().to_string(),
-                        container,
+                        container_cwd.clone(),
+                        container.clone(),
                     ];
-                    podman_argv.extend(argv);
+                    podman_argv.extend(argv.clone());
+                    tracing::debug!(
+                        container = %container,
+                        cwd = %container_cwd,
+                        cmd = ?argv,
+                        "podman exec sandbox"
+                    );
                     (podman_argv, None)
                 } else {
                     // Fallback: ephemeral container per command
@@ -342,6 +353,31 @@ impl SandboxManager {
             arg0: arg0_override,
         })
     }
+}
+
+/// Map a host-side cwd to the container-side path.
+///
+/// The container has the workspace bind-mounted at `/workspace`.
+/// If cwd is inside the workspace, remap it; otherwise default to `/workspace`.
+fn map_host_to_container_cwd(host_cwd: &Path) -> String {
+    // Read the host workspace root from env (set by nexal config).
+    if let Ok(workspace) = std::env::var("NEXAL_WORKSPACE") {
+        let workspace_path = Path::new(&workspace);
+        if let Ok(suffix) = host_cwd.strip_prefix(workspace_path) {
+            let container_path = Path::new("/workspace").join(suffix);
+            return container_path.to_string_lossy().to_string();
+        }
+    }
+    // Also try the default ~/.nexal/workspace
+    if let Ok(home) = std::env::var("HOME") {
+        let default_workspace = PathBuf::from(&home).join(".nexal").join("workspace");
+        if let Ok(suffix) = host_cwd.strip_prefix(&default_workspace) {
+            let container_path = Path::new("/workspace").join(suffix);
+            return container_path.to_string_lossy().to_string();
+        }
+    }
+    // Fallback: use /workspace
+    "/workspace".to_string()
 }
 
 fn linux_sandbox_arg0_override(exe: &Path) -> String {
