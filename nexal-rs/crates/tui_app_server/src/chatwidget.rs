@@ -5445,17 +5445,27 @@ impl ChatWidget {
                     .args(["exec", &container, "bash", "-c",
                         &format!("cd '{}' 2>/dev/null && cd '{}' && pwd", saved, target_dir)])
                     .output();
-                let msg = match result {
+                match result {
                     Ok(out) if out.status.success() => {
                         let resolved = String::from_utf8_lossy(&out.stdout).trim().to_string();
                         let _ = std::fs::write(&cwd_state, &resolved);
-                        format!("changed to {resolved}")
+                        self.app_event_tx.send(AppEvent::InsertHistoryCell(Box::new(
+                            history_cell::new_info_event(
+                                format!("cd {resolved}"),
+                                None,
+                            ),
+                        )));
+                        // Refresh status line to show new cwd
+                        self.refresh_status_line();
                     }
-                    _ => format!("cd: no such directory: {target_dir}"),
+                    _ => {
+                        self.app_event_tx.send(AppEvent::InsertHistoryCell(Box::new(
+                            history_cell::new_error_event(
+                                format!("cd: no such directory: {target_dir}"),
+                            ),
+                        )));
+                    }
                 };
-                self.app_event_tx.send(AppEvent::InsertHistoryCell(Box::new(
-                    history_cell::new_info_event(msg, None),
-                )));
             } else {
                 self.app_event_tx.send(AppEvent::InsertHistoryCell(Box::new(
                     history_cell::new_info_event(
