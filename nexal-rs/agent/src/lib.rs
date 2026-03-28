@@ -1,6 +1,7 @@
 pub mod actor;
 mod bot;
 pub mod context;
+pub mod db_sync;
 pub mod orchestrator;
 mod podman;
 mod pool;

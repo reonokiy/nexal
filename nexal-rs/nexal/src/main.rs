@@ -73,13 +73,27 @@ async fn run_tui(enable_telegram: bool, enable_discord: bool) -> anyhow::Result<
 
     sync_skills(&config).await?;
 
-    // Ensure StateDb exists — unified with idle/bot mode.
+    // Unified StateDb — same as idle/bot mode.
     // chatlog/toollog skills query this database inside the container.
     let db_path = config.workspace.join("agents").join("nexal.db");
     let _ = tokio::fs::create_dir_all(db_path.parent().unwrap()).await;
-    let _db = StateDb::open(&db_path)
-        .await
-        .context("opening state db")?;
+    let db = Arc::new(
+        StateDb::open(&db_path)
+            .await
+            .context("opening state db")?,
+    );
+
+    // Sync TUI session events to StateDb for chatlog/toollog skills.
+    let nexal_home = config
+        .nexal_home
+        .clone()
+        .unwrap_or_else(|| {
+            std::env::var("HOME")
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(|_| std::path::PathBuf::from("/tmp"))
+                .join(".nexal")
+        });
+    let _sync_handle = nexal_agent::db_sync::start_sync(Arc::clone(&db), &nexal_home);
 
     // Start token proxies (Unix sockets for Telegram/Discord API access).
     // Tokens stay on the host; container connects via socket.
