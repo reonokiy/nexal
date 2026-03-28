@@ -5140,8 +5140,9 @@ impl ChatWidget {
                     }
                     _ => {
                         self.app_event_tx.send(AppEvent::InsertHistoryCell(Box::new(
-                            history_cell::new_error_event(
-                                format!("cd: no such directory: {target_dir}"),
+                            history_cell::new_info_event(
+                                format!("cd {saved}"),
+                                None,
                             ),
                         )));
                     }
