@@ -436,12 +436,7 @@ impl ChatWidget {
             StatusLineItem::CurrentDir => {
                 // When running in a Podman container, show container_id://path
                 if let Ok(container) = std::env::var("NEXAL_SANDBOX_CONTAINER") {
-                    let short_id = if container.len() > 16 {
-                        &container[..16]
-                    } else {
-                        &container
-                    };
-                    Some(format!("{short_id}:///workspace"))
+                    Some(format!("{container}:/workspace"))
                 } else {
                     Some(format_directory_display(
                         self.status_line_cwd(),
