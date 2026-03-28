@@ -1355,7 +1355,12 @@ impl ModelClientSession {
             .base_url
             .clone()
             .unwrap_or_else(|| "https://api.openai.com/v1".to_string());
-        let model = model_info.slug.clone();
+        // Strip provider prefix from model slug (e.g. "openai/kimi-k2.5" → "kimi-k2.5")
+        let model = model_info
+            .slug
+            .split_once('/')
+            .map(|(_, name)| name.to_string())
+            .unwrap_or_else(|| model_info.slug.clone());
 
         // Build reqwest headers with API key auth
         let mut headers = reqwest::header::HeaderMap::new();
