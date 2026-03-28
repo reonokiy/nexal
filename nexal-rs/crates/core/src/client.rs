@@ -1373,6 +1373,15 @@ impl ModelClientSession {
         let messages = convert_prompt_to_chat_messages(&prompt.input);
         let tools = self.convert_tools_to_chat_format();
 
+        // Debug: log the messages being sent
+        for (i, msg) in messages.iter().enumerate() {
+            let preview = msg.content.as_ref()
+                .and_then(|v| v.as_str())
+                .map(|s| if s.len() > 80 { format!("{}...", &s[..80]) } else { s.to_string() })
+                .unwrap_or_else(|| "(none)".to_string());
+            tracing::debug!(idx = i, role = %msg.role, content = %preview, "chat completions message");
+        }
+
         let mut event_stream = session
             .stream(messages, &model, tools, None, None)
             .await
@@ -1454,8 +1463,26 @@ fn convert_prompt_to_chat_messages(
                     .collect::<Vec<_>>()
                     .join("");
 
+                // Map roles to valid Chat Completions roles.
+                // "developer" → "system" (codex uses "developer" for system prompts)
+                // empty/unknown → "user"
+                let chat_role = match role.as_str() {
+                    "system" | "user" | "assistant" | "tool" => role.clone(),
+                    "developer" => "system".to_string(),
+                    "" => "user".to_string(),
+                    other => {
+                        tracing::warn!(role = %other, "unknown message role, mapping to user");
+                        "user".to_string()
+                    }
+                };
+
+                // Skip empty messages
+                if text.is_empty() && chat_role != "assistant" {
+                    continue;
+                }
+
                 messages.push(ChatMessage {
-                    role: role.clone(),
+                    role: chat_role,
                     content: Some(serde_json::Value::String(text)),
                     name: None,
                     tool_calls: None,
