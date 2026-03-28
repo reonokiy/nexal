@@ -454,10 +454,19 @@ impl ChatWidget {
                 Some(format!("{} {label}{fast_label}", self.model_display_name()))
             }
             StatusLineItem::CurrentDir => {
-                Some(format_directory_display(
-                    self.status_line_cwd(),
-                    /*max_width*/ None,
-                ))
+                if let Ok(container) = std::env::var("NEXAL_SANDBOX_CONTAINER") {
+                    let short_id = if container.len() > 16 {
+                        &container[..16]
+                    } else {
+                        &container
+                    };
+                    Some(format!("{short_id}:///workspace"))
+                } else {
+                    Some(format_directory_display(
+                        self.status_line_cwd(),
+                        /*max_width*/ None,
+                    ))
+                }
             }
             StatusLineItem::ProjectRoot => self.status_line_project_root_name(),
             StatusLineItem::GitBranch => self.status_line_branch.clone(),
