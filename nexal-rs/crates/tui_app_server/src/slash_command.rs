@@ -23,6 +23,7 @@ pub enum SlashCommand {
     Experimental,
     Skills,
     Channels,
+    Context,
     Review,
     Rename,
     New,
@@ -87,6 +88,7 @@ impl SlashCommand {
             SlashCommand::Mention => "mention a file",
             SlashCommand::Skills => "use skills to improve how Nexal performs specific tasks",
             SlashCommand::Channels => "manage active channels (Telegram, Discord)",
+            SlashCommand::Context => "manage conversation contexts (new, switch, list)",
             SlashCommand::Status => "show current session configuration and token usage",
             SlashCommand::DebugConfig => "show config layers and requirement sources for debugging",
             SlashCommand::Title => "configure which items appear in the terminal title",
@@ -167,6 +169,7 @@ impl SlashCommand {
             | SlashCommand::Mention
             | SlashCommand::Skills
             | SlashCommand::Channels
+            | SlashCommand::Context
             | SlashCommand::Status
             | SlashCommand::DebugConfig
             | SlashCommand::Ps
