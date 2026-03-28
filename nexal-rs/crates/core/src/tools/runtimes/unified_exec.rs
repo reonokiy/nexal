@@ -202,17 +202,22 @@ impl<'a> ToolRuntime<UnifiedExecRequest, UnifiedExecProcess> for UnifiedExecRunt
         ctx: &ToolCtx,
     ) -> Result<UnifiedExecProcess, ToolError> {
         let base_command = &req.command;
-        let session_shell = ctx.session.user_shell();
-        let command = maybe_wrap_shell_lc_with_snapshot(
-            base_command,
-            session_shell.as_ref(),
-            &req.cwd,
-            &req.explicit_env_overrides,
-        );
-        let command = if matches!(session_shell.shell_type, ShellType::PowerShell) {
-            prefix_powershell_script_with_utf8(&command)
+        let command = if std::env::var("NEXAL_SANDBOX_CONTAINER").is_ok() {
+            // Podman mode: pass raw command, no host shell wrapping.
+            base_command.clone()
         } else {
-            command
+            let session_shell = ctx.session.user_shell();
+            let cmd = maybe_wrap_shell_lc_with_snapshot(
+                base_command,
+                session_shell.as_ref(),
+                &req.cwd,
+                &req.explicit_env_overrides,
+            );
+            if matches!(session_shell.shell_type, ShellType::PowerShell) {
+                prefix_powershell_script_with_utf8(&cmd)
+            } else {
+                cmd
+            }
         };
 
         let mut env = req.env.clone();

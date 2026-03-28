@@ -221,17 +221,23 @@ impl ToolRuntime<ShellRequest, ExecToolCallOutput> for ShellRuntime {
         attempt: &SandboxAttempt<'_>,
         ctx: &ToolCtx,
     ) -> Result<ExecToolCallOutput, ToolError> {
-        let session_shell = ctx.session.user_shell();
-        let command = maybe_wrap_shell_lc_with_snapshot(
-            &req.command,
-            session_shell.as_ref(),
-            &req.cwd,
-            &req.explicit_env_overrides,
-        );
-        let command = if matches!(session_shell.shell_type, ShellType::PowerShell) {
-            prefix_powershell_script_with_utf8(&command)
+        // When running in Podman container, pass raw command — no host shell wrapping.
+        // The sandbox transform will wrap with `podman exec ... bash -c "cmd"`.
+        let command = if std::env::var("NEXAL_SANDBOX_CONTAINER").is_ok() {
+            req.command.clone()
         } else {
-            command
+            let session_shell = ctx.session.user_shell();
+            let command = maybe_wrap_shell_lc_with_snapshot(
+                &req.command,
+                session_shell.as_ref(),
+                &req.cwd,
+                &req.explicit_env_overrides,
+            );
+            if matches!(session_shell.shell_type, ShellType::PowerShell) {
+                prefix_powershell_script_with_utf8(&command)
+            } else {
+                command
+            }
         };
 
         if self.backend == ShellRuntimeBackend::ShellCommandZshFork {
