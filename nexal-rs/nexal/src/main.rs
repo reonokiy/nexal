@@ -96,6 +96,32 @@ async fn run_tui(enable_telegram: bool, enable_discord: bool) -> anyhow::Result<
         .raw_overrides
         .push("project_doc_fallback_filenames=[\"SOUL.md\"]".to_string());
 
+    // Inject providers from figment config into TUI's core config.
+    for (name, provider) in &config.providers {
+        if let Some(ref url) = provider.base_url {
+            tui_cli.config_overrides.raw_overrides
+                .push(format!("providers.{name}.base_url=\"{url}\""));
+        }
+        if let Some(ref key) = provider.env_key {
+            tui_cli.config_overrides.raw_overrides
+                .push(format!("providers.{name}.env_key=\"{key}\""));
+        }
+        if let Some(ref api) = provider.wire_api {
+            tui_cli.config_overrides.raw_overrides
+                .push(format!("providers.{name}.wire_api=\"{api}\""));
+        }
+        if provider.thinking_mode {
+            tui_cli.config_overrides.raw_overrides
+                .push(format!("providers.{name}.thinking_mode=true"));
+        }
+    }
+
+    // Auto-select the first custom provider if any are configured.
+    if let Some(provider_id) = config.providers.keys().next() {
+        tui_cli.config_overrides.raw_overrides
+            .push(format!("provider=\"{provider_id}\""));
+    }
+
     // Start channel listeners alongside TUI if requested.
     let bot_handle = maybe_start_channels(
         enable_telegram,

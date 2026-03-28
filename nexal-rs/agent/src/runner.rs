@@ -100,7 +100,18 @@ pub(crate) async fn build_nexal_config_loader(nc: &NexalConfig, soul: String) ->
     };
 
     // Inject providers from NexalConfig as CLI overrides so the core sees them.
-    let cli_overrides = providers_to_cli_overrides(nc);
+    let mut cli_overrides = providers_to_cli_overrides(nc);
+
+    // Auto-select provider: if there's exactly one custom provider and no
+    // explicit model_provider configured, use it automatically.
+    if !nc.providers.is_empty() {
+        // Use the first (and often only) custom provider
+        let provider_id = nc.providers.keys().next().unwrap().clone();
+        cli_overrides.push((
+            "provider".to_string(),
+            toml::Value::String(provider_id),
+        ));
+    }
 
     ConfigBuilder::default()
         .nexal_home(nexal_home)
