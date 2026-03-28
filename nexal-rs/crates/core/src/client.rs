@@ -1477,12 +1477,17 @@ fn convert_prompt_to_chat_messages(
                 }
 
                 messages.push(ChatMessage {
-                    role: chat_role,
+                    role: chat_role.clone(),
                     content: Some(serde_json::Value::String(text)),
                     name: None,
                     tool_calls: None,
                     tool_call_id: None,
-                    reasoning_content: None,
+                    // Kimi thinking mode requires reasoning_content on all assistant messages
+                    reasoning_content: if thinking_mode && chat_role == "assistant" {
+                        Some(String::new())
+                    } else {
+                        None
+                    },
                 });
             }
             ResponseItem::FunctionCall {
