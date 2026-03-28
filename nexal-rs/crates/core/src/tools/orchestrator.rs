@@ -179,7 +179,17 @@ impl ToolOrchestrator {
             .network
             .is_some();
         let initial_sandbox = match tool.sandbox_mode_for_first_attempt(req) {
-            SandboxOverride::BypassSandboxFirstAttempt => SandboxType::None,
+            SandboxOverride::BypassSandboxFirstAttempt => {
+                // Even when bypassing sandbox, honor explicit NEXAL_SANDBOX=podman
+                if matches!(
+                    std::env::var("NEXAL_SANDBOX").as_deref(),
+                    Ok(v) if v.eq_ignore_ascii_case("podman")
+                ) {
+                    SandboxType::Podman
+                } else {
+                    SandboxType::None
+                }
+            }
             SandboxOverride::NoOverride => self.sandbox.select_initial(
                 &turn_ctx.file_system_sandbox_policy,
                 turn_ctx.network_sandbox_policy,
@@ -322,8 +332,16 @@ impl ToolOrchestrator {
                     }
                 }
 
+                let escalated_sandbox = if matches!(
+                    std::env::var("NEXAL_SANDBOX").as_deref(),
+                    Ok(v) if v.eq_ignore_ascii_case("podman")
+                ) {
+                    SandboxType::Podman
+                } else {
+                    SandboxType::None
+                };
                 let escalated_attempt = SandboxAttempt {
-                    sandbox: SandboxType::None,
+                    sandbox: escalated_sandbox,
                     policy: &turn_ctx.sandbox_policy,
                     file_system_policy: &turn_ctx.file_system_sandbox_policy,
                     network_policy: turn_ctx.network_sandbox_policy,
