@@ -20,5 +20,6 @@ nexal-config-loader = { workspace = true }
 anyhow = { workspace = true }
 dashmap = { workspace = true }
 serde_json = { workspace = true }
+toml = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }

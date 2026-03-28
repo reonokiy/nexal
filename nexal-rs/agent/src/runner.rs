@@ -99,12 +99,62 @@ pub(crate) async fn build_nexal_config_loader(nc: &NexalConfig, soul: String) ->
         ..Default::default()
     };
 
+    // Inject providers from NexalConfig as CLI overrides so the core sees them.
+    let cli_overrides = providers_to_cli_overrides(nc);
+
     ConfigBuilder::default()
         .nexal_home(nexal_home)
         .harness_overrides(overrides)
+        .cli_overrides(cli_overrides)
         .build()
         .await
         .context("building codex config")
+}
+
+/// Convert NexalConfig providers into core CLI overrides.
+///
+/// Produces entries like:
+///   ("providers.moonshot.base_url", "https://api.moonshot.cn/v1")
+///   ("providers.moonshot.wire_api", "chat")
+fn providers_to_cli_overrides(
+    nc: &NexalConfig,
+) -> Vec<(String, toml::Value)> {
+    let mut overrides = Vec::new();
+
+    for (name, provider) in &nc.providers {
+        if let Some(ref url) = provider.base_url {
+            overrides.push((
+                format!("providers.{name}.base_url"),
+                toml::Value::String(url.clone()),
+            ));
+        }
+        if let Some(ref key) = provider.env_key {
+            overrides.push((
+                format!("providers.{name}.env_key"),
+                toml::Value::String(key.clone()),
+            ));
+        }
+        if let Some(ref api) = provider.wire_api {
+            overrides.push((
+                format!("providers.{name}.wire_api"),
+                toml::Value::String(api.clone()),
+            ));
+        }
+        if provider.thinking_mode {
+            overrides.push((
+                format!("providers.{name}.thinking_mode"),
+                toml::Value::Boolean(true),
+            ));
+        }
+        if let Some(ref display_name) = provider.name {
+            overrides.push((
+                format!("providers.{name}.name"),
+                toml::Value::String(display_name.clone()),
+            ));
+        }
+    }
+
+    overrides
 }
 
 /// Reject every incoming server request with a generic error.
