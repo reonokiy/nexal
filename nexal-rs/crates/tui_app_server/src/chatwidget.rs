@@ -5392,10 +5392,14 @@ impl ChatWidget {
     }
 
     fn queue_user_message(&mut self, user_message: UserMessage) {
-        if !self.is_session_configured() || self.bottom_pane.is_task_running() {
+        if !self.is_session_configured() {
+            // Not ready yet — buffer until session is configured.
             self.queued_user_messages.push_back(user_message);
             self.refresh_pending_input_preview();
         } else {
+            // Always submit immediately, even if a task is running.
+            // The core handles concurrent input via steer_input (appends
+            // to the running turn's context).
             self.submit_user_message(user_message);
         }
     }
