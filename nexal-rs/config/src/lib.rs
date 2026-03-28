@@ -127,7 +127,7 @@ impl Default for NexalConfig {
             sandbox_memory: "512m".to_string(),
             sandbox_cpus: "1.0".to_string(),
             sandbox_pids_limit: 256,
-            sandbox_network: false,
+            sandbox_network: true,
             skills_dir: None,
             providers: HashMap::new(),
         }

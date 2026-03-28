@@ -250,6 +250,7 @@ async fn create_sandbox_container(config: &NexalConfig) -> anyhow::Result<String
     let name = format!("nexal-{}", short_id());
     let image = std::env::var("SANDBOX_IMAGE")
         .unwrap_or_else(|_| config.sandbox_image.clone());
+    // Network is enabled by default (pasta). Use --dns for public DNS.
     let network = if config.sandbox_network { "pasta" } else { "none" };
 
     let _ = tokio::process::Command::new("podman")
@@ -268,7 +269,16 @@ async fn create_sandbox_container(config: &NexalConfig) -> anyhow::Result<String
         format!("--pids-limit={}", config.sandbox_pids_limit),
         format!("--memory={}", config.sandbox_memory),
         format!("--cpus={}", config.sandbox_cpus),
-        format!("--network={network}"),
+        if network == "pasta" {
+            // pasta with private address filtering:
+            // Block access to host network (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16)
+            // by not forwarding local ports and using public DNS only.
+            format!("--network=pasta:--no-map-gw")
+        } else {
+            format!("--network={network}")
+        },
+        "--dns=1.1.1.1".to_string(),
+        "--dns=8.8.8.8".to_string(),
         "-v".to_string(),
         format!("{}:/workspace", config.workspace.display()),
         "-w".to_string(),
