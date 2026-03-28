@@ -98,6 +98,7 @@ impl ChatCompletionsSession {
             let mut tool_calls: HashMap<i32, PartialToolCall> = HashMap::new();
             let mut response_id = String::new();
             let mut sent_created = false;
+            let mut sent_message_item = false;
 
             while let Some(event) = sse_stream.next().await {
                 match event {
@@ -156,6 +157,21 @@ impl ChatCompletionsSession {
                             // Text content
                             if let Some(content) = delta.content {
                                 if !content.is_empty() {
+                                    // Emit OutputItemAdded before the first text delta
+                                    // (the core expects this to set up the active item)
+                                    if !sent_message_item {
+                                        sent_message_item = true;
+                                        let msg_item = ResponseItem::Message {
+                                            id: None,
+                                            role: "assistant".to_string(),
+                                            content: vec![],
+                                            end_turn: None,
+                                            phase: None,
+                                        };
+                                        let _ = tx
+                                            .send(Ok(ResponseEvent::OutputItemAdded(msg_item)))
+                                            .await;
+                                    }
                                     let _ = tx
                                         .send(Ok(ResponseEvent::OutputTextDelta(content)))
                                         .await;
@@ -187,8 +203,9 @@ impl ChatCompletionsSession {
                                 }
                             }
 
-                            // finish_reason: "tool_calls" means flush tool calls
+                            // finish_reason signals end of generation
                             if let Some(reason) = choice.finish_reason {
+                                // Flush tool calls
                                 if reason == "tool_calls" || reason == "stop" {
                                     for (_, tc) in tool_calls.drain() {
                                         let item = tc.into_response_item();
@@ -197,9 +214,18 @@ impl ChatCompletionsSession {
                                             .await;
                                     }
                                 }
-                                if reason == "stop" {
-                                    // Emit a message item for accumulated text
-                                    // (the text was already streamed via OutputTextDelta)
+                                // Emit OutputItemDone for the message if we streamed text
+                                if reason == "stop" && sent_message_item {
+                                    let done_item = ResponseItem::Message {
+                                        id: None,
+                                        role: "assistant".to_string(),
+                                        content: vec![], // text was already streamed
+                                        end_turn: Some(true),
+                                        phase: None,
+                                    };
+                                    let _ = tx
+                                        .send(Ok(ResponseEvent::OutputItemDone(done_item)))
+                                        .await;
                                 }
                             }
                         }
