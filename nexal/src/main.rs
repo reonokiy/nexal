@@ -136,29 +136,29 @@ async fn run_tui(enable_telegram: bool, enable_discord: bool) -> anyhow::Result<
         // name is required by core
         let display = provider.name.as_deref().unwrap_or(name.as_str());
         tui_cli.config_overrides.raw_overrides
-            .push(format!("providers.{name}.name=\"{display}\""));
+            .push(format!("model_providers.{name}.name=\"{display}\""));
         if let Some(ref url) = provider.base_url {
             tui_cli.config_overrides.raw_overrides
-                .push(format!("providers.{name}.base_url=\"{url}\""));
+                .push(format!("model_providers.{name}.base_url=\"{url}\""));
         }
         if let Some(ref key) = provider.env_key {
             tui_cli.config_overrides.raw_overrides
-                .push(format!("providers.{name}.env_key=\"{key}\""));
+                .push(format!("model_providers.{name}.env_key=\"{key}\""));
         }
         if let Some(ref api) = provider.wire_api {
             tui_cli.config_overrides.raw_overrides
-                .push(format!("providers.{name}.wire_api=\"{api}\""));
+                .push(format!("model_providers.{name}.wire_api=\"{api}\""));
         }
         if provider.thinking_mode {
             tui_cli.config_overrides.raw_overrides
-                .push(format!("providers.{name}.thinking_mode=true"));
+                .push(format!("model_providers.{name}.thinking_mode=true"));
         }
     }
 
     // Auto-select the first custom provider if any are configured.
     if let Some(provider_id) = config.providers.keys().next() {
         tui_cli.config_overrides.raw_overrides
-            .push(format!("provider=\"{provider_id}\""));
+            .push(format!("model_provider=\"{provider_id}\""));
     }
 
     // Start channel listeners alongside TUI if requested.

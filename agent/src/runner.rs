@@ -100,6 +100,7 @@ pub(crate) async fn build_nexal_config_loader(nc: &NexalConfig, soul: String) ->
     };
 
     // Inject providers from NexalConfig as CLI overrides so the core sees them.
+    // Use "model_providers" key (core's actual field name, not the alias).
     let mut cli_overrides = providers_to_cli_overrides(nc);
 
     // Auto-select provider: if there's exactly one custom provider and no
@@ -108,7 +109,7 @@ pub(crate) async fn build_nexal_config_loader(nc: &NexalConfig, soul: String) ->
         // Use the first (and often only) custom provider
         let provider_id = nc.providers.keys().next().unwrap().clone();
         cli_overrides.push((
-            "provider".to_string(),
+            "model_provider".to_string(),
             toml::Value::String(provider_id),
         ));
     }
@@ -135,31 +136,31 @@ fn providers_to_cli_overrides(
     for (name, provider) in &nc.providers {
         if let Some(ref url) = provider.base_url {
             overrides.push((
-                format!("providers.{name}.base_url"),
+                format!("model_providers.{name}.base_url"),
                 toml::Value::String(url.clone()),
             ));
         }
         if let Some(ref key) = provider.env_key {
             overrides.push((
-                format!("providers.{name}.env_key"),
+                format!("model_providers.{name}.env_key"),
                 toml::Value::String(key.clone()),
             ));
         }
         if let Some(ref api) = provider.wire_api {
             overrides.push((
-                format!("providers.{name}.wire_api"),
+                format!("model_providers.{name}.wire_api"),
                 toml::Value::String(api.clone()),
             ));
         }
         if provider.thinking_mode {
             overrides.push((
-                format!("providers.{name}.thinking_mode"),
+                format!("model_providers.{name}.thinking_mode"),
                 toml::Value::Boolean(true),
             ));
         }
         // name is required by core's ModelProviderInfo — default to the key
         overrides.push((
-            format!("providers.{name}.name"),
+            format!("model_providers.{name}.name"),
             toml::Value::String(provider.name.clone().unwrap_or_else(|| name.clone())),
         ));
         if false {
