@@ -270,26 +270,28 @@ impl SandboxManager {
                 // NEXAL_SANDBOX_CONTAINER.  If the env var is missing, fall
                 // back to an ephemeral `podman run --rm`.
                 if let Ok(container) = std::env::var("NEXAL_SANDBOX_CONTAINER") {
-                    // Map host workspace path to container-side /workspace.
-                    // The container has the host workspace bind-mounted at /workspace.
-                    let container_cwd = map_host_to_container_cwd(
-                        &command.cwd,
-                    );
-                    // Persistent container: podman exec <name> <command>
-                    // Remap host shell paths to container equivalents.
-                    let container_argv = remap_for_container(&argv);
-                    let mut podman_argv = vec![
+                    let container_cwd = map_host_to_container_cwd(&command.cwd);
+
+                    // Extract the actual command to run.
+                    // Core wraps commands as: ["/usr/sbin/bash", "-lc", "actual cmd"]
+                    // or ["/usr/sbin/bash", "-c", "...exec '/bin/bash' -c 'actual cmd'"]
+                    // We strip ALL of that and just run: bash -c "actual cmd"
+                    let raw_cmd = extract_raw_command(&argv);
+
+                    let podman_argv = vec![
                         "podman".to_string(),
                         "exec".to_string(),
                         "-w".to_string(),
                         container_cwd.clone(),
                         container.clone(),
+                        "bash".to_string(),
+                        "-c".to_string(),
+                        raw_cmd.clone(),
                     ];
-                    podman_argv.extend(container_argv);
                     tracing::debug!(
                         container = %container,
                         cwd = %container_cwd,
-                        cmd = ?argv,
+                        cmd = %raw_cmd,
                         "podman exec sandbox"
                     );
                     (podman_argv, None)
@@ -345,54 +347,37 @@ impl SandboxManager {
 /// 1. argv[0]: replace absolute shell paths with just the binary name
 /// 2. All args: replace host shell paths embedded in -c script content
 /// 3. All args: replace host workspace paths with /workspace
-fn remap_for_container(argv: &[String]) -> Vec<String> {
-    argv.iter()
-        .enumerate()
-        .map(|(i, arg)| {
-            let mut result = arg.clone();
+/// Extract the raw command from core's shell-wrapped argv.
+///
+/// Core produces things like:
+///   ["/usr/sbin/bash", "-lc", "ls -la"]
+///   ["/usr/sbin/bash", "-c", "if . 'snapshot'...\n\nexec '/bin/bash' -c 'actual cmd'"]
+///
+/// We extract just "actual cmd" — the container runs it directly with `bash -c`.
+fn extract_raw_command(argv: &[String]) -> String {
+    // Common pattern: [shell, "-c"|"-lc", script]
+    if argv.len() >= 3 && (argv[1] == "-c" || argv[1] == "-lc") {
+        let script = &argv[2];
 
-            if i == 0 {
-                // argv[0]: if it's an absolute shell path, strip to just the name
-                let base = Path::new(&result)
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .unwrap_or(&result)
-                    .to_string();
-                if matches!(base.as_str(), "bash" | "sh" | "zsh" | "fish" | "dash") {
-                    result = base;
-                }
-            } else {
-                // Embedded in script content: replace known host shell paths.
-                // Order: longest first to avoid substring collisions
-                // (e.g. /bin/bash is a suffix of /usr/bin/bash)
-                for (from, to) in &[
-                    ("/usr/sbin/bash", "/usr/bin/bash"),
-                    ("/usr/sbin/sh", "/usr/bin/sh"),
-                    ("/usr/sbin/zsh", "/usr/bin/zsh"),
-                    // Don't replace /usr/bin/* or /bin/* — they're already correct
-                    // for Debian-based containers
-                ] {
-                    result = result.replace(from, to);
-                }
+        // If script has "exec ... -c 'actual cmd'" pattern (snapshot wrapper),
+        // extract the inner command
+        if let Some(exec_pos) = script.find("exec ") {
+            let after_exec = &script[exec_pos + 5..];
+            // Pattern: exec '/bin/bash' -c 'actual cmd'
+            if let Some(c_pos) = after_exec.find(" -c ") {
+                let inner = after_exec[c_pos + 4..].trim();
+                // Strip surrounding quotes
+                let inner = inner.trim_matches('\'').trim_matches('"');
+                return inner.to_string();
             }
+        }
 
-            // Replace host snapshot paths — these don't exist in the container
-            // Just remove the snapshot sourcing line entirely
-            if let Ok(home) = std::env::var("HOME") {
-                let snapshot_dir = format!("{home}/.nexal/shell_snapshots/");
-                if result.contains(&snapshot_dir) {
-                    // Remove the "if . 'snapshot' >/dev/null 2>&1; then :; fi\n\n" block
-                    if let Some(exec_pos) = result.find("\nexec ") {
-                        result = result[exec_pos + 1..].to_string();
-                    } else if let Some(exec_pos) = result.find("\n\nexec ") {
-                        result = result[exec_pos + 2..].to_string();
-                    }
-                }
-            }
+        // No wrapper — the script IS the command
+        return script.clone();
+    }
 
-            result
-        })
-        .collect()
+    // Fallback: join all args
+    argv.join(" ")
 }
 
 /// Map a host-side cwd to the container-side path.
