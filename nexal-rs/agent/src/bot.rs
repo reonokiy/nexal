@@ -126,6 +126,18 @@ impl Bot {
                             let _ = channel.send(chat_id, &format!("Error: {message}")).await;
                         }
                     }
+                    AgentEvent::StatusChange {
+                        session_key,
+                        status,
+                        activity,
+                    } => {
+                        tracing::debug!(
+                            session = %session_key,
+                            status = %status,
+                            activity = %activity,
+                            "agent status changed"
+                        );
+                    }
                 }
             }
         });

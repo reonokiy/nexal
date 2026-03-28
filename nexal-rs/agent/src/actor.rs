@@ -52,6 +52,12 @@ pub enum AgentEvent {
         session_key: String,
         message: String,
     },
+    /// Agent status changed (for dashboard).
+    StatusChange {
+        session_key: String,
+        status: String,
+        activity: String,
+    },
 }
 
 /// Handle to send messages to a running agent actor.
@@ -143,6 +149,15 @@ impl AgentActor {
         text: String,
         event_tx: &mpsc::Sender<AgentEvent>,
     ) {
+        // Signal: working
+        let _ = event_tx
+            .send(AgentEvent::StatusChange {
+                session_key: self.session_key.clone(),
+                status: "working".into(),
+                activity: truncate(&text, 40),
+            })
+            .await;
+
         let cwd = workspace_cwd(&self.config);
 
         use nexal_app_server_protocol::TurnStartResponse;
@@ -202,6 +217,15 @@ impl AgentActor {
                 thread_id: self.thread_id.clone(),
             })
             .await;
+
+        // Signal: idle
+        let _ = event_tx
+            .send(AgentEvent::StatusChange {
+                session_key: self.session_key.clone(),
+                status: "idle".into(),
+                activity: String::new(),
+            })
+            .await;
     }
 
     /// Drain the event stream until `TurnCompleted` or `Error`.
@@ -249,5 +273,13 @@ impl AgentActor {
         }
 
         buf
+    }
+}
+
+fn truncate(s: &str, max: usize) -> String {
+    if s.len() <= max {
+        s.to_string()
+    } else {
+        format!("{}...", &s[..max])
     }
 }

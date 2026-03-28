@@ -220,6 +220,9 @@ impl Orchestrator {
                     }
                 }
             }
+            AgentEvent::StatusChange { .. } => {
+                // Status updates are handled by the ContextManager, not the orchestrator.
+            }
         }
     }
 }
