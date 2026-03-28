@@ -1374,10 +1374,7 @@ impl ModelClientSession {
         let messages = convert_prompt_to_chat_messages(&prompt.input, thinking_mode);
         let tools = convert_tools_to_chat_format(&prompt.tools);
 
-        // Debug: dump messages to file for diagnosis
-        if let Ok(debug_json) = serde_json::to_string_pretty(&messages) {
-            let _ = std::fs::write("/tmp/nexal-chat-debug.json", &debug_json);
-        }
+
 
         let mut event_stream = session
             .stream(messages, &model, tools, None, None)

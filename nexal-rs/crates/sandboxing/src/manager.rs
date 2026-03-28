@@ -277,7 +277,7 @@ impl SandboxManager {
                     );
                     // Persistent container: podman exec <name> <command>
                     // Remap host shell paths to container equivalents.
-                    let container_argv = remap_shell_paths(&argv);
+                    let container_argv = remap_for_container(&argv);
                     let mut podman_argv = vec![
                         "podman".to_string(),
                         "exec".to_string(),
@@ -340,28 +340,50 @@ impl SandboxManager {
     }
 }
 
-/// Remap host-side shell binary paths to container-portable equivalents.
+/// Remap host-side paths in argv for container compatibility.
 ///
-/// The host may have bash at `/usr/sbin/bash` (Arch) or `/bin/bash` (Debian),
-/// but the container image may have it elsewhere. Replace absolute shell paths
-/// with just the binary name so the container's PATH resolves it.
-fn remap_shell_paths(argv: &[String]) -> Vec<String> {
+/// 1. argv[0]: replace absolute shell paths with just the binary name
+/// 2. All args: replace host shell paths embedded in -c script content
+/// 3. All args: replace host workspace paths with /workspace
+fn remap_for_container(argv: &[String]) -> Vec<String> {
     argv.iter()
         .enumerate()
         .map(|(i, arg)| {
-            if i == 0 {
-                // First element is the program — remap absolute shell paths
-                let base = Path::new(arg)
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .unwrap_or(arg);
-                match base {
-                    "bash" | "sh" | "zsh" | "fish" | "dash" => base.to_string(),
-                    _ => arg.clone(),
+            let mut result = arg.clone();
+
+            // Replace absolute shell paths (host → container-portable)
+            for shell in &["/usr/sbin/bash", "/usr/bin/bash", "/bin/bash",
+                           "/usr/sbin/sh", "/usr/bin/sh", "/bin/sh",
+                           "/usr/sbin/zsh", "/usr/bin/zsh", "/bin/zsh"] {
+                if i == 0 && result == *shell {
+                    // argv[0]: just use the binary name
+                    result = Path::new(shell)
+                        .file_name()
+                        .unwrap()
+                        .to_string_lossy()
+                        .to_string();
+                } else {
+                    // Embedded in script: replace with /usr/bin/ (Debian standard)
+                    let container_path = format!("/usr/bin/{}", Path::new(shell).file_name().unwrap().to_string_lossy());
+                    result = result.replace(shell, &container_path);
                 }
-            } else {
-                arg.clone()
             }
+
+            // Replace host snapshot paths — these don't exist in the container
+            // Just remove the snapshot sourcing line entirely
+            if let Ok(home) = std::env::var("HOME") {
+                let snapshot_dir = format!("{home}/.nexal/shell_snapshots/");
+                if result.contains(&snapshot_dir) {
+                    // Remove the "if . 'snapshot' >/dev/null 2>&1; then :; fi\n\n" block
+                    if let Some(exec_pos) = result.find("\nexec ") {
+                        result = result[exec_pos + 1..].to_string();
+                    } else if let Some(exec_pos) = result.find("\n\nexec ") {
+                        result = result[exec_pos + 2..].to_string();
+                    }
+                }
+            }
+
+            result
         })
         .collect()
 }
