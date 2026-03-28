@@ -156,21 +156,25 @@ pub(crate) async fn execute_user_shell_command(
     let sandbox_policy = SandboxPolicy::DangerFullAccess;
 
     // When NEXAL_SANDBOX=podman, wrap the command with `podman exec`.
+    // Use `bash -lc "<cmd>"` inside the container instead of the host shell
+    // path (which may not exist in the container image).
     let (sandbox_type, final_command) = if matches!(
         std::env::var("NEXAL_SANDBOX").as_deref(),
         Ok(v) if v.eq_ignore_ascii_case("podman")
     ) {
         if let Ok(container) = std::env::var("NEXAL_SANDBOX_CONTAINER") {
-            // Map host cwd to container /workspace path
             let container_cwd = crate::tasks::user_shell::map_host_to_container_cwd(&cwd);
-            let mut podman_cmd = vec![
+            let podman_cmd = vec![
                 "podman".to_string(),
                 "exec".to_string(),
                 "-w".to_string(),
                 container_cwd,
                 container,
+                // Use container's own bash, not host shell path
+                "bash".to_string(),
+                "-lc".to_string(),
+                raw_command.clone(),
             ];
-            podman_cmd.extend(exec_command.clone());
             (SandboxType::None, podman_cmd)
         } else {
             (SandboxType::None, exec_command.clone())

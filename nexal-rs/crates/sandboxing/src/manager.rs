@@ -293,6 +293,8 @@ impl SandboxManager {
                         &command.cwd,
                     );
                     // Persistent container: podman exec <name> <command>
+                    // Remap host shell paths to container equivalents.
+                    let container_argv = remap_shell_paths(&argv);
                     let mut podman_argv = vec![
                         "podman".to_string(),
                         "exec".to_string(),
@@ -300,7 +302,7 @@ impl SandboxManager {
                         container_cwd.clone(),
                         container.clone(),
                     ];
-                    podman_argv.extend(argv.clone());
+                    podman_argv.extend(container_argv);
                     tracing::debug!(
                         container = %container,
                         cwd = %container_cwd,
@@ -353,6 +355,32 @@ impl SandboxManager {
             arg0: arg0_override,
         })
     }
+}
+
+/// Remap host-side shell binary paths to container-portable equivalents.
+///
+/// The host may have bash at `/usr/sbin/bash` (Arch) or `/bin/bash` (Debian),
+/// but the container image may have it elsewhere. Replace absolute shell paths
+/// with just the binary name so the container's PATH resolves it.
+fn remap_shell_paths(argv: &[String]) -> Vec<String> {
+    argv.iter()
+        .enumerate()
+        .map(|(i, arg)| {
+            if i == 0 {
+                // First element is the program — remap absolute shell paths
+                let base = Path::new(arg)
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or(arg);
+                match base {
+                    "bash" | "sh" | "zsh" | "fish" | "dash" => base.to_string(),
+                    _ => arg.clone(),
+                }
+            } else {
+                arg.clone()
+            }
+        })
+        .collect()
 }
 
 /// Map a host-side cwd to the container-side path.
