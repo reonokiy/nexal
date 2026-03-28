@@ -154,19 +154,42 @@ pub(crate) async fn execute_user_shell_command(
         .await;
 
     let sandbox_policy = SandboxPolicy::DangerFullAccess;
+
+    // When NEXAL_SANDBOX=podman, wrap the command with `podman exec`.
+    let (sandbox_type, final_command) = if matches!(
+        std::env::var("NEXAL_SANDBOX").as_deref(),
+        Ok(v) if v.eq_ignore_ascii_case("podman")
+    ) {
+        if let Ok(container) = std::env::var("NEXAL_SANDBOX_CONTAINER") {
+            // Map host cwd to container /workspace path
+            let container_cwd = crate::tasks::user_shell::map_host_to_container_cwd(&cwd);
+            let mut podman_cmd = vec![
+                "podman".to_string(),
+                "exec".to_string(),
+                "-w".to_string(),
+                container_cwd,
+                container,
+            ];
+            podman_cmd.extend(exec_command.clone());
+            (SandboxType::None, podman_cmd)
+        } else {
+            (SandboxType::None, exec_command.clone())
+        }
+    } else {
+        (SandboxType::None, exec_command.clone())
+    };
+
     let exec_env = ExecRequest {
-        command: exec_command.clone(),
+        command: final_command,
         cwd: cwd.to_path_buf(),
         env: create_env(
             &turn_context.shell_environment_policy,
             Some(session.conversation_id),
         ),
         network: turn_context.network.clone(),
-        // TODO(zhao-oai): Now that we have ExecExpiration::Cancellation, we
-        // should use that instead of an "arbitrarily large" timeout here.
         expiration: USER_SHELL_TIMEOUT_MS.into(),
         capture_policy: ExecCapturePolicy::ShellTool,
-        sandbox: SandboxType::None,
+        sandbox: sandbox_type,
         windows_sandbox_level: turn_context.windows_sandbox_level,
         windows_sandbox_private_desktop: turn_context
             .config
@@ -354,4 +377,29 @@ async fn persist_user_shell_output(
             .record_conversation_items(turn_context, &response_items)
             .await;
     }
+}
+
+/// Map a host-side path to the container-side /workspace path.
+fn map_host_to_container_cwd(host_cwd: &std::path::Path) -> String {
+    use std::path::{Path, PathBuf};
+
+    if let Ok(workspace) = std::env::var("NEXAL_WORKSPACE") {
+        let workspace_path = Path::new(&workspace);
+        if let Ok(suffix) = host_cwd.strip_prefix(workspace_path) {
+            return Path::new("/workspace")
+                .join(suffix)
+                .to_string_lossy()
+                .to_string();
+        }
+    }
+    if let Ok(home) = std::env::var("HOME") {
+        let default_workspace = PathBuf::from(&home).join(".nexal").join("workspace");
+        if let Ok(suffix) = host_cwd.strip_prefix(&default_workspace) {
+            return Path::new("/workspace")
+                .join(suffix)
+                .to_string_lossy()
+                .to_string();
+        }
+    }
+    "/workspace".to_string()
 }
