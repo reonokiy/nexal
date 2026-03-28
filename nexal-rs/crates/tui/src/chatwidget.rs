@@ -5131,19 +5131,13 @@ impl ChatWidget {
                         let resolved = String::from_utf8_lossy(&out.stdout).trim().to_string();
                         let _ = std::fs::write(&cwd_state, &resolved);
                         self.app_event_tx.send(AppEvent::InsertHistoryCell(Box::new(
-                            history_cell::new_info_event(
-                                format!("cd {resolved}"),
-                                None,
-                            ),
+                            history_cell::new_cd_event(resolved),
                         )));
                         self.refresh_status_surfaces();
                     }
                     _ => {
                         self.app_event_tx.send(AppEvent::InsertHistoryCell(Box::new(
-                            history_cell::new_info_event(
-                                format!("cd {saved}"),
-                                None,
-                            ),
+                            history_cell::new_cd_event(saved),
                         )));
                     }
                 };
