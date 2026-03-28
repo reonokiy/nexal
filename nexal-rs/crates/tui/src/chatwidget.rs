@@ -5119,7 +5119,7 @@ impl ChatWidget {
             if std::env::var("NEXAL_SANDBOX_CONTAINER").is_ok() {
                 let target_dir = if target.is_empty() { "/workspace" } else { target };
                 self.submit_op(Op::RunUserShellCommand {
-                    command: format!("cd {target_dir} && pwd > /workspace/agents/.sandbox_cwd && echo 'Changed directory to '$(pwd)"),
+                    command: format!("cd {target_dir} && pwd > /workspace/agents/.sandbox_cwd && echo 'changed to '$(pwd)"),
                 });
             } else {
                 self.app_event_tx.send(AppEvent::InsertHistoryCell(Box::new(

@@ -5437,7 +5437,7 @@ impl ChatWidget {
                 // Run cd inside container to resolve the path, then save it
                 let target_dir = if target.is_empty() { "/workspace" } else { target };
                 self.submit_op(AppCommand::run_user_shell_command(
-                    format!("cd {target_dir} && pwd > /workspace/agents/.sandbox_cwd && echo 'Changed directory to '$(pwd)"),
+                    format!("cd {target_dir} && pwd > /workspace/agents/.sandbox_cwd && echo 'changed to '$(pwd)"),
                 ));
             } else {
                 self.app_event_tx.send(AppEvent::InsertHistoryCell(Box::new(
