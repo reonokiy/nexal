@@ -85,7 +85,7 @@ impl PodmanContainer {
                 .await
                 .unwrap_or(skills_in_workspace);
             create_args.push("-v".to_string());
-            create_args.push(format!("{}:/workspace/skills:ro", real_skills.display()));
+            create_args.push(format!("{}:/workspace/agents/skills:ro", real_skills.display()));
         }
 
         // Image + command

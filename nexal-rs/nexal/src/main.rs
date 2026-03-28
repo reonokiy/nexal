@@ -338,7 +338,10 @@ async fn cleanup_sandbox_container(name: &str) {
 }
 
 async fn sync_skills(config: &NexalConfig) -> anyhow::Result<()> {
-    let skills_dst = config.workspace.join("skills");
+    // Skills go under agents/ so container sees them at /workspace/agents/skills/
+    let agents_dir = config.workspace.join("agents");
+    let _ = tokio::fs::create_dir_all(&agents_dir).await;
+    let skills_dst = agents_dir.join("skills");
 
     if skills_dst.is_dir() && skills_dst.read_link().is_err() {
         return Ok(());
