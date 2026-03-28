@@ -57,7 +57,7 @@ pub struct AgentPool {
 
 impl AgentPool {
     pub fn new(config: Arc<NexalConfig>) -> Arc<Self> {
-        info!("agent pool using sandbox backend: {}", config.sandbox_backend);
+        info!("agent pool using sandbox backend: {}", config.sandbox_backend());
         Arc::new(Self {
             config,
             sessions: Mutex::new(HashMap::new()),
@@ -126,7 +126,7 @@ impl AgentPool {
 
         // Slow path: spin up a new session.
         info!("creating new agent session for {key}");
-        let live = match self.config.sandbox_backend {
+        let live = match self.config.sandbox_backend() {
             SandboxBackend::Podman => self.create_podman_session(key).await?,
             SandboxBackend::None => self.create_inprocess_session().await?,
         };

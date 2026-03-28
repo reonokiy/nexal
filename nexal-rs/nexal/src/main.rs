@@ -67,7 +67,7 @@ async fn run_tui(enable_telegram: bool, enable_discord: bool) -> anyhow::Result<
     let config = Arc::new(NexalConfig::from_env());
 
     // Ensure workspace exists
-    tokio::fs::create_dir_all(&config.workspace_dir)
+    tokio::fs::create_dir_all(&config.workspace)
         .await
         .context("creating workspace dir")?;
 
@@ -90,7 +90,7 @@ async fn run_tui(enable_telegram: bool, enable_discord: bool) -> anyhow::Result<
     let mut tui_cli = TuiCli::parse_from(["nexal"]);
     // TUI always uses the host-side workspace path. The Podman sandbox
     // only affects exec commands (which get wrapped with `podman exec`).
-    tui_cli.cwd = Some(config.workspace_dir.clone());
+    tui_cli.cwd = Some(config.workspace.clone());
     tui_cli
         .config_overrides
         .raw_overrides
@@ -140,9 +140,9 @@ async fn maybe_start_channels(
 
     // In TUI mode, redirect channel logs to a file so they don't
     // corrupt the terminal UI.
-    init_tracing_to_file(&config.workspace_dir);
+    init_tracing_to_file(&config.workspace);
 
-    let db_path = config.workspace_dir.join("agents").join("nexal.db");
+    let db_path = config.workspace.join("agents").join("nexal.db");
     tokio::fs::create_dir_all(db_path.parent().unwrap()).await?;
     let db = Arc::new(
         StateDb::open(&db_path)
@@ -240,7 +240,7 @@ async fn create_sandbox_container(config: &NexalConfig) -> anyhow::Result<String
         format!("--cpus={}", config.sandbox_cpus),
         format!("--network={network}"),
         "-v".to_string(),
-        format!("{}:/workspace", config.workspace_dir.display()),
+        format!("{}:/workspace", config.workspace.display()),
         "-w".to_string(),
         "/workspace".to_string(),
     ];
@@ -289,7 +289,7 @@ async fn cleanup_sandbox_container(name: &str) {
 }
 
 async fn sync_skills(config: &NexalConfig) -> anyhow::Result<()> {
-    let skills_dst = config.workspace_dir.join("skills");
+    let skills_dst = config.workspace.join("skills");
 
     if skills_dst.is_dir() && skills_dst.read_link().is_err() {
         return Ok(());
@@ -352,13 +352,13 @@ fn init_tracing_to_file(workspace_dir: &std::path::Path) {
 }
 
 async fn run_idle(args: IdleArgs, config: Arc<NexalConfig>) -> anyhow::Result<()> {
-    tokio::fs::create_dir_all(&config.workspace_dir)
+    tokio::fs::create_dir_all(&config.workspace)
         .await
         .context("creating workspace dir")?;
 
     sync_skills(&config).await?;
 
-    let db_path = config.workspace_dir.join("agents").join("nexal.db");
+    let db_path = config.workspace.join("agents").join("nexal.db");
     tokio::fs::create_dir_all(db_path.parent().unwrap()).await?;
     let db = Arc::new(
         StateDb::open(&db_path)

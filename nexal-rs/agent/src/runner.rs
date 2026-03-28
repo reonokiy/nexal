@@ -86,7 +86,7 @@ pub(crate) async fn build_nexal_config_loader(nc: &NexalConfig, soul: String) ->
         None => find_nexal_home().context("finding codex home")?,
     };
 
-    let cwd = nc.workspace_dir.clone();
+    let cwd = nc.workspace.clone();
     tokio::fs::create_dir_all(&cwd)
         .await
         .context("creating workspace dir")?;
@@ -137,5 +137,5 @@ pub(crate) async fn reject_all_server_requests(
 
 // PathBuf is used by the pool via TurnStartParams::cwd
 pub(crate) fn workspace_cwd(nc: &NexalConfig) -> PathBuf {
-    nc.workspace_dir.clone()
+    nc.workspace.clone()
 }

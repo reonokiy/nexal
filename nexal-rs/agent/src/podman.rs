@@ -66,7 +66,7 @@ impl PodmanContainer {
             format!("127.0.0.1:{port}:{port}"),
             // Mount workspace
             "-v".to_string(),
-            format!("{}:/workspace", config.workspace_dir.display()),
+            format!("{}:/workspace", config.workspace.display()),
             // Mount app-server binary (read-only)
             "-v".to_string(),
             format!("{app_server_bin}:/usr/local/bin/nexal-app-server:ro"),
@@ -78,7 +78,7 @@ impl PodmanContainer {
         }
 
         // Mount skills if present
-        let skills_in_workspace = config.workspace_dir.join("skills");
+        let skills_in_workspace = config.workspace.join("skills");
         if skills_in_workspace.exists() {
             // Skills might be a symlink — resolve it for podman
             let real_skills = tokio::fs::canonicalize(&skills_in_workspace)
