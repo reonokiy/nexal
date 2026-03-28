@@ -162,6 +162,14 @@ impl SandboxManager {
         windows_sandbox_level: WindowsSandboxLevel,
         has_managed_network_requirements: bool,
     ) -> SandboxType {
+        // When NEXAL_SANDBOX=podman is explicitly set, always use Podman
+        // regardless of policy (the container IS the sandbox).
+        if let Ok(val) = std::env::var("NEXAL_SANDBOX") {
+            if val.eq_ignore_ascii_case("podman") {
+                return SandboxType::Podman;
+            }
+        }
+
         match pref {
             SandboxablePreference::Forbid => SandboxType::None,
             SandboxablePreference::Require => {
