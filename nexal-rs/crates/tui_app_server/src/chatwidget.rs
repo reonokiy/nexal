@@ -5433,12 +5433,29 @@ impl ChatWidget {
         // Special-case: "%cd dir" changes the persistent cwd inside the Podman sandbox.
         if let Some(rest) = text.strip_prefix("%cd") {
             let target = rest.trim();
-            if std::env::var("NEXAL_SANDBOX_CONTAINER").is_ok() {
-                // Run cd inside container to resolve the path, then save it
+            if let Ok(container) = std::env::var("NEXAL_SANDBOX_CONTAINER") {
                 let target_dir = if target.is_empty() { "/workspace" } else { target };
-                self.submit_op(AppCommand::run_user_shell_command(
-                    format!("cd {target_dir} && pwd > /workspace/agents/.sandbox_cwd && echo 'changed to '$(pwd)"),
-                ));
+                // Read current saved cwd for relative path resolution
+                let cwd_state = self.config.cwd.as_path().join("agents").join(".sandbox_cwd");
+                let saved = std::fs::read_to_string(&cwd_state)
+                    .map(|s| s.trim().to_string())
+                    .unwrap_or_else(|_| "/workspace".to_string());
+                // Resolve path inside container silently
+                let result = std::process::Command::new("podman")
+                    .args(["exec", &container, "bash", "-c",
+                        &format!("cd '{}' 2>/dev/null && cd '{}' && pwd", saved, target_dir)])
+                    .output();
+                let msg = match result {
+                    Ok(out) if out.status.success() => {
+                        let resolved = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                        let _ = std::fs::write(&cwd_state, &resolved);
+                        format!("changed to {resolved}")
+                    }
+                    _ => format!("cd: no such directory: {target_dir}"),
+                };
+                self.app_event_tx.send(AppEvent::InsertHistoryCell(Box::new(
+                    history_cell::new_info_event(msg, None),
+                )));
             } else {
                 self.app_event_tx.send(AppEvent::InsertHistoryCell(Box::new(
                     history_cell::new_info_event(
