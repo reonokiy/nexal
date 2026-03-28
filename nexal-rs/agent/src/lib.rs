@@ -1,9 +1,11 @@
+pub mod actor;
 mod bot;
 mod podman;
 mod pool;
 mod runner;
 pub mod skills;
 
+pub use actor::{AgentEvent, AgentHandle, AgentMessage};
 pub use bot::Bot;
 pub use pool::AgentPool;
 

@@ -1,10 +1,7 @@
 //! Bot orchestrator — ties channels, debouncing, and the agent pool together.
 //!
-//! Ports the Python `Bot` class (`nexal/bots/bot.py`):
-//! 1. Each channel feeds messages into the Bot.
-//! 2. Per-session [`SessionRunner`] debounces/batches messages.
-//! 3. Merged messages are dispatched to [`AgentPool::run_turn`].
-//! 4. Response chunks are sent back via the channel.
+//! Messages flow: Channel → SessionRunner → AgentPool.send() (non-blocking)
+//! Responses flow: AgentPool event stream → Channel.send()
 
 use std::sync::Arc;
 
@@ -16,6 +13,7 @@ use nexal_config::NexalConfig;
 use nexal_state::StateDb;
 use tracing::{error, info, warn};
 
+use crate::actor::{AgentEvent, AgentMessage};
 use crate::AgentPool;
 
 /// Orchestrates channels + agent pool, one per nexal instance.
@@ -23,6 +21,7 @@ pub struct Bot {
     pool: Arc<AgentPool>,
     #[allow(dead_code)]
     config: Arc<NexalConfig>,
+    #[allow(dead_code)]
     db: Arc<StateDb>,
     channels: Vec<Arc<dyn Channel>>,
     runners: Arc<DashMap<String, Arc<SessionRunner>>>,
@@ -33,7 +32,8 @@ impl Bot {
     pub fn new(
         pool: Arc<AgentPool>,
         config: Arc<NexalConfig>,
-        db: Arc<StateDb>,
+        #[allow(dead_code)]
+    db: Arc<StateDb>,
         debounce_config: DebounceConfig,
     ) -> Self {
         Self {
@@ -46,15 +46,14 @@ impl Bot {
         }
     }
 
-    /// Register a channel to listen on.
     pub fn add_channel(&mut self, channel: impl Channel) {
         self.channels.push(Arc::new(channel));
     }
 
-    /// Start all channels concurrently. Blocks until any channel exits.
+    /// Start all channels + event consumer. Blocks until any channel exits.
     pub async fn run(&self) -> anyhow::Result<()> {
         if self.channels.is_empty() {
-            anyhow::bail!("No channels configured. Add at least one channel.");
+            anyhow::bail!("No channels configured.");
         }
 
         info!(
@@ -69,113 +68,134 @@ impl Bot {
 
         let mut handles = Vec::new();
 
+        // Spawn channel listeners
         for channel in &self.channels {
             let ch = Arc::clone(channel);
             let pool = Arc::clone(&self.pool);
-            let db = Arc::clone(&self.db);
             let runners = Arc::clone(&self.runners);
             let debounce_config = self.debounce_config.clone();
 
             let handle = tokio::spawn(async move {
                 let ch_name = ch.name().to_string();
-                let ch_for_send = Arc::clone(&ch);
-
-                let on_message = Box::new(move |msg: IncomingMessage| {
-                    let session_key = msg.session_key();
-                    let runners = Arc::clone(&runners);
-                    let pool = Arc::clone(&pool);
-                    let db = Arc::clone(&db);
-                    let ch = Arc::clone(&ch_for_send);
-                    let debounce_config = debounce_config.clone();
-
-                    // Get or create a SessionRunner for this session.
-                    let runner = runners
-                        .entry(session_key.clone())
-                        .or_insert_with(|| {
-                            let handler = make_handler(
-                                Arc::clone(&pool),
-                                Arc::clone(&db),
-                                Arc::clone(&ch),
-                            );
-                            Arc::new(SessionRunner::new(
-                                session_key.clone(),
-                                debounce_config,
-                                handler,
-                            ))
-                        })
-                        .clone();
-
-                    tokio::spawn(async move {
-                        runner.process_message(msg).await;
-                    })
-                });
+                let on_message = make_send_handler(
+                    Arc::clone(&pool),
+                    Arc::clone(&runners),
+                    debounce_config,
+                );
 
                 if let Err(e) = ch.start(on_message).await {
                     error!(channel = %ch_name, "channel exited with error: {e}");
                 }
             });
-
             handles.push(handle);
         }
 
-        // Wait for any channel to finish (first one wins).
-        let (result, _idx, remaining) = futures_select_first(handles).await;
-
-        // Cancel the rest.
-        for h in remaining {
-            h.abort();
-        }
-
-        result.map_err(|e| anyhow::anyhow!("channel task failed: {e}"))
-    }
-}
-
-/// Create the handler closure that dispatches merged messages to the agent pool.
-fn make_handler(
-    pool: Arc<AgentPool>,
-    _db: Arc<StateDb>,
-    channel: Arc<dyn Channel>,
-) -> MessageHandler {
-    Arc::new(move |msg: IncomingMessage| {
-        let pool = Arc::clone(&pool);
-        let channel = Arc::clone(&channel);
-
-        tokio::spawn(async move {
-            let session_key = msg.session_key();
-            let chat_id = msg.chat_id.clone();
-
-            match pool.run_turn(&session_key, msg.text.clone()).await {
-                Ok((chunks, _thread_id)) => {
-                    for chunk in chunks {
-                        if let Err(e) = channel.send(&chat_id, &chunk).await {
-                            warn!(
-                                session = %session_key,
-                                "failed to send response chunk: {e}"
-                            );
+        // Spawn event consumer — routes responses back to channels
+        let channels: Vec<Arc<dyn Channel>> = self.channels.clone();
+        let pool = Arc::clone(&self.pool);
+        let event_handle = tokio::spawn(async move {
+            while let Some(event) = pool.recv_event().await {
+                match event {
+                    AgentEvent::Response {
+                        session_key,
+                        chunks,
+                        ..
+                    } => {
+                        // Parse channel name and chat_id from session_key
+                        let (ch_name, chat_id) = match session_key.split_once(':') {
+                            Some((c, id)) => (c, id),
+                            None => continue,
+                        };
+                        if let Some(channel) = channels.iter().find(|c| c.name() == ch_name) {
+                            for chunk in &chunks {
+                                if let Err(e) = channel.send(chat_id, chunk).await {
+                                    warn!(session = %session_key, "send error: {e}");
+                                }
+                            }
+                        }
+                    }
+                    AgentEvent::Error {
+                        session_key,
+                        message,
+                    } => {
+                        let (ch_name, chat_id) = match session_key.split_once(':') {
+                            Some((c, id)) => (c, id),
+                            None => continue,
+                        };
+                        if let Some(channel) = channels.iter().find(|c| c.name() == ch_name) {
+                            let _ = channel.send(chat_id, &format!("Error: {message}")).await;
                         }
                     }
                 }
-                Err(e) => {
-                    error!(session = %session_key, "agent turn failed: {e}");
-                    let _ = channel
-                        .send(&chat_id, &format!("Error: {e}"))
-                        .await;
-                }
             }
+        });
+        handles.push(event_handle);
+
+        // Wait for any task to finish
+        let (result, _idx, remaining) = futures_select_first(handles).await;
+        for h in remaining {
+            h.abort();
+        }
+        result.map_err(|e| anyhow::anyhow!("bot task failed: {e}"))
+    }
+}
+
+/// Create a handler that sends messages to the pool (non-blocking).
+fn make_send_handler(
+    pool: Arc<AgentPool>,
+    runners: Arc<DashMap<String, Arc<SessionRunner>>>,
+    debounce_config: DebounceConfig,
+) -> Box<dyn Fn(IncomingMessage) -> tokio::task::JoinHandle<()> + Send + Sync> {
+    Box::new(move |msg: IncomingMessage| {
+        let session_key = msg.session_key();
+        let pool = Arc::clone(&pool);
+        let runners = Arc::clone(&runners);
+        let debounce_config = debounce_config.clone();
+
+        // Get or create session runner for debouncing
+        let runner = runners
+            .entry(session_key.clone())
+            .or_insert_with(|| {
+                let pool_for_handler = Arc::clone(&pool);
+                let handler: MessageHandler = Arc::new(move |merged_msg: IncomingMessage| {
+                    let pool = Arc::clone(&pool_for_handler);
+                    tokio::spawn(async move {
+                        let key = merged_msg.session_key();
+                        if let Err(e) = pool
+                            .send(
+                                &key,
+                                AgentMessage::UserInput {
+                                    text: merged_msg.text,
+                                    sender: merged_msg.sender,
+                                    channel: merged_msg.channel,
+                                },
+                            )
+                            .await
+                        {
+                            error!(session = %key, "failed to send to agent: {e}");
+                        }
+                    })
+                });
+                Arc::new(SessionRunner::new(session_key.clone(), debounce_config, handler))
+            })
+            .clone();
+
+        tokio::spawn(async move {
+            runner.process_message(msg).await;
         })
     })
 }
 
-/// Wait for the first future in a vec of JoinHandles to complete.
 async fn futures_select_first<T>(
     mut handles: Vec<tokio::task::JoinHandle<T>>,
-) -> (Result<T, tokio::task::JoinError>, usize, Vec<tokio::task::JoinHandle<T>>) {
-    use tokio::select;
-
-    // We use a simple loop polling approach.
+) -> (
+    Result<T, tokio::task::JoinError>,
+    usize,
+    Vec<tokio::task::JoinHandle<T>>,
+) {
     loop {
         for (idx, handle) in handles.iter_mut().enumerate() {
-            select! {
+            tokio::select! {
                 result = handle => {
                     let remaining: Vec<_> = handles
                         .into_iter()
