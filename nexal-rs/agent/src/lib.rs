@@ -1,6 +1,7 @@
 pub mod actor;
 mod bot;
 pub mod context;
+pub mod orchestrator;
 mod podman;
 mod pool;
 mod runner;
@@ -9,6 +10,7 @@ pub mod skills;
 pub use actor::{AgentEvent, AgentHandle, AgentMessage};
 pub use bot::Bot;
 pub use context::ContextManager;
+pub use orchestrator::Orchestrator;
 pub use pool::AgentPool;
 
 /// Split a model response into ≤4096-char chunks at blank lines,
