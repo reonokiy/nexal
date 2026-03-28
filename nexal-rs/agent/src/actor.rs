@@ -149,7 +149,7 @@ impl AgentActor {
         text: String,
         event_tx: &mpsc::Sender<AgentEvent>,
     ) {
-        // Signal: working
+        // Signal: working — write to state file for live status bar
         let _ = event_tx
             .send(AgentEvent::StatusChange {
                 session_key: self.session_key.clone(),
@@ -157,6 +157,7 @@ impl AgentActor {
                 activity: truncate(&text, 40),
             })
             .await;
+        write_agent_status(&self.config, "working", &truncate(&text, 40));
 
         let cwd = workspace_cwd(&self.config);
 
@@ -226,6 +227,7 @@ impl AgentActor {
                 activity: String::new(),
             })
             .await;
+        write_agent_status(&self.config, "idle", "");
     }
 
     /// Drain the event stream until `TurnCompleted` or `Error`.
@@ -274,6 +276,18 @@ impl AgentActor {
 
         buf
     }
+}
+
+/// Write agent status to a state file for live TUI status bar rendering.
+/// The TUI reads this file every frame to show current agent state.
+fn write_agent_status(config: &NexalConfig, status: &str, activity: &str) {
+    let state_file = config.workspace.join("agents").join(".agent_status");
+    let content = if activity.is_empty() {
+        status.to_string()
+    } else {
+        format!("{status}: {activity}")
+    };
+    let _ = std::fs::write(state_file, content);
 }
 
 fn truncate(s: &str, max: usize) -> String {

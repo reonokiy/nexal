@@ -434,20 +434,27 @@ impl ChatWidget {
                 Some(format!("{} {label}{fast_label}", self.model_display_name()))
             }
             StatusLineItem::CurrentDir => {
-                // When running in a Podman container, show container_id://path
-                if let Ok(container) = std::env::var("NEXAL_SANDBOX_CONTAINER") {
-                    // Read actual cwd from state file
-                    let cwd_path = self.status_line_cwd();
+                let cwd_path = self.status_line_cwd();
+                let dir = if let Ok(container) = std::env::var("NEXAL_SANDBOX_CONTAINER") {
                     let state_file = cwd_path.join("agents").join(".sandbox_cwd");
                     let sandbox_cwd = std::fs::read_to_string(state_file)
                         .map(|s| s.trim().to_string())
                         .unwrap_or_else(|_| "/workspace".to_string());
-                    Some(format!("{container}:{sandbox_cwd}"))
+                    format!("{container}:{sandbox_cwd}")
                 } else {
-                    Some(format_directory_display(
-                        self.status_line_cwd(),
-                        /*max_width*/ None,
-                    ))
+                    format_directory_display(cwd_path, /*max_width*/ None)
+                };
+
+                // Append live agent status if available
+                let status_file = cwd_path.join("agents").join(".agent_status");
+                let agent_status = std::fs::read_to_string(status_file)
+                    .map(|s| s.trim().to_string())
+                    .unwrap_or_default();
+
+                if agent_status.is_empty() || agent_status == "idle" {
+                    Some(dir)
+                } else {
+                    Some(format!("{dir} [{agent_status}]"))
                 }
             }
             StatusLineItem::ProjectRoot => self.status_line_project_root_name(),
