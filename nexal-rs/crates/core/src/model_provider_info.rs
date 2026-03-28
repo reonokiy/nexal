@@ -256,6 +256,18 @@ impl ModelProviderInfo {
                     .filter(|v| !v.trim().is_empty())
             })
             .or(base_url);
+        // Auto-detect wire API: if base URL is overridden to a non-OpenAI
+        // endpoint, default to Chat Completions since most providers don't
+        // support the Responses API.
+        let wire_api = if effective_base_url
+            .as_ref()
+            .is_some_and(|url| !url.contains("openai.com") && !url.contains("azure.com"))
+        {
+            WireApi::ChatCompletions
+        } else {
+            WireApi::Responses
+        };
+
         ModelProviderInfo {
             name: OPENAI_PROVIDER_NAME.into(),
             base_url: effective_base_url,
@@ -264,7 +276,7 @@ impl ModelProviderInfo {
                 "Set the OPENAI_API_KEY environment variable with your API key from https://platform.openai.com/api-keys".into(),
             ),
             experimental_bearer_token: None,
-            wire_api: WireApi::Responses,
+            wire_api,
             query_params: None,
             http_headers: Some(
                 [("version".to_string(), env!("CARGO_PKG_VERSION").to_string())]
