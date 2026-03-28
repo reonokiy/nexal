@@ -77,9 +77,7 @@ pub struct NexalConfig {
 pub enum SandboxBackend {
     /// Run commands inside a Podman container (default)
     Podman,
-    /// Use codex's built-in bubblewrap sandbox
-    Bwrap,
-    /// No sandbox — full host access
+    /// No sandbox — full host access (not recommended)
     None,
 }
 
@@ -87,7 +85,6 @@ impl fmt::Display for SandboxBackend {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Podman => write!(f, "podman"),
-            Self::Bwrap => write!(f, "bwrap"),
             Self::None => write!(f, "none"),
         }
     }
@@ -137,7 +134,6 @@ impl NexalConfig {
             .to_lowercase()
             .as_str()
         {
-            "bwrap" | "bubblewrap" => SandboxBackend::Bwrap,
             "none" | "off" | "disabled" => SandboxBackend::None,
             _ => SandboxBackend::Podman,
         };

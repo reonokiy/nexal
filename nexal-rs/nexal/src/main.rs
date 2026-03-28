@@ -73,10 +73,13 @@ async fn run_tui(enable_telegram: bool, enable_discord: bool) -> anyhow::Result<
 
     sync_skills(&config).await?;
 
-    // If NEXAL_SANDBOX=podman, create a persistent container for this session.
-    let sandbox_container = if is_podman_sandbox() {
+    // Create a persistent Podman container for this session.
+    // All exec commands run inside this container.
+    // Set NEXAL_SANDBOX=none to disable (not recommended).
+    let sandbox_container = if !is_sandbox_disabled() {
+        // Ensure NEXAL_SANDBOX is set so downstream code picks it up
+        unsafe { std::env::set_var("NEXAL_SANDBOX", "podman") };
         let container = create_sandbox_container(&config).await?;
-        // SAFETY: we are single-threaded at this point (before TUI starts).
         unsafe { std::env::set_var("NEXAL_SANDBOX_CONTAINER", &container) };
         Some(container)
     } else {
@@ -186,10 +189,11 @@ async fn maybe_start_channels(
     Ok(Some(handle))
 }
 
-fn is_podman_sandbox() -> bool {
+/// Podman sandbox is enabled by default. Set NEXAL_SANDBOX=none to disable.
+fn is_sandbox_disabled() -> bool {
     matches!(
         std::env::var("NEXAL_SANDBOX").as_deref(),
-        Ok(v) if v.eq_ignore_ascii_case("podman")
+        Ok(v) if v.eq_ignore_ascii_case("none") || v.eq_ignore_ascii_case("off") || v.eq_ignore_ascii_case("disabled")
     )
 }
 

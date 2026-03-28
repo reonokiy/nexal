@@ -6,8 +6,7 @@
 //!
 //! The pool supports multiple sandbox backends:
 //! - **Podman** (default): runs codex app-server inside a container, connects via WebSocket.
-//! - **Bwrap**: in-process codex with bubblewrap sandbox (codex built-in).
-//! - **None**: in-process codex with no sandbox.
+//! - **None**: in-process codex with no sandbox (not recommended).
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -129,7 +128,7 @@ impl AgentPool {
         info!("creating new agent session for {key}");
         let live = match self.config.sandbox_backend {
             SandboxBackend::Podman => self.create_podman_session(key).await?,
-            SandboxBackend::Bwrap | SandboxBackend::None => self.create_inprocess_session().await?,
+            SandboxBackend::None => self.create_inprocess_session().await?,
         };
         let new_entry = Arc::new(Mutex::new(live));
 

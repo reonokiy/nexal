@@ -50,33 +50,16 @@ pub enum SandboxablePreference {
     Forbid,
 }
 
-pub fn get_platform_sandbox(windows_sandbox_enabled: bool) -> Option<SandboxType> {
-    // Allow overriding via NEXAL_SANDBOX env var.
+pub fn get_platform_sandbox(_windows_sandbox_enabled: bool) -> Option<SandboxType> {
+    // Podman is the default sandbox. Set NEXAL_SANDBOX=none to disable.
     if let Ok(val) = std::env::var("NEXAL_SANDBOX") {
         return match val.to_lowercase().as_str() {
-            "podman" => Some(SandboxType::Podman),
             "none" | "off" | "disabled" => None,
-            // Fall through to platform default for other values
-            _ => get_platform_default_sandbox(windows_sandbox_enabled),
+            _ => Some(SandboxType::Podman),
         };
     }
-    get_platform_default_sandbox(windows_sandbox_enabled)
-}
-
-fn get_platform_default_sandbox(windows_sandbox_enabled: bool) -> Option<SandboxType> {
-    if cfg!(target_os = "macos") {
-        Some(SandboxType::MacosSeatbelt)
-    } else if cfg!(target_os = "linux") {
-        Some(SandboxType::LinuxSeccomp)
-    } else if cfg!(target_os = "windows") {
-        if windows_sandbox_enabled {
-            Some(SandboxType::WindowsRestrictedToken)
-        } else {
-            None
-        }
-    } else {
-        None
-    }
+    // Default: Podman
+    Some(SandboxType::Podman)
 }
 
 #[derive(Debug)]
