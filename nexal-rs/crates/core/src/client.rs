@@ -1488,10 +1488,11 @@ fn convert_prompt_to_chat_messages(
                 call_id,
                 ..
             } => {
-                // Emit as assistant message with tool_calls
+                // Emit as assistant message with tool_calls.
+                // Use empty string content (not null) for provider compatibility.
                 messages.push(ChatMessage {
                     role: "assistant".to_string(),
-                    content: None,
+                    content: Some(serde_json::Value::String(String::new())),
                     name: None,
                     tool_calls: Some(vec![ChatToolCallMessage {
                         id: call_id.clone(),
