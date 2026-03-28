@@ -1371,7 +1371,7 @@ impl ModelClientSession {
         let session = ChatCompletionsSession::new(base_url, headers, http_client);
 
         let messages = convert_prompt_to_chat_messages(&prompt.input);
-        let tools = self.convert_tools_to_chat_format();
+        let tools = convert_tools_to_chat_format(&prompt.tools);
 
         // Debug: log the messages being sent
         for (i, msg) in messages.iter().enumerate() {
@@ -1402,13 +1402,6 @@ impl ModelClientSession {
         });
 
         Ok(crate::client_common::ResponseStream { rx_event: rx })
-    }
-
-    /// Convert tool specs available in this session to Chat Completions format.
-    fn convert_tools_to_chat_format(&self) -> Option<Vec<nexal_api::chat_completions::ChatTool>> {
-        // TODO: Extract tool specs from turn context and convert.
-        // For now, return None (no tools) — tools will be added in a follow-up.
-        None
     }
 
     /// Permanently disables WebSockets for this Nexal session and resets WebSocket state.
@@ -1550,6 +1543,60 @@ fn convert_prompt_to_chat_messages(
     }
 
     messages
+}
+
+/// Convert internal ToolSpec list to Chat Completions tool format.
+fn convert_tools_to_chat_format(
+    tools: &[crate::client_common::tools::ToolSpec],
+) -> Option<Vec<nexal_api::chat_completions::ChatTool>> {
+    use crate::client_common::tools::ToolSpec;
+    use nexal_api::chat_completions::{ChatTool, ChatToolFunction};
+
+    let mut chat_tools = Vec::new();
+
+    for tool in tools {
+        match tool {
+            ToolSpec::Function(func) => {
+                chat_tools.push(ChatTool {
+                    r#type: "function".to_string(),
+                    function: ChatToolFunction {
+                        name: func.name.clone(),
+                        description: func.description.clone(),
+                        parameters: serde_json::to_value(&func.parameters)
+                            .unwrap_or(serde_json::json!({})),
+                    },
+                });
+            }
+            ToolSpec::LocalShell {} => {
+                // Map the built-in shell tool to a function tool
+                chat_tools.push(ChatTool {
+                    r#type: "function".to_string(),
+                    function: ChatToolFunction {
+                        name: "shell".to_string(),
+                        description: "Execute a shell command".to_string(),
+                        parameters: serde_json::json!({
+                            "type": "object",
+                            "properties": {
+                                "command": {
+                                    "type": "string",
+                                    "description": "The shell command to execute"
+                                }
+                            },
+                            "required": ["command"]
+                        }),
+                    },
+                });
+            }
+            // Skip web_search, image_generation, tool_search etc. for Chat Completions
+            _ => {}
+        }
+    }
+
+    if chat_tools.is_empty() {
+        None
+    } else {
+        Some(chat_tools)
+    }
 }
 
 /// Parses per-turn metadata into an HTTP header value.
