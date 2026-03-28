@@ -9,7 +9,7 @@ pub mod skills;
 
 pub use actor::{AgentEvent, AgentHandle, AgentMessage};
 pub use bot::Bot;
-pub use context::ContextManager;
+pub use context::{ContextManager, ContextSnapshot, ContextStatus};
 pub use orchestrator::Orchestrator;
 pub use pool::AgentPool;
 

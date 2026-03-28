@@ -1,7 +1,8 @@
-//! Multiple conversation contexts per user session.
+//! Multiple conversation contexts — dashboard for monitoring agent activity.
 //!
-//! Each context is an independent `AgentHandle` with its own thread_id
-//! and conversation history. Users can create, switch, and close contexts.
+//! Each context is an independent agent with its own state.
+//! The ContextManager tracks all contexts and exposes a snapshot
+//! for the TUI dashboard view.
 
 use std::collections::HashMap;
 
@@ -10,7 +11,42 @@ use crate::actor::AgentHandle;
 /// Unique identifier for a conversation context.
 pub type ContextId = u32;
 
-/// Manages multiple conversation contexts within a single user session.
+/// Status of an agent context.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ContextStatus {
+    /// Idle, waiting for input.
+    Idle,
+    /// Processing a turn.
+    Working,
+    /// Waiting for a dependency to complete.
+    Waiting { depends_on: Vec<ContextId> },
+}
+
+impl std::fmt::Display for ContextStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Idle => write!(f, "idle"),
+            Self::Working => write!(f, "working"),
+            Self::Waiting { depends_on } => {
+                let deps: Vec<String> = depends_on.iter().map(|d| d.to_string()).collect();
+                write!(f, "waiting [{}]", deps.join(","))
+            }
+        }
+    }
+}
+
+/// Snapshot of a context for display in the dashboard.
+#[derive(Debug, Clone)]
+pub struct ContextSnapshot {
+    pub id: ContextId,
+    pub label: String,
+    pub status: ContextStatus,
+    pub model: String,
+    pub activity: String,
+    pub is_active: bool,
+}
+
+/// Manages multiple conversation contexts.
 pub struct ContextManager {
     contexts: HashMap<ContextId, ContextEntry>,
     active: ContextId,
@@ -20,16 +56,24 @@ pub struct ContextManager {
 struct ContextEntry {
     handle: AgentHandle,
     label: String,
+    model: String,
+    status: ContextStatus,
+    activity: String,
 }
 
 impl ContextManager {
-    /// Create a new manager with a single initial context.
-    pub fn new(initial_handle: AgentHandle, label: String) -> Self {
+    pub fn new(initial_handle: AgentHandle, label: String, model: String) -> Self {
         let mut contexts = HashMap::new();
-        contexts.insert(1, ContextEntry {
-            handle: initial_handle,
-            label,
-        });
+        contexts.insert(
+            1,
+            ContextEntry {
+                handle: initial_handle,
+                label,
+                model,
+                status: ContextStatus::Idle,
+                activity: String::new(),
+            },
+        );
         Self {
             contexts,
             active: 1,
@@ -42,20 +86,33 @@ impl ContextManager {
         self.contexts.get(&self.active).map(|e| &e.handle)
     }
 
-    /// Get the active context ID.
     pub fn active_id(&self) -> ContextId {
         self.active
     }
 
     /// Add a new context, returns its ID.
-    pub fn add(&mut self, handle: AgentHandle, label: String) -> ContextId {
+    pub fn add(
+        &mut self,
+        handle: AgentHandle,
+        label: String,
+        model: String,
+    ) -> ContextId {
         let id = self.next_id;
         self.next_id += 1;
-        self.contexts.insert(id, ContextEntry { handle, label });
+        self.contexts.insert(
+            id,
+            ContextEntry {
+                handle,
+                label,
+                model,
+                status: ContextStatus::Idle,
+                activity: String::new(),
+            },
+        );
         id
     }
 
-    /// Switch to a different context.
+    /// Switch active context.
     pub fn switch(&mut self, id: ContextId) -> bool {
         if self.contexts.contains_key(&id) {
             self.active = id;
@@ -65,31 +122,44 @@ impl ContextManager {
         }
     }
 
-    /// Close a context. Cannot close the last remaining context.
+    /// Close a context. Cannot close the last one.
     pub fn close(&mut self, id: ContextId) -> bool {
         if self.contexts.len() <= 1 || !self.contexts.contains_key(&id) {
             return false;
         }
         self.contexts.remove(&id);
         if self.active == id {
-            // Switch to the first available context
             self.active = *self.contexts.keys().next().unwrap();
         }
         true
     }
 
-    /// List all contexts: (id, label, is_active).
-    pub fn list(&self) -> Vec<(ContextId, String, bool)> {
+    /// Update a context's status and activity text.
+    pub fn set_status(&mut self, id: ContextId, status: ContextStatus, activity: String) {
+        if let Some(entry) = self.contexts.get_mut(&id) {
+            entry.status = status;
+            entry.activity = activity;
+        }
+    }
+
+    /// Get a snapshot of all contexts for the dashboard.
+    pub fn snapshot(&self) -> Vec<ContextSnapshot> {
         let mut entries: Vec<_> = self
             .contexts
             .iter()
-            .map(|(&id, entry)| (id, entry.label.clone(), id == self.active))
+            .map(|(&id, entry)| ContextSnapshot {
+                id,
+                label: entry.label.clone(),
+                status: entry.status.clone(),
+                model: entry.model.clone(),
+                activity: entry.activity.clone(),
+                is_active: id == self.active,
+            })
             .collect();
-        entries.sort_by_key(|(id, _, _)| *id);
+        entries.sort_by_key(|e| e.id);
         entries
     }
 
-    /// Number of contexts.
     pub fn len(&self) -> usize {
         self.contexts.len()
     }
@@ -107,36 +177,43 @@ mod tests {
 
     #[test]
     fn basic_lifecycle() {
-        let mut mgr = ContextManager::new(dummy_handle(), "default".into());
+        let mut mgr = ContextManager::new(dummy_handle(), "orchestrator".into(), "kimi".into());
         assert_eq!(mgr.active_id(), 1);
         assert_eq!(mgr.len(), 1);
 
-        let id2 = mgr.add(dummy_handle(), "task-2".into());
+        let id2 = mgr.add(dummy_handle(), "research".into(), "kimi".into());
         assert_eq!(id2, 2);
         assert_eq!(mgr.len(), 2);
 
         assert!(mgr.switch(2));
         assert_eq!(mgr.active_id(), 2);
 
-        // Close context 2 — should succeed (context 1 still exists)
         assert!(mgr.close(2));
-        assert_eq!(mgr.active_id(), 1); // auto-switched to remaining
+        assert_eq!(mgr.active_id(), 1);
         assert_eq!(mgr.len(), 1);
     }
 
     #[test]
     fn cannot_close_last() {
-        let mut mgr = ContextManager::new(dummy_handle(), "only".into());
-        assert!(!mgr.close(1)); // can't close the only context
+        let mut mgr = ContextManager::new(dummy_handle(), "only".into(), "kimi".into());
+        assert!(!mgr.close(1));
     }
 
     #[test]
-    fn list_contexts() {
-        let mut mgr = ContextManager::new(dummy_handle(), "ctx-1".into());
-        mgr.add(dummy_handle(), "ctx-2".into());
-        let list = mgr.list();
-        assert_eq!(list.len(), 2);
-        assert_eq!(list[0], (1, "ctx-1".into(), true));
-        assert_eq!(list[1], (2, "ctx-2".into(), false));
+    fn snapshot_shows_status() {
+        let mut mgr = ContextManager::new(dummy_handle(), "orchestrator".into(), "kimi-k2.5".into());
+        mgr.add(dummy_handle(), "research".into(), "kimi-k2.5".into());
+
+        mgr.set_status(1, ContextStatus::Idle, String::new());
+        mgr.set_status(2, ContextStatus::Working, "analyzing code...".into());
+
+        let snap = mgr.snapshot();
+        assert_eq!(snap.len(), 2);
+        assert_eq!(snap[0].label, "orchestrator");
+        assert_eq!(snap[0].status, ContextStatus::Idle);
+        assert!(snap[0].is_active);
+        assert_eq!(snap[1].label, "research");
+        assert_eq!(snap[1].status, ContextStatus::Working);
+        assert_eq!(snap[1].activity, "analyzing code...");
     }
 }
