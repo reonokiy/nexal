@@ -46,11 +46,7 @@ struct IdleArgs {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    // Load .env from current dir, then ~/.nexal/.env as fallback
     let _ = dotenvy::dotenv();
-    if let Ok(home) = std::env::var("HOME") {
-        let _ = dotenvy::from_filename(format!("{home}/.nexal/.env"));
-    }
 
     let cli = Cli::parse();
 
