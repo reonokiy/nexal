@@ -351,21 +351,28 @@ fn remap_for_container(argv: &[String]) -> Vec<String> {
         .map(|(i, arg)| {
             let mut result = arg.clone();
 
-            // Replace absolute shell paths (host → container-portable)
-            for shell in &["/usr/sbin/bash", "/usr/bin/bash", "/bin/bash",
-                           "/usr/sbin/sh", "/usr/bin/sh", "/bin/sh",
-                           "/usr/sbin/zsh", "/usr/bin/zsh", "/bin/zsh"] {
-                if i == 0 && result == *shell {
-                    // argv[0]: just use the binary name
-                    result = Path::new(shell)
-                        .file_name()
-                        .unwrap()
-                        .to_string_lossy()
-                        .to_string();
-                } else {
-                    // Embedded in script: replace with /usr/bin/ (Debian standard)
-                    let container_path = format!("/usr/bin/{}", Path::new(shell).file_name().unwrap().to_string_lossy());
-                    result = result.replace(shell, &container_path);
+            if i == 0 {
+                // argv[0]: if it's an absolute shell path, strip to just the name
+                let base = Path::new(&result)
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or(&result)
+                    .to_string();
+                if matches!(base.as_str(), "bash" | "sh" | "zsh" | "fish" | "dash") {
+                    result = base;
+                }
+            } else {
+                // Embedded in script content: replace known host shell paths.
+                // Order: longest first to avoid substring collisions
+                // (e.g. /bin/bash is a suffix of /usr/bin/bash)
+                for (from, to) in &[
+                    ("/usr/sbin/bash", "/usr/bin/bash"),
+                    ("/usr/sbin/sh", "/usr/bin/sh"),
+                    ("/usr/sbin/zsh", "/usr/bin/zsh"),
+                    // Don't replace /usr/bin/* or /bin/* — they're already correct
+                    // for Debian-based containers
+                ] {
+                    result = result.replace(from, to);
                 }
             }
 

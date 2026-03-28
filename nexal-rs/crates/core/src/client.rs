@@ -1432,18 +1432,43 @@ fn convert_prompt_to_chat_messages(
     use nexal_api::chat_completions::{ChatFunctionCall, ChatMessage, ChatToolCallMessage};
     use nexal_protocol::models::ResponseItem;
 
-    // When running in Podman, remap host workspace paths to /workspace
-    // so the agent only sees container-side paths.
-    let host_workspace = std::env::var("HOME")
-        .ok()
-        .map(|home| format!("{home}/.nexal/workspace"));
-    let remap = |text: String| -> String {
-        if let Some(ref hw) = host_workspace {
-            if std::env::var("NEXAL_SANDBOX_CONTAINER").is_ok() {
-                return text.replace(hw, "/workspace");
+    // When running in Podman, remap ALL host paths to container paths.
+    // The agent should only see /workspace, not host filesystem.
+    let is_container = std::env::var("NEXAL_SANDBOX_CONTAINER").is_ok();
+    let host_remap_pairs: Vec<(String, &str)> = if is_container {
+        let mut pairs = Vec::new();
+        if let Ok(home) = std::env::var("HOME") {
+            // Workspace path
+            pairs.push((format!("{home}/.nexal/workspace"), "/workspace"));
+            // Nexal home
+            pairs.push((format!("{home}/.nexal"), "/workspace/agents"));
+        }
+        // Skills source path (may be symlinked from repo)
+        if let Ok(manifest) = std::env::var("CARGO_MANIFEST_DIR") {
+            // Dev layout: nexal-rs/nexal/../../nexal/skills → repo skills
+            let repo_root = std::path::Path::new(&manifest)
+                .parent() // nexal-rs
+                .and_then(|p| p.parent()); // repo root
+            if let Some(root) = repo_root {
+                let skills_src = root.join("nexal").join("skills");
+                if skills_src.exists() {
+                    pairs.push((
+                        skills_src.to_string_lossy().to_string(),
+                        "/workspace/agents/skills",
+                    ));
+                }
             }
         }
-        text
+        pairs
+    } else {
+        Vec::new()
+    };
+    let remap = |text: String| -> String {
+        let mut result = text;
+        for (from, to) in &host_remap_pairs {
+            result = result.replace(from, to);
+        }
+        result
     };
 
     let mut messages = Vec::new();
