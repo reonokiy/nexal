@@ -85,11 +85,9 @@ async fn run_tui(enable_telegram: bool, enable_discord: bool) -> anyhow::Result<
 
     // Build TUI CLI with nexal defaults
     let mut tui_cli = TuiCli::parse_from(["nexal"]);
-    if sandbox_container.is_some() {
-        tui_cli.cwd = Some("/workspace".into());
-    } else {
-        tui_cli.cwd = Some(config.workspace_dir.clone());
-    }
+    // TUI always uses the host-side workspace path. The Podman sandbox
+    // only affects exec commands (which get wrapped with `podman exec`).
+    tui_cli.cwd = Some(config.workspace_dir.clone());
     tui_cli
         .config_overrides
         .raw_overrides
