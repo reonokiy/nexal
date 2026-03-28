@@ -1104,7 +1104,8 @@ pub struct ConfigToml {
     /// Review model override used by the `/review` feature.
     pub review_model: Option<String>,
 
-    /// Provider to use from the model_providers map.
+    /// Provider to use from the providers map.
+    #[serde(alias = "provider")]
     pub model_provider: Option<String>,
 
     /// Size of the context window for the model, in tokens.
@@ -1214,7 +1215,12 @@ pub struct ConfigToml {
 
     /// User-defined provider entries that extend the built-in list. Built-in
     /// IDs cannot be overridden.
-    #[serde(default, deserialize_with = "deserialize_model_providers")]
+    /// Accepts both `model_providers` and `providers` as the TOML key.
+    #[serde(
+        default,
+        alias = "providers",
+        deserialize_with = "deserialize_model_providers"
+    )]
     pub model_providers: HashMap<String, ModelProviderInfo>,
 
     /// Maximum number of bytes to include from an AGENTS.md project doc file.
