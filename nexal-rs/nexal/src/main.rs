@@ -66,9 +66,27 @@ async fn run_tui() -> anyhow::Result<()> {
     // Sync skill directories into workspace
     sync_skills(&config).await?;
 
+    // If NEXAL_SANDBOX=podman, create a persistent container for this session.
+    let sandbox_container = if is_podman_sandbox() {
+        let container = create_sandbox_container(&config).await?;
+        // Publish the container name so the sandbox transform uses `podman exec`.
+        // SAFETY: we are single-threaded at this point (before TUI starts).
+        unsafe { std::env::set_var("NEXAL_SANDBOX_CONTAINER", &container) };
+        Some(container)
+    } else {
+        None
+    };
+
     // Build TUI CLI with nexal defaults
     let mut tui_cli = TuiCli::parse_from(["nexal"]);
-    tui_cli.cwd = Some(config.workspace_dir.clone());
+
+    // When using Podman, set cwd to /workspace (container-side path).
+    // Otherwise use the host workspace directory.
+    if sandbox_container.is_some() {
+        tui_cli.cwd = Some("/workspace".into());
+    } else {
+        tui_cli.cwd = Some(config.workspace_dir.clone());
+    }
 
     // Tell nexal to also look for SOUL.md as project-level instructions
     tui_cli
@@ -76,15 +94,106 @@ async fn run_tui() -> anyhow::Result<()> {
         .raw_overrides
         .push("project_doc_fallback_filenames=[\"SOUL.md\"]".to_string());
 
-    nexal_tui::run_main(
+    let result = nexal_tui::run_main(
         tui_cli,
         Arg0DispatchPaths::default(),
         LoaderOverrides::default(),
     )
-    .await
-    .map_err(|e| anyhow::anyhow!("TUI error: {e}"))?;
+    .await;
 
+    // Cleanup: remove the persistent container on exit.
+    if let Some(name) = sandbox_container {
+        cleanup_sandbox_container(&name).await;
+    }
+
+    result.map_err(|e| anyhow::anyhow!("TUI error: {e}"))?;
     Ok(())
+}
+
+fn is_podman_sandbox() -> bool {
+    matches!(
+        std::env::var("NEXAL_SANDBOX").as_deref(),
+        Ok(v) if v.eq_ignore_ascii_case("podman")
+    )
+}
+
+/// Create a persistent Podman container for the TUI session.
+///
+/// The container runs `sleep infinity` and commands execute via `podman exec`.
+/// This preserves state (env vars, installed packages, working directory)
+/// across tool calls within the session.
+async fn create_sandbox_container(config: &NexalConfig) -> anyhow::Result<String> {
+    let name = format!("nexal-tui-{}", std::process::id());
+    let image = std::env::var("SANDBOX_IMAGE")
+        .unwrap_or_else(|_| config.sandbox_image.clone());
+    let network = if config.sandbox_network { "pasta" } else { "none" };
+
+    // Remove any leftover container with the same name
+    let _ = tokio::process::Command::new("podman")
+        .args(["rm", "-f", &name])
+        .output()
+        .await;
+
+    let mut args = vec![
+        "create".to_string(),
+        "--name".to_string(),
+        name.clone(),
+        "--userns=keep-id".to_string(),
+        "--security-opt".to_string(),
+        "no-new-privileges".to_string(),
+        "--cap-drop=ALL".to_string(),
+        format!("--pids-limit={}", config.sandbox_pids_limit),
+        format!("--memory={}", config.sandbox_memory),
+        format!("--cpus={}", config.sandbox_cpus),
+        format!("--network={network}"),
+        "-v".to_string(),
+        format!("{}:/workspace", config.workspace_dir.display()),
+        "-w".to_string(),
+        "/workspace".to_string(),
+    ];
+
+    if let Some(ref runtime) = config.sandbox_runtime {
+        args.push("--runtime".to_string());
+        args.push(runtime.clone());
+    }
+
+    args.push(image);
+    args.push("sleep".to_string());
+    args.push("infinity".to_string());
+
+    let output = tokio::process::Command::new("podman")
+        .args(&args)
+        .output()
+        .await
+        .context("podman create")?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        anyhow::bail!("podman create failed: {stderr}");
+    }
+
+    // Start the container
+    let output = tokio::process::Command::new("podman")
+        .args(["start", &name])
+        .output()
+        .await
+        .context("podman start")?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        anyhow::bail!("podman start failed: {stderr}");
+    }
+
+    info!("sandbox container started: {name}");
+    Ok(name)
+}
+
+async fn cleanup_sandbox_container(name: &str) {
+    let _ = tokio::process::Command::new("podman")
+        .args(["rm", "-f", name])
+        .output()
+        .await;
+    info!("sandbox container removed: {name}");
 }
 
 /// Ensure skill directories are visible in the workspace.
