@@ -189,6 +189,25 @@ async fn maybe_start_channels(
     Ok(Some(handle))
 }
 
+/// Generate a short random ID (8 lowercase alphanumeric chars).
+fn short_id() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let seed = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos() as u64
+        ^ std::process::id() as u64;
+    let mut n = seed;
+    let alphabet = b"0123456789abcdefghijklmnopqrstuvwxyz";
+    let mut id = String::with_capacity(8);
+    for _ in 0..8 {
+        id.push(alphabet[(n % 36) as usize] as char);
+        n /= 36;
+        n ^= n.wrapping_mul(6364136223846793005);
+    }
+    id
+}
+
 /// Podman sandbox is enabled by default. Set NEXAL_SANDBOX=none to disable.
 fn is_sandbox_disabled() -> bool {
     matches!(
@@ -198,7 +217,7 @@ fn is_sandbox_disabled() -> bool {
 }
 
 async fn create_sandbox_container(config: &NexalConfig) -> anyhow::Result<String> {
-    let name = format!("nexal-tui-{}", std::process::id());
+    let name = format!("nexal-{}", short_id());
     let image = std::env::var("SANDBOX_IMAGE")
         .unwrap_or_else(|_| config.sandbox_image.clone());
     let network = if config.sandbox_network { "pasta" } else { "none" };
