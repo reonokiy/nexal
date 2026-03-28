@@ -1318,24 +1318,19 @@ impl HistoryCell for SessionHeaderHistoryCell {
 
         let make_row = |spans: Vec<Span<'static>>| Line::from(spans);
 
-        // Title line rendered inside the box: ">_ Nexal (vX)"
+        // Title line: ">_ nexal (vX)"
         let title_spans: Vec<Span<'static>> = vec![
             Span::from(">_ ").dim(),
-            Span::from("Nexal").bold(),
+            Span::from("nexal").bold(),
             Span::from(" ").dim(),
             Span::from(format!("(v{})", self.version)).dim(),
         ];
 
         const CHANGE_MODEL_HINT_COMMAND: &str = "/model";
         const CHANGE_MODEL_HINT_EXPLANATION: &str = " to change";
-        const DIR_LABEL: &str = "directory:";
-        let label_width = DIR_LABEL.len();
+        const LABEL_WIDTH: usize = 8; // "sandbox:" length
 
-        let model_label = format!(
-            "{model_label:<label_width$}",
-            model_label = "model:",
-            label_width = label_width
-        );
+        let model_label = format!("{:<LABEL_WIDTH$}", "model:");
         let reasoning_label = self.reasoning_label();
         let model_spans: Vec<Span<'static>> = {
             let mut spans = vec![
@@ -1356,19 +1351,49 @@ impl HistoryCell for SessionHeaderHistoryCell {
             spans
         };
 
-        let dir_label = format!("{DIR_LABEL:<label_width$}");
-        let dir_prefix = format!("{dir_label} ");
-        let dir_prefix_width = UnicodeWidthStr::width(dir_prefix.as_str());
-        let dir_max_width = inner_width.saturating_sub(dir_prefix_width);
-        let dir = self.format_directory(Some(dir_max_width));
-        let dir_spans = vec![Span::from(dir_prefix).dim(), Span::from(dir)];
+        // Show sandbox and cwd as separate lines
+        let (sandbox_spans, cwd_spans) =
+            if let Ok(container) = std::env::var("NEXAL_SANDBOX_CONTAINER") {
+                let cwd_state = self.directory.join("agents").join(".sandbox_cwd");
+                let sandbox_cwd = std::fs::read_to_string(cwd_state)
+                    .map(|s| s.trim().to_string())
+                    .unwrap_or_else(|_| "/workspace".to_string());
 
-        let lines = vec![
+                let sandbox_label = format!("{:<LABEL_WIDTH$}", "sandbox:");
+                let cwd_label = format!("{:<LABEL_WIDTH$}", "cwd:");
+                (
+                    vec![
+                        Span::from(format!("{sandbox_label} ")).dim(),
+                        Span::from(container),
+                    ],
+                    vec![
+                        Span::from(format!("{cwd_label} ")).dim(),
+                        Span::from(sandbox_cwd),
+                    ],
+                )
+            } else {
+                let dir_label = format!("{:<LABEL_WIDTH$}", "cwd:");
+                let dir_prefix_width = UnicodeWidthStr::width(dir_label.as_str()) + 1;
+                let dir_max_width = inner_width.saturating_sub(dir_prefix_width);
+                let dir = self.format_directory(Some(dir_max_width));
+                (
+                    Vec::new(),
+                    vec![
+                        Span::from(format!("{dir_label} ")).dim(),
+                        Span::from(dir),
+                    ],
+                )
+            };
+
+        let mut lines = vec![
             make_row(title_spans),
             make_row(Vec::new()),
             make_row(model_spans),
-            make_row(dir_spans),
         ];
+        if !sandbox_spans.is_empty() {
+            lines.push(make_row(sandbox_spans));
+        }
+        lines.push(make_row(cwd_spans));
 
         with_border(lines)
     }
