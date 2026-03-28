@@ -1333,7 +1333,73 @@ impl ModelClientSession {
                 )
                 .await
             }
+            WireApi::ChatCompletions => {
+                self.stream_chat_completions(prompt, model_info).await
+            }
         }
+    }
+
+    /// Stream via the Chat Completions API (`/v1/chat/completions`).
+    ///
+    /// Converts the internal prompt format to Chat Completions messages,
+    /// streams the response, and maps SSE events back to ResponseEvent.
+    async fn stream_chat_completions(
+        &mut self,
+        prompt: &crate::client_common::Prompt,
+        model_info: &ModelInfo,
+    ) -> Result<ResponseStream> {
+        use nexal_api::chat_completions::*;
+
+        let provider_info = &self.client.state.provider;
+        let base_url = provider_info
+            .base_url
+            .clone()
+            .unwrap_or_else(|| "https://api.openai.com/v1".to_string());
+        let model = model_info.slug.clone();
+
+        // Build reqwest headers with API key auth
+        let mut headers = reqwest::header::HeaderMap::new();
+        if let Ok(Some(api_key)) = provider_info.api_key() {
+            headers.insert(
+                reqwest::header::AUTHORIZATION,
+                reqwest::header::HeaderValue::from_str(&format!("Bearer {api_key}"))
+                    .unwrap_or_else(|_| reqwest::header::HeaderValue::from_static("")),
+            );
+        }
+
+        let http_client = reqwest::Client::new();
+        let session = ChatCompletionsSession::new(base_url, headers, http_client);
+
+        let messages = convert_prompt_to_chat_messages(&prompt.input);
+        let tools = self.convert_tools_to_chat_format();
+
+        let mut event_stream = session
+            .stream(messages, &model, tools, None, None)
+            .await
+            .map_err(|e| crate::error::NexalErr::UnsupportedOperation(e.to_string()))?;
+
+        // Bridge into the core's ResponseStream (mpsc-based, NexalErr errors)
+        let (tx, rx) = tokio::sync::mpsc::channel(64);
+        tokio::spawn(async move {
+            use futures::StreamExt;
+            while let Some(result) = event_stream.next().await {
+                let mapped = result.map_err(|e| {
+                    crate::error::NexalErr::UnsupportedOperation(e.to_string())
+                });
+                if tx.send(mapped).await.is_err() {
+                    break;
+                }
+            }
+        });
+
+        Ok(crate::client_common::ResponseStream { rx_event: rx })
+    }
+
+    /// Convert tool specs available in this session to Chat Completions format.
+    fn convert_tools_to_chat_format(&self) -> Option<Vec<nexal_api::chat_completions::ChatTool>> {
+        // TODO: Extract tool specs from turn context and convert.
+        // For now, return None (no tools) — tools will be added in a follow-up.
+        None
     }
 
     /// Permanently disables WebSockets for this Nexal session and resets WebSocket state.
@@ -1353,6 +1419,110 @@ impl ModelClientSession {
         self.websocket_session = WebsocketSession::default();
         activated
     }
+}
+
+/// Convert a prompt (list of ResponseItems) to Chat Completions messages.
+///
+/// Maps:
+/// - ResponseItem::Message {role:"system"} → ChatMessage {role:"system"}
+/// - ResponseItem::Message {role:"user"}   → ChatMessage {role:"user"}
+/// - ResponseItem::Message {role:"assistant"} → ChatMessage {role:"assistant"}
+/// - ResponseItem::FunctionCall → assistant message with tool_calls
+/// - ResponseItem::FunctionCallOutput → ChatMessage {role:"tool"}
+fn convert_prompt_to_chat_messages(
+    items: &[nexal_protocol::models::ResponseItem],
+) -> Vec<nexal_api::chat_completions::ChatMessage> {
+    use nexal_api::chat_completions::{ChatFunctionCall, ChatMessage, ChatToolCallMessage};
+    use nexal_protocol::models::ResponseItem;
+
+    let mut messages = Vec::new();
+
+    for item in items {
+        match item {
+            ResponseItem::Message { role, content, .. } => {
+                let text = content
+                    .iter()
+                    .filter_map(|c| match c {
+                        nexal_protocol::models::ContentItem::OutputText { text, .. } => {
+                            Some(text.as_str())
+                        }
+                        nexal_protocol::models::ContentItem::InputText { text } => {
+                            Some(text.as_str())
+                        }
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>()
+                    .join("");
+
+                messages.push(ChatMessage {
+                    role: role.clone(),
+                    content: Some(serde_json::Value::String(text)),
+                    name: None,
+                    tool_calls: None,
+                    tool_call_id: None,
+                });
+            }
+            ResponseItem::FunctionCall {
+                name,
+                arguments,
+                call_id,
+                ..
+            } => {
+                // Emit as assistant message with tool_calls
+                messages.push(ChatMessage {
+                    role: "assistant".to_string(),
+                    content: None,
+                    name: None,
+                    tool_calls: Some(vec![ChatToolCallMessage {
+                        id: call_id.clone(),
+                        r#type: "function".to_string(),
+                        function: ChatFunctionCall {
+                            name: name.clone(),
+                            arguments: arguments.clone(),
+                        },
+                    }]),
+                    tool_call_id: None,
+                });
+            }
+            ResponseItem::FunctionCallOutput {
+                call_id, output, ..
+            } => {
+                let text = match &output.body {
+                    nexal_protocol::models::FunctionCallOutputBody::Text(s) => s.clone(),
+                    nexal_protocol::models::FunctionCallOutputBody::ContentItems(items) => {
+                        serde_json::to_string(items).unwrap_or_default()
+                    }
+                };
+                messages.push(ChatMessage {
+                    role: "tool".to_string(),
+                    content: Some(serde_json::Value::String(text)),
+                    name: None,
+                    tool_calls: None,
+                    tool_call_id: Some(call_id.clone()),
+                });
+            }
+            // Skip reasoning, local shell calls, etc. for chat completions
+            _ => {}
+        }
+    }
+
+    // Ensure there's at least a system message
+    if messages.is_empty() || messages[0].role != "system" {
+        messages.insert(
+            0,
+            ChatMessage {
+                role: "system".to_string(),
+                content: Some(serde_json::Value::String(
+                    "You are a helpful assistant.".to_string(),
+                )),
+                name: None,
+                tool_calls: None,
+                tool_call_id: None,
+            },
+        );
+    }
+
+    messages
 }
 
 /// Parses per-turn metadata into an HTTP header value.

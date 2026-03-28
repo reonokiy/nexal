@@ -1,4 +1,5 @@
 pub mod auth;
+pub mod chat_completions;
 pub mod common;
 pub mod endpoint;
 pub mod error;
