@@ -188,6 +188,12 @@ impl ModelProviderInfo {
     /// (and non-empty) in the environment. If `env_key` is required but
     /// cannot be found, returns an error.
     pub fn api_key(&self) -> crate::error::Result<Option<String>> {
+        // Try LLM_API_KEY first (universal alias), then provider-specific env_key.
+        if let Ok(key) = std::env::var("LLM_API_KEY") {
+            if !key.trim().is_empty() {
+                return Ok(Some(key));
+            }
+        }
         match &self.env_key {
             Some(env_key) => {
                 let api_key = std::env::var(env_key)
@@ -234,9 +240,19 @@ impl ModelProviderInfo {
     }
 
     pub fn create_openai_provider(base_url: Option<String>) -> ModelProviderInfo {
+        // Support LLM_BASE_URL as universal alias, then OPENAI_BASE_URL, then explicit param.
+        let effective_base_url = std::env::var("LLM_BASE_URL")
+            .ok()
+            .filter(|v| !v.trim().is_empty())
+            .or_else(|| {
+                std::env::var("OPENAI_BASE_URL")
+                    .ok()
+                    .filter(|v| !v.trim().is_empty())
+            })
+            .or(base_url);
         ModelProviderInfo {
             name: OPENAI_PROVIDER_NAME.into(),
-            base_url,
+            base_url: effective_base_url,
             env_key: Some("OPENAI_API_KEY".into()),
             env_key_instructions: Some(
                 "Set the OPENAI_API_KEY environment variable with your API key from https://platform.openai.com/api-keys".into(),

@@ -2390,7 +2390,11 @@ impl Config {
 
         let forced_login_method = cfg.forced_login_method;
 
-        let model = model.or(config_profile.model).or(cfg.model);
+        // LLM_MODEL env var is a universal alias for model selection.
+        let llm_model_env = std::env::var("LLM_MODEL")
+            .ok()
+            .filter(|v| !v.trim().is_empty());
+        let model = llm_model_env.or(model).or(config_profile.model).or(cfg.model);
         let service_tier = service_tier_override
             .unwrap_or_else(|| config_profile.service_tier.or(cfg.service_tier));
         let service_tier = match service_tier {
