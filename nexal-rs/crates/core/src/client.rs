@@ -1374,13 +1374,9 @@ impl ModelClientSession {
         let messages = convert_prompt_to_chat_messages(&prompt.input, thinking_mode);
         let tools = convert_tools_to_chat_format(&prompt.tools);
 
-        // Debug: log the messages being sent
-        for (i, msg) in messages.iter().enumerate() {
-            let preview = msg.content.as_ref()
-                .and_then(|v| v.as_str())
-                .map(|s| if s.len() > 80 { format!("{}...", &s[..80]) } else { s.to_string() })
-                .unwrap_or_else(|| "(none)".to_string());
-            tracing::debug!(idx = i, role = %msg.role, content = %preview, "chat completions message");
+        // Debug: dump messages to file for diagnosis
+        if let Ok(debug_json) = serde_json::to_string_pretty(&messages) {
+            let _ = std::fs::write("/tmp/nexal-chat-debug.json", &debug_json);
         }
 
         let mut event_stream = session
@@ -1496,23 +1492,27 @@ fn convert_prompt_to_chat_messages(
                 call_id,
                 ..
             } => {
-                // Emit as assistant message with tool_calls.
-                messages.push(ChatMessage {
-                    role: "assistant".to_string(),
-                    content: Some(serde_json::Value::String(String::new())),
-                    name: None,
-                    tool_calls: Some(vec![ChatToolCallMessage {
-                        id: call_id.clone(),
-                        r#type: "function".to_string(),
-                        function: ChatFunctionCall {
-                            name: name.clone(),
-                            arguments: arguments.clone(),
-                        },
-                    }]),
-                    tool_call_id: None,
-                    // Kimi's thinking mode requires reasoning_content on tool call messages
-                    reasoning_content: if thinking_mode { Some(String::new()) } else { None },
-                });
+                if thinking_mode {
+                    // For thinking-mode providers (Kimi): skip tool_calls format
+                    // in history. The tool result will be inlined as assistant text.
+                    // This avoids the "reasoning_content is missing" error.
+                } else {
+                    messages.push(ChatMessage {
+                        role: "assistant".to_string(),
+                        content: Some(serde_json::Value::String(String::new())),
+                        name: None,
+                        tool_calls: Some(vec![ChatToolCallMessage {
+                            id: call_id.clone(),
+                            r#type: "function".to_string(),
+                            function: ChatFunctionCall {
+                                name: name.clone(),
+                                arguments: arguments.clone(),
+                            },
+                        }]),
+                        tool_call_id: None,
+                        reasoning_content: None,
+                    });
+                }
             }
             ResponseItem::FunctionCallOutput {
                 call_id, output, ..
@@ -1523,14 +1523,28 @@ fn convert_prompt_to_chat_messages(
                         serde_json::to_string(items).unwrap_or_default()
                     }
                 };
-                messages.push(ChatMessage {
-                    role: "tool".to_string(),
-                    content: Some(serde_json::Value::String(text)),
-                    name: None,
-                    tool_calls: None,
-                    tool_call_id: Some(call_id.clone()),
-                    reasoning_content: None,
-                });
+                if thinking_mode {
+                    // Inline tool result as assistant message
+                    messages.push(ChatMessage {
+                        role: "assistant".to_string(),
+                        content: Some(serde_json::Value::String(
+                            format!("[Tool result]\n{text}")
+                        )),
+                        name: None,
+                        tool_calls: None,
+                        tool_call_id: None,
+                        reasoning_content: Some(String::new()),
+                    });
+                } else {
+                    messages.push(ChatMessage {
+                        role: "tool".to_string(),
+                        content: Some(serde_json::Value::String(text)),
+                        name: None,
+                        tool_calls: None,
+                        tool_call_id: Some(call_id.clone()),
+                        reasoning_content: None,
+                    });
+                }
             }
             // Skip reasoning, local shell calls, etc. for chat completions
             _ => {}
