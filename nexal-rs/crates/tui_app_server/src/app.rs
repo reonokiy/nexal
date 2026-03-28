@@ -31,9 +31,6 @@ use crate::history_cell::HistoryCell;
 #[cfg(not(debug_assertions))]
 use crate::history_cell::UpdateAvailableHistoryCell;
 use crate::model_catalog::ModelCatalog;
-use crate::model_migration::ModelMigrationOutcome;
-use crate::model_migration::migration_copy_for_models;
-use crate::model_migration::run_model_migration_prompt;
 use crate::multi_agents::agent_picker_status_dot_spans;
 use crate::multi_agents::format_agent_picker_item_name;
 use crate::multi_agents::next_agent_shortcut_matches;
@@ -99,7 +96,6 @@ use nexal_protocol::config_types::Personality;
 use nexal_protocol::config_types::WindowsSandboxLevel;
 use nexal_protocol::openai_models::ModelAvailabilityNux;
 use nexal_protocol::openai_models::ModelPreset;
-use nexal_protocol::openai_models::ModelUpgrade;
 use nexal_protocol::openai_models::ReasoningEffort as ReasoningEffortConfig;
 use nexal_protocol::protocol::AskForApproval;
 use nexal_protocol::protocol::FinalOutput;
@@ -688,6 +684,7 @@ impl ThreadEventChannel {
     }
 }
 
+#[allow(dead_code)]
 fn should_show_model_migration_prompt(
     current_model: &str,
     target_model: &str,
@@ -728,6 +725,7 @@ fn should_show_model_migration_prompt(
     false
 }
 
+#[allow(dead_code)]
 fn migration_prompt_hidden(config: &Config, migration_config_key: &str) -> bool {
     match migration_config_key {
         HIDE_GPT_5_1_NEXAL_MAX_MIGRATION_PROMPT_CONFIG => config
@@ -741,6 +739,7 @@ fn migration_prompt_hidden(config: &Config, migration_config_key: &str) -> bool 
     }
 }
 
+#[allow(dead_code)]
 fn target_preset_for_upgrade<'a>(
     available_models: &'a [ModelPreset],
     target_model: &str,
@@ -816,107 +815,13 @@ async fn prepare_startup_tooltip_override(
 }
 
 async fn handle_model_migration_prompt_if_needed(
-    tui: &mut tui::Tui,
-    config: &mut Config,
-    model: &str,
-    app_event_tx: &AppEventSender,
-    available_models: &[ModelPreset],
+    _tui: &mut tui::Tui,
+    _config: &mut Config,
+    _model: &str,
+    _app_event_tx: &AppEventSender,
+    _available_models: &[ModelPreset],
 ) -> Option<AppExitInfo> {
-    let upgrade = available_models
-        .iter()
-        .find(|preset| preset.model == model)
-        .and_then(|preset| preset.upgrade.as_ref());
-
-    if let Some(ModelUpgrade {
-        id: target_model,
-        reasoning_effort_mapping,
-        migration_config_key,
-        model_link,
-        upgrade_copy,
-        migration_markdown,
-    }) = upgrade
-    {
-        if migration_prompt_hidden(config, migration_config_key.as_str()) {
-            return None;
-        }
-
-        let target_model = target_model.to_string();
-        if !should_show_model_migration_prompt(
-            model,
-            &target_model,
-            &config.notices.model_migrations,
-            available_models,
-        ) {
-            return None;
-        }
-
-        let current_preset = available_models.iter().find(|preset| preset.model == model);
-        let target_preset = target_preset_for_upgrade(available_models, &target_model);
-        let target_preset = target_preset?;
-        let target_display_name = target_preset.display_name.clone();
-        let heading_label = if target_display_name == model {
-            target_model.clone()
-        } else {
-            target_display_name.clone()
-        };
-        let target_description =
-            (!target_preset.description.is_empty()).then(|| target_preset.description.clone());
-        let can_opt_out = current_preset.is_some();
-        let prompt_copy = migration_copy_for_models(
-            model,
-            &target_model,
-            model_link.clone(),
-            upgrade_copy.clone(),
-            migration_markdown.clone(),
-            heading_label,
-            target_description,
-            can_opt_out,
-        );
-        match run_model_migration_prompt(tui, prompt_copy).await {
-            ModelMigrationOutcome::Accepted => {
-                app_event_tx.send(AppEvent::PersistModelMigrationPromptAcknowledged {
-                    from_model: model.to_string(),
-                    to_model: target_model.clone(),
-                });
-
-                let mapped_effort = if let Some(reasoning_effort_mapping) = reasoning_effort_mapping
-                    && let Some(reasoning_effort) = config.model_reasoning_effort
-                {
-                    reasoning_effort_mapping
-                        .get(&reasoning_effort)
-                        .cloned()
-                        .or(config.model_reasoning_effort)
-                } else {
-                    config.model_reasoning_effort
-                };
-
-                config.model = Some(target_model.clone());
-                config.model_reasoning_effort = mapped_effort;
-                app_event_tx.send(AppEvent::UpdateModel(target_model.clone()));
-                app_event_tx.send(AppEvent::UpdateReasoningEffort(mapped_effort));
-                app_event_tx.send(AppEvent::PersistModelSelection {
-                    model: target_model.clone(),
-                    effort: mapped_effort,
-                });
-            }
-            ModelMigrationOutcome::Rejected => {
-                app_event_tx.send(AppEvent::PersistModelMigrationPromptAcknowledged {
-                    from_model: model.to_string(),
-                    to_model: target_model.clone(),
-                });
-            }
-            ModelMigrationOutcome::Exit => {
-                return Some(AppExitInfo {
-                    token_usage: TokenUsage::default(),
-                    thread_id: None,
-                    thread_name: None,
-                    update_action: None,
-                    exit_reason: ExitReason::UserRequested,
-                });
-            }
-        }
-    }
-
+    // Model migration prompts are disabled in nexal.
     None
 }
 

@@ -445,6 +445,7 @@ pub(crate) enum AppEvent {
     PersistPlanModeReasoningEffort(Option<ReasoningEffort>),
 
     /// Persist the acknowledgement flag for the model migration prompt.
+    #[allow(dead_code)]
     PersistModelMigrationPromptAcknowledged {
         from_model: String,
         to_model: String,

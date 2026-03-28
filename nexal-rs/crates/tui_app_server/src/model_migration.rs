@@ -1,3 +1,4 @@
+#![allow(dead_code, unused_imports)]
 use crate::key_hint;
 use crate::markdown_render::render_markdown_text_with_width;
 use crate::render::Insets;
