@@ -1432,6 +1432,20 @@ fn convert_prompt_to_chat_messages(
     use nexal_api::chat_completions::{ChatFunctionCall, ChatMessage, ChatToolCallMessage};
     use nexal_protocol::models::ResponseItem;
 
+    // When running in Podman, remap host workspace paths to /workspace
+    // so the agent only sees container-side paths.
+    let host_workspace = std::env::var("HOME")
+        .ok()
+        .map(|home| format!("{home}/.nexal/workspace"));
+    let remap = |text: String| -> String {
+        if let Some(ref hw) = host_workspace {
+            if std::env::var("NEXAL_SANDBOX_CONTAINER").is_ok() {
+                return text.replace(hw, "/workspace");
+            }
+        }
+        text
+    };
+
     let mut messages = Vec::new();
 
     for item in items {
@@ -1450,6 +1464,7 @@ fn convert_prompt_to_chat_messages(
                     })
                     .collect::<Vec<_>>()
                     .join("");
+                let text = remap(text);
 
                 // Map roles to valid Chat Completions roles.
                 // "developer" → "system" (codex uses "developer" for system prompts)
@@ -1520,6 +1535,7 @@ fn convert_prompt_to_chat_messages(
                         serde_json::to_string(items).unwrap_or_default()
                     }
                 };
+                let text = remap(text);
                 if thinking_mode {
                     // Inline tool result as assistant message
                     messages.push(ChatMessage {

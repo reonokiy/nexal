@@ -93,9 +93,29 @@ impl EnvironmentContext {
     }
 
     pub fn from_turn_context(turn_context: &TurnContext, shell: &Shell) -> Self {
+        // When running in a Podman container, present container-side paths
+        // to the model. The agent should only know about /workspace.
+        let (cwd, effective_shell) = if std::env::var("NEXAL_SANDBOX_CONTAINER").is_ok() {
+            let container_cwd = std::env::var("HOME")
+                .ok()
+                .and_then(|home| {
+                    let host_workspace = PathBuf::from(&home).join(".nexal").join("workspace");
+                    turn_context
+                        .cwd
+                        .to_path_buf()
+                        .strip_prefix(&host_workspace)
+                        .ok()
+                        .map(|suffix| PathBuf::from("/workspace").join(suffix))
+                })
+                .unwrap_or_else(|| PathBuf::from("/workspace"));
+            (container_cwd, shell.clone())
+        } else {
+            (turn_context.cwd.to_path_buf(), shell.clone())
+        };
+
         Self::new(
-            Some(turn_context.cwd.to_path_buf()),
-            shell.clone(),
+            Some(cwd),
+            effective_shell,
             turn_context.current_date.clone(),
             turn_context.timezone.clone(),
             Self::network_from_turn_context(turn_context),
