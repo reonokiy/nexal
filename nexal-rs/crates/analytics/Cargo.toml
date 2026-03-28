@@ -1,0 +1,19 @@
+[package]
+edition.workspace = true
+license.workspace = true
+name = "nexal-analytics"
+version.workspace = true
+
+[lib]
+doctest = false
+name = "nexal_analytics"
+path = "src/lib.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+nexal-login = { workspace = true }
+nexal-plugin = { workspace = true }
+nexal-protocol = { workspace = true }
+serde = { workspace = true, features = ["derive"] }

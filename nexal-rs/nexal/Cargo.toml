@@ -1,0 +1,28 @@
+[package]
+name = "nexal"
+version.workspace = true
+edition.workspace = true
+default-run = "nexal"
+
+[[bin]]
+name = "nexal"
+path = "src/main.rs"
+
+[dependencies]
+nexal-config = { workspace = true }
+nexal-agent = { workspace = true }
+nexal-state = { workspace = true }
+nexal-channel-core = { workspace = true }
+nexal-channel-telegram = { workspace = true }
+nexal-channel-discord = { workspace = true }
+
+nexal-arg0 = { workspace = true }
+nexal-config-loader = { workspace = true }
+nexal-tui = { workspace = true }
+
+anyhow = { workspace = true }
+clap = { workspace = true }
+dotenvy = "0.15"
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }

@@ -1,0 +1,15 @@
+[package]
+name = "nexal-chatgpt"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+clap = { workspace = true, features = ["derive"] }
+nexal-core = { workspace = true }
+nexal-utils-cli = { workspace = true }
+serde = { workspace = true, features = ["derive"] }

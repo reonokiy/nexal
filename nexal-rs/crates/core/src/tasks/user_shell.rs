@@ -1,0 +1,455 @@
+use std::sync::Arc;
+use std::time::Duration;
+
+use async_trait::async_trait;
+use nexal_async_utils::CancelErr;
+use nexal_async_utils::OrCancelExt;
+use nexal_protocol::user_input::UserInput;
+use tokio_util::sync::CancellationToken;
+use tracing::error;
+use uuid::Uuid;
+
+use crate::nexal::TurnContext;
+use crate::exec::ExecCapturePolicy;
+use crate::exec::ExecToolCallOutput;
+use crate::exec::StdoutStream;
+use crate::exec::StreamOutput;
+use crate::exec::execute_exec_request;
+use crate::exec_env::create_env;
+use crate::parse_command::parse_command;
+use crate::protocol::EventMsg;
+use crate::protocol::ExecCommandBeginEvent;
+use crate::protocol::ExecCommandEndEvent;
+use crate::protocol::ExecCommandSource;
+use crate::protocol::ExecCommandStatus;
+use crate::protocol::SandboxPolicy;
+use crate::protocol::TurnStartedEvent;
+use crate::sandboxing::ExecRequest;
+use crate::state::TaskKind;
+use crate::tools::format_exec_output_str;
+use crate::tools::runtimes::maybe_wrap_shell_lc_with_snapshot;
+use crate::user_shell_command::user_shell_command_record_item;
+use nexal_sandboxing::SandboxType;
+
+use super::SessionTask;
+use super::SessionTaskContext;
+use crate::nexal::Session;
+use nexal_protocol::models::ResponseInputItem;
+use nexal_protocol::models::ResponseItem;
+use nexal_protocol::permissions::FileSystemSandboxPolicy;
+use nexal_protocol::permissions::NetworkSandboxPolicy;
+
+const USER_SHELL_TIMEOUT_MS: u64 = 60 * 60 * 1000; // 1 hour
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum UserShellCommandMode {
+    /// Executes as an independent turn lifecycle (emits TurnStarted/TurnComplete
+    /// via task lifecycle plumbing).
+    StandaloneTurn,
+    /// Executes while another turn is already active. This mode must not emit a
+    /// second TurnStarted/TurnComplete pair for the same active turn.
+    ActiveTurnAuxiliary,
+}
+
+#[derive(Clone)]
+pub(crate) struct UserShellCommandTask {
+    command: String,
+}
+
+impl UserShellCommandTask {
+    pub(crate) fn new(command: String) -> Self {
+        Self { command }
+    }
+}
+
+#[async_trait]
+impl SessionTask for UserShellCommandTask {
+    fn kind(&self) -> TaskKind {
+        TaskKind::Regular
+    }
+
+    fn span_name(&self) -> &'static str {
+        "session_task.user_shell"
+    }
+
+    async fn run(
+        self: Arc<Self>,
+        session: Arc<SessionTaskContext>,
+        turn_context: Arc<TurnContext>,
+        _input: Vec<UserInput>,
+        cancellation_token: CancellationToken,
+    ) -> Option<String> {
+        execute_user_shell_command(
+            session.clone_session(),
+            turn_context,
+            self.command.clone(),
+            cancellation_token,
+            UserShellCommandMode::StandaloneTurn,
+        )
+        .await;
+        None
+    }
+}
+
+pub(crate) async fn execute_user_shell_command(
+    session: Arc<Session>,
+    turn_context: Arc<TurnContext>,
+    command: String,
+    cancellation_token: CancellationToken,
+    mode: UserShellCommandMode,
+) {
+    session
+        .services
+        .session_telemetry
+        .counter("nexal.task.user_shell", /*inc*/ 1, &[]);
+
+    if mode == UserShellCommandMode::StandaloneTurn {
+        // Auxiliary mode runs within an existing active turn. That turn already
+        // emitted TurnStarted, so emitting another TurnStarted here would create
+        // duplicate turn lifecycle events and confuse clients.
+        // TODO(ccunningham): After TurnStarted, emit model-visible turn context diffs for
+        // standalone lifecycle tasks (for example /shell, and review once it emits TurnStarted).
+        // `/compact` is an intentional exception because compaction requests should not include
+        // freshly reinjected context before the summary/replacement history is applied.
+        let event = EventMsg::TurnStarted(TurnStartedEvent {
+            turn_id: turn_context.sub_id.clone(),
+            model_context_window: turn_context.model_context_window(),
+            collaboration_mode_kind: turn_context.collaboration_mode.mode,
+        });
+        session.send_event(turn_context.as_ref(), event).await;
+    }
+
+    // Execute the user's script under their default shell when known; this
+    // allows commands that use shell features (pipes, &&, redirects, etc.).
+    // We do not source rc files or otherwise reformat the script.
+    let use_login_shell = true;
+    let session_shell = session.user_shell();
+    let display_command = session_shell.derive_exec_args(&command, use_login_shell);
+    let exec_command = maybe_wrap_shell_lc_with_snapshot(
+        &display_command,
+        session_shell.as_ref(),
+        turn_context.cwd.as_path(),
+        &turn_context.shell_environment_policy.r#set,
+    );
+
+    let call_id = Uuid::new_v4().to_string();
+    let raw_command = command;
+    let cwd = turn_context.cwd.clone();
+
+    let parsed_cmd = parse_command(&display_command);
+    session
+        .send_event(
+            turn_context.as_ref(),
+            EventMsg::ExecCommandBegin(ExecCommandBeginEvent {
+                call_id: call_id.clone(),
+                process_id: None,
+                turn_id: turn_context.sub_id.clone(),
+                command: display_command.clone(),
+                cwd: cwd.to_path_buf(),
+                parsed_cmd: parsed_cmd.clone(),
+                source: ExecCommandSource::UserShell,
+                interaction_input: None,
+            }),
+        )
+        .await;
+
+    let sandbox_policy = SandboxPolicy::DangerFullAccess;
+
+    // When NEXAL_SANDBOX=podman, wrap the command with `podman exec`.
+    //
+    // Jupyter-style prefixes:
+    //   !cmd    — run in subshell, do NOT change persistent cwd
+    //   %cd dir — change persistent cwd without running a command
+    //   cmd     — run and persist new cwd afterward
+    let (sandbox_type, final_command) = if matches!(
+        std::env::var("NEXAL_SANDBOX").as_deref(),
+        Ok(v) if v.eq_ignore_ascii_case("podman")
+    ) {
+        if let Ok(container) = std::env::var("NEXAL_SANDBOX_CONTAINER") {
+            let saved_cwd = read_sandbox_cwd(&cwd);
+            let podman_cmd = build_podman_command(
+                &container,
+                &saved_cwd,
+                &raw_command,
+            );
+            (SandboxType::None, podman_cmd)
+        } else {
+            (SandboxType::None, exec_command.clone())
+        }
+    } else {
+        (SandboxType::None, exec_command.clone())
+    };
+
+    let exec_env = ExecRequest {
+        command: final_command,
+        cwd: cwd.to_path_buf(),
+        env: create_env(
+            &turn_context.shell_environment_policy,
+            Some(session.conversation_id),
+        ),
+        network: turn_context.network.clone(),
+        expiration: USER_SHELL_TIMEOUT_MS.into(),
+        capture_policy: ExecCapturePolicy::ShellTool,
+        sandbox: sandbox_type,
+        windows_sandbox_level: turn_context.windows_sandbox_level,
+        windows_sandbox_private_desktop: turn_context
+            .config
+            .permissions
+            .windows_sandbox_private_desktop,
+        sandbox_policy: sandbox_policy.clone(),
+        file_system_sandbox_policy: FileSystemSandboxPolicy::from(&sandbox_policy),
+        network_sandbox_policy: NetworkSandboxPolicy::from(&sandbox_policy),
+        windows_restricted_token_filesystem_overlay: None,
+        arg0: None,
+    };
+
+    let stdout_stream = Some(StdoutStream {
+        sub_id: turn_context.sub_id.clone(),
+        call_id: call_id.clone(),
+        tx_event: session.get_tx_event(),
+    });
+
+    let exec_result = execute_exec_request(
+        exec_env,
+        &sandbox_policy,
+        stdout_stream,
+        /*after_spawn*/ None,
+    )
+    .or_cancel(&cancellation_token)
+    .await;
+
+    match exec_result {
+        Err(CancelErr::Cancelled) => {
+            let aborted_message = "command aborted by user".to_string();
+            let exec_output = ExecToolCallOutput {
+                exit_code: -1,
+                stdout: StreamOutput::new(String::new()),
+                stderr: StreamOutput::new(aborted_message.clone()),
+                aggregated_output: StreamOutput::new(aborted_message.clone()),
+                duration: Duration::ZERO,
+                timed_out: false,
+            };
+            persist_user_shell_output(
+                &session,
+                turn_context.as_ref(),
+                &raw_command,
+                &exec_output,
+                mode,
+            )
+            .await;
+            session
+                .send_event(
+                    turn_context.as_ref(),
+                    EventMsg::ExecCommandEnd(ExecCommandEndEvent {
+                        call_id,
+                        process_id: None,
+                        turn_id: turn_context.sub_id.clone(),
+                        command: display_command.clone(),
+                        cwd: cwd.to_path_buf(),
+                        parsed_cmd: parsed_cmd.clone(),
+                        source: ExecCommandSource::UserShell,
+                        interaction_input: None,
+                        stdout: String::new(),
+                        stderr: aborted_message.clone(),
+                        aggregated_output: aborted_message.clone(),
+                        exit_code: -1,
+                        duration: Duration::ZERO,
+                        formatted_output: aborted_message,
+                        status: ExecCommandStatus::Failed,
+                    }),
+                )
+                .await;
+        }
+        Ok(Ok(output)) => {
+            session
+                .send_event(
+                    turn_context.as_ref(),
+                    EventMsg::ExecCommandEnd(ExecCommandEndEvent {
+                        call_id: call_id.clone(),
+                        process_id: None,
+                        turn_id: turn_context.sub_id.clone(),
+                        command: display_command.clone(),
+                        cwd: cwd.to_path_buf(),
+                        parsed_cmd: parsed_cmd.clone(),
+                        source: ExecCommandSource::UserShell,
+                        interaction_input: None,
+                        stdout: output.stdout.text.clone(),
+                        stderr: output.stderr.text.clone(),
+                        aggregated_output: output.aggregated_output.text.clone(),
+                        exit_code: output.exit_code,
+                        duration: output.duration,
+                        formatted_output: format_exec_output_str(
+                            &output,
+                            turn_context.truncation_policy,
+                        ),
+                        status: if output.exit_code == 0 {
+                            ExecCommandStatus::Completed
+                        } else {
+                            ExecCommandStatus::Failed
+                        },
+                    }),
+                )
+                .await;
+
+            persist_user_shell_output(&session, turn_context.as_ref(), &raw_command, &output, mode)
+                .await;
+        }
+        Ok(Err(err)) => {
+            error!("user shell command failed: {err:?}");
+            let message = format!("execution error: {err:?}");
+            let exec_output = ExecToolCallOutput {
+                exit_code: -1,
+                stdout: StreamOutput::new(String::new()),
+                stderr: StreamOutput::new(message.clone()),
+                aggregated_output: StreamOutput::new(message.clone()),
+                duration: Duration::ZERO,
+                timed_out: false,
+            };
+            session
+                .send_event(
+                    turn_context.as_ref(),
+                    EventMsg::ExecCommandEnd(ExecCommandEndEvent {
+                        call_id,
+                        process_id: None,
+                        turn_id: turn_context.sub_id.clone(),
+                        command: display_command,
+                        cwd: cwd.to_path_buf(),
+                        parsed_cmd,
+                        source: ExecCommandSource::UserShell,
+                        interaction_input: None,
+                        stdout: exec_output.stdout.text.clone(),
+                        stderr: exec_output.stderr.text.clone(),
+                        aggregated_output: exec_output.aggregated_output.text.clone(),
+                        exit_code: exec_output.exit_code,
+                        duration: exec_output.duration,
+                        formatted_output: format_exec_output_str(
+                            &exec_output,
+                            turn_context.truncation_policy,
+                        ),
+                        status: ExecCommandStatus::Failed,
+                    }),
+                )
+                .await;
+            persist_user_shell_output(
+                &session,
+                turn_context.as_ref(),
+                &raw_command,
+                &exec_output,
+                mode,
+            )
+            .await;
+        }
+    }
+}
+
+async fn persist_user_shell_output(
+    session: &Session,
+    turn_context: &TurnContext,
+    raw_command: &str,
+    exec_output: &ExecToolCallOutput,
+    mode: UserShellCommandMode,
+) {
+    let output_item = user_shell_command_record_item(raw_command, exec_output, turn_context);
+
+    if mode == UserShellCommandMode::StandaloneTurn {
+        session
+            .record_conversation_items(turn_context, std::slice::from_ref(&output_item))
+            .await;
+        // Standalone shell turns can run before any regular user turn, so
+        // explicitly materialize rollout persistence after recording output.
+        session.ensure_rollout_materialized().await;
+        return;
+    }
+
+    let response_input_item = match output_item {
+        ResponseItem::Message { role, content, .. } => ResponseInputItem::Message { role, content },
+        _ => unreachable!("user shell command output record should always be a message"),
+    };
+
+    if let Err(items) = session
+        .inject_response_items(vec![response_input_item])
+        .await
+    {
+        let response_items = items
+            .into_iter()
+            .map(ResponseItem::from)
+            .collect::<Vec<_>>();
+        session
+            .record_conversation_items(turn_context, &response_items)
+            .await;
+    }
+}
+
+/// Map a host-side path to the container-side /workspace path.
+/// Build the podman exec command for a `!` shell command.
+///
+/// Shell commands (`!cmd`) run in the saved cwd but do NOT persist
+/// cwd changes — each command is effectively a subshell.
+/// Persistent cwd is only changed by `%cd` (handled at the TUI layer).
+fn build_podman_command(
+    container: &str,
+    saved_cwd: &str,
+    raw_command: &str,
+) -> Vec<String> {
+    let wrapped = format!(
+        "cd {cwd} 2>/dev/null; {cmd}",
+        cwd = shell_escape(saved_cwd),
+        cmd = raw_command,
+    );
+    vec![
+        "podman".into(), "exec".into(), container.into(),
+        "bash".into(), "-lc".into(), wrapped,
+    ]
+}
+
+/// Read the saved container cwd from the state file.
+/// Falls back to /workspace if no state exists yet.
+fn read_sandbox_cwd(host_cwd: &std::path::Path) -> String {
+    // The state file is at <host_workspace>/agents/.sandbox_cwd
+    // which maps to /workspace/agents/.sandbox_cwd inside the container.
+    let state_file = host_workspace_dir(host_cwd).join("agents").join(".sandbox_cwd");
+    std::fs::read_to_string(state_file)
+        .map(|s| s.trim().to_string())
+        .unwrap_or_else(|_| "/workspace".to_string())
+}
+
+/// Get the host workspace directory from the cwd or env.
+fn host_workspace_dir(host_cwd: &std::path::Path) -> std::path::PathBuf {
+    if let Ok(workspace) = std::env::var("NEXAL_WORKSPACE") {
+        return std::path::PathBuf::from(workspace);
+    }
+    if let Ok(home) = std::env::var("HOME") {
+        return std::path::PathBuf::from(home).join(".nexal").join("workspace");
+    }
+    host_cwd.to_path_buf()
+}
+
+/// Simple shell escaping for a path string.
+fn shell_escape(s: &str) -> String {
+    format!("'{}'", s.replace('\'', "'\\''"))
+}
+
+#[allow(dead_code)]
+fn map_host_to_container_cwd(host_cwd: &std::path::Path) -> String {
+    use std::path::{Path, PathBuf};
+
+    if let Ok(workspace) = std::env::var("NEXAL_WORKSPACE") {
+        let workspace_path = Path::new(&workspace);
+        if let Ok(suffix) = host_cwd.strip_prefix(workspace_path) {
+            return Path::new("/workspace")
+                .join(suffix)
+                .to_string_lossy()
+                .to_string();
+        }
+    }
+    if let Ok(home) = std::env::var("HOME") {
+        let default_workspace = PathBuf::from(&home).join(".nexal").join("workspace");
+        if let Ok(suffix) = host_cwd.strip_prefix(&default_workspace) {
+            return Path::new("/workspace")
+                .join(suffix)
+                .to_string_lossy()
+                .to_string();
+        }
+    }
+    "/workspace".to_string()
+}

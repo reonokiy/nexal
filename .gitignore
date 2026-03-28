@@ -14,3 +14,5 @@ wheels/
 .vscode
 .uv-cache
 .claude
+
+nexal-rs/target/*

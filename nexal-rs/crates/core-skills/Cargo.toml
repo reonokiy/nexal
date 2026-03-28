@@ -1,0 +1,40 @@
+[package]
+edition.workspace = true
+license.workspace = true
+name = "nexal-core-skills"
+version.workspace = true
+
+[lib]
+doctest = false
+name = "nexal_core_skills"
+path = "src/lib.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+nexal-analytics = { workspace = true }
+nexal-app-server-protocol = { workspace = true }
+nexal-config-loader = { workspace = true }
+nexal-instructions = { workspace = true }
+nexal-login = { workspace = true }
+nexal-otel = { workspace = true }
+nexal-protocol = { workspace = true }
+nexal-skills = { workspace = true }
+nexal-utils-absolute-path = { workspace = true }
+nexal-utils-plugins = { workspace = true }
+dirs = { workspace = true }
+dunce = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+shlex = { workspace = true }
+tokio = { workspace = true, features = ["fs", "macros", "rt"] }
+toml = { workspace = true }
+tracing = { workspace = true }
+zip = { workspace = true }
+
+[dev-dependencies]
+pretty_assertions = { workspace = true }
+tempfile = { workspace = true }

@@ -1,0 +1,11 @@
+[package]
+name = "nexal-backend-openapi-models"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "nexal_backend_openapi_models"
+path = "src/lib.rs"
+
+[dependencies]

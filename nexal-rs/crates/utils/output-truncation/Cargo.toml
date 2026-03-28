@@ -1,0 +1,15 @@
+[package]
+edition.workspace = true
+license.workspace = true
+name = "nexal-utils-output-truncation"
+version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+nexal-protocol = { workspace = true }
+nexal-utils-string = { workspace = true }
+
+[dev-dependencies]
+pretty_assertions = { workspace = true }

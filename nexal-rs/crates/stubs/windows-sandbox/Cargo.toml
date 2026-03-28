@@ -1,0 +1,8 @@
+[package]
+name = "nexal-windows-sandbox"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+name = "nexal_windows_sandbox"
+path = "src/lib.rs"

@@ -1,0 +1,12 @@
+[package]
+name = "nexal-config"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+figment = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true, features = ["fs"] }
+tracing = { workspace = true }
