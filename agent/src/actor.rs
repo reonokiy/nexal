@@ -149,6 +149,12 @@ impl AgentActor {
         text: String,
         event_tx: &mpsc::Sender<AgentEvent>,
     ) {
+        info!(
+            session = %self.session_key,
+            thread = %self.thread_id,
+            input_len = text.len(),
+            "starting agent turn"
+        );
         // Signal: working — write to state file for live status bar
         let _ = event_tx
             .send(AgentEvent::StatusChange {
@@ -209,6 +215,20 @@ impl AgentActor {
 
         // Drain events until turn completes
         let response_buf = self.drain_turn().await;
+        if response_buf.trim().is_empty() {
+            warn!(
+                session = %self.session_key,
+                thread = %self.thread_id,
+                "turn completed with empty text response"
+            );
+        } else {
+            info!(
+                session = %self.session_key,
+                thread = %self.thread_id,
+                response_len = response_buf.len(),
+                "turn completed with text response"
+            );
+        }
 
         let chunks = split_response(response_buf);
         let _ = event_tx
@@ -249,13 +269,23 @@ impl AgentActor {
                                 if delta.thread_id == *thread_id =>
                             {
                                 buf.push_str(&delta.delta);
+                                debug!(
+                                    session = %self.session_key,
+                                    delta_len = delta.delta.len(),
+                                    buffered_len = buf.len(),
+                                    "received agent message delta"
+                                );
                                 // Reset timeout on activity
                                 timeout.as_mut().reset(tokio::time::Instant::now() + std::time::Duration::from_secs(120));
                             }
                             ServerNotification::TurnCompleted(completed)
                                 if completed.thread_id == *thread_id =>
                             {
-                                debug!("turn completed");
+                                info!(
+                                    session = %self.session_key,
+                                    usage = ?completed.token_usage,
+                                    "received turn completed notification"
+                                );
                                 break;
                             }
                             ServerNotification::Error(err)
@@ -267,9 +297,20 @@ impl AgentActor {
                                     break;
                                 }
                             }
-                            _ => {}
+                            other => {
+                                debug!(
+                                    session = %self.session_key,
+                                    notification = ?other,
+                                    "received unhandled server notification"
+                                );
+                            }
                         },
                         Some(AppServerEvent::ServerRequest(req)) => {
+                            warn!(
+                                session = %self.session_key,
+                                request = ?req,
+                                "received server request in headless mode; rejecting"
+                            );
                             reject_all_server_requests(&self.client, req).await;
                         }
                         Some(AppServerEvent::Lagged { skipped }) => {

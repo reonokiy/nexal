@@ -189,6 +189,17 @@ pub(crate) async fn reject_all_server_requests(
     client: &AppServerClient,
     req: ServerRequest,
 ) {
+    let request_kind = match &req {
+        ServerRequest::CommandExecutionRequestApproval { .. } => "command_execution_approval",
+        ServerRequest::FileChangeRequestApproval { .. } => "file_change_approval",
+        ServerRequest::ToolRequestUserInput { .. } => "tool_request_user_input",
+        ServerRequest::McpServerElicitationRequest { .. } => "mcp_server_elicitation",
+        ServerRequest::PermissionsRequestApproval { .. } => "permissions_request_approval",
+        ServerRequest::DynamicToolCall { .. } => "dynamic_tool_call",
+        ServerRequest::ChatgptAuthTokensRefresh { .. } => "chatgpt_auth_tokens_refresh",
+        ServerRequest::ApplyPatchApproval { .. } => "apply_patch_approval",
+        ServerRequest::ExecCommandApproval { .. } => "exec_command_approval",
+    };
     let error = JSONRPCErrorError {
         code: -32000,
         message: "approval not supported in nexal headless mode".to_string(),
@@ -208,7 +219,9 @@ pub(crate) async fn reject_all_server_requests(
     };
 
     if let Err(e) = client.reject_server_request(request_id, error).await {
-        warn!("failed to reject server request: {e}");
+        warn!(request_kind, "failed to reject server request: {e}");
+    } else {
+        warn!(request_kind, "rejected server request in headless mode");
     }
 }
 

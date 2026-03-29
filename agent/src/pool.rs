@@ -21,7 +21,7 @@ use nexal_app_server_protocol::ThreadStartResponse;
 use nexal_config::NexalConfig;
 use tokio::sync::Mutex;
 use tokio::sync::mpsc;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 use crate::actor::{AgentActor, AgentEvent, AgentHandle, AgentMessage};
 use crate::podman::PodmanContainer;
@@ -151,6 +151,11 @@ impl AgentPool {
         msg: &AgentMessage,
     ) -> anyhow::Result<AgentActor> {
         let soul = self.build_base_instructions(msg).await;
+        info!(
+            session = %key,
+            base_instructions_len = soul.len(),
+            "prepared base instructions for in-process session"
+        );
         let cli_overrides = crate::runner::providers_to_cli_overrides_full(&self.config);
         let codex_config = Arc::new(
             build_nexal_config_loader(&self.config, soul)
@@ -186,6 +191,29 @@ impl AgentPool {
             is_admin,
         )
         .await;
+
+        let has_channel_skill = skill_docs.contains("# Telegram Skill")
+            || skill_docs.contains("# Discord Skill")
+            || skill_docs.contains("# CLI Skill");
+        if has_channel_skill {
+            info!(
+                channel = channel_name,
+                sender = sender,
+                is_admin,
+                skill_docs_len = skill_docs.len(),
+                "loaded channel skill docs for headless session"
+            );
+        } else {
+            warn!(
+                channel = channel_name,
+                sender = sender,
+                is_admin,
+                skill_docs_len = skill_docs.len(),
+                builtin_dir = %builtin_dir.display(),
+                override_dir = %override_dir.display(),
+                "channel skill docs missing or did not match expected markers"
+            );
+        }
 
         if skill_docs.trim().is_empty() || skill_docs.trim() == "(no skills available)" {
             soul
