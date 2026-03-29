@@ -46,19 +46,21 @@ pub struct NexalConfig {
 
     /// Telegram bot token
     pub telegram_bot_token: Option<String>,
-    /// Comma-separated list of allowed Telegram usernames
+    /// Allowed Telegram usernames
+    #[serde(default, deserialize_with = "deserialize_string_or_int_vec")]
     pub telegram_allow_from: Vec<String>,
-    /// Allowed Telegram chat IDs (accepts both strings and numbers)
+    /// Allowed Telegram chat IDs
     #[serde(default, deserialize_with = "deserialize_string_or_int_vec")]
     pub telegram_allow_chats: Vec<String>,
 
     /// Discord bot token
     pub discord_bot_token: Option<String>,
-    /// Comma-separated list of allowed Discord guild IDs
+    /// Allowed Discord guild IDs
+    #[serde(default, deserialize_with = "deserialize_string_or_int_vec")]
     pub discord_allow_guilds: Vec<String>,
 
-    /// Admin usernames (cross-channel). These users can trigger
-    /// privileged operations like installing/creating skills.
+    /// Admin usernames
+    #[serde(default, deserialize_with = "deserialize_string_or_int_vec")]
     pub admins: Vec<String>,
 
     /// Debounce delay after mention (seconds)
@@ -192,13 +194,17 @@ impl NexalConfig {
                 if config.soul_path.is_none() {
                     config.soul_path = Some(config.workspace.join("agents").join("SOUL.md"));
                 }
-                // Normalize admins: split comma-separated entries once at load time
-                config.admins = config
-                    .admins
-                    .iter()
-                    .flat_map(|s| s.split(',').map(|a| a.trim().to_string()))
-                    .filter(|a| !a.is_empty())
-                    .collect();
+                // Normalize all comma-separated list fields at load time
+                fn normalize_list(v: &[String]) -> Vec<String> {
+                    v.iter()
+                        .flat_map(|s| s.split(',').map(|a| a.trim().trim_matches('@').to_string()))
+                        .filter(|a| !a.is_empty())
+                        .collect()
+                }
+                config.admins = normalize_list(&config.admins);
+                config.telegram_allow_from = normalize_list(&config.telegram_allow_from);
+                config.telegram_allow_chats = normalize_list(&config.telegram_allow_chats);
+                config.discord_allow_guilds = normalize_list(&config.discord_allow_guilds);
                 config
             }
             Err(e) => {
