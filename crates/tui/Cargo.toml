@@ -30,6 +30,7 @@ chrono = { workspace = true, features = ["serde"] }
 clap = { workspace = true, features = ["derive"] }
 nexal-ansi-escape = { workspace = true }
 nexal-app-server-client = { workspace = true }
+nexal-config = { workspace = true }
 nexal-app-server-protocol = { workspace = true }
 nexal-arg0 = { workspace = true }
 nexal-backend-client = { workspace = true }

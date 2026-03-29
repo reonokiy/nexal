@@ -238,7 +238,7 @@ pub fn default_headers() -> HeaderMap {
 }
 
 fn is_sandboxed() -> bool {
-    std::env::var("NEXAL_SANDBOX").as_deref() == Ok("seatbelt")
+    false
 }
 
 #[cfg(test)]

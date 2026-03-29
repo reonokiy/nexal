@@ -223,7 +223,7 @@ impl ToolRuntime<ShellRequest, ExecToolCallOutput> for ShellRuntime {
     ) -> Result<ExecToolCallOutput, ToolError> {
         // When running in Podman container, pass raw command — no host shell wrapping.
         // The sandbox transform will wrap with `podman exec ... bash -c "cmd"`.
-        let command = if std::env::var("NEXAL_SANDBOX_CONTAINER").is_ok() {
+        let command = if nexal_config::sandbox::SandboxState::is_active() {
             req.command.clone()
         } else {
             let session_shell = ctx.session.user_shell();

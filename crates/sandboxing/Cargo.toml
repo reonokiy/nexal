@@ -13,6 +13,7 @@ workspace = true
 
 [dependencies]
 nexal-network-proxy = { workspace = true }
+nexal-config = { workspace = true }
 nexal-protocol = { workspace = true }
 nexal-utils-absolute-path = { workspace = true }
 dirs = { workspace = true }

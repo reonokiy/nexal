@@ -435,7 +435,7 @@ impl ChatWidget {
             }
             StatusLineItem::CurrentDir => {
                 let cwd_path = self.status_line_cwd();
-                let dir = if let Ok(container) = std::env::var("NEXAL_SANDBOX_CONTAINER") {
+                let dir = if let Some(container) = nexal_config::sandbox::SandboxState::container_name() {
                     let state_file = cwd_path.join("agents").join(".sandbox_cwd");
                     let sandbox_cwd = std::fs::read_to_string(state_file)
                         .map(|s| s.trim().to_string())

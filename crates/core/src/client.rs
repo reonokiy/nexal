@@ -1434,7 +1434,7 @@ fn convert_prompt_to_chat_messages(
 
     // When running in Podman, remap ALL host paths to container paths.
     // The agent should only see /workspace, not host filesystem.
-    let is_container = std::env::var("NEXAL_SANDBOX_CONTAINER").is_ok();
+    let is_container = nexal_config::sandbox::SandboxState::is_active();
     let host_remap_pairs: Vec<(String, &str)> = if is_container {
         let mut pairs = Vec::new();
         if let Ok(home) = std::env::var("HOME") {

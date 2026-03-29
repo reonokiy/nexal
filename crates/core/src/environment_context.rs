@@ -95,7 +95,7 @@ impl EnvironmentContext {
     pub fn from_turn_context(turn_context: &TurnContext, shell: &Shell) -> Self {
         // When running in a Podman container, present container-side paths
         // to the model. The agent should only know about /workspace.
-        let (cwd, effective_shell) = if std::env::var("NEXAL_SANDBOX_CONTAINER").is_ok() {
+        let (cwd, effective_shell) = if nexal_config::sandbox::SandboxState::is_active() {
             let container_cwd = std::env::var("HOME")
                 .ok()
                 .and_then(|home| {

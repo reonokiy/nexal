@@ -5443,7 +5443,7 @@ impl ChatWidget {
         // Special-case: "%cd dir" changes the persistent cwd inside the Podman sandbox.
         if let Some(rest) = text.strip_prefix("%cd") {
             let target = rest.trim();
-            if let Ok(container) = std::env::var("NEXAL_SANDBOX_CONTAINER") {
+            if let Some(container) = nexal_config::sandbox::SandboxState::container_name() {
                 let target_dir = if target.is_empty() { "/workspace" } else { target };
                 // Read current saved cwd for relative path resolution
                 let cwd_state = self.config.cwd.as_path().join("agents").join(".sandbox_cwd");

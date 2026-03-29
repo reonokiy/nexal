@@ -180,11 +180,7 @@ impl ToolOrchestrator {
             .is_some();
         let initial_sandbox = match tool.sandbox_mode_for_first_attempt(req) {
             SandboxOverride::BypassSandboxFirstAttempt => {
-                // Even when bypassing sandbox, honor explicit NEXAL_SANDBOX=podman
-                if matches!(
-                    std::env::var("NEXAL_SANDBOX").as_deref(),
-                    Ok(v) if v.eq_ignore_ascii_case("podman")
-                ) {
+                if nexal_config::sandbox::SandboxState::is_active() {
                     SandboxType::Podman
                 } else {
                     SandboxType::None
@@ -332,10 +328,7 @@ impl ToolOrchestrator {
                     }
                 }
 
-                let escalated_sandbox = if matches!(
-                    std::env::var("NEXAL_SANDBOX").as_deref(),
-                    Ok(v) if v.eq_ignore_ascii_case("podman")
-                ) {
+                let escalated_sandbox = if nexal_config::sandbox::SandboxState::is_active() {
                     SandboxType::Podman
                 } else {
                     SandboxType::None

@@ -1345,7 +1345,7 @@ impl HistoryCell for SessionHeaderHistoryCell {
         };
 
         let (sandbox_spans, cwd_spans) =
-            if let Ok(container) = std::env::var("NEXAL_SANDBOX_CONTAINER") {
+            if let Some(container) = nexal_config::sandbox::SandboxState::container_name() {
                 let cwd_state = self.directory.join("agents").join(".sandbox_cwd");
                 let sandbox_cwd = std::fs::read_to_string(cwd_state)
                     .map(|s| s.trim().to_string())

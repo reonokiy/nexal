@@ -7,8 +7,9 @@
 //!
 //! Environment variable mapping uses `__` for nesting:
 //!   NEXAL_PROVIDERS__MOONSHOT__BASE_URL=https://api.moonshot.cn/v1
-//!   NEXAL_SANDBOX=podman
 //!   NEXAL_DEBOUNCE_SECS=2.0
+
+pub mod sandbox;
 
 use std::collections::HashMap;
 use std::fmt;

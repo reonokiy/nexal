@@ -51,15 +51,11 @@ pub enum SandboxablePreference {
 }
 
 pub fn get_platform_sandbox(_windows_sandbox_enabled: bool) -> Option<SandboxType> {
-    // Podman is the default sandbox. Set NEXAL_SANDBOX=none to disable.
-    if let Ok(val) = std::env::var("NEXAL_SANDBOX") {
-        return match val.to_lowercase().as_str() {
-            "none" | "off" | "disabled" => None,
-            _ => Some(SandboxType::Podman),
-        };
+    if nexal_config::sandbox::SandboxState::is_active() {
+        Some(SandboxType::Podman)
+    } else {
+        None
     }
-    // Default: Podman
-    Some(SandboxType::Podman)
 }
 
 #[derive(Debug)]
@@ -147,10 +143,8 @@ impl SandboxManager {
     ) -> SandboxType {
         // When NEXAL_SANDBOX=podman is explicitly set, always use Podman
         // regardless of policy (the container IS the sandbox).
-        if let Ok(val) = std::env::var("NEXAL_SANDBOX") {
-            if val.eq_ignore_ascii_case("podman") {
-                return SandboxType::Podman;
-            }
+        if nexal_config::sandbox::SandboxState::is_active() {
+            return SandboxType::Podman;
         }
 
         match pref {
@@ -269,7 +263,7 @@ impl SandboxManager {
                 // The container must be pre-created and its name stored in
                 // NEXAL_SANDBOX_CONTAINER.  If the env var is missing, fall
                 // back to an ephemeral `podman run --rm`.
-                if let Ok(container) = std::env::var("NEXAL_SANDBOX_CONTAINER") {
+                if let Some(container) = nexal_config::sandbox::SandboxState::container_name() {
                     let container_cwd = map_host_to_container_cwd(&command.cwd);
 
                     // Extract the actual command to run.
@@ -283,7 +277,7 @@ impl SandboxManager {
                         "exec".to_string(),
                         "-w".to_string(),
                         container_cwd.clone(),
-                        container.clone(),
+                        container.to_string(),
                         "bash".to_string(),
                         "-c".to_string(),
                         raw_cmd.clone(),

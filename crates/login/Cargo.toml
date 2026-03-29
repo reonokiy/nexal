@@ -13,6 +13,7 @@ base64 = { workspace = true }
 chrono = { workspace = true, features = ["serde"] }
 nexal-app-server-protocol = { workspace = true }
 nexal-client = { workspace = true }
+nexal-config = { workspace = true }
 nexal-config-loader = { workspace = true }
 nexal-keyring-store = { workspace = true }
 nexal-protocol = { workspace = true }

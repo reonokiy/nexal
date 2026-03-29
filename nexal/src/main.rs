@@ -107,11 +107,11 @@ async fn run_tui(enable_telegram: bool, enable_discord: bool) -> anyhow::Result<
     // Create a persistent Podman container for this session.
     // All exec commands run inside this container.
     // Set NEXAL_SANDBOX=none to disable (not recommended).
-    let sandbox_container = if !is_sandbox_disabled() {
+    let sandbox_container = if !is_sandbox_disabled(&config) {
         // Ensure NEXAL_SANDBOX is set so downstream code picks it up
-        unsafe { std::env::set_var("NEXAL_SANDBOX", "podman") };
+        
         let container = create_sandbox_container(&config).await?;
-        unsafe { std::env::set_var("NEXAL_SANDBOX_CONTAINER", &container) };
+        nexal_config::sandbox::SandboxState::init(Some(container.clone()));
         Some(container)
     } else {
         None
@@ -269,12 +269,9 @@ fn short_id() -> String {
     id
 }
 
-/// Podman sandbox is enabled by default. Set NEXAL_SANDBOX=none to disable.
-fn is_sandbox_disabled() -> bool {
-    matches!(
-        std::env::var("NEXAL_SANDBOX").as_deref(),
-        Ok(v) if v.eq_ignore_ascii_case("none") || v.eq_ignore_ascii_case("off") || v.eq_ignore_ascii_case("disabled")
-    )
+/// Podman sandbox is enabled by default. Disable via config: sandbox = "none"
+fn is_sandbox_disabled(config: &NexalConfig) -> bool {
+    config.sandbox_backend() == nexal_config::SandboxBackend::None
 }
 
 async fn create_sandbox_container(config: &NexalConfig) -> anyhow::Result<String> {
@@ -433,10 +430,10 @@ async fn run_idle(args: IdleArgs, config: Arc<NexalConfig>) -> anyhow::Result<()
     sync_skills(&config).await?;
 
     // Create Podman sandbox container for idle mode (same as TUI).
-    if !is_sandbox_disabled() {
-        unsafe { std::env::set_var("NEXAL_SANDBOX", "podman") };
+    if !is_sandbox_disabled(&config) {
+        
         let container = create_sandbox_container(&config).await?;
-        unsafe { std::env::set_var("NEXAL_SANDBOX_CONTAINER", &container) };
+        nexal_config::sandbox::SandboxState::init(Some(container.clone()));
     }
 
     // Start token proxies

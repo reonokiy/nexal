@@ -202,7 +202,7 @@ impl<'a> ToolRuntime<UnifiedExecRequest, UnifiedExecProcess> for UnifiedExecRunt
         ctx: &ToolCtx,
     ) -> Result<UnifiedExecProcess, ToolError> {
         let base_command = &req.command;
-        let command = if std::env::var("NEXAL_SANDBOX_CONTAINER").is_ok() {
+        let command = if nexal_config::sandbox::SandboxState::is_active() {
             // Podman mode: pass raw command, no host shell wrapping.
             base_command.clone()
         } else {

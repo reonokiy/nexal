@@ -34,6 +34,7 @@ nexal-async-utils = { workspace = true }
 nexal-code-mode = { workspace = true }
 nexal-connectors = { workspace = true }
 nexal-config-loader = { workspace = true }
+nexal-config = { workspace = true }
 nexal-core-skills = { workspace = true }
 nexal-exec-server = { workspace = true }
 nexal-features = { workspace = true }
