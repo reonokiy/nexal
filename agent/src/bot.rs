@@ -11,7 +11,7 @@ use nexal_channel_core::{
 };
 use nexal_config::NexalConfig;
 use nexal_state::StateDb;
-use tracing::{error, info, warn};
+use tracing::{error, info};
 
 use crate::actor::{AgentEvent, AgentMessage};
 use crate::AgentPool;
@@ -90,47 +90,19 @@ impl Bot {
             handles.push(handle);
         }
 
-        // Spawn event consumer — routes responses back to channels
-        let channels: Vec<Arc<dyn Channel>> = self.channels.clone();
+        // Event consumer — agent sends messages via skill scripts (telegram_send.py etc.)
+        // through the Unix socket proxy. No automatic channel.send() here.
         let pool = Arc::clone(&self.pool);
         let event_handle = tokio::spawn(async move {
             while let Some(event) = pool.recv_event().await {
                 match event {
-                    AgentEvent::Response {
-                        session_key,
-                        chunks,
-                        ..
-                    } => {
-                        // Parse channel name and chat_id from session_key
-                        let (ch_name, chat_id) = match session_key.split_once(':') {
-                            Some((c, id)) => (c, id),
-                            None => continue,
-                        };
-                        if let Some(channel) = channels.iter().find(|c| c.name() == ch_name) {
-                            for chunk in &chunks {
-                                if let Err(e) = channel.send(chat_id, chunk).await {
-                                    warn!(session = %session_key, "send error: {e}");
-                                }
-                            }
-                        }
+                    AgentEvent::Response { session_key, .. } => {
+                        tracing::debug!(session = %session_key, "agent turn completed");
                     }
-                    AgentEvent::Error {
-                        session_key,
-                        message,
-                    } => {
-                        let (ch_name, chat_id) = match session_key.split_once(':') {
-                            Some((c, id)) => (c, id),
-                            None => continue,
-                        };
-                        if let Some(channel) = channels.iter().find(|c| c.name() == ch_name) {
-                            let _ = channel.send(chat_id, &format!("Error: {message}")).await;
-                        }
+                    AgentEvent::Error { session_key, message } => {
+                        tracing::error!(session = %session_key, "agent error: {message}");
                     }
-                    AgentEvent::StatusChange {
-                        session_key,
-                        status,
-                        activity,
-                    } => {
+                    AgentEvent::StatusChange { session_key, status, activity } => {
                         tracing::debug!(
                             session = %session_key,
                             status = %status,
