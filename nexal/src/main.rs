@@ -432,6 +432,21 @@ async fn run_idle(args: IdleArgs, config: Arc<NexalConfig>) -> anyhow::Result<()
 
     sync_skills(&config).await?;
 
+    // Create Podman sandbox container for idle mode (same as TUI).
+    if !is_sandbox_disabled() {
+        unsafe { std::env::set_var("NEXAL_SANDBOX", "podman") };
+        let container = create_sandbox_container(&config).await?;
+        unsafe { std::env::set_var("NEXAL_SANDBOX_CONTAINER", &container) };
+    }
+
+    // Start token proxies
+    let _proxy_handles = nexal_agent::proxy::start_proxies(
+        &config.workspace,
+        config.telegram_bot_token.as_deref(),
+        config.discord_bot_token.as_deref(),
+    )
+    .await;
+
     let db_path = config.workspace.join("agents").join("nexal.db");
     tokio::fs::create_dir_all(db_path.parent().unwrap()).await?;
     let db = Arc::new(
