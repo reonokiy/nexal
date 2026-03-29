@@ -56,13 +56,39 @@ impl Channel for TelegramChannel {
                         .and_then(|u| u.username.as_deref())
                         .unwrap_or("unknown");
 
-                    // Access control
+                    // Access control — reject with debug info
+                    let user_id = msg
+                        .from
+                        .as_ref()
+                        .map(|u| u.id.0.to_string())
+                        .unwrap_or_default();
+
                     if !config.is_telegram_allowed_chat(&chat_id) {
+                        let _ = the_bot
+                            .send_message(
+                                msg.chat.id,
+                                format!(
+                                    "⚠️ This chat is not authorized.\n\
+                                    chat_id: {chat_id}\n\
+                                    user: @{username} (id: {user_id})"
+                                ),
+                            )
+                            .await;
                         return Ok(());
                     }
                     if username != "Channel_Bot"
                         && !config.is_telegram_allowed_user(username)
                     {
+                        let _ = the_bot
+                            .send_message(
+                                msg.chat.id,
+                                format!(
+                                    "⚠️ You are not authorized.\n\
+                                    user: @{username} (id: {user_id})\n\
+                                    chat_id: {chat_id}"
+                                ),
+                            )
+                            .await;
                         return Ok(());
                     }
 
