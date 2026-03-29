@@ -235,40 +235,57 @@ impl AgentActor {
         let mut buf = String::new();
         let thread_id = &self.thread_id;
 
+        // Timeout to avoid hanging forever if API silently fails
+        let timeout = tokio::time::sleep(std::time::Duration::from_secs(120));
+        tokio::pin!(timeout);
+
         loop {
-            match self.client.next_event().await {
-                None => break,
-                Some(AppServerEvent::ServerNotification(notif)) => match notif {
-                    ServerNotification::AgentMessageDelta(delta)
-                        if delta.thread_id == *thread_id =>
-                    {
-                        buf.push_str(&delta.delta);
+            tokio::select! {
+                event = self.client.next_event() => {
+                    match event {
+                        None => break,
+                        Some(AppServerEvent::ServerNotification(notif)) => match notif {
+                            ServerNotification::AgentMessageDelta(delta)
+                                if delta.thread_id == *thread_id =>
+                            {
+                                buf.push_str(&delta.delta);
+                                // Reset timeout on activity
+                                timeout.as_mut().reset(tokio::time::Instant::now() + std::time::Duration::from_secs(120));
+                            }
+                            ServerNotification::TurnCompleted(completed)
+                                if completed.thread_id == *thread_id =>
+                            {
+                                debug!("turn completed");
+                                break;
+                            }
+                            ServerNotification::Error(err)
+                                if err.thread_id == *thread_id =>
+                            {
+                                warn!("agent error: {}", err.error.message);
+                                if !err.will_retry {
+                                    buf.push_str(&format!("\n[error: {}]", err.error.message));
+                                    break;
+                                }
+                            }
+                            _ => {}
+                        },
+                        Some(AppServerEvent::ServerRequest(req)) => {
+                            reject_all_server_requests(&self.client, req).await;
+                        }
+                        Some(AppServerEvent::Lagged { skipped }) => {
+                            warn!("event stream lagged, skipped {skipped} events");
+                        }
+                        Some(AppServerEvent::Disconnected { message }) => {
+                            warn!("client disconnected: {message}");
+                            break;
+                        }
                     }
-                    ServerNotification::TurnCompleted(completed)
-                        if completed.thread_id == *thread_id
-                            && completed.turn.id == task_id =>
-                    {
-                        debug!("turn completed");
-                        break;
-                    }
-                    ServerNotification::Error(err)
-                        if err.thread_id == *thread_id
-                            && err.turn_id == task_id
-                            && !err.will_retry =>
-                    {
-                        warn!("agent error: {}", err.error.message);
-                        break;
-                    }
-                    _ => {}
-                },
-                Some(AppServerEvent::ServerRequest(req)) => {
-                    reject_all_server_requests(&self.client, req).await;
                 }
-                Some(AppServerEvent::Lagged { skipped }) => {
-                    warn!("event stream lagged, skipped {skipped} events");
-                }
-                Some(AppServerEvent::Disconnected { message }) => {
-                    warn!("client disconnected: {message}");
+                _ = &mut timeout => {
+                    warn!(session = %self.session_key, "drain_turn timed out after 120s");
+                    if buf.is_empty() {
+                        buf.push_str("[timeout: no response from model]");
+                    }
                     break;
                 }
             }
