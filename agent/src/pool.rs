@@ -83,6 +83,8 @@ impl AgentPool {
                 text,
                 sender: String::new(),
                 channel: String::new(),
+                chat_id: String::new(),
+                metadata: serde_json::Value::Null,
             },
         )
         .await?;

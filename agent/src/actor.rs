@@ -31,6 +31,8 @@ pub enum AgentMessage {
         text: String,
         sender: String,
         channel: String,
+        chat_id: String,
+        metadata: serde_json::Value,
     },
     /// Interrupt current work.
     Interrupt,
@@ -128,8 +130,15 @@ impl AgentActor {
 
         while let Some(msg) = inbox.recv().await {
             match msg {
-                AgentMessage::UserInput { text, .. } => {
-                    self.handle_input(text, &event_tx).await;
+                AgentMessage::UserInput {
+                    text,
+                    sender,
+                    channel,
+                    chat_id,
+                    metadata,
+                } => {
+                    self.handle_input(text, sender, channel, chat_id, metadata, &event_tx)
+                        .await;
                 }
                 AgentMessage::Interrupt => {
                     debug!(session = %self.session_key, "interrupt requested");
@@ -147,12 +156,17 @@ impl AgentActor {
     async fn handle_input(
         &mut self,
         text: String,
+        sender: String,
+        channel: String,
+        chat_id: String,
+        metadata: serde_json::Value,
         event_tx: &mpsc::Sender<AgentEvent>,
     ) {
+        let prompt_text = render_channel_context(&text, &sender, &channel, &chat_id, &metadata);
         info!(
             session = %self.session_key,
             thread = %self.thread_id,
-            input_len = text.len(),
+            input_len = prompt_text.len(),
             "starting agent turn"
         );
         // Signal: working — write to state file for live status bar
@@ -176,7 +190,7 @@ impl AgentActor {
                 params: TurnStartParams {
                     thread_id: self.thread_id.clone(),
                     input: vec![UserInput::Text {
-                        text,
+                        text: prompt_text,
                         text_elements: vec![],
                     }],
                     cwd: Some(cwd),
@@ -354,4 +368,33 @@ fn truncate(s: &str, max: usize) -> String {
     } else {
         format!("{}...", &s[..max])
     }
+}
+
+fn render_channel_context(
+    text: &str,
+    sender: &str,
+    channel: &str,
+    chat_id: &str,
+    metadata: &serde_json::Value,
+) -> String {
+    if channel.is_empty() || chat_id.is_empty() {
+        return text.to_string();
+    }
+
+    let mut out = format!(
+        "Channel context:\n- channel: {channel}\n- sender: {sender}\n- chat_id: {chat_id}\n"
+    );
+
+    if !metadata.is_null() {
+        out.push_str("- metadata: ");
+        out.push_str(&metadata.to_string());
+        out.push('\n');
+    }
+
+    out.push_str(
+        "\nUse the channel-specific skill to send replies back to the user. \
+If the channel skill requires identifiers such as chat_id or message_id, use the values above.\n\nUser message:\n",
+    );
+    out.push_str(text);
+    out
 }

@@ -152,6 +152,8 @@ fn make_send_handler(
                                     text: merged_msg.text,
                                     sender: merged_msg.sender,
                                     channel: merged_msg.channel,
+                                    chat_id: merged_msg.chat_id,
+                                    metadata: merged_msg.metadata,
                                 },
                             )
                             .await
