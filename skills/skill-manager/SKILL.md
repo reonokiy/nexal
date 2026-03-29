@@ -10,6 +10,8 @@ metadata:
 
 # Skill Manager
 
+**Access control**: Creating, installing, and removing skills requires admin privileges. Check `is_admin` in the message metadata before executing these operations. Listing skills is available to everyone.
+
 Skills live in two directories inside the container:
 
 | Directory | Access | Purpose |

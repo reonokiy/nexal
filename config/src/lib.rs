@@ -56,6 +56,10 @@ pub struct NexalConfig {
     /// Comma-separated list of allowed Discord guild IDs
     pub discord_allow_guilds: Vec<String>,
 
+    /// Admin usernames (cross-channel). These users can trigger
+    /// privileged operations like installing/creating skills.
+    pub admins: Vec<String>,
+
     /// Debounce delay after mention (seconds)
     pub debounce_secs: f64,
     /// Delay for follow-up messages in active window (seconds)
@@ -119,6 +123,7 @@ impl Default for NexalConfig {
             telegram_allow_chats: Vec::new(),
             discord_bot_token: None,
             discord_allow_guilds: Vec::new(),
+            admins: Vec::new(),
             debounce_secs: 1.0,
             message_delay_secs: 10.0,
             active_window_secs: 60.0,
@@ -247,6 +252,11 @@ impl NexalConfig {
         } else {
             format!("{base}\n\n---\n\n{override_content}")
         }
+    }
+
+    /// Check if a username is an admin (can install/create skills, etc.)
+    pub fn is_admin(&self, username: &str) -> bool {
+        self.admins.iter().any(|a| a.eq_ignore_ascii_case(username))
     }
 
     pub fn is_telegram_allowed_user(&self, username: &str) -> bool {

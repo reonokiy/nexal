@@ -100,6 +100,7 @@ impl Channel for TelegramChannel {
                         || (!bot_username.is_empty()
                             && full_text.contains(&format!("@{bot_username}")));
 
+                    let is_admin = config.is_admin(username);
                     let incoming = IncomingMessage {
                         channel: "telegram".to_string(),
                         chat_id,
@@ -109,6 +110,7 @@ impl Channel for TelegramChannel {
                         is_mentioned,
                         metadata: serde_json::json!({
                             "message_id": msg.id.0,
+                            "is_admin": is_admin,
                         }),
                         images,
                     };
