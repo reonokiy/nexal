@@ -169,6 +169,8 @@ impl Orchestrator {
                     text: prompt,
                     sender: "orchestrator".to_string(),
                     channel: "internal".to_string(),
+                    chat_id: String::new(),
+                    metadata: serde_json::Value::Null,
                 })
                 .await;
         }
