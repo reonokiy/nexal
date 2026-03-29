@@ -73,6 +73,7 @@ use tokio::sync::Mutex;
 use toml_edit::value;
 use tracing::info;
 use tracing::warn;
+use tracing::debug;
 
 const DEFAULT_SKILLS_DIR_NAME: &str = "skills";
 const DEFAULT_MCP_CONFIG_FILE: &str = ".mcp.json";
@@ -1045,7 +1046,7 @@ impl PluginsManager {
                     .featured_plugin_ids_for_config(&config, auth.as_ref())
                     .await
                 {
-                    warn!(
+                    debug!(
                         error = %err,
                         "failed to warm featured plugin ids cache"
                     );

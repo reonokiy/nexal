@@ -11,6 +11,7 @@ use reqwest::Client;
 use serde::Deserialize;
 use tracing::info;
 use tracing::warn;
+use tracing::debug;
 use zip::ZipArchive;
 
 use crate::AuthManager;
@@ -186,7 +187,7 @@ pub(super) fn start_startup_remote_plugin_sync_once(
                 }
             }
             Err(err) => {
-                warn!(
+                debug!(
                     error = %err,
                     "startup remote plugin sync failed; will retry on next app-server start"
                 );

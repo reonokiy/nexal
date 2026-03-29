@@ -12,7 +12,7 @@ use serde::Serialize;
 use strum::IntoEnumIterator;
 use strum_macros::Display;
 use strum_macros::EnumIter;
-use tracing::warn;
+use tracing::debug;
 use ts_rs::TS;
 
 use crate::config_types::Personality;
@@ -323,7 +323,7 @@ impl ModelInfo {
                 .unwrap_or_default();
             template.replace(PERSONALITY_PLACEHOLDER, personality_message.as_str())
         } else if let Some(personality) = personality {
-            warn!(
+            debug!(
                 model = %self.slug,
                 %personality,
                 "Model personality requested but model_messages is missing, falling back to base instructions."

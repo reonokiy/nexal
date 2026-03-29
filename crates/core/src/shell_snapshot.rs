@@ -549,7 +549,7 @@ pub async fn cleanup_stale_snapshots(nexal_home: &Path, active_session_id: Threa
 
 async fn remove_snapshot_file(path: &Path) {
     if let Err(err) = fs::remove_file(path).await {
-        tracing::warn!("Failed to delete shell snapshot at {:?}: {err:?}", path);
+        tracing::debug!("Failed to delete shell snapshot at {:?}: {err:?}", path);
     }
 }
 
