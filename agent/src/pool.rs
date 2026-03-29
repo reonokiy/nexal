@@ -19,7 +19,6 @@ use nexal_app_server_protocol::SandboxMode as ApiSandboxMode;
 use nexal_app_server_protocol::ThreadStartParams;
 use nexal_app_server_protocol::ThreadStartResponse;
 use nexal_config::NexalConfig;
-use nexal_config::SandboxBackend;
 use tokio::sync::Mutex;
 use tokio::sync::mpsc;
 use tracing::{debug, info};
@@ -130,12 +129,11 @@ impl AgentPool {
             }
         }
 
-        // Slow path: create session + actor
+        // Slow path: create session + actor.
+        // Always use in-process client — the agent core runs on the host,
+        // only exec commands go to the Podman container (via NEXAL_SANDBOX).
         info!("creating new agent session for {key}");
-        let actor = match self.config.sandbox_backend() {
-            SandboxBackend::Podman => self.create_podman_actor(key).await?,
-            SandboxBackend::None => self.create_inprocess_actor(key).await?,
-        };
+        let actor = self.create_inprocess_actor(key).await?;
 
         let handle = actor.spawn(self.event_tx.clone());
 
@@ -166,6 +164,7 @@ impl AgentPool {
         ))
     }
 
+    #[allow(dead_code)]
     async fn create_podman_actor(&self, key: &str) -> anyhow::Result<AgentActor> {
         let app_server_bin = find_app_server_binary()?;
         let container = PodmanContainer::start(key, &self.config, &app_server_bin).await?;
@@ -211,6 +210,7 @@ impl AgentPool {
 }
 
 /// Start a thread on a remote app-server client.
+#[allow(dead_code)]
 async fn start_remote_thread(
     client: &RemoteAppServerClient,
     config: &nexal_core::config::Config,

@@ -21,6 +21,7 @@ use tracing::warn;
 /// A running Podman container with the codex app-server inside.
 pub(crate) struct PodmanContainer {
     pub name: String,
+    #[allow(dead_code)]
     pub ws_port: u16,
 }
 
@@ -126,6 +127,7 @@ impl PodmanContainer {
         })
     }
 
+    #[allow(dead_code)]
     pub fn ws_url(&self) -> String {
         format!("ws://127.0.0.1:{}", self.ws_port)
     }
