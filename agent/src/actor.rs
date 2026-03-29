@@ -208,7 +208,7 @@ impl AgentActor {
         );
 
         // Drain events until turn completes
-        let response_buf = self.drain_turn(&task_id).await;
+        let response_buf = self.drain_turn().await;
 
         let chunks = split_response(response_buf);
         let _ = event_tx
@@ -231,7 +231,7 @@ impl AgentActor {
     }
 
     /// Drain the event stream until `TurnCompleted` or `Error`.
-    async fn drain_turn(&mut self, task_id: &str) -> String {
+    async fn drain_turn(&mut self) -> String {
         let mut buf = String::new();
         let thread_id = &self.thread_id;
 

@@ -209,6 +209,23 @@ async fn try_new_creates_and_deletes_snapshot_file() -> Result<()> {
 }
 
 #[cfg(unix)]
+#[test]
+fn drop_ignores_missing_snapshot_file() -> Result<()> {
+    let dir = tempdir()?;
+    let path = dir.path().join("missing.sh");
+    let snapshot = ShellSnapshot {
+        path: path.clone(),
+        cwd: dir.path().to_path_buf(),
+    };
+
+    drop(snapshot);
+
+    assert!(!path.exists());
+
+    Ok(())
+}
+
+#[cfg(unix)]
 #[tokio::test]
 async fn try_new_uses_distinct_generation_paths() -> Result<()> {
     let dir = tempdir()?;

@@ -61,7 +61,7 @@ impl AgentPool {
         session_key: &str,
         msg: AgentMessage,
     ) -> anyhow::Result<()> {
-        let handle = self.get_or_create(session_key).await?;
+        let handle = self.get_or_create(session_key, &msg).await?;
         handle.send(msg).await
     }
 
@@ -120,6 +120,7 @@ impl AgentPool {
     async fn get_or_create(
         &self,
         key: &str,
+        msg: &AgentMessage,
     ) -> anyhow::Result<AgentHandle> {
         // Fast path
         {
@@ -133,7 +134,7 @@ impl AgentPool {
         // Always use in-process client — the agent core runs on the host,
         // only exec commands go to the Podman container (via NEXAL_SANDBOX).
         info!("creating new agent session for {key}");
-        let actor = self.create_inprocess_actor(key).await?;
+        let actor = self.create_inprocess_actor(key, msg).await?;
 
         let handle = actor.spawn(self.event_tx.clone());
 
@@ -144,8 +145,12 @@ impl AgentPool {
             .clone())
     }
 
-    async fn create_inprocess_actor(&self, key: &str) -> anyhow::Result<AgentActor> {
-        let soul = self.config.load_soul().await;
+    async fn create_inprocess_actor(
+        &self,
+        key: &str,
+        msg: &AgentMessage,
+    ) -> anyhow::Result<AgentActor> {
+        let soul = self.build_base_instructions(msg).await;
         let cli_overrides = crate::runner::providers_to_cli_overrides_full(&self.config);
         let codex_config = Arc::new(
             build_nexal_config_loader(&self.config, soul)
@@ -163,6 +168,30 @@ impl AgentPool {
             Arc::clone(&self.config),
             None,
         ))
+    }
+
+    async fn build_base_instructions(&self, msg: &AgentMessage) -> String {
+        let soul = self.config.load_soul().await;
+        let Some((channel_name, sender)) = session_context_from_message(msg) else {
+            return soul;
+        };
+
+        let builtin_dir = self.config.workspace.join("agents").join("skills");
+        let override_dir = self.config.workspace.join("agents").join("skills.override");
+        let is_admin = self.config.is_admin(sender);
+        let skill_docs = crate::skills::load_skill_docs(
+            &builtin_dir,
+            &override_dir,
+            &[channel_name],
+            is_admin,
+        )
+        .await;
+
+        if skill_docs.trim().is_empty() || skill_docs.trim() == "(no skills available)" {
+            soul
+        } else {
+            format!("{soul}\n\n---\n\n{skill_docs}")
+        }
     }
 
     #[allow(dead_code)]
@@ -207,6 +236,17 @@ impl AgentPool {
             Arc::clone(&self.config),
             Some(container),
         ))
+    }
+}
+
+fn session_context_from_message(msg: &AgentMessage) -> Option<(&str, &str)> {
+    match msg {
+        AgentMessage::UserInput {
+            sender,
+            channel,
+            ..
+        } => Some((channel.as_str(), sender.as_str())),
+        AgentMessage::Interrupt | AgentMessage::Shutdown => None,
     }
 }
 

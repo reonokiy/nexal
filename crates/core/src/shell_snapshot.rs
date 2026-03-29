@@ -183,10 +183,12 @@ impl ShellSnapshot {
 impl Drop for ShellSnapshot {
     fn drop(&mut self) {
         if let Err(err) = std::fs::remove_file(&self.path) {
-            tracing::warn!(
-                "Failed to delete shell snapshot at {:?}: {err:?}",
-                self.path
-            );
+            if err.kind() != std::io::ErrorKind::NotFound {
+                tracing::warn!(
+                    "Failed to delete shell snapshot at {:?}: {err:?}",
+                    self.path
+                );
+            }
         }
     }
 }
