@@ -85,7 +85,7 @@ use nexal_app_server_protocol::Turn;
 use nexal_app_server_protocol::TurnCompletedNotification;
 use nexal_app_server_protocol::TurnPlanStepStatus;
 use nexal_app_server_protocol::TurnStatus;
-use nexal_chatgpt::connectors;
+use nexal_core::connectors;
 use nexal_core::config::Config;
 use nexal_core::config::Constrained;
 use nexal_core::config::ConstraintResult;
@@ -107,8 +107,8 @@ use nexal_git_utils::current_branch_name;
 use nexal_git_utils::get_git_repo_root;
 use nexal_git_utils::local_git_branches;
 use nexal_git_utils::recent_commits;
-use nexal_otel::RuntimeMetricsSummary;
-use nexal_otel::SessionTelemetry;
+use nexal_protocol::telemetry_types::RuntimeMetricsSummary;
+use nexal_protocol::telemetry_types::SessionTelemetry;
 use nexal_protocol::ThreadId;
 use nexal_protocol::account::PlanType;
 use nexal_protocol::approvals::ElicitationRequestEvent;
@@ -383,7 +383,6 @@ use unicode_segmentation::UnicodeSegmentation;
 const USER_SHELL_COMMAND_HELP_TITLE: &str = "Prefix a command with ! to run it locally";
 const USER_SHELL_COMMAND_HELP_HINT: &str = "Example: !ls";
 const DEFAULT_OPENAI_BASE_URL: &str = "https://api.openai.com/v1";
-const FAST_STATUS_MODEL: &str = "gpt-5.4";
 const DEFAULT_STATUS_LINE_ITEMS: [&str; 2] = ["model-with-reasoning", "current-dir"];
 // Track information about an in-flight exec command.
 struct RunningCommand {
@@ -547,7 +546,6 @@ pub(crate) struct ChatWidgetInit {
     pub(crate) app_event_tx: AppEventSender,
     pub(crate) initial_user_message: Option<UserMessage>,
     pub(crate) enhanced_keys_supported: bool,
-    pub(crate) has_chatgpt_account: bool,
     pub(crate) model_catalog: Arc<ModelCatalog>,
     pub(crate) feedback: nexal_feedback::NexalFeedback,
     pub(crate) is_first_run: bool,
@@ -753,7 +751,6 @@ pub(crate) struct ChatWidget {
     current_collaboration_mode: CollaborationMode,
     /// The currently active collaboration mask, if any.
     active_collaboration_mask: Option<CollaborationModeMask>,
-    has_chatgpt_account: bool,
     model_catalog: Arc<ModelCatalog>,
     session_telemetry: SessionTelemetry,
     session_header: SessionHeader,
@@ -4386,14 +4383,6 @@ impl ChatWidget {
         Self::new_with_op_target(common, NexalOpTarget::AppEvent)
     }
 
-    #[allow(dead_code)]
-    pub(crate) fn new_with_op_sender(
-        common: ChatWidgetInit,
-        nexal_op_tx: UnboundedSender<Op>,
-    ) -> Self {
-        Self::new_with_op_target(common, NexalOpTarget::Direct(nexal_op_tx))
-    }
-
     fn new_with_op_target(common: ChatWidgetInit, nexal_op_target: NexalOpTarget) -> Self {
         let ChatWidgetInit {
             config,
@@ -4401,7 +4390,6 @@ impl ChatWidget {
             app_event_tx,
             initial_user_message,
             enhanced_keys_supported,
-            has_chatgpt_account,
             model_catalog,
             feedback,
             is_first_run,
@@ -4467,7 +4455,6 @@ impl ChatWidget {
             skills_initial_state: None,
             current_collaboration_mode,
             active_collaboration_mask,
-            has_chatgpt_account,
             model_catalog,
             session_telemetry,
             session_header: SessionHeader::new(header_model),
@@ -7324,8 +7311,6 @@ impl ChatWidget {
         );
     }
 
-    fn stop_rate_limit_poller(&mut self) {}
-
     pub(crate) fn refresh_connectors(&mut self, force_refetch: bool) {
         self.prefetch_connectors_with_options(force_refetch);
     }
@@ -7404,16 +7389,6 @@ impl ChatWidget {
                 });
             }
         });
-    }
-
-    #[cfg_attr(not(test), allow(dead_code))]
-    fn prefetch_rate_limits(&mut self) {
-        self.stop_rate_limit_poller();
-    }
-
-    #[cfg_attr(not(test), allow(dead_code))]
-    fn should_prefetch_rate_limits(&self) -> bool {
-        self.config.model_provider.requires_openai_auth && self.has_chatgpt_account
     }
 
     fn lower_cost_preset(&self) -> Option<ModelPreset> {
@@ -9304,31 +9279,23 @@ impl ChatWidget {
         self.plan_type
     }
 
-    pub(crate) fn has_chatgpt_account(&self) -> bool {
-        self.has_chatgpt_account
-    }
-
     pub(crate) fn update_account_state(
         &mut self,
         status_account_display: Option<StatusAccountDisplay>,
         plan_type: Option<PlanType>,
-        has_chatgpt_account: bool,
     ) {
         self.status_account_display = status_account_display;
         self.plan_type = plan_type;
-        self.has_chatgpt_account = has_chatgpt_account;
         self.bottom_pane
             .set_connectors_enabled(self.connectors_enabled());
     }
 
     pub(crate) fn should_show_fast_status(
         &self,
-        model: &str,
-        service_tier: Option<ServiceTier>,
+        _model: &str,
+        _service_tier: Option<ServiceTier>,
     ) -> bool {
-        model == FAST_STATUS_MODEL
-            && matches!(service_tier, Some(ServiceTier::Fast))
-            && self.has_chatgpt_account
+        false
     }
 
     fn fast_mode_enabled(&self) -> bool {
@@ -9473,7 +9440,7 @@ impl ChatWidget {
         )
     }
 
-    #[allow(dead_code)] // Used in tests
+    #[cfg(test)]
     pub(crate) fn current_collaboration_mode(&self) -> &CollaborationMode {
         &self.current_collaboration_mode
     }
@@ -9654,7 +9621,7 @@ impl ChatWidget {
     }
 
     fn connectors_enabled(&self) -> bool {
-        self.config.features.enabled(Feature::Apps) && self.has_chatgpt_account
+        self.config.features.enabled(Feature::Apps)
     }
 
     fn connectors_for_mentions(&self) -> Option<&[connectors::AppInfo]> {
@@ -10670,7 +10637,6 @@ fn has_websocket_timing_metrics(summary: RuntimeMetricsSummary) -> bool {
 impl Drop for ChatWidget {
     fn drop(&mut self) {
         self.reset_realtime_conversation_state();
-        self.stop_rate_limit_poller();
     }
 }
 

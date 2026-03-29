@@ -13,7 +13,7 @@ use crate::memories::prompts::build_stage_one_input_message;
 use crate::rollout::INTERACTIVE_SESSION_SOURCES;
 use crate::rollout::policy::should_persist_response_item_for_memories;
 use nexal_api::ResponseEvent;
-use nexal_otel::SessionTelemetry;
+use nexal_protocol::telemetry_types::SessionTelemetry;
 use nexal_protocol::config_types::ReasoningSummary as ReasoningSummaryConfig;
 use nexal_protocol::config_types::ServiceTier;
 use nexal_protocol::models::BaseInstructions;

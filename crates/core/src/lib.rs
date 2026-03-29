@@ -4,6 +4,7 @@
 // user-visible output must go through the appropriate abstraction (e.g.,
 // the TUI or the tracing stack).
 #![deny(clippy::print_stdout, clippy::print_stderr)]
+#![recursion_limit = "256"]
 
 pub mod api_bridge;
 mod apply_patch;
@@ -125,24 +126,15 @@ pub mod windows_sandbox_read_grants;
 pub use thread_manager::ForkSnapshot;
 pub use thread_manager::NewThread;
 pub use thread_manager::ThreadManager;
-#[deprecated(note = "use ThreadManager")]
-pub type ConversationManager = ThreadManager;
-#[deprecated(note = "use NewThread")]
-pub type NewConversation = NewThread;
-#[deprecated(note = "use NexalThread")]
-pub type NexalConversation = NexalThread;
 // Re-export common auth types for workspace consumers
 pub use auth::AuthManager;
 pub use auth::NexalAuth;
-pub use nexal_analytics::AnalyticsEventsClient;
-mod default_client_forwarding;
-
 /// Default Nexal HTTP client headers and reqwest construction.
 ///
 /// Implemented in [`nexal_login::default_client`]; this module re-exports that API for crates
 /// that import `nexal_core::default_client`.
 pub mod default_client {
-    pub use super::default_client_forwarding::*;
+    pub use nexal_login::default_client::*;
 }
 pub mod project_doc;
 mod rollout;
@@ -167,8 +159,6 @@ pub use rollout::SESSIONS_SUBDIR;
 pub use rollout::SessionMeta;
 pub use rollout::append_thread_name;
 pub use rollout::find_archived_thread_path_by_id_str;
-#[deprecated(note = "use find_thread_path_by_id_str")]
-pub use rollout::find_conversation_path_by_id_str;
 pub use rollout::find_thread_name_by_id;
 pub use rollout::find_thread_path_by_id_str;
 pub use rollout::find_thread_path_by_name_str;
@@ -213,4 +203,16 @@ pub use tools::spec::parse_tool_input_schema;
 pub use turn_metadata::build_turn_metadata_header;
 pub mod compact;
 pub mod memory_trace;
-pub mod otel_init;
+
+/// Convert an [`AuthMode`](nexal_app_server_protocol::AuthMode) to a
+/// [`TelemetryAuthMode`](nexal_protocol::telemetry_types::TelemetryAuthMode).
+pub fn telemetry_auth_mode(
+    mode: nexal_app_server_protocol::AuthMode,
+) -> nexal_protocol::telemetry_types::TelemetryAuthMode {
+    use nexal_protocol::telemetry_types::TelemetryAuthMode;
+    match mode {
+        nexal_app_server_protocol::AuthMode::ApiKey => TelemetryAuthMode::ApiKey,
+        nexal_app_server_protocol::AuthMode::Chatgpt
+        | nexal_app_server_protocol::AuthMode::ChatgptAuthTokens => TelemetryAuthMode::Chatgpt,
+    }
+}

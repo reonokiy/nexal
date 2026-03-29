@@ -1,8 +1,7 @@
 #![deny(clippy::print_stdout, clippy::print_stderr)]
+#![recursion_limit = "256"]
 
 use nexal_arg0::Arg0DispatchPaths;
-use nexal_cloud_requirements::cloud_requirements_loader;
-use nexal_core::AuthManager;
 use nexal_core::config::Config;
 use nexal_core::config::ConfigBuilder;
 use nexal_core::config_loader::CloudRequirementsLoader;
@@ -333,13 +332,11 @@ pub async fn run_main(
     arg0_paths: Arg0DispatchPaths,
     cli_config_overrides: CliConfigOverrides,
     loader_overrides: LoaderOverrides,
-    default_analytics_enabled: bool,
 ) -> IoResult<()> {
     run_main_with_transport(
         arg0_paths,
         cli_config_overrides,
         loader_overrides,
-        default_analytics_enabled,
         AppServerTransport::Stdio,
         SessionSource::VSCode,
         AppServerWebsocketAuthSettings::default(),
@@ -351,7 +348,6 @@ pub async fn run_main_with_transport(
     arg0_paths: Arg0DispatchPaths,
     cli_config_overrides: CliConfigOverrides,
     loader_overrides: LoaderOverrides,
-    default_analytics_enabled: bool,
     transport: AppServerTransport,
     session_source: SessionSource,
     auth: AppServerWebsocketAuthSettings,
@@ -395,16 +391,7 @@ pub async fn run_main_with_transport(
                 }
             }
 
-            let auth_manager = AuthManager::shared(
-                config.nexal_home.clone(),
-                /*enable_nexal_api_key_env*/ false,
-                config.cli_auth_credentials_store_mode,
-            );
-            cloud_requirements_loader(
-                auth_manager,
-                config.chatgpt_base_url,
-                config.nexal_home.clone(),
-            )
+            CloudRequirementsLoader::default()
         }
         Err(err) => {
             warn!(error = %err, "Failed to preload config for cloud requirements");
@@ -467,19 +454,6 @@ pub async fn run_main_with_transport(
 
     let feedback = NexalFeedback::new();
 
-    let otel = nexal_core::otel_init::build_provider(
-        &config,
-        env!("CARGO_PKG_VERSION"),
-        Some("nexal-app-server"),
-        default_analytics_enabled,
-    )
-    .map_err(|e| {
-        std::io::Error::new(
-            ErrorKind::InvalidData,
-            format!("error loading otel config: {e}"),
-        )
-    })?;
-
     // Install a simple subscriber so `tracing` output is visible. Users can
     // control the log level with `RUST_LOG` and switch to JSON logs with
     // `LOG_FORMAT=json`.
@@ -509,15 +483,11 @@ pub async fn run_main_with_transport(
     let log_db_layer = log_db
         .clone()
         .map(|layer| layer.with_filter(Targets::new().with_default(Level::TRACE)));
-    let otel_logger_layer = otel.as_ref().and_then(|o| o.logger_layer());
-    let otel_tracing_layer = otel.as_ref().and_then(|o| o.tracing_layer());
     let _ = tracing_subscriber::registry()
         .with(stderr_fmt)
         .with(feedback_layer)
         .with(feedback_metadata_layer)
         .with(log_db_layer)
-        .with(otel_logger_layer)
-        .with(otel_tracing_layer)
         .try_init();
     for warning in &config_warnings {
         match &warning.details {
@@ -837,10 +807,6 @@ pub async fn run_main_with_transport(
     transport_shutdown_token.cancel();
     for handle in transport_accept_handles {
         let _ = handle.await;
-    }
-
-    if let Some(otel) = otel {
-        otel.shutdown();
     }
 
     Ok(())

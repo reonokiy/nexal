@@ -33,10 +33,7 @@ nexal-app-server-client = { workspace = true }
 nexal-config = { workspace = true }
 nexal-app-server-protocol = { workspace = true }
 nexal-arg0 = { workspace = true }
-nexal-backend-client = { workspace = true }
-nexal-chatgpt = { workspace = true }
 nexal-client = { workspace = true }
-nexal-cloud-requirements = { workspace = true }
 nexal-core = { workspace = true }
 nexal-exec-server = { workspace = true }
 nexal-features = { workspace = true }
@@ -44,7 +41,6 @@ nexal-feedback = { workspace = true }
 nexal-file-search = { workspace = true }
 nexal-git-utils = { workspace = true }
 nexal-login = { workspace = true }
-nexal-otel = { workspace = true }
 nexal-protocol = { workspace = true }
 nexal-shell-command = { workspace = true }
 nexal-rollout-state = { workspace = true }
@@ -137,7 +133,6 @@ arboard = { workspace = true }
 
 
 [dev-dependencies]
-nexal-cli = { workspace = true }
 nexal-core = { workspace = true }
 nexal-utils-cargo-bin = { workspace = true }
 nexal-utils-pty = { workspace = true }

@@ -420,18 +420,8 @@ fn record_windows_sandbox_spawn_failure(
     } else {
         "legacy"
     };
-    if let Some(metrics) = nexal_otel::metrics::global() {
-        let _ = metrics.counter(
-            "nexal.windows_sandbox.createprocessasuserw_failed",
-            /*inc*/ 1,
-            &[
-                ("error_code", error_code.as_str()),
-                ("path_kind", path_kind),
-                ("exe", exe.as_str()),
-                ("level", level),
-            ],
-        );
-    }
+    // no-op: metrics pipeline removed
+    let _ = (error_code, path_kind, exe, level);
 }
 
 #[cfg(target_os = "windows")]

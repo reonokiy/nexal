@@ -10,7 +10,6 @@ members = [
     "state",
 
     # ── Forked codex crates ──
-    "crates/analytics",
     "crates/ansi-escape",
     "crates/apply-patch",
     "crates/app-server",
@@ -18,22 +17,14 @@ members = [
     "crates/app-server-protocol",
     "crates/arg0",
     "crates/async-utils",
-    "crates/backend-client",
-    "crates/chatgpt",
-    "crates/cli",
-    "crates/cloud-requirements",
-    "crates/cloud-tasks",
-    "crates/cloud-tasks-client",
     "crates/code-mode",
     "crates/codex-api",
-    "crates/codex-backend-openapi-models",
     "crates/codex-client",
     "crates/codex-experimental-api-macros",
     "crates/config",
     "crates/connectors",
     "crates/core",
     "crates/core-skills",
-    "crates/exec",
     "crates/exec-server",
     "crates/execpolicy",
     "crates/features",
@@ -46,14 +37,10 @@ members = [
     "crates/linux-sandbox",
     "crates/lmstudio",
     "crates/login",
-    "crates/mcp-server",
     "crates/network-proxy",
     "crates/ollama",
-    "crates/otel",
-    "crates/package-manager",
     "crates/plugin",
     "crates/protocol",
-    "crates/responses-api-proxy",
     "crates/rmcp-client",
     "crates/rollout",
     "crates/sandboxing",
@@ -62,7 +49,6 @@ members = [
     "crates/shell-escalation",
     "crates/skills",
     "crates/state",
-    "crates/stdio-to-uds",
     "crates/terminal-detection",
     "crates/tui",
     "crates/tui_app_server",
@@ -93,7 +79,6 @@ members = [
 
     # Additional
     "crates/process-hardening",
-    "crates/app-server-test-client",
 
     # Stubs
     "crates/stubs/windows-sandbox",
@@ -116,7 +101,6 @@ nexal-channel-discord = { path = "channel-discord" }
 
 # ── Internal: forked codex crates ──
 app_test_support = { path = "crates/app-server/tests/common" }
-nexal-analytics = { path = "crates/analytics" }
 nexal-ansi-escape = { path = "crates/ansi-escape" }
 nexal-api = { path = "crates/codex-api" }
 nexal-app-server = { path = "crates/app-server" }
@@ -125,20 +109,12 @@ nexal-app-server-protocol = { path = "crates/app-server-protocol" }
 nexal-apply-patch = { path = "crates/apply-patch" }
 nexal-arg0 = { path = "crates/arg0" }
 nexal-async-utils = { path = "crates/async-utils" }
-nexal-backend-client = { path = "crates/backend-client" }
-nexal-backend-openapi-models = { path = "crates/codex-backend-openapi-models" }
-nexal-chatgpt = { path = "crates/chatgpt" }
-nexal-cli = { path = "crates/cli" }
 nexal-client = { path = "crates/codex-client" }
-nexal-cloud-requirements = { path = "crates/cloud-requirements" }
-nexal-cloud-tasks = { path = "crates/cloud-tasks" }
-nexal-cloud-tasks-client = { path = "crates/cloud-tasks-client" }
 nexal-code-mode = { path = "crates/code-mode" }
 nexal-config-loader = { path = "crates/config" }
 nexal-connectors = { path = "crates/connectors" }
 nexal-core = { path = "crates/core" }
 nexal-core-skills = { path = "crates/core-skills" }
-nexal-exec = { path = "crates/exec" }
 nexal-exec-server = { path = "crates/exec-server" }
 nexal-execpolicy = { path = "crates/execpolicy" }
 nexal-experimental-api-macros = { path = "crates/codex-experimental-api-macros" }
@@ -152,14 +128,10 @@ nexal-keyring-store = { path = "crates/keyring-store" }
 nexal-linux-sandbox = { path = "crates/linux-sandbox" }
 nexal-lmstudio = { path = "crates/lmstudio" }
 nexal-login = { path = "crates/login" }
-nexal-mcp-server = { path = "crates/mcp-server" }
 nexal-network-proxy = { path = "crates/network-proxy" }
 nexal-ollama = { path = "crates/ollama" }
-nexal-otel = { path = "crates/otel" }
-nexal-package-manager = { path = "crates/package-manager" }
 nexal-plugin = { path = "crates/plugin" }
 nexal-protocol = { path = "crates/protocol" }
-nexal-responses-api-proxy = { path = "crates/responses-api-proxy" }
 nexal-rmcp-client = { path = "crates/rmcp-client" }
 nexal-rollout = { path = "crates/rollout" }
 nexal-rollout-state = { path = "crates/state" }
@@ -168,15 +140,12 @@ nexal-secrets = { path = "crates/secrets" }
 nexal-shell-command = { path = "crates/shell-command" }
 nexal-shell-escalation = { path = "crates/shell-escalation" }
 nexal-skills = { path = "crates/skills" }
-nexal-stdio-to-uds = { path = "crates/stdio-to-uds" }
 nexal-terminal-detection = { path = "crates/terminal-detection" }
 nexal-tui = { path = "crates/tui" }
 nexal-tui-app-server = { path = "crates/tui_app_server" }
 nexal-windows-sandbox = { path = "crates/stubs/windows-sandbox" }
 nexal-process-hardening = { path = "crates/process-hardening" }
-nexal-app-server-test-client = { path = "crates/app-server-test-client" }
 core_test_support = { path = "crates/core/tests/common" }
-mcp_test_support = { path = "crates/mcp-server/tests/common" }
 
 # Utils
 nexal-utils-absolute-path = { path = "crates/utils/absolute-path" }
@@ -272,9 +241,6 @@ nucleo = { git = "https://github.com/helix-editor/nucleo.git", rev = "4253de9faa
 once_cell = "1.20.2"
 openssl-sys = "*"
 opentelemetry = "0.31.0"
-opentelemetry-appender-tracing = "0.31.0"
-opentelemetry-otlp = "0.31.0"
-opentelemetry-semantic-conventions = "0.31.0"
 opentelemetry_sdk = "0.31.0"
 os_info = "3.12.0"
 owo-colors = "4.3.0"
@@ -377,7 +343,6 @@ unwrap_used = "deny"
 ignored = [
     "icu_provider",
     "openssl-sys",
-    "nexal-package-manager",
     "nexal-utils-readiness",
     "nexal-utils-template",
 ]

@@ -69,7 +69,6 @@ use nexal_app_server_protocol::JSONRPCErrorError;
 use nexal_app_server_protocol::ListMcpServerStatusParams;
 use nexal_app_server_protocol::ListMcpServerStatusResponse;
 use nexal_app_server_protocol::LoginAccountParams;
-use nexal_app_server_protocol::LoginAccountResponse;
 use nexal_app_server_protocol::LoginApiKeyParams;
 use nexal_app_server_protocol::LogoutAccountResponse;
 use nexal_app_server_protocol::MarketplaceInterface;
@@ -176,9 +175,7 @@ use nexal_app_server_protocol::WindowsSandboxSetupStartParams;
 use nexal_app_server_protocol::WindowsSandboxSetupStartResponse;
 use nexal_app_server_protocol::build_turns_from_rollout_items;
 use nexal_arg0::Arg0DispatchPaths;
-use nexal_backend_client::Client as BackendClient;
-use nexal_chatgpt::connectors;
-use nexal_cloud_requirements::cloud_requirements_loader;
+use nexal_core::connectors;
 use nexal_core::AuthManager;
 use nexal_core::NexalAuth;
 use nexal_core::NexalThread;
@@ -191,8 +188,6 @@ use nexal_core::SteerInputError;
 use nexal_core::ThreadConfigSnapshot;
 use nexal_core::ThreadManager;
 use nexal_core::ThreadSortKey as CoreThreadSortKey;
-use nexal_core::auth::AuthMode as CoreAuthMode;
-use nexal_core::auth::CLIENT_ID;
 use nexal_core::auth::login_with_api_key;
 use nexal_core::config::Config;
 use nexal_core::config::ConfigOverrides;
@@ -205,7 +200,6 @@ use nexal_core::config_loader::CloudRequirementsLoadErrorCode;
 use nexal_core::config_loader::CloudRequirementsLoader;
 use nexal_core::config_loader::LoaderOverrides;
 use nexal_core::config_loader::load_config_layers_state;
-use nexal_core::default_client::set_default_client_residency_requirement;
 use nexal_core::error::NexalErr;
 use nexal_core::error::Result as NexalResult;
 use nexal_core::exec::ExecCapturePolicy;
@@ -246,10 +240,6 @@ use nexal_features::Feature;
 use nexal_features::Stage;
 use nexal_feedback::NexalFeedback;
 use nexal_git_utils::git_diff_to_remote;
-use nexal_login::ServerOptions as LoginServerOptions;
-use nexal_login::ShutdownHandle;
-use nexal_login::auth::login_with_chatgpt_auth_tokens;
-use nexal_login::run_login_server;
 use nexal_protocol::ThreadId;
 use nexal_protocol::config_types::CollaborationMode;
 use nexal_protocol::config_types::ForcedLoginMethod;
@@ -313,7 +303,6 @@ use tracing::Instrument;
 use tracing::error;
 use tracing::info;
 use tracing::warn;
-use uuid::Uuid;
 
 #[cfg(test)]
 use nexal_app_server_protocol::ServerRequest;
@@ -339,18 +328,7 @@ struct ThreadListFilters {
     search_term: Option<String>,
 }
 
-// Duration before a ChatGPT login attempt is abandoned.
-const LOGIN_CHATGPT_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 const APP_LIST_LOAD_TIMEOUT: Duration = Duration::from_secs(90);
-struct ActiveLogin {
-    shutdown_handle: ShutdownHandle,
-    login_id: Uuid,
-}
-
-#[derive(Clone, Copy, Debug)]
-enum CancelLoginError {
-    NotFound,
-}
 
 enum AppListLoadResult {
     Accessible(Result<Vec<AppInfo>, String>),
@@ -363,12 +341,6 @@ enum ThreadShutdownResult {
     TimedOut,
 }
 
-impl Drop for ActiveLogin {
-    fn drop(&mut self) {
-        self.shutdown_handle.shutdown();
-    }
-}
-
 /// Handles JSON-RPC messages for Nexal threads (and legacy conversation APIs).
 pub(crate) struct NexalMessageProcessor {
     auth_manager: Arc<AuthManager>,
@@ -379,7 +351,6 @@ pub(crate) struct NexalMessageProcessor {
     cli_overrides: Arc<RwLock<Vec<(String, TomlValue)>>>,
     runtime_feature_enablement: Arc<RwLock<BTreeMap<String, bool>>>,
     cloud_requirements: Arc<RwLock<CloudRequirementsLoader>>,
-    active_login: Arc<Mutex<Option<ActiveLogin>>>,
     pending_thread_unloads: Arc<Mutex<HashSet<ThreadId>>>,
     thread_state_manager: ThreadStateManager,
     thread_watch_manager: ThreadWatchManager,
@@ -415,12 +386,6 @@ enum EnsureConversationListenerResult {
     ConnectionClosed,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum RefreshTokenRequestOutcome {
-    NotAttemptedOrSucceeded,
-    FailedTransiently,
-    FailedPermanently,
-}
 
 pub(crate) struct NexalMessageProcessorArgs {
     pub(crate) auth_manager: Arc<AuthManager>,
@@ -458,7 +423,7 @@ impl NexalMessageProcessor {
         let auth = self.auth_manager.auth_cached();
         AccountUpdatedNotification {
             auth_mode: auth.as_ref().map(NexalAuth::api_auth_mode),
-            plan_type: auth.as_ref().and_then(NexalAuth::account_plan_type),
+            plan_type: None,
         }
     }
 
@@ -507,7 +472,6 @@ impl NexalMessageProcessor {
             cli_overrides,
             runtime_feature_enablement,
             cloud_requirements,
-            active_login: Arc::new(Mutex::new(None)),
             pending_thread_unloads: Arc::new(Mutex::new(HashSet::new())),
             thread_state_manager: ThreadStateManager::new(),
             thread_watch_manager: ThreadWatchManager::new_with_outgoing(outgoing),
@@ -951,31 +915,15 @@ impl NexalMessageProcessor {
                 self.login_api_key_v2(request_id, LoginApiKeyParams { api_key })
                     .await;
             }
-            LoginAccountParams::Chatgpt => {
-                self.login_chatgpt_v2(request_id).await;
+            LoginAccountParams::Chatgpt
+            | LoginAccountParams::ChatgptAuthTokens { .. } => {
+                let error = JSONRPCErrorError {
+                    code: INVALID_REQUEST_ERROR_CODE,
+                    message: "ChatGPT login is not supported. Use an API key.".to_string(),
+                    data: None,
+                };
+                self.outgoing.send_error(request_id, error).await;
             }
-            LoginAccountParams::ChatgptAuthTokens {
-                access_token,
-                chatgpt_account_id,
-                chatgpt_plan_type,
-            } => {
-                self.login_chatgpt_auth_tokens(
-                    request_id,
-                    access_token,
-                    chatgpt_account_id,
-                    chatgpt_plan_type,
-                )
-                .await;
-            }
-        }
-    }
-
-    fn external_auth_active_error(&self) -> JSONRPCErrorError {
-        JSONRPCErrorError {
-            code: INVALID_REQUEST_ERROR_CODE,
-            message: "External auth is active. Use account/login/start (chatgptAuthTokens) to update it or account/logout to clear it."
-                .to_string(),
-            data: None,
         }
     }
 
@@ -983,10 +931,6 @@ impl NexalMessageProcessor {
         &mut self,
         params: &LoginApiKeyParams,
     ) -> std::result::Result<(), JSONRPCErrorError> {
-        if self.auth_manager.is_external_auth_active() {
-            return Err(self.external_auth_active_error());
-        }
-
         if matches!(
             self.config.forced_login_method,
             Some(ForcedLoginMethod::Chatgpt)
@@ -996,14 +940,6 @@ impl NexalMessageProcessor {
                 message: "API key login is not available.".to_string(),
                 data: None,
             });
-        }
-
-        // Cancel any active login attempt.
-        {
-            let mut guard = self.active_login.lock().await;
-            if let Some(active) = guard.take() {
-                drop(active);
-            }
         }
 
         match login_with_api_key(
@@ -1056,284 +992,19 @@ impl NexalMessageProcessor {
         }
     }
 
-    // Build options for a ChatGPT login attempt; performs validation.
-    async fn login_chatgpt_common(
-        &self,
-    ) -> std::result::Result<LoginServerOptions, JSONRPCErrorError> {
-        let config = self.config.as_ref();
-
-        if self.auth_manager.is_external_auth_active() {
-            return Err(self.external_auth_active_error());
-        }
-
-        if matches!(config.forced_login_method, Some(ForcedLoginMethod::Api)) {
-            return Err(JSONRPCErrorError {
-                code: INVALID_REQUEST_ERROR_CODE,
-                message: "Use API key to authenticate.".to_string(),
-                data: None,
-            });
-        }
-
-        Ok(LoginServerOptions {
-            open_browser: false,
-            ..LoginServerOptions::new(
-                config.nexal_home.clone(),
-                CLIENT_ID.to_string(),
-                config.forced_chatgpt_workspace_id.clone(),
-                config.cli_auth_credentials_store_mode,
-            )
-        })
-    }
-
-    async fn login_chatgpt_v2(&mut self, request_id: ConnectionRequestId) {
-        match self.login_chatgpt_common().await {
-            Ok(opts) => match run_login_server(opts) {
-                Ok(server) => {
-                    let login_id = Uuid::new_v4();
-                    let shutdown_handle = server.cancel_handle();
-
-                    // Replace active login if present.
-                    {
-                        let mut guard = self.active_login.lock().await;
-                        if let Some(existing) = guard.take() {
-                            drop(existing);
-                        }
-                        *guard = Some(ActiveLogin {
-                            shutdown_handle: shutdown_handle.clone(),
-                            login_id,
-                        });
-                    }
-
-                    // Spawn background task to monitor completion.
-                    let outgoing_clone = self.outgoing.clone();
-                    let active_login = self.active_login.clone();
-                    let auth_manager = self.auth_manager.clone();
-                    let cloud_requirements = self.cloud_requirements.clone();
-                    let chatgpt_base_url = self.config.chatgpt_base_url.clone();
-                    let nexal_home = self.config.nexal_home.clone();
-                    let cli_overrides = self.current_cli_overrides();
-                    let auth_url = server.auth_url.clone();
-                    tokio::spawn(async move {
-                        let (success, error_msg) = match tokio::time::timeout(
-                            LOGIN_CHATGPT_TIMEOUT,
-                            server.block_until_done(),
-                        )
-                        .await
-                        {
-                            Ok(Ok(())) => (true, None),
-                            Ok(Err(err)) => (false, Some(format!("Login server error: {err}"))),
-                            Err(_elapsed) => {
-                                shutdown_handle.shutdown();
-                                (false, Some("Login timed out".to_string()))
-                            }
-                        };
-
-                        let payload_v2 = AccountLoginCompletedNotification {
-                            login_id: Some(login_id.to_string()),
-                            success,
-                            error: error_msg,
-                        };
-                        outgoing_clone
-                            .send_server_notification(ServerNotification::AccountLoginCompleted(
-                                payload_v2,
-                            ))
-                            .await;
-
-                        if success {
-                            auth_manager.reload();
-                            replace_cloud_requirements_loader(
-                                cloud_requirements.as_ref(),
-                                auth_manager.clone(),
-                                chatgpt_base_url,
-                                nexal_home,
-                            );
-                            sync_default_client_residency_requirement(
-                                &cli_overrides,
-                                cloud_requirements.as_ref(),
-                            )
-                            .await;
-
-                            // Notify clients with the actual current auth mode.
-                            let auth = auth_manager.auth_cached();
-                            let payload_v2 = AccountUpdatedNotification {
-                                auth_mode: auth.as_ref().map(NexalAuth::api_auth_mode),
-                                plan_type: auth.as_ref().and_then(NexalAuth::account_plan_type),
-                            };
-                            outgoing_clone
-                                .send_server_notification(ServerNotification::AccountUpdated(
-                                    payload_v2,
-                                ))
-                                .await;
-                        }
-
-                        // Clear the active login if it matches this attempt. It may have been replaced or cancelled.
-                        let mut guard = active_login.lock().await;
-                        if guard.as_ref().map(|l| l.login_id) == Some(login_id) {
-                            *guard = None;
-                        }
-                    });
-
-                    let response = nexal_app_server_protocol::LoginAccountResponse::Chatgpt {
-                        login_id: login_id.to_string(),
-                        auth_url,
-                    };
-                    self.outgoing.send_response(request_id, response).await;
-                }
-                Err(err) => {
-                    let error = JSONRPCErrorError {
-                        code: INTERNAL_ERROR_CODE,
-                        message: format!("failed to start login server: {err}"),
-                        data: None,
-                    };
-                    self.outgoing.send_error(request_id, error).await;
-                }
-            },
-            Err(err) => {
-                self.outgoing.send_error(request_id, err).await;
-            }
-        }
-    }
-
-    async fn cancel_login_chatgpt_common(
-        &mut self,
-        login_id: Uuid,
-    ) -> std::result::Result<(), CancelLoginError> {
-        let mut guard = self.active_login.lock().await;
-        if guard.as_ref().map(|l| l.login_id) == Some(login_id) {
-            if let Some(active) = guard.take() {
-                drop(active);
-            }
-            Ok(())
-        } else {
-            Err(CancelLoginError::NotFound)
-        }
-    }
-
     async fn cancel_login_v2(
         &mut self,
         request_id: ConnectionRequestId,
         params: CancelLoginAccountParams,
     ) {
-        let login_id = params.login_id;
-        match Uuid::parse_str(&login_id) {
-            Ok(uuid) => {
-                let status = match self.cancel_login_chatgpt_common(uuid).await {
-                    Ok(()) => CancelLoginAccountStatus::Canceled,
-                    Err(CancelLoginError::NotFound) => CancelLoginAccountStatus::NotFound,
-                };
-                let response = CancelLoginAccountResponse { status };
-                self.outgoing.send_response(request_id, response).await;
-            }
-            Err(_) => {
-                let error = JSONRPCErrorError {
-                    code: INVALID_REQUEST_ERROR_CODE,
-                    message: format!("invalid login id: {login_id}"),
-                    data: None,
-                };
-                self.outgoing.send_error(request_id, error).await;
-            }
-        }
-    }
-
-    async fn login_chatgpt_auth_tokens(
-        &mut self,
-        request_id: ConnectionRequestId,
-        access_token: String,
-        chatgpt_account_id: String,
-        chatgpt_plan_type: Option<String>,
-    ) {
-        if matches!(
-            self.config.forced_login_method,
-            Some(ForcedLoginMethod::Api)
-        ) {
-            let error = JSONRPCErrorError {
-                code: INVALID_REQUEST_ERROR_CODE,
-                message: "Use API key to authenticate."
-                    .to_string(),
-                data: None,
-            };
-            self.outgoing.send_error(request_id, error).await;
-            return;
-        }
-
-        // Cancel any active login attempt to avoid persisting managed auth state.
-        {
-            let mut guard = self.active_login.lock().await;
-            if let Some(active) = guard.take() {
-                drop(active);
-            }
-        }
-
-        if let Some(expected_workspace) = self.config.forced_chatgpt_workspace_id.as_deref()
-            && chatgpt_account_id != expected_workspace
-        {
-            let error = JSONRPCErrorError {
-                code: INVALID_REQUEST_ERROR_CODE,
-                message: format!(
-                    "External auth must use workspace {expected_workspace}, but received {chatgpt_account_id:?}."
-                ),
-                data: None,
-            };
-            self.outgoing.send_error(request_id, error).await;
-            return;
-        }
-
-        if let Err(err) = login_with_chatgpt_auth_tokens(
-            &self.config.nexal_home,
-            &access_token,
-            &chatgpt_account_id,
-            chatgpt_plan_type.as_deref(),
-        ) {
-            let error = JSONRPCErrorError {
-                code: INTERNAL_ERROR_CODE,
-                message: format!("failed to set external auth: {err}"),
-                data: None,
-            };
-            self.outgoing.send_error(request_id, error).await;
-            return;
-        }
-        self.auth_manager.reload();
-        replace_cloud_requirements_loader(
-            self.cloud_requirements.as_ref(),
-            self.auth_manager.clone(),
-            self.config.chatgpt_base_url.clone(),
-            self.config.nexal_home.clone(),
-        );
-        let cli_overrides = self.current_cli_overrides();
-        sync_default_client_residency_requirement(&cli_overrides, self.cloud_requirements.as_ref())
-            .await;
-
-        self.outgoing
-            .send_response(request_id, LoginAccountResponse::ChatgptAuthTokens {})
-            .await;
-
-        let payload_login_completed = AccountLoginCompletedNotification {
-            login_id: None,
-            success: true,
-            error: None,
+        let _ = params.login_id;
+        let response = CancelLoginAccountResponse {
+            status: CancelLoginAccountStatus::NotFound,
         };
-        self.outgoing
-            .send_server_notification(ServerNotification::AccountLoginCompleted(
-                payload_login_completed,
-            ))
-            .await;
-
-        self.outgoing
-            .send_server_notification(ServerNotification::AccountUpdated(
-                self.current_account_updated_notification(),
-            ))
-            .await;
+        self.outgoing.send_response(request_id, response).await;
     }
 
     async fn logout_common(&mut self) -> std::result::Result<Option<AuthMode>, JSONRPCErrorError> {
-        // Cancel any active login attempt.
-        {
-            let mut guard = self.active_login.lock().await;
-            if let Some(active) = guard.take() {
-                drop(active);
-            }
-        }
-
         if let Err(err) = self.auth_manager.logout() {
             return Err(JSONRPCErrorError {
                 code: INTERNAL_ERROR_CODE,
@@ -1371,26 +1042,8 @@ impl NexalMessageProcessor {
         }
     }
 
-    async fn refresh_token_if_requested(&self, do_refresh: bool) -> RefreshTokenRequestOutcome {
-        if self.auth_manager.is_external_auth_active() {
-            return RefreshTokenRequestOutcome::NotAttemptedOrSucceeded;
-        }
-        if do_refresh && let Err(err) = self.auth_manager.refresh_token().await {
-            let failed_reason = err.failed_reason();
-            if failed_reason.is_none() {
-                tracing::warn!("failed to refresh token while getting account: {err}");
-                return RefreshTokenRequestOutcome::FailedTransiently;
-            }
-            return RefreshTokenRequestOutcome::FailedPermanently;
-        }
-        RefreshTokenRequestOutcome::NotAttemptedOrSucceeded
-    }
-
     async fn get_auth_status(&self, request_id: ConnectionRequestId, params: GetAuthStatusParams) {
         let include_token = params.include_token.unwrap_or(false);
-        let do_refresh = params.refresh_token.unwrap_or(false);
-
-        self.refresh_token_if_requested(do_refresh).await;
 
         // Determine whether auth is required based on the active model provider.
         // If a custom provider is configured with `requires_openai_auth == false`,
@@ -1404,32 +1057,21 @@ impl NexalMessageProcessor {
                 requires_openai_auth: Some(false),
             }
         } else {
-            let auth = if do_refresh {
-                self.auth_manager.auth_cached()
-            } else {
-                self.auth_manager.auth().await
-            };
+            let auth = self.auth_manager.auth().await;
             match auth {
                 Some(auth) => {
-                    let permanent_refresh_failure =
-                        self.auth_manager.refresh_failure_for_auth(&auth).is_some();
                     let auth_mode = auth.api_auth_mode();
-                    let (reported_auth_method, token_opt) =
-                        if include_token && permanent_refresh_failure {
-                            (Some(auth_mode), None)
-                        } else {
-                            match auth.get_token() {
-                                Ok(token) if !token.is_empty() => {
-                                    let tok = if include_token { Some(token) } else { None };
-                                    (Some(auth_mode), tok)
-                                }
-                                Ok(_) => (None, None),
-                                Err(err) => {
-                                    tracing::warn!("failed to get token for auth status: {err}");
-                                    (None, None)
-                                }
-                            }
-                        };
+                    let (reported_auth_method, token_opt) = match auth.get_token() {
+                        Ok(token) if !token.is_empty() => {
+                            let tok = if include_token { Some(token) } else { None };
+                            (Some(auth_mode), tok)
+                        }
+                        Ok(_) => (None, None),
+                        Err(err) => {
+                            tracing::warn!("failed to get token for auth status: {err}");
+                            (None, None)
+                        }
+                    };
                     GetAuthStatusResponse {
                         auth_method: reported_auth_method,
                         auth_token: token_opt,
@@ -1447,11 +1089,7 @@ impl NexalMessageProcessor {
         self.outgoing.send_response(request_id, response).await;
     }
 
-    async fn get_account(&self, request_id: ConnectionRequestId, params: GetAccountParams) {
-        let do_refresh = params.refresh_token;
-
-        self.refresh_token_if_requested(do_refresh).await;
-
+    async fn get_account(&self, request_id: ConnectionRequestId, _params: GetAccountParams) {
         // Whether auth is required for the active model provider.
         let requires_openai_auth = self.config.model_provider.requires_openai_auth;
 
@@ -1464,33 +1102,7 @@ impl NexalMessageProcessor {
             return;
         }
 
-        let account = match self.auth_manager.auth_cached() {
-            Some(auth) => match auth.auth_mode() {
-                CoreAuthMode::ApiKey => Some(Account::ApiKey {}),
-                CoreAuthMode::Chatgpt | CoreAuthMode::ChatgptAuthTokens => {
-                    let email = auth.get_account_email();
-                    let plan_type = auth.account_plan_type();
-
-                    match (email, plan_type) {
-                        (Some(email), Some(plan_type)) => {
-                            Some(Account::Chatgpt { email, plan_type })
-                        }
-                        _ => {
-                            let error = JSONRPCErrorError {
-                                code: INVALID_REQUEST_ERROR_CODE,
-                                message:
-                                    "email and plan type are required for chatgpt authentication"
-                                        .to_string(),
-                                data: None,
-                            };
-                            self.outgoing.send_error(request_id, error).await;
-                            return;
-                        }
-                    }
-                }
-            },
-            None => None,
-        };
+        let account = self.auth_manager.auth_cached().map(|_| Account::ApiKey {});
 
         let response = GetAccountResponse {
             account,
@@ -1528,64 +1140,11 @@ impl NexalMessageProcessor {
         ),
         JSONRPCErrorError,
     > {
-        let Some(auth) = self.auth_manager.auth().await else {
-            return Err(JSONRPCErrorError {
-                code: INVALID_REQUEST_ERROR_CODE,
-                message: "nexal account authentication required to read rate limits".to_string(),
-                data: None,
-            });
-        };
-
-        if !auth.is_chatgpt_auth() {
-            return Err(JSONRPCErrorError {
-                code: INVALID_REQUEST_ERROR_CODE,
-                message: "chatgpt authentication required to read rate limits".to_string(),
-                data: None,
-            });
-        }
-
-        let client = BackendClient::from_auth(self.config.chatgpt_base_url.clone(), &auth)
-            .map_err(|err| JSONRPCErrorError {
-                code: INTERNAL_ERROR_CODE,
-                message: format!("failed to construct backend client: {err}"),
-                data: None,
-            })?;
-
-        let snapshots = client
-            .get_rate_limits_many()
-            .await
-            .map_err(|err| JSONRPCErrorError {
-                code: INTERNAL_ERROR_CODE,
-                message: format!("failed to fetch nexal rate limits: {err}"),
-                data: None,
-            })?;
-        if snapshots.is_empty() {
-            return Err(JSONRPCErrorError {
-                code: INTERNAL_ERROR_CODE,
-                message: "failed to fetch nexal rate limits: no snapshots returned".to_string(),
-                data: None,
-            });
-        }
-
-        let rate_limits_by_limit_id: HashMap<String, CoreRateLimitSnapshot> = snapshots
-            .iter()
-            .cloned()
-            .map(|snapshot| {
-                let limit_id = snapshot
-                    .limit_id
-                    .clone()
-                    .unwrap_or_else(|| "nexal".to_string());
-                (limit_id, snapshot)
-            })
-            .collect();
-
-        let primary = snapshots
-            .iter()
-            .find(|snapshot| snapshot.limit_id.as_deref() == Some("nexal"))
-            .cloned()
-            .unwrap_or_else(|| snapshots[0].clone());
-
-        Ok((primary, rate_limits_by_limit_id))
+        Err(JSONRPCErrorError {
+            code: INVALID_REQUEST_ERROR_CODE,
+            message: "rate limit fetching is not supported with API key auth".to_string(),
+            data: None,
+        })
     }
 
     async fn exec_one_off_command(
@@ -1961,13 +1520,6 @@ impl NexalMessageProcessor {
             .is_err()
         {
             warn!("timed out waiting for background tasks to shut down; proceeding");
-        }
-    }
-
-    pub(crate) async fn cancel_active_login(&self) {
-        let mut guard = self.active_login.lock().await;
-        if let Some(active_login) = guard.take() {
-            drop(active_login);
         }
     }
 
@@ -7206,13 +6758,6 @@ impl NexalMessageProcessor {
             None => None,
         };
 
-        if let Some(chatgpt_user_id) = self
-            .auth_manager
-            .auth_cached()
-            .and_then(|auth| auth.get_chatgpt_user_id())
-        {
-            tracing::info!(target: "feedback_tags", chatgpt_user_id);
-        }
         let snapshot = self.feedback.snapshot(conversation_id);
         let thread_id = snapshot.thread_id.clone();
         let sqlite_feedback_logs = if include_logs {
@@ -7910,42 +7455,6 @@ fn validate_dynamic_tools(tools: &[ApiDynamicToolSpec]) -> Result<(), String> {
         }
     }
     Ok(())
-}
-
-fn replace_cloud_requirements_loader(
-    cloud_requirements: &RwLock<CloudRequirementsLoader>,
-    auth_manager: Arc<AuthManager>,
-    chatgpt_base_url: String,
-    nexal_home: PathBuf,
-) {
-    let loader = cloud_requirements_loader(auth_manager, chatgpt_base_url, nexal_home);
-    if let Ok(mut guard) = cloud_requirements.write() {
-        *guard = loader;
-    } else {
-        warn!("failed to update cloud requirements loader");
-    }
-}
-
-async fn sync_default_client_residency_requirement(
-    cli_overrides: &[(String, TomlValue)],
-    cloud_requirements: &RwLock<CloudRequirementsLoader>,
-) {
-    let loader = cloud_requirements
-        .read()
-        .map(|guard| guard.clone())
-        .unwrap_or_default();
-    match nexal_core::config::ConfigBuilder::default()
-        .cli_overrides(cli_overrides.to_vec())
-        .cloud_requirements(loader)
-        .build()
-        .await
-    {
-        Ok(config) => set_default_client_residency_requirement(config.enforce_residency.value()),
-        Err(err) => warn!(
-            error = %err,
-            "failed to sync default client residency requirement after auth refresh"
-        ),
-    }
 }
 
 /// Derive the effective [`Config`] by layering three override sources.

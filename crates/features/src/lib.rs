@@ -5,7 +5,7 @@
 
 use nexal_login::AuthManager;
 use nexal_login::NexalAuth;
-use nexal_otel::SessionTelemetry;
+use nexal_protocol::telemetry_types::SessionTelemetry;
 use nexal_protocol::protocol::Event;
 use nexal_protocol::protocol::EventMsg;
 use nexal_protocol::protocol::WarningEvent;
@@ -273,25 +273,16 @@ impl Features {
         self.enabled.contains(&f)
     }
 
-    pub async fn apps_enabled(&self, auth_manager: Option<&AuthManager>) -> bool {
-        if !self.enabled(Feature::Apps) {
-            return false;
-        }
-
-        let auth = match auth_manager {
-            Some(auth_manager) => auth_manager.auth().await,
-            None => None,
-        };
-        self.apps_enabled_for_auth(auth.as_ref())
+    pub async fn apps_enabled(&self, _auth_manager: Option<&AuthManager>) -> bool {
+        self.enabled(Feature::Apps)
     }
 
-    pub fn apps_enabled_cached(&self, auth_manager: Option<&AuthManager>) -> bool {
-        let auth = auth_manager.and_then(AuthManager::auth_cached);
-        self.apps_enabled_for_auth(auth.as_ref())
+    pub fn apps_enabled_cached(&self, _auth_manager: Option<&AuthManager>) -> bool {
+        self.enabled(Feature::Apps)
     }
 
-    pub fn apps_enabled_for_auth(&self, auth: Option<&NexalAuth>) -> bool {
-        self.enabled(Feature::Apps) && auth.is_some_and(NexalAuth::is_chatgpt_auth)
+    pub fn apps_enabled_for_auth(&self, _auth: Option<&NexalAuth>) -> bool {
+        self.enabled(Feature::Apps)
     }
 
     pub fn use_legacy_landlock(&self) -> bool {

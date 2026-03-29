@@ -46,11 +46,9 @@ pub(crate) enum RpcServerOutboundMessage {
         request_id: RequestId,
         error: JSONRPCErrorError,
     },
-    #[allow(dead_code)]
     Notification(JSONRPCNotification),
 }
 
-#[allow(dead_code)]
 #[derive(Clone)]
 pub(crate) struct RpcNotificationSender {
     outgoing_tx: mpsc::Sender<RpcServerOutboundMessage>,
@@ -61,7 +59,6 @@ impl RpcNotificationSender {
         Self { outgoing_tx }
     }
 
-    #[allow(dead_code)]
     pub(crate) async fn notify<P: Serialize>(
         &self,
         method: &str,
@@ -288,7 +285,6 @@ impl RpcClient {
     }
 
     #[cfg(test)]
-    #[allow(dead_code)]
     pub(crate) async fn pending_request_count(&self) -> usize {
         self.pending.lock().await.len()
     }

@@ -44,7 +44,7 @@ use nexal_core::config::types::McpServerTransportConfig;
 use nexal_core::mcp::McpManager;
 use nexal_core::plugins::PluginsManager;
 use nexal_core::web_search::web_search_detail;
-use nexal_otel::RuntimeMetricsSummary;
+use nexal_protocol::telemetry_types::RuntimeMetricsSummary;
 use nexal_protocol::account::PlanType;
 use nexal_protocol::config_types::ServiceTier;
 use nexal_protocol::mcp::Resource;
@@ -202,7 +202,6 @@ impl dyn HistoryCell {
 pub(crate) struct UserHistoryCell {
     pub message: String,
     pub text_elements: Vec<TextElement>,
-    #[allow(dead_code)]
     pub local_image_paths: Vec<PathBuf>,
     pub remote_image_urls: Vec<String>,
 }
@@ -2565,8 +2564,8 @@ mod tests {
     use nexal_core::config::ConfigBuilder;
     use nexal_core::config::types::McpServerConfig;
     use nexal_core::config::types::McpServerTransportConfig;
-    use nexal_otel::RuntimeMetricTotals;
-    use nexal_otel::RuntimeMetricsSummary;
+    use nexal_protocol::telemetry_types::RuntimeMetricTotals;
+    use nexal_protocol::telemetry_types::RuntimeMetricsSummary;
     use nexal_protocol::ThreadId;
     use nexal_protocol::account::PlanType;
     use nexal_protocol::models::WebSearchAction;

@@ -26,7 +26,6 @@ bm25 = { workspace = true }
 chardetng = { workspace = true }
 chrono = { workspace = true, features = ["serde"] }
 clap = { workspace = true, features = ["derive"] }
-nexal-analytics = { workspace = true }
 nexal-api = { workspace = true }
 nexal-app-server-protocol = { workspace = true }
 nexal-apply-patch = { workspace = true }
@@ -45,7 +44,6 @@ nexal-git-utils = { workspace = true }
 nexal-hooks = { workspace = true }
 nexal-instructions = { workspace = true }
 nexal-network-proxy = { workspace = true }
-nexal-otel = { workspace = true }
 nexal-plugin = { workspace = true }
 nexal-protocol = { workspace = true }
 nexal-rollout = { workspace = true }
@@ -146,25 +144,16 @@ nexal-shell-escalation = { workspace = true }
 assert_cmd = { workspace = true }
 assert_matches = { workspace = true }
 nexal-arg0 = { workspace = true }
-nexal-otel = { workspace = true, features = [
-    "disable-default-metrics-exporter",
-] }
 nexal-utils-cargo-bin = { workspace = true }
 core_test_support = { workspace = true }
 ctor = { workspace = true }
 insta = { workspace = true }
 maplit = { workspace = true }
-opentelemetry = { workspace = true }
 predicates = { workspace = true }
 pretty_assertions = { workspace = true }
 test-case = "3.3.1"
-opentelemetry_sdk = { workspace = true, features = [
-    "experimental_metrics_custom_reader",
-    "metrics",
-] }
 serial_test = { workspace = true }
 tempfile = { workspace = true }
-tracing-opentelemetry = { workspace = true }
 tracing-subscriber = { workspace = true }
 tracing-test = { workspace = true, features = ["no-env-filter"] }
 walkdir = { workspace = true }

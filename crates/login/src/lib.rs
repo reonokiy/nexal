@@ -1,19 +1,7 @@
 pub mod auth;
 pub mod token_data;
 
-mod device_code_auth;
-mod pkce;
-mod server;
-
 pub use nexal_client::BuildCustomCaTransportError as BuildLoginHttpClientError;
-pub use device_code_auth::DeviceCode;
-pub use device_code_auth::complete_device_code_login;
-pub use device_code_auth::request_device_code;
-pub use device_code_auth::run_device_code_login;
-pub use server::LoginServer;
-pub use server::ServerOptions;
-pub use server::ShutdownHandle;
-pub use server::run_login_server;
 
 pub use auth::AuthConfig;
 pub use auth::AuthCredentialsStoreMode;
@@ -25,7 +13,10 @@ pub use auth::NexalAuth;
 pub use auth::OPENAI_API_KEY_ENV_VAR;
 pub use auth::REFRESH_TOKEN_URL_OVERRIDE_ENV_VAR;
 pub use auth::RefreshTokenError;
+pub use auth::RefreshTokenFailedError;
+pub use auth::RefreshTokenFailedReason;
 pub use auth::UnauthorizedRecovery;
+pub use auth::UnauthorizedRecoveryStepResult;
 pub use auth::default_client;
 pub use auth::enforce_login_restrictions;
 pub use auth::load_auth_dot_json;

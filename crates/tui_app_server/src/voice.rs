@@ -6,7 +6,6 @@ use nexal_core::auth::AuthCredentialsStoreMode;
 use nexal_core::config::Config;
 use nexal_core::config::find_nexal_home;
 use nexal_core::default_client::get_nexal_user_agent;
-use nexal_login::AuthMode;
 use nexal_login::NexalAuth;
 use nexal_protocol::protocol::ConversationAudioParams;
 use nexal_protocol::protocol::RealtimeAudioFrame;
@@ -32,10 +31,7 @@ const MODEL_AUDIO_SAMPLE_RATE: u32 = 24_000;
 const MODEL_AUDIO_CHANNELS: u16 = 1;
 
 struct TranscriptionAuthContext {
-    mode: AuthMode,
     bearer_token: String,
-    chatgpt_account_id: Option<String>,
-    chatgpt_base_url: String,
 }
 
 pub struct RecordedAudio {
@@ -748,40 +744,15 @@ fn encode_wav_normalized(audio: &RecordedAudio) -> Result<Vec<u8>, String> {
     Ok(wav_bytes)
 }
 
-fn normalize_chatgpt_base_url(input: &str) -> String {
-    let mut base_url = input.to_string();
-    while base_url.ends_with('/') {
-        base_url.pop();
-    }
-    if (base_url.starts_with("https://api.openai.com")
-        || base_url.starts_with("https://api.openai.com"))
-        && !base_url.contains("/backend-api")
-    {
-        base_url = format!("{base_url}/backend-api");
-    }
-    base_url
-}
-
 async fn resolve_auth() -> Result<TranscriptionAuthContext, String> {
     let nexal_home = find_nexal_home().map_err(|e| format!("failed to find nexal home: {e}"))?;
     let auth = NexalAuth::from_auth_storage(&nexal_home, AuthCredentialsStoreMode::Auto)
         .map_err(|e| format!("failed to read auth.json: {e}"))?
         .ok_or_else(|| "No Nexal auth is configured; please run `nexal login`".to_string())?;
-
-    let chatgpt_account_id = auth.get_account_id();
-
     let token = auth
         .get_token()
         .map_err(|e| format!("failed to get auth token: {e}"))?;
-    let config = Config::load_with_cli_overrides(Vec::new())
-        .await
-        .map_err(|e| format!("failed to load config: {e}"))?;
-    Ok(TranscriptionAuthContext {
-        mode: auth.api_auth_mode(),
-        bearer_token: token,
-        chatgpt_account_id,
-        chatgpt_base_url: normalize_chatgpt_base_url(&config.chatgpt_base_url),
-    })
+    Ok(TranscriptionAuthContext { bearer_token: token })
 }
 
 async fn transcribe_bytes(
@@ -794,49 +765,26 @@ async fn transcribe_bytes(
         .map_err(|error| format!("failed to build transcription HTTP client: {error}"))?;
     let audio_bytes = wav_bytes.len();
     let prompt_for_log = context.as_deref().unwrap_or("").to_string();
-    let (endpoint, request) =
-        if matches!(auth.mode, AuthMode::Chatgpt | AuthMode::ChatgptAuthTokens) {
-            let part = reqwest::multipart::Part::bytes(wav_bytes)
-                .file_name("audio.wav")
-                .mime_str("audio/wav")
-                .map_err(|e| format!("failed to set mime: {e}"))?;
-            let form = reqwest::multipart::Form::new().part("file", part);
-            let endpoint = format!("{}/transcribe", auth.chatgpt_base_url);
-            let mut req = client
-                .post(&endpoint)
-                .bearer_auth(&auth.bearer_token)
-                .multipart(form)
-                .header("User-Agent", get_nexal_user_agent());
-            if let Some(acc) = auth.chatgpt_account_id {
-                req = req.header("X-Account-Id", acc);
-            }
-            (endpoint, req)
-        } else {
-            let part = reqwest::multipart::Part::bytes(wav_bytes)
-                .file_name("audio.wav")
-                .mime_str("audio/wav")
-                .map_err(|e| format!("failed to set mime: {e}"))?;
-            let mut form = reqwest::multipart::Form::new()
-                .text("model", AUDIO_MODEL)
-                .part("file", part);
-            if let Some(context) = context {
-                form = form.text("prompt", context);
-            }
-            let endpoint = "https://api.openai.com/v1/audio/transcriptions".to_string();
-            (
-                endpoint,
-                client
-                    .post("https://api.openai.com/v1/audio/transcriptions")
-                    .bearer_auth(&auth.bearer_token)
-                    .multipart(form)
-                    .header("User-Agent", get_nexal_user_agent()),
-            )
-        };
+    let part = reqwest::multipart::Part::bytes(wav_bytes)
+        .file_name("audio.wav")
+        .mime_str("audio/wav")
+        .map_err(|e| format!("failed to set mime: {e}"))?;
+    let mut form = reqwest::multipart::Form::new()
+        .text("model", AUDIO_MODEL)
+        .part("file", part);
+    if let Some(context) = context {
+        form = form.text("prompt", context);
+    }
+    let endpoint = "https://api.openai.com/v1/audio/transcriptions".to_string();
+    let request = client
+        .post("https://api.openai.com/v1/audio/transcriptions")
+        .bearer_auth(&auth.bearer_token)
+        .multipart(form)
+        .header("User-Agent", get_nexal_user_agent());
 
     let audio_kib = audio_bytes as f32 / 1024.0;
-    let mode = auth.mode;
     trace!(
-        "sending transcription request: mode={mode:?} endpoint={endpoint} duration={duration_seconds:.2}s audio={audio_kib:.1}KiB prompt={prompt_for_log}"
+        "sending transcription request: endpoint={endpoint} duration={duration_seconds:.2}s audio={audio_kib:.1}KiB prompt={prompt_for_log}"
     );
 
     let resp = request

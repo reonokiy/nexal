@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use nexal_app_server_protocol::AppInfo;
 use nexal_app_server_protocol::AppSummary;
-use nexal_chatgpt::connectors;
+use nexal_core::connectors;
 use nexal_core::config::Config;
 use nexal_core::plugins::AppConnectorId;
 use tracing::warn;

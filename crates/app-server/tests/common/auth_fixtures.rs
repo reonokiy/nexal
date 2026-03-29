@@ -10,8 +10,6 @@ use nexal_app_server_protocol::AuthMode;
 use nexal_core::auth::AuthCredentialsStoreMode;
 use nexal_core::auth::AuthDotJson;
 use nexal_core::auth::save_auth;
-use nexal_core::token_data::TokenData;
-use nexal_core::token_data::parse_chatgpt_jwt_claims;
 use serde_json::json;
 
 /// Builder for writing a fake ChatGPT auth.json in tests.
@@ -147,23 +145,13 @@ pub fn write_chatgpt_auth(
     fixture: ChatGptAuthFixture,
     cli_auth_credentials_store_mode: AuthCredentialsStoreMode,
 ) -> Result<()> {
-    let id_token_raw = encode_id_token(&fixture.claims)?;
-    let id_token = parse_chatgpt_jwt_claims(&id_token_raw).context("parse id token")?;
-    let tokens = TokenData {
-        id_token,
-        access_token: fixture.access_token,
-        refresh_token: fixture.refresh_token,
-        account_id: fixture.account_id,
-    };
-
-    let last_refresh = fixture.last_refresh.unwrap_or_else(|| Some(Utc::now()));
-
+    // ChatGPT auth is removed; store the access token as an API key so that
+    // the token value is preserved for tests that check bearer auth headers.
     let auth = AuthDotJson {
-        auth_mode: Some(AuthMode::Chatgpt),
-        openai_api_key: None,
-        tokens: Some(tokens),
-        last_refresh,
+        auth_mode: Some(AuthMode::ApiKey),
+        openai_api_key: Some(fixture.access_token),
+        tokens: None,
+        last_refresh: None,
     };
-
     save_auth(nexal_home, &auth, cli_auth_credentials_store_mode).context("write auth.json")
 }

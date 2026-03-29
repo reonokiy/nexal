@@ -17,7 +17,6 @@ use std::sync::Mutex as StdMutex;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
-use std::time::Instant;
 
 use crate::mcp::NEXAL_APPS_MCP_SERVER_NAME;
 use crate::mcp::ToolPluginProvenance;
@@ -100,9 +99,6 @@ const DEFAULT_TOOL_TIMEOUT: Duration = Duration::from_secs(120);
 
 const NEXAL_APPS_TOOLS_CACHE_SCHEMA_VERSION: u8 = 1;
 const NEXAL_APPS_TOOLS_CACHE_DIR: &str = "cache/nexal_apps_tools";
-const MCP_TOOLS_LIST_DURATION_METRIC: &str = "nexal.mcp.tools.list.duration_ms";
-const MCP_TOOLS_FETCH_UNCACHED_DURATION_METRIC: &str = "nexal.mcp.tools.fetch_uncached.duration_ms";
-const MCP_TOOLS_CACHE_WRITE_DURATION_METRIC: &str = "nexal.mcp.tools.cache_write.duration_ms";
 
 /// The Responses API requires tool names to match `^[a-zA-Z0-9_-]+$`.
 /// MCP server/tool names are user-controlled, so sanitize the fully-qualified
@@ -379,25 +375,14 @@ struct ManagedClient {
 
 impl ManagedClient {
     fn listed_tools(&self) -> Vec<ToolInfo> {
-        let total_start = Instant::now();
         if let Some(cache_context) = self.nexal_apps_tools_cache_context.as_ref()
             && let CachedNexalAppsToolsLoad::Hit(tools) =
                 load_cached_nexal_apps_tools(cache_context)
         {
-            emit_duration(
-                MCP_TOOLS_LIST_DURATION_METRIC,
-                total_start.elapsed(),
-                &[("cache", "hit")],
-            );
             return filter_tools(tools, &self.tool_filter);
         }
 
         if self.nexal_apps_tools_cache_context.is_some() {
-            emit_duration(
-                MCP_TOOLS_LIST_DURATION_METRIC,
-                total_start.elapsed(),
-                &[("cache", "miss")],
-            );
         }
 
         self.tools.clone()
@@ -839,8 +824,6 @@ impl McpConnectionManager {
             .await
             .context("failed to get client")?;
 
-        let list_start = Instant::now();
-        let fetch_start = Instant::now();
         let tools = list_tools_for_client_uncached(
             NEXAL_APPS_MCP_SERVER_NAME,
             &managed_client.client,
@@ -850,21 +833,11 @@ impl McpConnectionManager {
         .with_context(|| {
             format!("failed to refresh tools for MCP server '{NEXAL_APPS_MCP_SERVER_NAME}'")
         })?;
-        emit_duration(
-            MCP_TOOLS_FETCH_UNCACHED_DURATION_METRIC,
-            fetch_start.elapsed(),
-            &[],
-        );
 
         write_cached_nexal_apps_tools_if_needed(
             NEXAL_APPS_MCP_SERVER_NAME,
             managed_client.nexal_apps_tools_cache_context.as_ref(),
             &tools,
-        );
-        emit_duration(
-            MCP_TOOLS_LIST_DURATION_METRIC,
-            list_start.elapsed(),
-            &[("cache", "miss")],
         );
         Ok(qualify_tools(filter_tools(
             tools,
@@ -1374,27 +1347,15 @@ async fn start_server_task(
         .await
         .map_err(StartupOutcomeError::from)?;
 
-    let list_start = Instant::now();
-    let fetch_start = Instant::now();
     let tools = list_tools_for_client_uncached(&server_name, &client, startup_timeout)
         .await
         .map_err(StartupOutcomeError::from)?;
-    emit_duration(
-        MCP_TOOLS_FETCH_UNCACHED_DURATION_METRIC,
-        fetch_start.elapsed(),
-        &[],
-    );
     write_cached_nexal_apps_tools_if_needed(
         &server_name,
         nexal_apps_tools_cache_context.as_ref(),
         &tools,
     );
     if server_name == NEXAL_APPS_MCP_SERVER_NAME {
-        emit_duration(
-            MCP_TOOLS_LIST_DURATION_METRIC,
-            list_start.elapsed(),
-            &[("cache", "miss")],
-        );
     }
     let tools = filter_tools(tools, &tool_filter);
 
@@ -1484,13 +1445,7 @@ fn write_cached_nexal_apps_tools_if_needed(
     }
 
     if let Some(cache_context) = cache_context {
-        let cache_write_start = Instant::now();
         write_cached_nexal_apps_tools(cache_context, tools);
-        emit_duration(
-            MCP_TOOLS_CACHE_WRITE_DURATION_METRIC,
-            cache_write_start.elapsed(),
-            &[],
-        );
     }
 }
 
@@ -1567,12 +1522,6 @@ fn filter_disallowed_nexal_apps_tools(tools: Vec<ToolInfo>) -> Vec<ToolInfo> {
                 .is_none_or(is_connector_id_allowed)
         })
         .collect()
-}
-
-fn emit_duration(metric: &str, duration: Duration, tags: &[(&str, &str)]) {
-    if let Some(metrics) = nexal_otel::metrics::global() {
-        let _ = metrics.record_duration(metric, duration, tags);
-    }
 }
 
 fn transport_origin(transport: &McpServerTransportConfig) -> Option<String> {

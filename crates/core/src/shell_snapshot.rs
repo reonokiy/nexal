@@ -14,7 +14,7 @@ use anyhow::Context;
 use anyhow::Result;
 use anyhow::anyhow;
 use anyhow::bail;
-use nexal_otel::SessionTelemetry;
+use nexal_protocol::telemetry_types::SessionTelemetry;
 use nexal_protocol::ThreadId;
 use tokio::fs;
 use tokio::process::Command;

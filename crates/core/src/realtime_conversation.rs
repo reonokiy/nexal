@@ -137,7 +137,6 @@ struct ConversationState {
     realtime_active: Arc<AtomicBool>,
 }
 
-#[allow(dead_code)]
 impl RealtimeConversationManager {
     pub(crate) fn new() -> Self {
         Self {

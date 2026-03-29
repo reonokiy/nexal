@@ -2,7 +2,6 @@ use crate::auth::AuthCredentialsStoreMode;
 use crate::config::edit::ConfigEdit;
 use crate::config::edit::ConfigEditsBuilder;
 use crate::config::types::AppsConfigToml;
-use crate::config::types::DEFAULT_OTEL_ENVIRONMENT;
 use crate::config::types::History;
 use crate::config::types::McpServerConfig;
 use crate::config::types::McpServerDisabledReason;
@@ -14,8 +13,6 @@ use crate::config::types::Notice;
 use crate::config::types::NotificationMethod;
 use crate::config::types::Notifications;
 use crate::config::types::OtelConfig;
-use crate::config::types::OtelConfigToml;
-use crate::config::types::OtelExporterKind;
 use crate::config::types::PluginConfig;
 use crate::config::types::SandboxWorkspaceWrite;
 use crate::config::types::ShellEnvironmentPolicy;
@@ -535,9 +532,6 @@ pub struct Config {
     /// instructions inserted into developer messages when realtime becomes
     /// active.
     pub experimental_realtime_start_instructions: Option<String>,
-    /// When set, restricts ChatGPT login to a specific workspace identifier.
-    pub forced_chatgpt_workspace_id: Option<String>,
-
     /// When set, restricts the login mechanism users may use.
     pub forced_login_method: Option<ForcedLoginMethod>,
 
@@ -1174,10 +1168,6 @@ pub struct ConfigToml {
     /// Set to an empty string to disable automatic commit attribution.
     pub commit_attribution: Option<String>,
 
-    /// When set, restricts ChatGPT login to a specific workspace identifier.
-    #[serde(default)]
-    pub forced_chatgpt_workspace_id: Option<String>,
-
     /// When set, restricts the login mechanism users may use.
     #[serde(default)]
     pub forced_login_method: Option<ForcedLoginMethod>,
@@ -1433,7 +1423,6 @@ impl From<ConfigToml> for UserSavedConfig {
             approval_policy: config_toml.approval_policy,
             sandbox_mode: config_toml.sandbox_mode,
             sandbox_settings: config_toml.sandbox_workspace_write.map(From::from),
-            forced_chatgpt_workspace_id: config_toml.forced_chatgpt_workspace_id,
             forced_login_method: config_toml.forced_login_method,
             model: config_toml.model,
             model_reasoning_effort: config_toml.model_reasoning_effort,
@@ -2384,16 +2373,6 @@ impl Config {
         let include_apply_patch_tool_flag = features.enabled(Feature::ApplyPatchFreeform);
         let use_experimental_unified_exec_tool = features.enabled(Feature::UnifiedExec);
 
-        let forced_chatgpt_workspace_id =
-            cfg.forced_chatgpt_workspace_id.as_ref().and_then(|value| {
-                let trimmed = value.trim();
-                if trimmed.is_empty() {
-                    None
-                } else {
-                    Some(trimmed.to_string())
-                }
-            });
-
         let forced_login_method = cfg.forced_login_method;
 
         // LLM_MODEL env var is a universal alias for model selection.
@@ -2683,7 +2662,6 @@ impl Config {
             experimental_realtime_ws_backend_prompt: cfg.experimental_realtime_ws_backend_prompt,
             experimental_realtime_ws_startup_context: cfg.experimental_realtime_ws_startup_context,
             experimental_realtime_start_instructions: cfg.experimental_realtime_start_instructions,
-            forced_chatgpt_workspace_id,
             forced_login_method,
             include_apply_patch_tool: include_apply_patch_tool_flag,
             web_search_mode: constrained_web_search_mode.value,
@@ -2737,23 +2715,7 @@ impl Config {
             tui_status_line: cfg.tui.as_ref().and_then(|t| t.status_line.clone()),
             tui_terminal_title: cfg.tui.as_ref().and_then(|t| t.terminal_title.clone()),
             tui_theme: cfg.tui.as_ref().and_then(|t| t.theme.clone()),
-            otel: {
-                let t: OtelConfigToml = cfg.otel.unwrap_or_default();
-                let log_user_prompt = t.log_user_prompt.unwrap_or(false);
-                let environment = t
-                    .environment
-                    .unwrap_or(DEFAULT_OTEL_ENVIRONMENT.to_string());
-                let exporter = t.exporter.unwrap_or(OtelExporterKind::None);
-                let trace_exporter = t.trace_exporter.unwrap_or_else(|| exporter.clone());
-                let metrics_exporter = t.metrics_exporter.unwrap_or(OtelExporterKind::Statsig);
-                OtelConfig {
-                    log_user_prompt,
-                    environment,
-                    exporter,
-                    trace_exporter,
-                    metrics_exporter,
-                }
-            },
+            otel: OtelConfig::from_toml(cfg.otel.unwrap_or_default()),
         };
         Ok(config)
     }

@@ -14,9 +14,7 @@ use crate::nexal::Session;
 use crate::nexal::build_prompt;
 use crate::nexal::built_tools;
 use crate::error::Result as NexalResult;
-use nexal_otel::SessionTelemetry;
-use nexal_otel::metrics::names::STARTUP_PREWARM_AGE_AT_FIRST_TURN_METRIC;
-use nexal_otel::metrics::names::STARTUP_PREWARM_DURATION_METRIC;
+use nexal_protocol::telemetry_types::SessionTelemetry;
 use nexal_protocol::models::BaseInstructions;
 
 pub(crate) struct SessionStartupPrewarmHandle {
@@ -79,12 +77,12 @@ impl SessionStartupPrewarmHandle {
                 None => {
                     task.abort();
                     session_telemetry.record_duration(
-                        STARTUP_PREWARM_AGE_AT_FIRST_TURN_METRIC,
+                        "codex.startup_prewarm.age_at_first_turn_ms",
                         age_at_first_turn,
                         &[("status", "cancelled")],
                     );
                     session_telemetry.record_duration(
-                        STARTUP_PREWARM_DURATION_METRIC,
+                        "codex.startup_prewarm.duration_ms",
                         started_at.elapsed(),
                         &[("status", "cancelled")],
                     );
@@ -99,7 +97,7 @@ impl SessionStartupPrewarmHandle {
             }
             SessionStartupPrewarmResolution::Ready(prewarmed_session) => {
                 session_telemetry.record_duration(
-                    STARTUP_PREWARM_AGE_AT_FIRST_TURN_METRIC,
+                    "codex.startup_prewarm.age_at_first_turn_ms",
                     age_at_first_turn,
                     &[("status", "consumed")],
                 );
@@ -110,13 +108,13 @@ impl SessionStartupPrewarmHandle {
                 prewarm_duration,
             } => {
                 session_telemetry.record_duration(
-                    STARTUP_PREWARM_AGE_AT_FIRST_TURN_METRIC,
+                    "codex.startup_prewarm.age_at_first_turn_ms",
                     age_at_first_turn,
                     &[("status", status)],
                 );
                 if let Some(prewarm_duration) = prewarm_duration {
                     session_telemetry.record_duration(
-                        STARTUP_PREWARM_DURATION_METRIC,
+                        "codex.startup_prewarm.duration_ms",
                         prewarm_duration,
                         &[("status", status)],
                     );
@@ -166,7 +164,7 @@ impl Session {
                 schedule_startup_prewarm_inner(startup_prewarm_session, base_instructions).await;
             let status = if result.is_ok() { "ready" } else { "failed" };
             session_telemetry.record_duration(
-                STARTUP_PREWARM_DURATION_METRIC,
+                "codex.startup_prewarm.duration_ms",
                 started_at.elapsed(),
                 &[("status", status)],
             );

@@ -3,7 +3,5 @@
 #[cfg(feature = "vt100-tests")]
 mod test_backend;
 
-#[allow(unused_imports)]
-use nexal_cli as _; // Keep dev-dep for cargo-shear; tests spawn the nexal binary.
 
 mod suite;

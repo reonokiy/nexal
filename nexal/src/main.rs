@@ -206,14 +206,6 @@ async fn maybe_start_channels(
     // corrupt the terminal UI.
     init_tracing_to_file(&config.workspace);
 
-    let db_path = config.workspace.join("agents").join("nexal.db");
-    tokio::fs::create_dir_all(db_path.parent().unwrap()).await?;
-    let db = Arc::new(
-        StateDb::open(&db_path)
-            .await
-            .context("opening state db for channels")?,
-    );
-
     let pool = AgentPool::new(Arc::clone(&config));
     let debounce_config = DebounceConfig {
         debounce_secs: config.debounce_secs,
@@ -223,8 +215,6 @@ async fn maybe_start_channels(
 
     let mut bot = Bot::new(
         Arc::clone(&pool),
-        Arc::clone(&config),
-        Arc::clone(&db),
         debounce_config,
     );
 
@@ -450,16 +440,6 @@ async fn run_idle(args: IdleArgs, config: Arc<NexalConfig>) -> anyhow::Result<()
     )
     .await;
 
-    let db_path = config.workspace.join("agents").join("nexal.db");
-    tokio::fs::create_dir_all(db_path.parent().unwrap()).await?;
-    let db = Arc::new(
-        StateDb::open(&db_path)
-            .await
-            .context("opening state db")?,
-    );
-
-    info!("state db: {}", db_path.display());
-
     let pool = AgentPool::new(Arc::clone(&config));
     let debounce_config = DebounceConfig {
         debounce_secs: config.debounce_secs,
@@ -469,8 +449,6 @@ async fn run_idle(args: IdleArgs, config: Arc<NexalConfig>) -> anyhow::Result<()
 
     let mut bot = Bot::new(
         Arc::clone(&pool),
-        Arc::clone(&config),
-        Arc::clone(&db),
         debounce_config,
     );
 

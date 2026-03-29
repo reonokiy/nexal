@@ -28,8 +28,7 @@ use crate::unified_exec::UnifiedExecProcessManager;
 use crate::unified_exec::WriteStdinRequest;
 use async_trait::async_trait;
 use nexal_features::Feature;
-use nexal_otel::SessionTelemetry;
-use nexal_otel::metrics::names::TOOL_CALL_UNIFIED_EXEC_METRIC;
+use nexal_protocol::telemetry_types::SessionTelemetry;
 use nexal_protocol::models::PermissionProfile;
 use serde::Deserialize;
 use std::path::PathBuf;
@@ -188,7 +187,6 @@ impl ToolHandler for UnifiedExecHandler {
                     parse_arguments_with_base_path(&arguments, cwd.as_path())?;
                 let workdir = context.turn.resolve_path(args.workdir.clone());
                 maybe_emit_implicit_skill_invocation(
-                    session.as_ref(),
                     context.turn.as_ref(),
                     &args.cmd,
                     &workdir,
@@ -368,7 +366,7 @@ impl ToolHandler for UnifiedExecHandler {
 
 fn emit_unified_exec_tty_metric(session_telemetry: &SessionTelemetry, tty: bool) {
     session_telemetry.counter(
-        TOOL_CALL_UNIFIED_EXEC_METRIC,
+        "codex.tool.unified_exec",
         /*inc*/ 1,
         &[("tty", if tty { "true" } else { "false" })],
     );

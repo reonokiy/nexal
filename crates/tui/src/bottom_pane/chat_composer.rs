@@ -213,8 +213,8 @@ use crate::clipboard_paste::pasted_image_format;
 use crate::history_cell;
 use crate::tui::FrameRequester;
 use crate::ui_consts::LIVE_PREFIX_COLS;
-use nexal_chatgpt::connectors;
-use nexal_chatgpt::connectors::AppInfo;
+use nexal_core::connectors;
+use nexal_core::connectors::AppInfo;
 use nexal_core::plugins::PluginCapabilitySummary;
 use nexal_core::skills::model::SkillMetadata;
 use nexal_file_search::FileMatch;
@@ -3707,7 +3707,6 @@ impl ChatComposer {
         self.voice_state.voice.is_some()
     }
 
-    #[allow(dead_code)]
     pub(crate) fn set_input_enabled(&mut self, enabled: bool, placeholder: Option<String>) {
         self.input_enabled = enabled;
         self.input_disabled_placeholder = if enabled { None } else { placeholder };

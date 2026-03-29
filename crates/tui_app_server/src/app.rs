@@ -83,12 +83,12 @@ use nexal_core::config::types::ModelAvailabilityNuxConfig;
 use nexal_core::config_loader::ConfigLayerStackOrdering;
 use nexal_core::message_history;
 use nexal_core::models_manager::collaboration_mode_presets::CollaborationModesConfig;
-use nexal_core::models_manager::model_presets::HIDE_GPT_5_1_NEXAL_MAX_MIGRATION_PROMPT_CONFIG;
+#[cfg(test)]
 use nexal_core::models_manager::model_presets::HIDE_GPT5_1_MIGRATION_PROMPT_CONFIG;
 #[cfg(target_os = "windows")]
 use nexal_core::windows_sandbox::WindowsSandboxLevelExt;
 use nexal_features::Feature;
-use nexal_otel::SessionTelemetry;
+use nexal_protocol::telemetry_types::SessionTelemetry;
 use nexal_protocol::ThreadId;
 use nexal_protocol::approvals::ExecApprovalRequestEvent;
 use nexal_protocol::config_types::Personality;
@@ -119,6 +119,7 @@ use ratatui::style::Stylize;
 use ratatui::text::Line;
 use ratatui::widgets::Paragraph;
 use ratatui::widgets::Wrap;
+#[cfg(test)]
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::collections::VecDeque;
@@ -684,7 +685,7 @@ impl ThreadEventChannel {
     }
 }
 
-#[allow(dead_code)]
+#[cfg(test)]
 fn should_show_model_migration_prompt(
     current_model: &str,
     target_model: &str,
@@ -725,21 +726,7 @@ fn should_show_model_migration_prompt(
     false
 }
 
-#[allow(dead_code)]
-fn migration_prompt_hidden(config: &Config, migration_config_key: &str) -> bool {
-    match migration_config_key {
-        HIDE_GPT_5_1_NEXAL_MAX_MIGRATION_PROMPT_CONFIG => config
-            .notices
-            .hide_gpt_5_1_nexal_max_migration_prompt
-            .unwrap_or(false),
-        HIDE_GPT5_1_MIGRATION_PROMPT_CONFIG => {
-            config.notices.hide_gpt5_1_migration_prompt.unwrap_or(false)
-        }
-        _ => false,
-    }
-}
-
-#[allow(dead_code)]
+#[cfg(test)]
 fn target_preset_for_upgrade<'a>(
     available_models: &'a [ModelPreset],
     target_model: &str,
@@ -950,7 +937,6 @@ impl App {
             // Fork/resume bootstraps here don't carry any prefilled message content.
             initial_user_message: None,
             enhanced_keys_supported: self.enhanced_keys_supported,
-            has_chatgpt_account: self.chat_widget.has_chatgpt_account(),
             model_catalog: self.model_catalog.clone(),
             feedback: self.feedback.clone(),
             is_first_run: false,
@@ -3086,10 +3072,8 @@ impl App {
         ));
         let feedback_audience = bootstrap.feedback_audience;
         let auth_mode = bootstrap.auth_mode;
-        let has_chatgpt_account = bootstrap.has_chatgpt_account;
         let status_account_display = bootstrap.status_account_display.clone();
         let initial_plan_type = bootstrap.plan_type;
-        let startup_rate_limit_snapshots = bootstrap.rate_limit_snapshots;
         let session_telemetry = SessionTelemetry::new(
             ThreadId::new(),
             model.as_str(),
@@ -3133,7 +3117,6 @@ impl App {
                         Vec::new(),
                     ),
                     enhanced_keys_supported,
-                    has_chatgpt_account,
                     model_catalog: model_catalog.clone(),
                     feedback: feedback.clone(),
                     is_first_run,
@@ -3168,7 +3151,6 @@ impl App {
                         Vec::new(),
                     ),
                     enhanced_keys_supported,
-                    has_chatgpt_account,
                     model_catalog: model_catalog.clone(),
                     feedback: feedback.clone(),
                     is_first_run,
@@ -3208,7 +3190,6 @@ impl App {
                         Vec::new(),
                     ),
                     enhanced_keys_supported,
-                    has_chatgpt_account,
                     model_catalog: model_catalog.clone(),
                     feedback: feedback.clone(),
                     is_first_run,
@@ -3226,9 +3207,6 @@ impl App {
             }
         };
 
-        for snapshot in startup_rate_limit_snapshots {
-            chat_widget.on_rate_limit_snapshot(Some(snapshot));
-        }
         chat_widget
             .maybe_prompt_windows_sandbox_enable(should_prompt_windows_sandbox_nux_at_startup);
 
@@ -3911,9 +3889,6 @@ impl App {
             }
             AppEvent::FileSearchResult { query, matches } => {
                 self.chat_widget.apply_file_search_result(query, matches);
-            }
-            AppEvent::RateLimitSnapshotFetched(snapshot) => {
-                self.chat_widget.on_rate_limit_snapshot(Some(snapshot));
             }
             AppEvent::ConnectorsLoaded { result, is_final } => {
                 self.chat_widget.on_connectors_loaded(result, is_final);
@@ -4692,24 +4667,6 @@ impl App {
                             "Failed to save Plan mode reasoning effort: {err}"
                         ));
                     }
-                }
-            }
-            AppEvent::PersistModelMigrationPromptAcknowledged {
-                from_model,
-                to_model,
-            } => {
-                if let Err(err) = ConfigEditsBuilder::new(&self.config.nexal_home)
-                    .record_model_migration_seen(from_model.as_str(), to_model.as_str())
-                    .apply()
-                    .await
-                {
-                    tracing::error!(
-                        error = %err,
-                        "failed to persist model migration prompt acknowledgement"
-                    );
-                    self.chat_widget.add_error_message(format!(
-                        "Failed to save model migration prompt preference: {err}"
-                    ));
                 }
             }
             AppEvent::OpenApprovalsPopup => {
@@ -5657,7 +5614,7 @@ mod tests {
     use nexal_core::config::ConfigBuilder;
     use nexal_core::config::ConfigOverrides;
     use nexal_core::config::types::ModelAvailabilityNuxConfig;
-    use nexal_otel::SessionTelemetry;
+    use nexal_protocol::telemetry_types::SessionTelemetry;
     use nexal_protocol::ThreadId;
     use nexal_protocol::config_types::CollaborationMode;
     use nexal_protocol::config_types::CollaborationModeMask;
@@ -5679,8 +5636,10 @@ mod tests {
     use nexal_protocol::protocol::SessionConfiguredEvent;
     use nexal_protocol::protocol::SessionSource;
     use nexal_protocol::protocol::TurnContextItem;
+    use nexal_protocol::openai_models::ModelUpgrade;
     use nexal_protocol::user_input::TextElement;
     use nexal_protocol::user_input::UserInput;
+    use crate::model_migration::migration_copy_for_models;
     use crossterm::event::KeyModifiers;
     use insta::assert_snapshot;
     use pretty_assertions::assert_eq;
@@ -5927,7 +5886,6 @@ mod tests {
                 Vec::new(),
             ),
             enhanced_keys_supported: false,
-            has_chatgpt_account: false,
             model_catalog: app.model_catalog.clone(),
             feedback: nexal_feedback::NexalFeedback::new(),
             is_first_run: false,
@@ -9258,7 +9216,6 @@ guardian_approval = true
             app_event_tx: app.app_event_tx.clone(),
             initial_user_message: None,
             enhanced_keys_supported: app.enhanced_keys_supported,
-            has_chatgpt_account: app.chat_widget.has_chatgpt_account(),
             model_catalog: app.model_catalog.clone(),
             feedback: app.feedback.clone(),
             is_first_run: false,

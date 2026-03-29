@@ -25,7 +25,7 @@ use crate::tools::sandboxing::ToolCtx;
 use crate::tools::sandboxing::ToolError;
 use crate::tools::sandboxing::ToolRuntime;
 use crate::tools::sandboxing::default_exec_approval_requirement;
-use nexal_otel::ToolDecisionSource;
+use nexal_protocol::telemetry_types::ToolDecisionSource;
 use nexal_protocol::protocol::AskForApproval;
 use nexal_protocol::protocol::NetworkPolicyRuleAction;
 use nexal_protocol::protocol::ReviewDecision;

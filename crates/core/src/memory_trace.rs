@@ -6,7 +6,7 @@ use crate::error::NexalErr;
 use crate::error::Result;
 use nexal_api::RawMemory as ApiRawMemory;
 use nexal_api::RawMemoryMetadata as ApiRawMemoryMetadata;
-use nexal_otel::SessionTelemetry;
+use nexal_protocol::telemetry_types::SessionTelemetry;
 use nexal_protocol::openai_models::ModelInfo;
 use nexal_protocol::openai_models::ReasoningEffort as ReasoningEffortConfig;
 use serde_json::Map;

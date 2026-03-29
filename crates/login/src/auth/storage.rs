@@ -331,6 +331,3 @@ fn create_auth_storage_with_keyring_store(
     }
 }
 
-#[cfg(test)]
-#[path = "storage_tests.rs"]
-mod tests;

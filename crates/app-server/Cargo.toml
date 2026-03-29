@@ -30,18 +30,14 @@ axum = { workspace = true, default-features = false, features = [
     "ws",
 ] }
 nexal-arg0 = { workspace = true }
-nexal-cloud-requirements = { workspace = true }
 nexal-core = { workspace = true }
 nexal-exec-server = { workspace = true }
 nexal-features = { workspace = true }
 nexal-git-utils = { workspace = true }
-nexal-otel = { workspace = true }
 nexal-shell-command = { workspace = true }
 nexal-utils-cli = { workspace = true }
 nexal-utils-pty = { workspace = true }
-nexal-backend-client = { workspace = true }
 nexal-file-search = { workspace = true }
-nexal-chatgpt = { workspace = true }
 nexal-login = { workspace = true }
 nexal-protocol = { workspace = true }
 nexal-app-server-protocol = { workspace = true }
@@ -88,7 +84,7 @@ axum = { workspace = true, default-features = false, features = [
 core_test_support = { workspace = true }
 nexal-utils-cargo-bin = { workspace = true }
 opentelemetry = { workspace = true }
-opentelemetry_sdk = { workspace = true }
+opentelemetry_sdk = { workspace = true, features = ["testing"] }
 pretty_assertions = { workspace = true }
 reqwest = { workspace = true, features = ["rustls-tls"] }
 rmcp = { workspace = true, default-features = false, features = [

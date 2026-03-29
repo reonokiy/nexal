@@ -60,8 +60,7 @@ use nexal_api::create_text_param_for_request;
 use nexal_api::error::ApiError;
 use nexal_api::requests::responses::Compression;
 use nexal_api::response_create_client_metadata;
-use nexal_otel::SessionTelemetry;
-use nexal_otel::current_span_w3c_trace_context;
+use nexal_protocol::telemetry_types::SessionTelemetry;
 
 use nexal_protocol::ThreadId;
 use nexal_protocol::config_types::ReasoningSummary as ReasoningSummaryConfig;
@@ -137,7 +136,6 @@ struct ModelClientState {
     auth_env_telemetry: AuthEnvTelemetry,
     session_source: SessionSource,
     model_verbosity: Option<VerbosityConfig>,
-    enable_request_compression: bool,
     include_timing_metrics: bool,
     beta_features_header: Option<String>,
     disable_websockets: AtomicBool,
@@ -257,7 +255,6 @@ impl ModelClient {
         provider: ModelProviderInfo,
         session_source: SessionSource,
         model_verbosity: Option<VerbosityConfig>,
-        enable_request_compression: bool,
         include_timing_metrics: bool,
         beta_features_header: Option<String>,
     ) -> Self {
@@ -273,7 +270,6 @@ impl ModelClient {
                 auth_env_telemetry,
                 session_source,
                 model_verbosity,
-                enable_request_compression,
                 include_timing_metrics,
                 beta_features_header,
                 disable_websockets: AtomicBool::new(false),
@@ -966,15 +962,8 @@ impl ModelClientSession {
             ))
     }
 
-    fn responses_request_compression(&self, auth: Option<&crate::auth::NexalAuth>) -> Compression {
-        if self.client.state.enable_request_compression
-            && auth.is_some_and(NexalAuth::is_chatgpt_auth)
-            && self.client.state.provider.is_openai()
-        {
-            Compression::Zstd
-        } else {
-            Compression::None
-        }
+    fn responses_request_compression(&self, _auth: Option<&crate::auth::NexalAuth>) -> Compression {
+        Compression::None
     }
 
     /// Streams a turn via the OpenAI Responses API.
@@ -1256,7 +1245,7 @@ impl ModelClientSession {
                 service_tier,
                 turn_metadata_header,
                 /*warmup*/ true,
-                current_span_w3c_trace_context(),
+                None,
             )
             .await
         {
@@ -1300,7 +1289,7 @@ impl ModelClientSession {
         match wire_api {
             WireApi::Responses => {
                 if self.client.responses_websocket_enabled() {
-                    let request_trace = current_span_w3c_trace_context();
+                    let request_trace = None;
                     match self
                         .stream_responses_websocket(
                             prompt,

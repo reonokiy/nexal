@@ -14,7 +14,6 @@ use nexal_app_server_protocol::ExperimentalFeatureEnablementSetResponse;
 use nexal_app_server_protocol::JSONRPCErrorError;
 use nexal_app_server_protocol::NetworkRequirements;
 use nexal_app_server_protocol::SandboxMode;
-use nexal_core::AnalyticsEventsClient;
 use nexal_core::ThreadManager;
 use nexal_core::config::Config;
 use nexal_core::config::ConfigService;
@@ -24,9 +23,6 @@ use nexal_core::config_loader::ConfigRequirementsToml;
 use nexal_core::config_loader::LoaderOverrides;
 use nexal_core::config_loader::ResidencyRequirement as CoreResidencyRequirement;
 use nexal_core::config_loader::SandboxModeRequirement as CoreSandboxModeRequirement;
-use nexal_core::plugins::PluginId;
-use nexal_core::plugins::collect_plugin_enabled_candidates;
-use nexal_core::plugins::installed_plugin_telemetry_metadata;
 use nexal_features::canonical_feature_for_key;
 use nexal_features::feature_for_key;
 use nexal_protocol::config_types::WebSearchMode;
@@ -76,7 +72,6 @@ pub(crate) struct ConfigApi {
     loader_overrides: LoaderOverrides,
     cloud_requirements: Arc<RwLock<CloudRequirementsLoader>>,
     user_config_reloader: Arc<dyn UserConfigReloader>,
-    analytics_events_client: AnalyticsEventsClient,
 }
 
 impl ConfigApi {
@@ -87,7 +82,6 @@ impl ConfigApi {
         loader_overrides: LoaderOverrides,
         cloud_requirements: Arc<RwLock<CloudRequirementsLoader>>,
         user_config_reloader: Arc<dyn UserConfigReloader>,
-        analytics_events_client: AnalyticsEventsClient,
     ) -> Self {
         Self {
             nexal_home,
@@ -96,7 +90,6 @@ impl ConfigApi {
             loader_overrides,
             cloud_requirements,
             user_config_reloader,
-            analytics_events_client,
         }
     }
 
@@ -201,14 +194,11 @@ impl ConfigApi {
         &self,
         params: ConfigValueWriteParams,
     ) -> Result<ConfigWriteResponse, JSONRPCErrorError> {
-        let pending_changes =
-            collect_plugin_enabled_candidates([(&params.key_path, &params.value)].into_iter());
         let response = self
             .config_service()
             .write_value(params)
             .await
             .map_err(map_error)?;
-        self.emit_plugin_toggle_events(pending_changes);
         Ok(response)
     }
 
@@ -217,18 +207,11 @@ impl ConfigApi {
         params: ConfigBatchWriteParams,
     ) -> Result<ConfigWriteResponse, JSONRPCErrorError> {
         let reload_user_config = params.reload_user_config;
-        let pending_changes = collect_plugin_enabled_candidates(
-            params
-                .edits
-                .iter()
-                .map(|edit| (&edit.key_path, &edit.value)),
-        );
         let response = self
             .config_service()
             .batch_write(params)
             .await
             .map_err(map_error)?;
-        self.emit_plugin_toggle_events(pending_changes);
         if reload_user_config {
             self.user_config_reloader.reload_user_config().await;
         }
@@ -297,20 +280,6 @@ impl ConfigApi {
         Ok(ExperimentalFeatureEnablementSetResponse { enablement })
     }
 
-    fn emit_plugin_toggle_events(&self, pending_changes: std::collections::BTreeMap<String, bool>) {
-        for (plugin_id, enabled) in pending_changes {
-            let Ok(plugin_id) = PluginId::parse(&plugin_id) else {
-                continue;
-            };
-            let metadata =
-                installed_plugin_telemetry_metadata(self.nexal_home.as_path(), &plugin_id);
-            if enabled {
-                self.analytics_events_client.track_plugin_enabled(metadata);
-            } else {
-                self.analytics_events_client.track_plugin_disabled(metadata);
-            }
-        }
-    }
 }
 
 pub(crate) fn protected_feature_keys(
@@ -449,9 +418,6 @@ fn config_write_error(code: ConfigWriteErrorCode, message: impl Into<String>) ->
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nexal_core::AnalyticsEventsClient;
-    use nexal_core::AuthManager;
-    use nexal_core::NexalAuth;
     use nexal_core::config_loader::NetworkRequirementsToml as CoreNetworkRequirementsToml;
     use nexal_features::Feature;
     use nexal_protocol::protocol::AskForApproval as CoreAskForApproval;
@@ -647,13 +613,6 @@ mod tests {
         let user_config_path = nexal_home.path().join("config.toml");
         std::fs::write(&user_config_path, "").expect("write config");
         let reloader = Arc::new(RecordingUserConfigReloader::default());
-        let analytics_config = Arc::new(
-            nexal_core::config::ConfigBuilder::default()
-                .build()
-                .await
-                .expect("load analytics config"),
-        );
-        let auth_manager = AuthManager::from_auth_for_testing(NexalAuth::from_api_key("test"));
         let config_api = ConfigApi::new(
             nexal_home.path().to_path_buf(),
             Arc::new(RwLock::new(Vec::new())),
@@ -661,14 +620,6 @@ mod tests {
             LoaderOverrides::default(),
             Arc::new(RwLock::new(CloudRequirementsLoader::default())),
             reloader.clone(),
-            AnalyticsEventsClient::new(
-                auth_manager,
-                analytics_config
-                    .chatgpt_base_url
-                    .trim_end_matches('/')
-                    .to_string(),
-                analytics_config.analytics_enabled,
-            ),
         );
 
         let response = config_api

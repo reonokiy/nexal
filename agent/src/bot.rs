@@ -9,8 +9,6 @@ use dashmap::DashMap;
 use nexal_channel_core::{
     Channel, DebounceConfig, IncomingMessage, MessageHandler, SessionRunner,
 };
-use nexal_config::NexalConfig;
-use nexal_state::StateDb;
 use tracing::{error, info};
 
 use crate::actor::{AgentEvent, AgentMessage};
@@ -19,10 +17,6 @@ use crate::AgentPool;
 /// Orchestrates channels + agent pool, one per nexal instance.
 pub struct Bot {
     pool: Arc<AgentPool>,
-    #[allow(dead_code)]
-    config: Arc<NexalConfig>,
-    #[allow(dead_code)]
-    db: Arc<StateDb>,
     channels: Vec<Arc<dyn Channel>>,
     runners: Arc<DashMap<String, Arc<SessionRunner>>>,
     debounce_config: DebounceConfig,
@@ -31,15 +25,10 @@ pub struct Bot {
 impl Bot {
     pub fn new(
         pool: Arc<AgentPool>,
-        config: Arc<NexalConfig>,
-        #[allow(dead_code)]
-    db: Arc<StateDb>,
         debounce_config: DebounceConfig,
     ) -> Self {
         Self {
             pool,
-            config,
-            db,
             channels: Vec::new(),
             runners: Arc::new(DashMap::new()),
             debounce_config,

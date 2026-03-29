@@ -7,8 +7,8 @@ use nexal_core::ModelProviderInfo;
 use nexal_core::Prompt;
 use nexal_core::ResponseEvent;
 use nexal_core::WireApi;
-use nexal_otel::SessionTelemetry;
-use nexal_otel::TelemetryAuthMode;
+use nexal_protocol::telemetry_types::SessionTelemetry;
+use nexal_protocol::telemetry_types::TelemetryAuthMode;
 use nexal_protocol::ThreadId;
 use nexal_protocol::config_types::ReasoningSummary;
 use nexal_protocol::models::ContentItem;
@@ -56,6 +56,7 @@ async fn responses_stream_includes_subagent_header_on_review() {
         websocket_connect_timeout_ms: None,
         requires_openai_auth: false,
         supports_websockets: false,
+        thinking_mode: false,
     };
 
     let nexal_home = TempDir::new().expect("failed to create TempDir");
@@ -92,7 +93,6 @@ async fn responses_stream_includes_subagent_header_on_review() {
         provider.clone(),
         session_source,
         config.model_verbosity,
-        false,
         false,
         None,
     );
@@ -168,6 +168,7 @@ async fn responses_stream_includes_subagent_header_on_other() {
         websocket_connect_timeout_ms: None,
         requires_openai_auth: false,
         supports_websockets: false,
+        thinking_mode: false,
     };
 
     let nexal_home = TempDir::new().expect("failed to create TempDir");
@@ -205,7 +206,6 @@ async fn responses_stream_includes_subagent_header_on_other() {
         provider.clone(),
         session_source,
         config.model_verbosity,
-        false,
         false,
         None,
     );
@@ -275,6 +275,7 @@ async fn responses_respects_model_info_overrides_from_config() {
         websocket_connect_timeout_ms: None,
         requires_openai_auth: false,
         supports_websockets: false,
+        thinking_mode: false,
     };
 
     let nexal_home = TempDir::new().expect("failed to create TempDir");
@@ -293,7 +294,7 @@ async fn responses_respects_model_info_overrides_from_config() {
     let auth_mode =
         nexal_core::test_support::auth_manager_from_auth(NexalAuth::from_api_key("Test API Key"))
             .auth_mode()
-            .map(TelemetryAuthMode::from);
+            .map(nexal_core::telemetry_auth_mode);
     let session_source =
         SessionSource::SubAgent(SubAgentSource::Other("override-check".to_string()));
     let model_info =
@@ -317,7 +318,6 @@ async fn responses_respects_model_info_overrides_from_config() {
         provider.clone(),
         session_source,
         config.model_verbosity,
-        false,
         false,
         None,
     );

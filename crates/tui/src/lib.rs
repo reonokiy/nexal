@@ -7,7 +7,6 @@ use additional_dirs::add_dir_warning_message;
 use app::App;
 pub use app::AppExitInfo;
 pub use app::ExitReason;
-use nexal_cloud_requirements::cloud_requirements_loader;
 use nexal_core::AuthManager;
 use nexal_core::NexalAuth;
 use nexal_core::INTERACTIVE_SESSION_SOURCES;
@@ -358,20 +357,7 @@ pub async fn run_main(
         tracing::warn!(error = %err, "failed to run personality migration");
     }
 
-    let cloud_auth_manager = AuthManager::shared(
-        nexal_home.to_path_buf(),
-        /*enable_nexal_api_key_env*/ false,
-        config_toml.cli_auth_credentials_store.unwrap_or_default(),
-    );
-    let chatgpt_base_url = config_toml
-        .chatgpt_base_url
-        .clone()
-        .unwrap_or_else(|| "https://api.openai.com/v1/".to_string());
-    let cloud_requirements = cloud_requirements_loader(
-        cloud_auth_manager,
-        chatgpt_base_url,
-        nexal_home.to_path_buf(),
-    );
+    let cloud_requirements = CloudRequirementsLoader::default();
 
     let model_provider_override = if cli.oss {
         let resolved = resolve_oss_provider(
@@ -462,7 +448,6 @@ pub async fn run_main(
         nexal_home: config.nexal_home.clone(),
         auth_credentials_store_mode: config.cli_auth_credentials_store_mode,
         forced_login_method: config.forced_login_method,
-        forced_chatgpt_workspace_id: config.forced_chatgpt_workspace_id.clone(),
     }) {
         eprintln!("{err}");
         std::process::exit(1);
@@ -528,35 +513,6 @@ pub async fn run_main(
         ensure_oss_provider_ready(provider_id, &config).await?;
     }
 
-    let otel = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        nexal_core::otel_init::build_provider(
-            &config,
-            env!("CARGO_PKG_VERSION"),
-            /*service_name_override*/ None,
-            /*default_analytics_enabled*/ true,
-        )
-    })) {
-        Ok(Ok(otel)) => otel,
-        Ok(Err(e)) => {
-            #[allow(clippy::print_stderr)]
-            {
-                eprintln!("Could not create otel exporter: {e}");
-            }
-            None
-        }
-        Err(_) => {
-            #[allow(clippy::print_stderr)]
-            {
-                eprintln!("Could not create otel exporter: panicked during initialization");
-            }
-            None
-        }
-    };
-
-    let otel_logger_layer = otel.as_ref().and_then(|o| o.logger_layer());
-
-    let otel_tracing_layer = otel.as_ref().and_then(|o| o.tracing_layer());
-
     let log_db_layer = nexal_core::state_db::get_state_db(&config)
         .await
         .map(|db| log_db::start(db).with_filter(env_filter()));
@@ -566,8 +522,6 @@ pub async fn run_main(
         .with(feedback_layer)
         .with(feedback_metadata_layer)
         .with(log_db_layer)
-        .with(otel_logger_layer)
-        .with(otel_tracing_layer)
         .try_init();
 
     run_ratatui_app(
@@ -680,11 +634,7 @@ async fn run_ratatui_app(
         // rebuild config. This avoids missing newly available cloud requirements due to login
         // status detection edge cases.
         if show_login_screen {
-            cloud_requirements = cloud_requirements_loader(
-                auth_manager.clone(),
-                initial_config.chatgpt_base_url.clone(),
-                initial_config.nexal_home.clone(),
-            );
+            cloud_requirements = CloudRequirementsLoader::default();
         }
 
         // If the user made an explicit trust decision, or we showed the login flow, reload config

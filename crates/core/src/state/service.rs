@@ -17,10 +17,9 @@ use crate::tools::code_mode::CodeModeService;
 use crate::tools::network_approval::NetworkApprovalService;
 use crate::tools::sandboxing::ApprovalStore;
 use crate::unified_exec::UnifiedExecProcessManager;
-use nexal_analytics::AnalyticsEventsClient;
 use nexal_exec_server::Environment;
 use nexal_hooks::Hooks;
-use nexal_otel::SessionTelemetry;
+use nexal_protocol::telemetry_types::SessionTelemetry;
 use std::path::PathBuf;
 use tokio::sync::Mutex;
 use tokio::sync::RwLock;
@@ -35,7 +34,6 @@ pub(crate) struct SessionServices {
     pub(crate) shell_zsh_path: Option<PathBuf>,
     #[cfg_attr(not(unix), allow(dead_code))]
     pub(crate) main_execve_wrapper_exe: Option<PathBuf>,
-    pub(crate) analytics_events_client: AnalyticsEventsClient,
     pub(crate) hooks: Hooks,
     pub(crate) rollout: Mutex<Option<RolloutRecorder>>,
     pub(crate) user_shell: Arc<crate::shell::Shell>,

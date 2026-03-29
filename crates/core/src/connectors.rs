@@ -986,6 +986,44 @@ fn format_connector_label(name: &str, _id: &str) -> String {
     name.to_string()
 }
 
+// ── Stub functions (formerly in nexal-chatgpt, always returned empty) ──
+
+/// Stub: list all connectors with options. Returns empty.
+pub async fn list_all_connectors_with_options(
+    _config: &Config,
+    _force_refresh: bool,
+) -> anyhow::Result<Vec<AppInfo>> {
+    Ok(Vec::new())
+}
+
+/// Stub: list cached all connectors. Returns None.
+pub async fn list_cached_all_connectors(
+    _config: &Config,
+) -> Option<Vec<AppInfo>> {
+    None
+}
+
+/// Stub: merge connectors with accessible list.
+pub fn merge_connectors_with_accessible(
+    connectors: Vec<AppInfo>,
+    accessible: Vec<AppInfo>,
+    _all_loaded: bool,
+) -> Vec<AppInfo> {
+    if connectors.is_empty() {
+        accessible
+    } else {
+        connectors
+    }
+}
+
+/// Stub: filter connectors for plugin apps.
+pub fn connectors_for_plugin_apps(
+    connectors: Vec<AppInfo>,
+    _plugin_apps: &[crate::plugins::AppConnectorId],
+) -> Vec<AppInfo> {
+    connectors
+}
+
 #[cfg(test)]
 #[path = "connectors_tests.rs"]
 mod tests;

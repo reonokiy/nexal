@@ -339,7 +339,7 @@ mod agent {
         new_watermark: i64,
         selected_outputs: Vec<nexal_rollout_state::Stage1Output>,
         thread_id: ThreadId,
-        phase_two_e2e_timer: Option<nexal_otel::Timer>,
+        phase_two_e2e_timer: Option<nexal_protocol::telemetry_types::Timer>,
     ) {
         let Some(db) = session.services.state_db.clone() else {
             return;

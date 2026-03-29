@@ -4,12 +4,9 @@ use crate::default_client::build_reqwest_client;
 use nexal_protocol::protocol::Product;
 use serde::Deserialize;
 use std::time::Duration;
-use url::Url;
 
 const DEFAULT_REMOTE_MARKETPLACE_NAME: &str = "openai-curated";
-const REMOTE_PLUGIN_FETCH_TIMEOUT: Duration = Duration::from_secs(30);
 const REMOTE_FEATURED_PLUGIN_FETCH_TIMEOUT: Duration = Duration::from_secs(10);
-const REMOTE_PLUGIN_MUTATION_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub(crate) struct RemotePluginStatusSummary {
@@ -117,47 +114,10 @@ pub enum RemotePluginFetchError {
 }
 
 pub(crate) async fn fetch_remote_plugin_status(
-    config: &Config,
-    auth: Option<&NexalAuth>,
+    _config: &Config,
+    _auth: Option<&NexalAuth>,
 ) -> Result<Vec<RemotePluginStatusSummary>, RemotePluginFetchError> {
-    let Some(auth) = auth else {
-        return Err(RemotePluginFetchError::AuthRequired);
-    };
-    if !auth.is_chatgpt_auth() {
-        return Err(RemotePluginFetchError::UnsupportedAuthMode);
-    }
-
-    let base_url = config.chatgpt_base_url.trim_end_matches('/');
-    let url = format!("{base_url}/plugins/list");
-    let client = build_reqwest_client();
-    let token = auth
-        .get_token()
-        .map_err(RemotePluginFetchError::AuthToken)?;
-    let mut request = client
-        .get(&url)
-        .timeout(REMOTE_PLUGIN_FETCH_TIMEOUT)
-        .bearer_auth(token);
-    if let Some(account_id) = auth.get_account_id() {
-        request = request.header("chatgpt-account-id", account_id);
-    }
-
-    let response = request
-        .send()
-        .await
-        .map_err(|source| RemotePluginFetchError::Request {
-            url: url.clone(),
-            source,
-        })?;
-    let status = response.status();
-    let body = response.text().await.unwrap_or_default();
-    if !status.is_success() {
-        return Err(RemotePluginFetchError::UnexpectedStatus { url, status, body });
-    }
-
-    serde_json::from_str(&body).map_err(|source| RemotePluginFetchError::Decode {
-        url: url.clone(),
-        source,
-    })
+    Err(RemotePluginFetchError::UnsupportedAuthMode)
 }
 
 pub async fn fetch_remote_featured_plugin_ids(
@@ -168,7 +128,7 @@ pub async fn fetch_remote_featured_plugin_ids(
     let base_url = config.chatgpt_base_url.trim_end_matches('/');
     let url = format!("{base_url}/plugins/featured");
     let client = build_reqwest_client();
-    let mut request = client
+    let request = client
         .get(&url)
         .query(&[(
             "platform",
@@ -176,16 +136,7 @@ pub async fn fetch_remote_featured_plugin_ids(
         )])
         .timeout(REMOTE_FEATURED_PLUGIN_FETCH_TIMEOUT);
 
-    if let Some(auth) = auth.filter(|auth| auth.is_chatgpt_auth()) {
-        let token = auth
-            .get_token()
-            .map_err(RemotePluginFetchError::AuthToken)?;
-        request = request.bearer_auth(token);
-        if let Some(account_id) = auth.get_account_id() {
-            request = request.header("chatgpt-account-id", account_id);
-        }
-    }
-
+    let _ = auth;
     let response = request
         .send()
         .await
@@ -223,14 +174,8 @@ pub(crate) async fn uninstall_remote_plugin(
     Ok(())
 }
 
-fn ensure_chatgpt_auth(auth: Option<&NexalAuth>) -> Result<&NexalAuth, RemotePluginMutationError> {
-    let Some(auth) = auth else {
-        return Err(RemotePluginMutationError::AuthRequired);
-    };
-    if !auth.is_chatgpt_auth() {
-        return Err(RemotePluginMutationError::UnsupportedAuthMode);
-    }
-    Ok(auth)
+fn ensure_chatgpt_auth(_auth: Option<&NexalAuth>) -> Result<&NexalAuth, RemotePluginMutationError> {
+    Err(RemotePluginMutationError::UnsupportedAuthMode)
 }
 
 fn default_remote_marketplace_name() -> String {
@@ -238,76 +183,12 @@ fn default_remote_marketplace_name() -> String {
 }
 
 async fn post_remote_plugin_mutation(
-    config: &Config,
+    _config: &Config,
     auth: Option<&NexalAuth>,
-    plugin_id: &str,
-    action: &str,
+    _plugin_id: &str,
+    _action: &str,
 ) -> Result<RemotePluginMutationResponse, RemotePluginMutationError> {
-    let auth = ensure_chatgpt_auth(auth)?;
-    let url = remote_plugin_mutation_url(config, plugin_id, action)?;
-    let client = build_reqwest_client();
-    let token = auth
-        .get_token()
-        .map_err(RemotePluginMutationError::AuthToken)?;
-    let mut request = client
-        .post(url.clone())
-        .timeout(REMOTE_PLUGIN_MUTATION_TIMEOUT)
-        .bearer_auth(token);
-    if let Some(account_id) = auth.get_account_id() {
-        request = request.header("chatgpt-account-id", account_id);
-    }
-
-    let response = request
-        .send()
-        .await
-        .map_err(|source| RemotePluginMutationError::Request {
-            url: url.clone(),
-            source,
-        })?;
-    let status = response.status();
-    let body = response.text().await.unwrap_or_default();
-    if !status.is_success() {
-        return Err(RemotePluginMutationError::UnexpectedStatus { url, status, body });
-    }
-
-    let parsed: RemotePluginMutationResponse =
-        serde_json::from_str(&body).map_err(|source| RemotePluginMutationError::Decode {
-            url: url.clone(),
-            source,
-        })?;
-    let expected_enabled = action == "enable";
-    if parsed.id != plugin_id {
-        return Err(RemotePluginMutationError::UnexpectedPluginId {
-            expected: plugin_id.to_string(),
-            actual: parsed.id,
-        });
-    }
-    if parsed.enabled != expected_enabled {
-        return Err(RemotePluginMutationError::UnexpectedEnabledState {
-            plugin_id: plugin_id.to_string(),
-            expected_enabled,
-            actual_enabled: parsed.enabled,
-        });
-    }
-
-    Ok(parsed)
+    ensure_chatgpt_auth(auth)?;
+    unreachable!()
 }
 
-fn remote_plugin_mutation_url(
-    config: &Config,
-    plugin_id: &str,
-    action: &str,
-) -> Result<String, RemotePluginMutationError> {
-    let mut url = Url::parse(config.chatgpt_base_url.trim_end_matches('/'))
-        .map_err(RemotePluginMutationError::InvalidBaseUrl)?;
-    {
-        let mut segments = url
-            .path_segments_mut()
-            .map_err(|()| RemotePluginMutationError::InvalidBaseUrlPath)?;
-        segments.pop_if_empty();
-        segments.push("plugins");
-        segments.push(plugin_id);
-        segments.push(action);
-    }
-    Ok(url.to_string())
-}

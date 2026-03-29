@@ -1,8 +1,8 @@
 use std::time::Duration;
 use std::time::Instant;
 
-use nexal_otel::metrics::names::TURN_TTFM_DURATION_METRIC;
-use nexal_otel::metrics::names::TURN_TTFT_DURATION_METRIC;
+const TURN_TTFM_DURATION_METRIC: &str = "codex.turn.ttfm.duration_ms";
+const TURN_TTFT_DURATION_METRIC: &str = "codex.turn.ttft.duration_ms";
 use nexal_protocol::items::TurnItem;
 use nexal_protocol::models::ResponseItem;
 use tokio::sync::Mutex;

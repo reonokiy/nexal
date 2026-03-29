@@ -48,16 +48,8 @@ fn as_query_product_surface(product_surface: RemoteSkillProductSurface) -> &'sta
     }
 }
 
-fn ensure_chatgpt_auth(auth: Option<&NexalAuth>) -> Result<&NexalAuth> {
-    let Some(auth) = auth else {
-        anyhow::bail!("chatgpt authentication required for remote skill scopes");
-    };
-    if !auth.is_chatgpt_auth() {
-        anyhow::bail!(
-            "chatgpt authentication required for remote skill scopes; api key auth is not supported"
-        );
-    }
-    Ok(auth)
+fn ensure_chatgpt_auth(_auth: Option<&NexalAuth>) -> Result<&NexalAuth> {
+    anyhow::bail!("remote skill scopes are not supported for API key auth")
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -116,9 +108,7 @@ pub async fn list_remote_skills(
         .get_token()
         .context("Failed to read auth token for remote skills")?;
     request = request.bearer_auth(token);
-    if let Some(account_id) = auth.get_account_id() {
-        request = request.header("chatgpt-account-id", account_id);
-    }
+
     let response = request
         .send()
         .await
@@ -161,9 +151,7 @@ pub async fn export_remote_skill(
         .get_token()
         .context("Failed to read auth token for remote skills")?;
     request = request.bearer_auth(token);
-    if let Some(account_id) = auth.get_account_id() {
-        request = request.header("chatgpt-account-id", account_id);
-    }
+
 
     let response = request
         .send()

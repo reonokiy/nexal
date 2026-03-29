@@ -220,13 +220,7 @@ impl AgentRegistry {
             } else {
                 active_agents.used_agent_nicknames.clear();
                 active_agents.nickname_reset_count += 1;
-                if let Some(metrics) = nexal_otel::metrics::global() {
-                    let _ = metrics.counter(
-                        "nexal.multi_agent.nickname_pool_reset",
-                        /*inc*/ 1,
-                        &[],
-                    );
-                }
+                // no-op: metrics pipeline removed
                 format_agent_nickname(
                     names.choose(&mut rand::rng())?,
                     active_agents.nickname_reset_count,

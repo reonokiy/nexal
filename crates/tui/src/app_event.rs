@@ -15,12 +15,11 @@ use nexal_app_server_protocol::PluginListResponse;
 use nexal_app_server_protocol::PluginReadParams;
 use nexal_app_server_protocol::PluginReadResponse;
 use nexal_app_server_protocol::PluginUninstallResponse;
-use nexal_chatgpt::connectors::AppInfo;
+use nexal_core::connectors::AppInfo;
 use nexal_file_search::FileMatch;
 use nexal_protocol::ThreadId;
 use nexal_protocol::openai_models::ModelPreset;
 use nexal_protocol::protocol::Event;
-use nexal_protocol::protocol::RateLimitSnapshot;
 use nexal_utils_absolute_path::AbsolutePathBuf;
 use nexal_utils_approval_presets::ApprovalPreset;
 
@@ -134,9 +133,6 @@ pub(crate) enum AppEvent {
         query: String,
         matches: Vec<FileMatch>,
     },
-
-    /// Result of refreshing rate limits
-    RateLimitSnapshotFetched(RateLimitSnapshot),
 
     /// Result of prefetching connectors.
     ConnectorsLoaded {
@@ -432,13 +428,6 @@ pub(crate) enum AppEvent {
 
     /// Persist the Plan-mode-specific reasoning effort.
     PersistPlanModeReasoningEffort(Option<ReasoningEffort>),
-
-    /// Persist the acknowledgement flag for the model migration prompt.
-    #[allow(dead_code)]
-    PersistModelMigrationPromptAcknowledged {
-        from_model: String,
-        to_model: String,
-    },
 
     /// Skip the next world-writable scan (one-shot) after a user-confirmed continue.
     #[cfg_attr(not(target_os = "windows"), allow(dead_code))]

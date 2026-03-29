@@ -77,14 +77,6 @@ pub fn default_bg() -> Option<(u8, u8, u8)> {
     default_colors().map(|c| c.bg)
 }
 
-/// Returns a monotonic counter that increments whenever `requery_default_colors()` runs
-/// successfully so cached renderers can know when their styling assumptions (e.g.
-/// background colors baked into cached transcript rows) are stale and need invalidation.
-#[allow(dead_code)]
-pub fn palette_version() -> u64 {
-    DEFAULT_PALETTE_VERSION.load(Ordering::Relaxed)
-}
-
 #[cfg(all(unix, not(test)))]
 mod imp {
     use super::DefaultColors;

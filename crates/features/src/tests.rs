@@ -193,18 +193,15 @@ fn enable_fanout_normalization_enables_multi_agent_one_way() {
 }
 
 #[test]
-fn apps_require_feature_flag_and_chatgpt_auth() {
+fn apps_require_feature_flag() {
     let mut features = Features::with_defaults();
     assert!(!features.apps_enabled_for_auth(None));
 
     features.enable(Feature::Apps);
-    assert!(!features.apps_enabled_for_auth(None));
+    assert!(features.apps_enabled_for_auth(None));
 
     let api_key_auth = nexal_login::NexalAuth::from_api_key("test-api-key");
-    assert!(!features.apps_enabled_for_auth(Some(&api_key_auth)));
-
-    let chatgpt_auth = nexal_login::NexalAuth::create_dummy_chatgpt_auth_for_testing();
-    assert!(features.apps_enabled_for_auth(Some(&chatgpt_auth)));
+    assert!(features.apps_enabled_for_auth(Some(&api_key_auth)));
 }
 
 #[test]

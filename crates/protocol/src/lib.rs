@@ -20,4 +20,5 @@ pub mod plan_tool;
 pub mod protocol;
 pub mod request_permissions;
 pub mod request_user_input;
+pub mod telemetry_types;
 pub mod user_input;

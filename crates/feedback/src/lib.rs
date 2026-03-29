@@ -1,4 +1,3 @@
-use std::collections::BTreeMap;
 use std::collections::VecDeque;
 use std::fs;
 use std::io::Write;
@@ -80,7 +79,6 @@ impl NexalFeedback {
         };
         FeedbackSnapshot {
             bytes,
-            tags: BTreeMap::new(),
             feedback_diagnostics: FeedbackDiagnostics::collect_from_env(),
             thread_id: session_id
                 .map(|id| id.to_string())
@@ -179,8 +177,6 @@ impl RingBuffer {
 
 pub struct FeedbackSnapshot {
     bytes: Vec<u8>,
-    #[allow(dead_code)]
-    tags: BTreeMap<String, String>,
     feedback_diagnostics: FeedbackDiagnostics,
     pub thread_id: String,
 }

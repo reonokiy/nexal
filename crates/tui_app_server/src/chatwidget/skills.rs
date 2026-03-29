@@ -12,7 +12,7 @@ use crate::bottom_pane::SkillsToggleView;
 use crate::bottom_pane::popup_consts::standard_popup_hint_line;
 use crate::skills_helpers::skill_description;
 use crate::skills_helpers::skill_display_name;
-use nexal_chatgpt::connectors::AppInfo;
+use nexal_core::connectors::AppInfo;
 use nexal_core::connectors::connector_mention_slug;
 use nexal_core::mention_syntax::TOOL_MENTION_SIGIL;
 use nexal_core::skills::model::SkillDependencies;

@@ -12,8 +12,7 @@ use nexal_core::default_client::originator;
 use nexal_core::error::NexalErr;
 use nexal_core::models_manager::collaboration_mode_presets::CollaborationModesConfig;
 use nexal_features::Feature;
-use nexal_otel::SessionTelemetry;
-use nexal_otel::TelemetryAuthMode;
+use nexal_protocol::telemetry_types::SessionTelemetry;
 use nexal_protocol::ThreadId;
 use nexal_protocol::config_types::CollaborationMode;
 use nexal_protocol::config_types::ModeKind;
@@ -796,6 +795,7 @@ async fn prefers_apikey_when_config_prefers_apikey_even_with_chatgpt_tokens() {
     let model_provider = ModelProviderInfo {
         base_url: Some(format!("{}/v1", server.uri())),
         supports_websockets: false,
+        thinking_mode: false,
         ..built_in_model_providers(/* openai_base_url */ None)["openai"].clone()
     };
 
@@ -1805,6 +1805,7 @@ async fn azure_responses_request_includes_store_and_reasoning_ids() {
         websocket_connect_timeout_ms: None,
         requires_openai_auth: false,
         supports_websockets: false,
+        thinking_mode: false,
     };
 
     let nexal_home = TempDir::new().unwrap();
@@ -1827,7 +1828,7 @@ async fn azure_responses_request_includes_store_and_reasoning_ids() {
         model_info.slug.as_str(),
         None,
         Some("test@test.com".to_string()),
-        auth_manager.auth_mode().map(TelemetryAuthMode::from),
+        auth_manager.auth_mode().map(nexal_core::telemetry_auth_mode),
         "test_originator".to_string(),
         false,
         "test".to_string(),
@@ -1840,7 +1841,6 @@ async fn azure_responses_request_includes_store_and_reasoning_ids() {
         provider.clone(),
         SessionSource::Exec,
         config.model_verbosity,
-        false,
         false,
         None,
     );
@@ -2408,6 +2408,7 @@ async fn azure_overrides_assign_properties_used_for_responses_url() {
         websocket_connect_timeout_ms: None,
         requires_openai_auth: false,
         supports_websockets: false,
+        thinking_mode: false,
     };
 
     // Init session
@@ -2493,6 +2494,7 @@ async fn env_var_overrides_loaded_auth() {
         websocket_connect_timeout_ms: None,
         requires_openai_auth: false,
         supports_websockets: false,
+        thinking_mode: false,
     };
 
     // Init session

@@ -1,4 +1,4 @@
-use nexal_otel::AuthEnvTelemetryMetadata;
+use nexal_protocol::telemetry_types::AuthEnvTelemetryMetadata;
 
 use crate::auth::NEXAL_API_KEY_ENV_VAR;
 use crate::auth::OPENAI_API_KEY_ENV_VAR;
@@ -74,6 +74,7 @@ mod tests {
             websocket_connect_timeout_ms: None,
             requires_openai_auth: false,
             supports_websockets: false,
+        thinking_mode: false,
         };
 
         let telemetry = collect_auth_env_telemetry(&provider, false);

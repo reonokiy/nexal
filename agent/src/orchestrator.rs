@@ -42,6 +42,7 @@ pub struct Orchestrator {
 }
 
 struct WorkerEntry {
+    session_key: String,
     handle: AgentHandle,
     busy: bool,
     current_task: Option<TaskId>,
@@ -73,8 +74,9 @@ impl Orchestrator {
     }
 
     /// Add a worker agent.
-    pub fn add_worker(&mut self, handle: AgentHandle) {
+    pub fn add_worker(&mut self, session_key: String, handle: AgentHandle) {
         self.workers.push(WorkerEntry {
+            session_key,
             handle,
             busy: false,
             current_task: None,
@@ -179,7 +181,7 @@ impl Orchestrator {
     async fn handle_agent_event(&mut self, event: AgentEvent) {
         match event {
             AgentEvent::Response {
-                session_key: _,
+                session_key,
                 chunks,
                 ..
             } => {
@@ -189,7 +191,7 @@ impl Orchestrator {
                 if let Some(worker) = self
                     .workers
                     .iter_mut()
-                    .find(|w| w.busy)
+                    .find(|w| w.session_key == session_key)
                 {
                     if let Some(task_id) = worker.current_task.take() {
                         worker.busy = false;
@@ -209,10 +211,10 @@ impl Orchestrator {
                 }
             }
             AgentEvent::Error {
-                session_key: _,
+                session_key,
                 message,
             } => {
-                if let Some(worker) = self.workers.iter_mut().find(|w| w.busy) {
+                if let Some(worker) = self.workers.iter_mut().find(|w| w.session_key == session_key) {
                     if let Some(task_id) = worker.current_task.take() {
                         worker.busy = false;
                         let _ = self.event_tx.send(OrchestratorEvent::Error {

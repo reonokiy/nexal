@@ -2,7 +2,7 @@ use super::AuthRequestTelemetryContext;
 use super::ModelClient;
 use super::PendingUnauthorizedRetry;
 use super::UnauthorizedRecoveryExecution;
-use nexal_otel::SessionTelemetry;
+use nexal_protocol::telemetry_types::SessionTelemetry;
 use nexal_protocol::ThreadId;
 use nexal_protocol::openai_models::ModelInfo;
 use nexal_protocol::protocol::SessionSource;
@@ -21,7 +21,6 @@ fn test_model_client(session_source: SessionSource) -> ModelClient {
         provider,
         session_source,
         None,
-        false,
         false,
         None,
     )

@@ -3,7 +3,6 @@ mod bot;
 pub mod context;
 pub mod db_sync;
 pub mod orchestrator;
-mod podman;
 mod pool;
 pub mod proxy;
 mod runner;

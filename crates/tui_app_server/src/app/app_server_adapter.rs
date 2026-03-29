@@ -19,7 +19,6 @@ use crate::app_server_session::status_account_display_from_auth_mode;
 #[cfg(test)]
 use crate::exec_command::split_command_string;
 use nexal_app_server_client::AppServerEvent;
-use nexal_app_server_protocol::AuthMode;
 use nexal_app_server_protocol::JSONRPCErrorError;
 use nexal_app_server_protocol::ServerNotification;
 use nexal_app_server_protocol::ServerRequest;
@@ -159,10 +158,6 @@ impl App {
                         notification.plan_type,
                     ),
                     notification.plan_type,
-                    matches!(
-                        notification.auth_mode,
-                        Some(AuthMode::Chatgpt) | Some(AuthMode::ChatgptAuthTokens)
-                    ),
                 );
                 return;
             }

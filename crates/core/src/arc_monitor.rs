@@ -101,29 +101,8 @@ pub(crate) async fn monitor_action(
     action: serde_json::Value,
     protection_client_callsite: &'static str,
 ) -> ArcMonitorOutcome {
-    let auth = match turn_context.auth_manager.as_ref() {
-        Some(auth_manager) => match auth_manager.auth().await {
-            Some(auth) if auth.is_chatgpt_auth() => Some(auth),
-            _ => None,
-        },
-        None => None,
-    };
-    let token = if let Some(token) = read_non_empty_env_var(NEXAL_ARC_MONITOR_TOKEN) {
-        token
-    } else {
-        let Some(auth) = auth.as_ref() else {
-            return ArcMonitorOutcome::Ok;
-        };
-        match auth.get_token() {
-            Ok(token) => token,
-            Err(err) => {
-                warn!(
-                    error = %err,
-                    "skipping safety monitor because auth token is unavailable"
-                );
-                return ArcMonitorOutcome::Ok;
-            }
-        }
+    let Some(token) = read_non_empty_env_var(NEXAL_ARC_MONITOR_TOKEN) else {
+        return ArcMonitorOutcome::Ok;
     };
 
     let url = read_non_empty_env_var(NEXAL_ARC_MONITOR_ENDPOINT_OVERRIDE).unwrap_or_else(|| {
@@ -142,17 +121,11 @@ pub(crate) async fn monitor_action(
     let body =
         build_arc_monitor_request(sess, turn_context, action, protection_client_callsite).await;
     let client = build_reqwest_client();
-    let mut request = client
+    let request = client
         .post(&url)
         .timeout(ARC_MONITOR_TIMEOUT)
         .json(&body)
         .bearer_auth(token);
-    if let Some(account_id) = auth
-        .as_ref()
-        .and_then(crate::auth::NexalAuth::get_account_id)
-    {
-        request = request.header("chatgpt-account-id", account_id);
-    }
 
     let response = match request.send().await {
         Ok(response) => response,

@@ -5,7 +5,7 @@ use nexal_app_server_protocol::AppListUpdatedNotification;
 use nexal_app_server_protocol::AppsListResponse;
 use nexal_app_server_protocol::JSONRPCErrorError;
 use nexal_app_server_protocol::ServerNotification;
-use nexal_chatgpt::connectors;
+use nexal_core::connectors;
 
 use crate::error_code::INVALID_REQUEST_ERROR_CODE;
 use crate::outgoing_message::OutgoingMessageSender;

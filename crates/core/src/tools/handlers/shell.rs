@@ -352,7 +352,6 @@ impl ToolHandler for ShellCommandHandler {
             parse_arguments_with_base_path(&arguments, cwd.as_path())?;
         let workdir = turn.resolve_path(params.workdir.clone());
         maybe_emit_implicit_skill_invocation(
-            session.as_ref(),
             turn.as_ref(),
             &params.command,
             &workdir,

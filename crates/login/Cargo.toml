@@ -8,12 +8,9 @@ license.workspace = true
 workspace = true
 
 [dependencies]
-async-trait = { workspace = true }
-base64 = { workspace = true }
 chrono = { workspace = true, features = ["serde"] }
 nexal-app-server-protocol = { workspace = true }
 nexal-client = { workspace = true }
-nexal-config = { workspace = true }
 nexal-config-loader = { workspace = true }
 nexal-keyring-store = { workspace = true }
 nexal-protocol = { workspace = true }
@@ -25,7 +22,6 @@ schemars = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
-thiserror = { workspace = true }
 tokio = { workspace = true, features = [
     "io-std",
     "macros",
@@ -36,11 +32,7 @@ tokio = { workspace = true, features = [
 tracing = { workspace = true }
 
 [dev-dependencies]
-anyhow = { workspace = true }
-core_test_support = { workspace = true }
-keyring = { workspace = true }
 pretty_assertions = { workspace = true }
-regex-lite = { workspace = true }
-serial_test = { workspace = true }
 tempfile = { workspace = true }
+core_test_support = { workspace = true }
 wiremock = { workspace = true }

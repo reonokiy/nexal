@@ -116,7 +116,6 @@ struct Error {
 }
 
 #[derive(Debug, Deserialize)]
-#[allow(dead_code)]
 struct ResponseCompleted {
     id: String,
     #[serde(default)]

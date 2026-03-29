@@ -8,7 +8,7 @@ use crate::protocol::SandboxPolicy;
 use nexal_features::Feature;
 use nexal_features::Features;
 use nexal_features::FeaturesToml;
-use nexal_otel::sanitize_metric_tag_value;
+use nexal_utils_string::sanitize_metric_tag_value;
 use nexal_protocol::config_types::WindowsSandboxLevel;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
@@ -356,84 +356,20 @@ async fn run_windows_sandbox_setup_and_persist(
 }
 
 fn emit_windows_sandbox_setup_success_metrics(
-    mode: WindowsSandboxSetupMode,
-    originator_tag: &str,
-    duration: std::time::Duration,
+    _mode: WindowsSandboxSetupMode,
+    _originator_tag: &str,
+    _duration: std::time::Duration,
 ) {
-    let Some(metrics) = nexal_otel::metrics::global() else {
-        return;
-    };
-    let mode_tag = windows_sandbox_setup_mode_tag(mode);
-    let _ = metrics.record_duration(
-        "nexal.windows_sandbox.setup_duration_ms",
-        duration,
-        &[
-            ("result", "success"),
-            ("originator", originator_tag),
-            ("mode", mode_tag),
-        ],
-    );
-    let _ = metrics.counter(
-        "nexal.windows_sandbox.setup_success",
-        /*inc*/ 1,
-        &[("originator", originator_tag), ("mode", mode_tag)],
-    );
+    // no-op: metrics pipeline removed
 }
 
 fn emit_windows_sandbox_setup_failure_metrics(
-    mode: WindowsSandboxSetupMode,
-    originator_tag: &str,
-    duration: std::time::Duration,
+    _mode: WindowsSandboxSetupMode,
+    _originator_tag: &str,
+    _duration: std::time::Duration,
     _err: &anyhow::Error,
 ) {
-    let Some(metrics) = nexal_otel::metrics::global() else {
-        return;
-    };
-    let mode_tag = windows_sandbox_setup_mode_tag(mode);
-    let _ = metrics.record_duration(
-        "nexal.windows_sandbox.setup_duration_ms",
-        duration,
-        &[
-            ("result", "failure"),
-            ("originator", originator_tag),
-            ("mode", mode_tag),
-        ],
-    );
-    let _ = metrics.counter(
-        "nexal.windows_sandbox.setup_failure",
-        /*inc*/ 1,
-        &[("originator", originator_tag), ("mode", mode_tag)],
-    );
-
-    if matches!(mode, WindowsSandboxSetupMode::Elevated) {
-        #[cfg(target_os = "windows")]
-        {
-            let mut failure_tags: Vec<(&str, &str)> = vec![("originator", originator_tag)];
-            let mut code_tag: Option<String> = None;
-            let mut message_tag: Option<String> = None;
-            if let Some((code, message)) = elevated_setup_failure_details(_err) {
-                code_tag = Some(code);
-                message_tag = Some(message);
-            }
-            if let Some(code) = code_tag.as_deref() {
-                failure_tags.push(("code", code));
-            }
-            if let Some(message) = message_tag.as_deref() {
-                failure_tags.push(("message", message));
-            }
-            let _ = metrics.counter(
-                elevated_setup_failure_metric_name(_err),
-                /*inc*/ 1,
-                &failure_tags,
-            );
-        }
-    } else {
-        let _ = metrics.counter(
-            "nexal.windows_sandbox.legacy_setup_preflight_failed",
-            /*inc*/ 1,
-            &[("originator", originator_tag)],
-        );
-    }
+    // no-op: metrics pipeline removed
 }
 
 fn windows_sandbox_setup_mode_tag(mode: WindowsSandboxSetupMode) -> &'static str {

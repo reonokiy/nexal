@@ -4310,6 +4310,7 @@ model_verbosity = "high"
         websocket_connect_timeout_ms: Some(15_000),
         requires_openai_auth: false,
         supports_websockets: false,
+        thinking_mode: false,
     };
     let model_provider_map = {
         let mut model_provider_map = built_in_model_providers(/* openai_base_url */ None);
@@ -4436,7 +4437,6 @@ fn test_precedence_fixture_with_o3_profile() -> std::io::Result<()> {
             guardian_developer_instructions: None,
             compact_prompt: None,
             commit_attribution: None,
-            forced_chatgpt_workspace_id: None,
             forced_login_method: None,
             include_apply_patch_tool: false,
             web_search_mode: Constrained::allow_any(WebSearchMode::Cached),
@@ -4468,23 +4468,6 @@ fn test_precedence_fixture_with_o3_profile() -> std::io::Result<()> {
         },
         o3_profile_config
     );
-    Ok(())
-}
-
-#[test]
-fn metrics_exporter_defaults_to_statsig_when_missing() -> std::io::Result<()> {
-    let fixture = create_test_fixture()?;
-
-    let config = Config::load_from_base_config_with_overrides(
-        fixture.cfg.clone(),
-        ConfigOverrides {
-            cwd: Some(fixture.cwd_path()),
-            ..Default::default()
-        },
-        fixture.nexal_home(),
-    )?;
-
-    assert_eq!(config.otel.metrics_exporter, OtelExporterKind::Statsig);
     Ok(())
 }
 
@@ -4579,7 +4562,6 @@ fn test_precedence_fixture_with_gpt3_profile() -> std::io::Result<()> {
         guardian_developer_instructions: None,
         compact_prompt: None,
         commit_attribution: None,
-        forced_chatgpt_workspace_id: None,
         forced_login_method: None,
         include_apply_patch_tool: false,
         web_search_mode: Constrained::allow_any(WebSearchMode::Cached),
@@ -4720,7 +4702,6 @@ fn test_precedence_fixture_with_zdr_profile() -> std::io::Result<()> {
         guardian_developer_instructions: None,
         compact_prompt: None,
         commit_attribution: None,
-        forced_chatgpt_workspace_id: None,
         forced_login_method: None,
         include_apply_patch_tool: false,
         web_search_mode: Constrained::allow_any(WebSearchMode::Cached),
@@ -4847,7 +4828,6 @@ fn test_precedence_fixture_with_gpt5_profile() -> std::io::Result<()> {
         guardian_developer_instructions: None,
         compact_prompt: None,
         commit_attribution: None,
-        forced_chatgpt_workspace_id: None,
         forced_login_method: None,
         include_apply_patch_tool: false,
         web_search_mode: Constrained::allow_any(WebSearchMode::Cached),

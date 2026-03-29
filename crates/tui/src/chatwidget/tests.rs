@@ -54,8 +54,8 @@ use nexal_core::skills::model::SkillMetadata;
 use nexal_features::FEATURES;
 use nexal_features::Feature;
 use nexal_git_utils::CommitLogEntry;
-use nexal_otel::RuntimeMetricsSummary;
-use nexal_otel::SessionTelemetry;
+use nexal_protocol::telemetry_types::RuntimeMetricsSummary;
+use nexal_protocol::telemetry_types::SessionTelemetry;
 use nexal_protocol::ThreadId;
 use nexal_protocol::account::PlanType;
 use nexal_protocol::config_types::CollaborationMode;
@@ -2162,21 +2162,6 @@ pub(crate) fn set_chatgpt_auth(chat: &mut ChatWidget) {
     ));
 }
 
-#[tokio::test]
-async fn prefetch_rate_limits_is_gated_on_chatgpt_auth_provider() {
-    let (mut chat, _rx, _op_rx) = make_chatwidget_manual(None).await;
-
-    assert!(!chat.should_prefetch_rate_limits());
-
-    set_chatgpt_auth(&mut chat);
-    assert!(chat.should_prefetch_rate_limits());
-
-    chat.config.model_provider.requires_openai_auth = false;
-    assert!(!chat.should_prefetch_rate_limits());
-
-    chat.prefetch_rate_limits();
-    assert!(chat.rate_limit_poller.is_none());
-}
 
 #[tokio::test]
 async fn worked_elapsed_from_resets_when_timer_restarts() {
@@ -7734,7 +7719,7 @@ async fn apps_popup_stays_loading_until_final_snapshot_updates() {
 
     chat.on_connectors_loaded(
         Ok(ConnectorsSnapshot {
-            connectors: vec![nexal_chatgpt::connectors::AppInfo {
+            connectors: vec![nexal_core::connectors::AppInfo {
                 id: notion_id.to_string(),
                 name: "Notion".to_string(),
                 description: Some("Workspace docs".to_string()),
@@ -7768,7 +7753,7 @@ async fn apps_popup_stays_loading_until_final_snapshot_updates() {
     chat.on_connectors_loaded(
         Ok(ConnectorsSnapshot {
             connectors: vec![
-                nexal_chatgpt::connectors::AppInfo {
+                nexal_core::connectors::AppInfo {
                     id: notion_id.to_string(),
                     name: "Notion".to_string(),
                     description: Some("Workspace docs".to_string()),
@@ -7783,7 +7768,7 @@ async fn apps_popup_stays_loading_until_final_snapshot_updates() {
                     is_enabled: true,
                     plugin_display_names: Vec::new(),
                 },
-                nexal_chatgpt::connectors::AppInfo {
+                nexal_core::connectors::AppInfo {
                     id: linear_id.to_string(),
                     name: "Linear".to_string(),
                     description: Some("Project tracking".to_string()),
@@ -7827,7 +7812,7 @@ async fn apps_refresh_failure_keeps_existing_full_snapshot() {
     let linear_id = "unit_test_apps_refresh_failure_connector_2";
 
     let full_connectors = vec![
-        nexal_chatgpt::connectors::AppInfo {
+        nexal_core::connectors::AppInfo {
             id: notion_id.to_string(),
             name: "Notion".to_string(),
             description: Some("Workspace docs".to_string()),
@@ -7842,7 +7827,7 @@ async fn apps_refresh_failure_keeps_existing_full_snapshot() {
             is_enabled: true,
             plugin_display_names: Vec::new(),
         },
-        nexal_chatgpt::connectors::AppInfo {
+        nexal_core::connectors::AppInfo {
             id: linear_id.to_string(),
             name: "Linear".to_string(),
             description: Some("Project tracking".to_string()),
@@ -7867,7 +7852,7 @@ async fn apps_refresh_failure_keeps_existing_full_snapshot() {
 
     chat.on_connectors_loaded(
         Ok(ConnectorsSnapshot {
-            connectors: vec![nexal_chatgpt::connectors::AppInfo {
+            connectors: vec![nexal_core::connectors::AppInfo {
                 id: notion_id.to_string(),
                 name: "Notion".to_string(),
                 description: Some("Workspace docs".to_string()),
@@ -7913,7 +7898,7 @@ async fn apps_popup_preserves_selected_app_across_refresh() {
     chat.on_connectors_loaded(
         Ok(ConnectorsSnapshot {
             connectors: vec![
-                nexal_chatgpt::connectors::AppInfo {
+                nexal_core::connectors::AppInfo {
                     id: "notion".to_string(),
                     name: "Notion".to_string(),
                     description: Some("Workspace docs".to_string()),
@@ -7928,7 +7913,7 @@ async fn apps_popup_preserves_selected_app_across_refresh() {
                     is_enabled: true,
                     plugin_display_names: Vec::new(),
                 },
-                nexal_chatgpt::connectors::AppInfo {
+                nexal_core::connectors::AppInfo {
                     id: "slack".to_string(),
                     name: "Slack".to_string(),
                     description: Some("Team chat".to_string()),
@@ -7959,7 +7944,7 @@ async fn apps_popup_preserves_selected_app_across_refresh() {
     chat.on_connectors_loaded(
         Ok(ConnectorsSnapshot {
             connectors: vec![
-                nexal_chatgpt::connectors::AppInfo {
+                nexal_core::connectors::AppInfo {
                     id: "airtable".to_string(),
                     name: "Airtable".to_string(),
                     description: Some("Spreadsheets".to_string()),
@@ -7974,7 +7959,7 @@ async fn apps_popup_preserves_selected_app_across_refresh() {
                     is_enabled: true,
                     plugin_display_names: Vec::new(),
                 },
-                nexal_chatgpt::connectors::AppInfo {
+                nexal_core::connectors::AppInfo {
                     id: "notion".to_string(),
                     name: "Notion".to_string(),
                     description: Some("Workspace docs".to_string()),
@@ -7989,7 +7974,7 @@ async fn apps_popup_preserves_selected_app_across_refresh() {
                     is_enabled: true,
                     plugin_display_names: Vec::new(),
                 },
-                nexal_chatgpt::connectors::AppInfo {
+                nexal_core::connectors::AppInfo {
                     id: "slack".to_string(),
                     name: "Slack".to_string(),
                     description: Some("Team chat".to_string()),
@@ -8032,7 +8017,7 @@ async fn apps_refresh_failure_with_cached_snapshot_triggers_pending_force_refetc
     chat.connectors_prefetch_in_flight = true;
     chat.connectors_force_refetch_pending = true;
 
-    let full_connectors = vec![nexal_chatgpt::connectors::AppInfo {
+    let full_connectors = vec![nexal_core::connectors::AppInfo {
         id: "unit_test_apps_refresh_failure_pending_connector".to_string(),
         name: "Notion".to_string(),
         description: Some("Workspace docs".to_string()),
@@ -8072,7 +8057,7 @@ async fn apps_popup_keeps_existing_full_snapshot_while_partial_refresh_loads() {
     chat.bottom_pane.set_connectors_enabled(true);
 
     let full_connectors = vec![
-        nexal_chatgpt::connectors::AppInfo {
+        nexal_core::connectors::AppInfo {
             id: "unit_test_connector_1".to_string(),
             name: "Notion".to_string(),
             description: Some("Workspace docs".to_string()),
@@ -8087,7 +8072,7 @@ async fn apps_popup_keeps_existing_full_snapshot_while_partial_refresh_loads() {
             is_enabled: true,
             plugin_display_names: Vec::new(),
         },
-        nexal_chatgpt::connectors::AppInfo {
+        nexal_core::connectors::AppInfo {
             id: "unit_test_connector_2".to_string(),
             name: "Linear".to_string(),
             description: Some("Project tracking".to_string()),
@@ -8114,7 +8099,7 @@ async fn apps_popup_keeps_existing_full_snapshot_while_partial_refresh_loads() {
     chat.on_connectors_loaded(
         Ok(ConnectorsSnapshot {
             connectors: vec![
-                nexal_chatgpt::connectors::AppInfo {
+                nexal_core::connectors::AppInfo {
                     id: "unit_test_connector_1".to_string(),
                     name: "Notion".to_string(),
                     description: Some("Workspace docs".to_string()),
@@ -8129,7 +8114,7 @@ async fn apps_popup_keeps_existing_full_snapshot_while_partial_refresh_loads() {
                     is_enabled: true,
                     plugin_display_names: Vec::new(),
                 },
-                nexal_chatgpt::connectors::AppInfo {
+                nexal_core::connectors::AppInfo {
                     id: "connector_openai_hidden".to_string(),
                     name: "Hidden OpenAI".to_string(),
                     description: Some("Should be filtered".to_string()),
@@ -8177,7 +8162,7 @@ async fn apps_refresh_failure_without_full_snapshot_falls_back_to_installed_apps
 
     chat.on_connectors_loaded(
         Ok(ConnectorsSnapshot {
-            connectors: vec![nexal_chatgpt::connectors::AppInfo {
+            connectors: vec![nexal_core::connectors::AppInfo {
                 id: "unit_test_apps_refresh_failure_fallback_connector".to_string(),
                 name: "Notion".to_string(),
                 description: Some("Workspace docs".to_string()),
@@ -8233,7 +8218,7 @@ async fn apps_popup_shows_disabled_status_for_installed_but_disabled_apps() {
 
     chat.on_connectors_loaded(
         Ok(ConnectorsSnapshot {
-            connectors: vec![nexal_chatgpt::connectors::AppInfo {
+            connectors: vec![nexal_core::connectors::AppInfo {
                 id: "connector_1".to_string(),
                 name: "Notion".to_string(),
                 description: Some("Workspace docs".to_string()),
@@ -8287,7 +8272,7 @@ async fn apps_initial_load_applies_enabled_state_from_config() {
 
     chat.on_connectors_loaded(
         Ok(ConnectorsSnapshot {
-            connectors: vec![nexal_chatgpt::connectors::AppInfo {
+            connectors: vec![nexal_core::connectors::AppInfo {
                 id: "connector_1".to_string(),
                 name: "Notion".to_string(),
                 description: Some("Workspace docs".to_string()),
@@ -8353,7 +8338,7 @@ async fn apps_initial_load_applies_enabled_state_from_requirements_with_user_ove
 
     chat.on_connectors_loaded(
         Ok(ConnectorsSnapshot {
-            connectors: vec![nexal_chatgpt::connectors::AppInfo {
+            connectors: vec![nexal_core::connectors::AppInfo {
                 id: "connector_1".to_string(),
                 name: "Notion".to_string(),
                 description: Some("Workspace docs".to_string()),
@@ -8417,7 +8402,7 @@ async fn apps_initial_load_applies_enabled_state_from_requirements_without_user_
 
     chat.on_connectors_loaded(
         Ok(ConnectorsSnapshot {
-            connectors: vec![nexal_chatgpt::connectors::AppInfo {
+            connectors: vec![nexal_core::connectors::AppInfo {
                 id: "connector_1".to_string(),
                 name: "Notion".to_string(),
                 description: Some("Workspace docs".to_string()),
@@ -8466,7 +8451,7 @@ async fn apps_refresh_preserves_toggled_enabled_state() {
 
     chat.on_connectors_loaded(
         Ok(ConnectorsSnapshot {
-            connectors: vec![nexal_chatgpt::connectors::AppInfo {
+            connectors: vec![nexal_core::connectors::AppInfo {
                 id: "connector_1".to_string(),
                 name: "Notion".to_string(),
                 description: Some("Workspace docs".to_string()),
@@ -8488,7 +8473,7 @@ async fn apps_refresh_preserves_toggled_enabled_state() {
 
     chat.on_connectors_loaded(
         Ok(ConnectorsSnapshot {
-            connectors: vec![nexal_chatgpt::connectors::AppInfo {
+            connectors: vec![nexal_core::connectors::AppInfo {
                 id: "connector_1".to_string(),
                 name: "Notion".to_string(),
                 description: Some("Workspace docs".to_string()),
@@ -8537,7 +8522,7 @@ async fn apps_popup_for_not_installed_app_uses_install_only_selected_description
 
     chat.on_connectors_loaded(
         Ok(ConnectorsSnapshot {
-            connectors: vec![nexal_chatgpt::connectors::AppInfo {
+            connectors: vec![nexal_core::connectors::AppInfo {
                 id: "connector_2".to_string(),
                 name: "Linear".to_string(),
                 description: Some("Project tracking".to_string()),

@@ -59,9 +59,3 @@ pub const LOGS_DB_VERSION: u32 = 1;
 pub const STATE_DB_FILENAME: &str = "state";
 pub const STATE_DB_VERSION: u32 = 5;
 
-/// Errors encountered during DB operations. Tags: [stage]
-pub const DB_ERROR_METRIC: &str = "nexal.db.error";
-/// Metrics on backfill process. Tags: [status]
-pub const DB_METRIC_BACKFILL: &str = "nexal.db.backfill";
-/// Metrics on backfill duration. Tags: [status]
-pub const DB_METRIC_BACKFILL_DURATION_MS: &str = "nexal.db.backfill.duration_ms";

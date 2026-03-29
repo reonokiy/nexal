@@ -50,10 +50,6 @@ use async_channel::Receiver;
 use async_channel::Sender;
 use chrono::Local;
 use chrono::Utc;
-use nexal_analytics::AnalyticsEventsClient;
-use nexal_analytics::AppInvocation;
-use nexal_analytics::InvocationType;
-use nexal_analytics::build_track_events_context;
 use nexal_app_server_protocol::McpServerElicitationRequest;
 use nexal_app_server_protocol::McpServerElicitationRequestParams;
 use nexal_exec_server::Environment;
@@ -70,9 +66,7 @@ use nexal_hooks::HooksConfig;
 use nexal_network_proxy::NetworkProxy;
 use nexal_network_proxy::NetworkProxyAuditMetadata;
 use nexal_network_proxy::normalize_host;
-use nexal_otel::current_span_trace_id;
-use nexal_otel::current_span_w3c_trace_context;
-use nexal_otel::set_parent_from_w3c_trace_context;
+use nexal_protocol::telemetry_types::SessionTelemetry;
 use nexal_protocol::ThreadId;
 use nexal_protocol::approvals::ElicitationRequestEvent;
 use nexal_protocol::approvals::ExecApprovalRequestSkillMetadata;
@@ -353,9 +347,6 @@ use crate::util::backoff;
 use crate::windows_sandbox::WindowsSandboxLevelExt;
 use nexal_async_utils::OrCancelExt;
 use nexal_git_utils::get_git_repo_root;
-use nexal_otel::SessionTelemetry;
-use nexal_otel::TelemetryAuthMode;
-use nexal_otel::metrics::names::THREAD_STARTED_METRIC;
 use nexal_protocol::config_types::CollaborationMode;
 use nexal_protocol::config_types::Personality;
 use nexal_protocol::config_types::ReasoningSummary as ReasoningSummaryConfig;
@@ -429,21 +420,8 @@ const DIRECT_APP_TOOL_EXPOSURE_THRESHOLD: usize = 100;
 impl Nexal {
     /// Spawn a new [`Nexal`] and initialize the session.
     pub(crate) async fn spawn(args: NexalSpawnArgs) -> NexalResult<NexalSpawnOk> {
-        let parent_trace = match args.parent_trace {
-            Some(trace) => {
-                if nexal_otel::context_from_w3c_trace_context(&trace).is_some() {
-                    Some(trace)
-                } else {
-                    warn!("ignoring invalid thread spawn trace carrier");
-                    None
-                }
-            }
-            None => None,
-        };
+        let parent_trace = args.parent_trace.clone();
         let thread_spawn_span = info_span!("thread_spawn", otel.name = "thread_spawn");
-        if let Some(trace) = parent_trace.as_ref() {
-            let _ = set_parent_from_w3c_trace_context(&thread_spawn_span, trace);
-        }
         Self::spawn_internal(NexalSpawnArgs {
             parent_trace,
             ..args
@@ -710,7 +688,7 @@ impl Nexal {
     /// unique IDs for each submission.
     pub async fn submit_with_id(&self, mut sub: Submission) -> NexalResult<()> {
         if sub.trace.is_none() {
-            sub.trace = current_span_w3c_trace_context();
+            sub.trace = None;
         }
         self.tx_sub
             .send(sub)
@@ -1402,7 +1380,7 @@ impl Session {
         let (current_date, timezone) = local_time_context();
         TurnContext {
             sub_id,
-            trace_id: current_span_trace_id(),
+            trace_id: None,
             realtime_active: false,
             config: per_turn_config.clone(),
             auth_manager: auth_manager_for_context,
@@ -1642,9 +1620,7 @@ impl Session {
         }
 
         let auth = auth.as_ref();
-        let auth_mode = auth.map(NexalAuth::auth_mode).map(TelemetryAuthMode::from);
-        let account_id = auth.and_then(NexalAuth::get_account_id);
-        let account_email = auth.and_then(NexalAuth::get_account_email);
+        let auth_mode = auth.map(NexalAuth::auth_mode).map(crate::telemetry_auth_mode);
         let originator = crate::default_client::originator().value;
         let terminal_type = user_agent();
         let session_model = session_configuration.collaboration_mode.model().to_string();
@@ -1656,8 +1632,8 @@ impl Session {
             conversation_id,
             session_model.as_str(),
             session_model.as_str(),
-            account_id.clone(),
-            account_email.clone(),
+            None,
+            None,
             auth_mode,
             originator.clone(),
             config.otel.log_user_prompt,
@@ -1671,17 +1647,17 @@ impl Session {
         let network_proxy_audit_metadata = NetworkProxyAuditMetadata {
             conversation_id: Some(conversation_id.to_string()),
             app_version: Some(env!("CARGO_PKG_VERSION").to_string()),
-            user_account_id: account_id,
+            user_account_id: None,
             auth_mode: auth_mode.map(|mode| mode.to_string()),
             originator: Some(originator),
-            user_email: account_email,
+            user_email: None,
             terminal_type: Some(terminal_type),
             model: Some(session_model.clone()),
             slug: Some(session_model),
         };
         config.features.emit_metrics(&session_telemetry);
         session_telemetry.counter(
-            THREAD_STARTED_METRIC,
+            "codex.thread.started",
             /*inc*/ 1,
             &[(
                 "is_git",
@@ -1855,11 +1831,6 @@ impl Session {
             ),
             shell_zsh_path: config.zsh_path.clone(),
             main_execve_wrapper_exe: config.main_execve_wrapper_exe.clone(),
-            analytics_events_client: AnalyticsEventsClient::new(
-                Arc::clone(&auth_manager),
-                config.chatgpt_base_url.trim_end_matches('/').to_string(),
-                config.analytics_enabled,
-            ),
             hooks,
             rollout: Mutex::new(rollout_recorder),
             user_shell: Arc::new(default_shell),
@@ -1884,7 +1855,6 @@ impl Session {
                 session_configuration.provider.clone(),
                 session_configuration.session_source.clone(),
                 config.model_verbosity,
-                config.features.enabled(Feature::EnableRequestCompression),
                 config.features.enabled(Feature::RuntimeMetrics),
                 Self::build_model_client_beta_features_header(config.as_ref()),
             ),
@@ -4479,14 +4449,6 @@ fn submission_dispatch_span(sub: &Submission) -> tracing::Span {
             nexal.op = op_name
         ),
     };
-    if let Some(trace) = sub.trace.as_ref()
-        && !set_parent_from_w3c_trace_context(&dispatch_span, trace)
-    {
-        warn!(
-            submission.id = sub.id.as_str(),
-            "ignoring invalid submission trace carrier"
-        );
-    }
     dispatch_span
 }
 
@@ -5437,7 +5399,7 @@ async fn spawn_review_thread(
 
     let review_turn_context = TurnContext {
         sub_id: review_turn_id,
-        trace_id: current_span_trace_id(),
+        trace_id: None,
         realtime_active: parent_turn_context.realtime_active,
         config: per_turn_config,
         auth_manager: auth_manager_for_context,
@@ -5668,20 +5630,12 @@ pub(crate) async fn run_turn(
     .await;
 
     let session_telemetry = turn_context.session_telemetry.clone();
-    let thread_id = sess.conversation_id.to_string();
-    let tracking = build_track_events_context(
-        turn_context.model_info.slug.clone(),
-        thread_id,
-        turn_context.sub_id.clone(),
-    );
     let SkillInjections {
         items: skill_items,
         warnings: skill_warnings,
     } = build_skill_injections(
         &mentioned_skills,
         Some(&session_telemetry),
-        &sess.services.analytics_events_client,
-        tracking.clone(),
     )
     .await;
 
@@ -5692,31 +5646,12 @@ pub(crate) async fn run_turn(
 
     let plugin_items =
         build_plugin_injections(&mentioned_plugins, &mcp_tools, &available_connectors);
-    let mentioned_plugin_metadata = mentioned_plugins
-        .iter()
-        .filter_map(crate::plugins::PluginCapabilitySummary::telemetry_metadata)
-        .collect::<Vec<_>>();
-
     let mut explicitly_enabled_connectors = collect_explicit_app_ids(&input);
     explicitly_enabled_connectors.extend(collect_explicit_app_ids_from_skill_items(
         &skill_items,
         &available_connectors,
         &skill_name_counts_lower,
     ));
-    let connector_names_by_id = available_connectors
-        .iter()
-        .map(|connector| (connector.id.as_str(), connector.name.as_str()))
-        .collect::<HashMap<&str, &str>>();
-    let mentioned_app_invocations = explicitly_enabled_connectors
-        .iter()
-        .map(|connector_id| AppInvocation {
-            connector_id: Some(connector_id.clone()),
-            app_name: connector_names_by_id
-                .get(connector_id.as_str())
-                .map(|name| (*name).to_string()),
-            invocation_type: Some(InvocationType::Explicit),
-        })
-        .collect::<Vec<_>>();
 
     if run_pending_session_start_hooks(&sess, &turn_context).await {
         return None;
@@ -5745,14 +5680,6 @@ pub(crate) async fn run_turn(
             .await;
         user_prompt_submit_outcome.additional_contexts
     };
-    sess.services
-        .analytics_events_client
-        .track_app_mentioned(tracking.clone(), mentioned_app_invocations);
-    for plugin in mentioned_plugin_metadata {
-        sess.services
-            .analytics_events_client
-            .track_plugin_used(tracking.clone(), plugin);
-    }
     sess.merge_connector_selection(explicitly_enabled_connectors.clone())
         .await;
     record_additional_contexts(&sess, &turn_context, additional_contexts).await;

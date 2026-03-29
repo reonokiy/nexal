@@ -10,7 +10,6 @@ use nexal_app_server_protocol::ClientRequest;
 use nexal_app_server_protocol::ConfigBatchWriteParams;
 use nexal_app_server_protocol::ConfigWriteResponse;
 use nexal_app_server_protocol::GetAccountParams;
-use nexal_app_server_protocol::GetAccountRateLimitsResponse;
 use nexal_app_server_protocol::GetAccountResponse;
 use nexal_app_server_protocol::JSONRPCErrorError;
 use nexal_app_server_protocol::Model as ApiModel;
@@ -64,7 +63,7 @@ use nexal_app_server_protocol::TurnSteerParams;
 use nexal_app_server_protocol::TurnSteerResponse;
 use nexal_core::config::Config;
 use nexal_core::message_history;
-use nexal_otel::TelemetryAuthMode;
+use nexal_protocol::telemetry_types::TelemetryAuthMode;
 use nexal_protocol::ThreadId;
 use nexal_protocol::openai_models::ModelAvailabilityNux;
 use nexal_protocol::openai_models::ModelPreset;
@@ -95,9 +94,7 @@ pub(crate) struct AppServerBootstrap {
     pub(crate) plan_type: Option<nexal_protocol::account::PlanType>,
     pub(crate) default_model: String,
     pub(crate) feedback_audience: FeedbackAudience,
-    pub(crate) has_chatgpt_account: bool,
     pub(crate) available_models: Vec<ModelPreset>,
-    pub(crate) rate_limit_snapshots: Vec<RateLimitSnapshot>,
 }
 
 pub(crate) struct AppServerSession {
@@ -198,84 +195,26 @@ impl AppServerSession {
             .or_else(|| available_models.first().map(|model| model.model.clone()))
             .wrap_err("model/list returned no models for TUI bootstrap")?;
 
-        let (
-            account_auth_mode,
-            account_email,
-            auth_mode,
-            status_account_display,
-            plan_type,
-            feedback_audience,
-            has_chatgpt_account,
-        ) = match account.account {
-            Some(Account::ApiKey {}) => (
-                Some(AuthMode::ApiKey),
-                None,
-                Some(TelemetryAuthMode::ApiKey),
-                Some(StatusAccountDisplay::ApiKey),
-                None,
-                FeedbackAudience::External,
-                false,
-            ),
-            Some(Account::Chatgpt { email, plan_type }) => {
-                let feedback_audience = if false {
-                    FeedbackAudience::OpenAiEmployee
-                } else {
-                    FeedbackAudience::External
-                };
-                (
-                    Some(AuthMode::Chatgpt),
-                    Some(email.clone()),
-                    Some(TelemetryAuthMode::Chatgpt),
-                    Some(StatusAccountDisplay::ChatGpt {
-                        email: Some(email),
-                        plan: Some(title_case(format!("{plan_type:?}").as_str())),
-                    }),
-                    Some(plan_type),
-                    feedback_audience,
-                    true,
-                )
-            }
-            None => (
-                None,
-                None,
-                None,
-                None,
-                None,
-                FeedbackAudience::External,
-                false,
-            ),
-        };
-        let rate_limit_snapshots = if account.requires_openai_auth && has_chatgpt_account {
-            let rate_limit_request_id = self.next_request_id();
-            match self
-                .client
-                .request_typed(ClientRequest::GetAccountRateLimits {
-                    request_id: rate_limit_request_id,
-                    params: None,
-                })
-                .await
-            {
-                Ok(rate_limits) => app_server_rate_limit_snapshots_to_core(rate_limits),
-                Err(err) => {
-                    tracing::warn!("account/rateLimits/read failed during TUI bootstrap: {err}");
-                    Vec::new()
-                }
-            }
-        } else {
-            Vec::new()
-        };
+        let (account_auth_mode, auth_mode, status_account_display, feedback_audience) =
+            match account.account {
+                Some(Account::ApiKey {} | Account::Chatgpt { .. }) => (
+                    Some(AuthMode::ApiKey),
+                    Some(TelemetryAuthMode::ApiKey),
+                    Some(StatusAccountDisplay::ApiKey),
+                    FeedbackAudience::External,
+                ),
+                None => (None, None, None, FeedbackAudience::External),
+            };
 
         Ok(AppServerBootstrap {
             account_auth_mode,
-            account_email,
+            account_email: None,
             auth_mode,
             status_account_display,
-            plan_type,
+            plan_type: None,
             default_model,
             feedback_audience,
-            has_chatgpt_account,
             available_models,
-            rate_limit_snapshots,
         })
     }
 
@@ -733,41 +672,15 @@ impl AppServerSession {
     }
 }
 
-fn title_case(s: &str) -> String {
-    if s.is_empty() {
-        return String::new();
-    }
-
-    let mut chars = s.chars();
-    let Some(first) = chars.next() else {
-        return String::new();
-    };
-    let rest = chars.as_str().to_ascii_lowercase();
-    first.to_uppercase().collect::<String>() + &rest
-}
 
 pub(crate) fn status_account_display_from_auth_mode(
     auth_mode: Option<AuthMode>,
-    plan_type: Option<nexal_protocol::account::PlanType>,
+    _plan_type: Option<nexal_protocol::account::PlanType>,
 ) -> Option<StatusAccountDisplay> {
     match auth_mode {
-        Some(AuthMode::ApiKey) => Some(StatusAccountDisplay::ApiKey),
-        Some(AuthMode::Chatgpt) | Some(AuthMode::ChatgptAuthTokens) => {
-            Some(StatusAccountDisplay::ChatGpt {
-                email: None,
-                plan: plan_type.map(|plan_type| title_case(format!("{plan_type:?}").as_str())),
-            })
-        }
+        Some(_) => Some(StatusAccountDisplay::ApiKey),
         None => None,
     }
-}
-
-#[allow(dead_code)]
-pub(crate) fn feedback_audience_from_account_email(
-    account_email: Option<&str>,
-) -> FeedbackAudience {
-    let _ = account_email;
-    FeedbackAudience::External
 }
 
 fn model_preset_from_api_model(model: ApiModel) -> ModelPreset {
@@ -1073,20 +986,6 @@ async fn thread_session_state_from_thread_response(
     })
 }
 
-fn app_server_rate_limit_snapshots_to_core(
-    response: GetAccountRateLimitsResponse,
-) -> Vec<RateLimitSnapshot> {
-    let mut snapshots = Vec::new();
-    snapshots.push(app_server_rate_limit_snapshot_to_core(response.rate_limits));
-    if let Some(by_limit_id) = response.rate_limits_by_limit_id {
-        snapshots.extend(
-            by_limit_id
-                .into_values()
-                .map(app_server_rate_limit_snapshot_to_core),
-        );
-    }
-    snapshots
-}
 
 pub(crate) fn app_server_rate_limit_snapshot_to_core(
     snapshot: nexal_app_server_protocol::RateLimitSnapshot,

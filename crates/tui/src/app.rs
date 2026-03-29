@@ -70,14 +70,13 @@ use nexal_core::config_loader::ConfigLayerStackOrdering;
 use nexal_core::config_loader::LoaderOverrides;
 use nexal_core::models_manager::collaboration_mode_presets::CollaborationModesConfig;
 use nexal_core::models_manager::manager::RefreshStrategy;
-use nexal_core::models_manager::model_presets::HIDE_GPT_5_1_NEXAL_MAX_MIGRATION_PROMPT_CONFIG;
+#[cfg(test)]
 use nexal_core::models_manager::model_presets::HIDE_GPT5_1_MIGRATION_PROMPT_CONFIG;
 #[cfg(target_os = "windows")]
 use nexal_core::windows_sandbox::WindowsSandboxLevelExt;
 use nexal_exec_server::EnvironmentManager;
 use nexal_features::Feature;
-use nexal_otel::SessionTelemetry;
-use nexal_otel::TelemetryAuthMode;
+use nexal_protocol::telemetry_types::SessionTelemetry;
 use nexal_protocol::ThreadId;
 use nexal_protocol::config_types::Personality;
 #[cfg(target_os = "windows")]
@@ -108,6 +107,7 @@ use ratatui::style::Stylize;
 use ratatui::text::Line;
 use ratatui::widgets::Paragraph;
 use ratatui::widgets::Wrap;
+#[cfg(test)]
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -656,7 +656,7 @@ impl ThreadEventChannel {
     }
 }
 
-#[allow(dead_code)]
+#[cfg(test)]
 fn should_show_model_migration_prompt(
     current_model: &str,
     target_model: &str,
@@ -697,21 +697,7 @@ fn should_show_model_migration_prompt(
     false
 }
 
-#[allow(dead_code)]
-fn migration_prompt_hidden(config: &Config, migration_config_key: &str) -> bool {
-    match migration_config_key {
-        HIDE_GPT_5_1_NEXAL_MAX_MIGRATION_PROMPT_CONFIG => config
-            .notices
-            .hide_gpt_5_1_nexal_max_migration_prompt
-            .unwrap_or(false),
-        HIDE_GPT5_1_MIGRATION_PROMPT_CONFIG => {
-            config.notices.hide_gpt5_1_migration_prompt.unwrap_or(false)
-        }
-        _ => false,
-    }
-}
-
-#[allow(dead_code)]
+#[cfg(test)]
 fn target_preset_for_upgrade<'a>(
     available_models: &'a [ModelPreset],
     target_model: &str,
@@ -2298,26 +2284,16 @@ impl App {
         }
         let auth = auth_manager.auth().await;
         let auth_ref = auth.as_ref();
-        // Determine who should see internal Slack routing. We treat
-        // `@openai.com` emails as employees and default to `External` when the
-        // email is unavailable (for example, API key auth).
-        let feedback_audience = if auth_ref
-            .and_then(NexalAuth::get_account_email)
-            .is_some_and(|_email| false)
-        {
-            FeedbackAudience::OpenAiEmployee
-        } else {
-            FeedbackAudience::External
-        };
+        let feedback_audience = FeedbackAudience::External;
         let auth_mode = auth_ref
             .map(NexalAuth::auth_mode)
-            .map(TelemetryAuthMode::from);
+            .map(nexal_core::telemetry_auth_mode);
         let session_telemetry = SessionTelemetry::new(
             ThreadId::new(),
             model.as_str(),
             model.as_str(),
-            auth_ref.and_then(NexalAuth::get_account_id),
-            auth_ref.and_then(NexalAuth::get_account_email),
+            None,
+            None,
             auth_mode,
             nexal_core::default_client::originator().value,
             config.otel.log_user_prompt,
@@ -3057,9 +3033,6 @@ impl App {
             }
             AppEvent::FileSearchResult { query, matches } => {
                 self.chat_widget.apply_file_search_result(query, matches);
-            }
-            AppEvent::RateLimitSnapshotFetched(snapshot) => {
-                self.chat_widget.on_rate_limit_snapshot(Some(snapshot));
             }
             AppEvent::ConnectorsLoaded { result, is_final } => {
                 self.chat_widget.on_connectors_loaded(result, is_final);
@@ -3896,24 +3869,6 @@ impl App {
                     }
                 }
             }
-            AppEvent::PersistModelMigrationPromptAcknowledged {
-                from_model,
-                to_model,
-            } => {
-                if let Err(err) = ConfigEditsBuilder::new(&self.config.nexal_home)
-                    .record_model_migration_seen(from_model.as_str(), to_model.as_str())
-                    .apply()
-                    .await
-                {
-                    tracing::error!(
-                        error = %err,
-                        "failed to persist model migration prompt acknowledgement"
-                    );
-                    self.chat_widget.add_error_message(format!(
-                        "Failed to save model migration prompt preference: {err}"
-                    ));
-                }
-            }
             AppEvent::OpenApprovalsPopup => {
                 self.chat_widget.open_approvals_popup();
             }
@@ -4676,7 +4631,7 @@ mod tests {
     use nexal_core::config::ConfigBuilder;
     use nexal_core::config::ConfigOverrides;
     use nexal_core::config::types::ModelAvailabilityNuxConfig;
-    use nexal_otel::SessionTelemetry;
+    use nexal_protocol::telemetry_types::SessionTelemetry;
     use nexal_protocol::ThreadId;
     use nexal_protocol::config_types::CollaborationMode;
     use nexal_protocol::config_types::CollaborationModeMask;
@@ -4696,8 +4651,10 @@ mod tests {
     use nexal_protocol::protocol::TurnCompleteEvent;
     use nexal_protocol::protocol::TurnStartedEvent;
     use nexal_protocol::protocol::UserMessageEvent;
+    use nexal_protocol::openai_models::ModelUpgrade;
     use nexal_protocol::user_input::TextElement;
     use nexal_protocol::user_input::UserInput;
+    use crate::model_migration::migration_copy_for_models;
     use crossterm::event::KeyModifiers;
     use insta::assert_snapshot;
     use pretty_assertions::assert_eq;

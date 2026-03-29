@@ -19,7 +19,6 @@ chrono = { workspace = true, features = ["serde"] }
 nexal-file-search = { workspace = true }
 nexal-git-utils = { workspace = true }
 nexal-login = { workspace = true }
-nexal-otel = { workspace = true }
 nexal-protocol = { workspace = true }
 nexal-rollout-state = { workspace = true }
 nexal-utils-path = { workspace = true }

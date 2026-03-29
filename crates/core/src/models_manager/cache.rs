@@ -73,23 +73,6 @@ impl ModelsCacheManager {
         Some(cache)
     }
 
-    /// Persist the cache to disk, creating parent directories as needed.
-    pub(crate) async fn persist_cache(
-        &self,
-        models: &[ModelInfo],
-        etag: Option<String>,
-        client_version: String,
-    ) {
-        let cache = ModelsCache {
-            fetched_at: Utc::now(),
-            etag,
-            client_version: Some(client_version),
-            models: models.to_vec(),
-        };
-        if let Err(err) = self.save_internal(&cache).await {
-            error!("failed to write models cache: {err}");
-        }
-    }
 
     /// Renew the cache TTL by updating the fetched_at timestamp to now.
     pub(crate) async fn renew_cache_ttl(&self) -> io::Result<()> {

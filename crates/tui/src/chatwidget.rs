@@ -59,8 +59,7 @@ use crate::text_formatting::proper_join;
 use crate::version::NEXAL_CLI_VERSION;
 use nexal_app_server_protocol::AppSummary;
 use nexal_app_server_protocol::ConfigLayerSource;
-use nexal_backend_client::Client as BackendClient;
-use nexal_chatgpt::connectors;
+use nexal_core::connectors;
 use nexal_core::config::Config;
 use nexal_core::config::Constrained;
 use nexal_core::config::ConstraintResult;
@@ -84,8 +83,8 @@ use nexal_git_utils::current_branch_name;
 use nexal_git_utils::get_git_repo_root;
 use nexal_git_utils::local_git_branches;
 use nexal_git_utils::recent_commits;
-use nexal_otel::RuntimeMetricsSummary;
-use nexal_otel::SessionTelemetry;
+use nexal_protocol::telemetry_types::RuntimeMetricsSummary;
+use nexal_protocol::telemetry_types::SessionTelemetry;
 use nexal_protocol::ThreadId;
 use nexal_protocol::account::PlanType;
 use nexal_protocol::approvals::ElicitationRequestEvent;
@@ -323,7 +322,6 @@ use crate::streaming::controller::StreamController;
 
 use chrono::Local;
 use nexal_core::AuthManager;
-use nexal_core::NexalAuth;
 use nexal_core::ThreadManager;
 use nexal_file_search::FileMatch;
 use nexal_protocol::openai_models::InputModality;
@@ -340,7 +338,6 @@ use strum::IntoEnumIterator;
 const USER_SHELL_COMMAND_HELP_TITLE: &str = "Prefix a command with ! to run it locally";
 const USER_SHELL_COMMAND_HELP_HINT: &str = "Example: !ls";
 const DEFAULT_OPENAI_BASE_URL: &str = "https://api.openai.com/v1";
-const FAST_STATUS_MODEL: &str = "gpt-5.4";
 const DEFAULT_STATUS_LINE_ITEMS: [&str; 2] = ["model-with-reasoning", "current-dir"];
 // Track information about an in-flight exec command.
 struct RunningCommand {
@@ -1471,9 +1468,7 @@ impl ChatWidget {
             event,
             self.show_welcome_banner,
             startup_tooltip_override,
-            self.auth_manager
-                .auth_cached()
-                .and_then(|auth| auth.account_plan_type()),
+            None,
             show_fast_status,
         );
         self.apply_session_info_cell(session_info_cell);
@@ -1559,13 +1554,6 @@ impl ChatWidget {
         category: crate::app_event::FeedbackCategory,
         include_logs: bool,
     ) {
-        if let Some(chatgpt_user_id) = self
-            .auth_manager
-            .auth_cached()
-            .and_then(|auth| auth.get_chatgpt_user_id())
-        {
-            tracing::info!(target: "feedback_tags", chatgpt_user_id);
-        }
         let snapshot = self.feedback.snapshot(self.thread_id);
         self.show_feedback_note(category, include_logs, snapshot);
     }
@@ -1600,13 +1588,6 @@ impl ChatWidget {
     }
 
     pub(crate) fn open_feedback_consent(&mut self, category: crate::app_event::FeedbackCategory) {
-        if let Some(chatgpt_user_id) = self
-            .auth_manager
-            .auth_cached()
-            .and_then(|auth| auth.get_chatgpt_user_id())
-        {
-            tracing::info!(target: "feedback_tags", chatgpt_user_id);
-        }
         let snapshot = self.feedback.snapshot(self.thread_id);
         let params = crate::bottom_pane::feedback_upload_consent_params(
             self.app_event_tx.clone(),
@@ -6185,42 +6166,6 @@ impl ChatWidget {
 
     fn prefetch_rate_limits(&mut self) {
         self.stop_rate_limit_poller();
-
-        if !self.should_prefetch_rate_limits() {
-            return;
-        }
-
-        let base_url = self.config.chatgpt_base_url.clone();
-        let app_event_tx = self.app_event_tx.clone();
-        let auth_manager = Arc::clone(&self.auth_manager);
-
-        let handle = tokio::spawn(async move {
-            let mut interval = tokio::time::interval(Duration::from_secs(60));
-
-            loop {
-                if let Some(auth) = auth_manager.auth().await
-                    && auth.is_chatgpt_auth()
-                {
-                    for snapshot in fetch_rate_limits(base_url.clone(), auth).await {
-                        app_event_tx.send(AppEvent::RateLimitSnapshotFetched(snapshot));
-                    }
-                }
-                interval.tick().await;
-            }
-        });
-
-        self.rate_limit_poller = Some(handle);
-    }
-
-    fn should_prefetch_rate_limits(&self) -> bool {
-        if !self.config.model_provider.requires_openai_auth {
-            return false;
-        }
-
-        self.auth_manager
-            .auth_cached()
-            .as_ref()
-            .is_some_and(NexalAuth::is_chatgpt_auth)
     }
 
     fn lower_cost_preset(&self) -> Option<ModelPreset> {
@@ -8091,16 +8036,10 @@ impl ChatWidget {
 
     pub(crate) fn should_show_fast_status(
         &self,
-        model: &str,
-        service_tier: Option<ServiceTier>,
+        _model: &str,
+        _service_tier: Option<ServiceTier>,
     ) -> bool {
-        model == FAST_STATUS_MODEL
-            && matches!(service_tier, Some(ServiceTier::Fast))
-            && self
-                .auth_manager
-                .auth_cached()
-                .as_ref()
-                .is_some_and(NexalAuth::is_chatgpt_auth)
+        false
     }
 
     fn fast_mode_enabled(&self) -> bool {
@@ -8243,7 +8182,7 @@ impl ChatWidget {
         )
     }
 
-    #[allow(dead_code)] // Used in tests
+    #[cfg(test)]
     pub(crate) fn current_collaboration_mode(&self) -> &CollaborationMode {
         &self.current_collaboration_mode
     }
@@ -9685,21 +9624,6 @@ fn hook_event_label(event_name: nexal_protocol::protocol::HookEventName) -> &'st
     }
 }
 
-async fn fetch_rate_limits(base_url: String, auth: NexalAuth) -> Vec<RateLimitSnapshot> {
-    match BackendClient::from_auth(base_url, &auth) {
-        Ok(client) => match client.get_rate_limits_many().await {
-            Ok(snapshots) => snapshots,
-            Err(err) => {
-                debug!(error = ?err, "failed to fetch rate limits from /usage");
-                Vec::new()
-            }
-        },
-        Err(err) => {
-            debug!(error = ?err, "failed to construct backend client for rate limits");
-            Vec::new()
-        }
-    }
-}
 
 #[cfg(test)]
 pub(crate) fn show_review_commit_picker_with_entries(

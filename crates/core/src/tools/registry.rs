@@ -201,14 +201,6 @@ impl ToolRegistry {
         self.handler(name, namespace).is_some()
     }
 
-    // TODO(jif) for dynamic tools.
-    // pub fn register(&mut self, name: impl Into<String>, handler: Arc<dyn ToolHandler>) {
-    //     let name = name.into();
-    //     if self.handlers.insert(name.clone(), handler).is_some() {
-    //         warn!("overwriting handler for tool {name}");
-    //     }
-    // }
-
     pub(crate) async fn dispatch_any(
         &self,
         invocation: ToolInvocation,
@@ -491,24 +483,6 @@ impl ToolRegistryBuilder {
             warn!("overwriting handler for tool {name}");
         }
     }
-
-    // TODO(jif) for dynamic tools.
-    // pub fn register_many<I>(&mut self, names: I, handler: Arc<dyn ToolHandler>)
-    // where
-    //     I: IntoIterator,
-    //     I::Item: Into<String>,
-    // {
-    //     for name in names {
-    //         let name = name.into();
-    //         if self
-    //             .handlers
-    //             .insert(name.clone(), handler.clone())
-    //             .is_some()
-    //         {
-    //             warn!("overwriting handler for tool {name}");
-    //         }
-    //     }
-    // }
 
     pub fn build(self) -> (Vec<ConfiguredToolSpec>, ToolRegistry) {
         let registry = ToolRegistry::new(self.handlers);

@@ -1,6 +1,5 @@
 //! Low-level agent helpers shared by [`crate::pool`].
 
-use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::Context;
@@ -100,20 +99,7 @@ pub(crate) async fn build_nexal_config_loader(nc: &NexalConfig, soul: String) ->
         ..Default::default()
     };
 
-    // Inject providers from NexalConfig as CLI overrides so the core sees them.
-    // Use "model_providers" key (core's actual field name, not the alias).
-    let mut cli_overrides = providers_to_cli_overrides(nc);
-
-    // Auto-select provider: if there's exactly one custom provider and no
-    // explicit model_provider configured, use it automatically.
-    if !nc.providers.is_empty() {
-        // Use the first (and often only) custom provider
-        let provider_id = nc.providers.keys().next().unwrap().clone();
-        cli_overrides.push((
-            "model_provider".to_string(),
-            toml::Value::String(provider_id),
-        ));
-    }
+    let cli_overrides = providers_to_cli_overrides_full(nc);
 
     ConfigBuilder::default()
         .nexal_home(nexal_home)
@@ -124,27 +110,13 @@ pub(crate) async fn build_nexal_config_loader(nc: &NexalConfig, soul: String) ->
         .context("building codex config")
 }
 
-/// Build full CLI overrides including provider configs and auto-selection.
-pub(crate) fn providers_to_cli_overrides_full(nc: &NexalConfig) -> Vec<(String, toml::Value)> {
-    let mut overrides = providers_to_cli_overrides(nc);
-    if !nc.providers.is_empty() {
-        let provider_id = nc.providers.keys().next().unwrap().clone();
-        overrides.push((
-            "model_provider".to_string(),
-            toml::Value::String(provider_id),
-        ));
-    }
-    overrides
-}
-
-/// Convert NexalConfig providers into core CLI overrides.
+/// Build CLI overrides from NexalConfig providers, including auto-selection.
 ///
 /// Produces entries like:
-///   ("providers.moonshot.base_url", "https://api.moonshot.cn/v1")
-///   ("providers.moonshot.wire_api", "chat")
-fn providers_to_cli_overrides(
-    nc: &NexalConfig,
-) -> Vec<(String, toml::Value)> {
+///   ("model_providers.moonshot.base_url", "https://api.moonshot.cn/v1")
+///   ("model_providers.moonshot.wire_api", "chat")
+///   ("model_provider", "moonshot")
+pub(crate) fn providers_to_cli_overrides_full(nc: &NexalConfig) -> Vec<(String, toml::Value)> {
     let mut overrides = Vec::new();
 
     for (name, provider) in &nc.providers {
@@ -177,8 +149,15 @@ fn providers_to_cli_overrides(
             format!("model_providers.{name}.name"),
             toml::Value::String(provider.name.clone().unwrap_or_else(|| name.clone())),
         ));
-        if false {
-        }
+    }
+
+    // Auto-select the first provider if any are configured.
+    if !nc.providers.is_empty() {
+        let provider_id = nc.providers.keys().next().unwrap().clone();
+        overrides.push((
+            "model_provider".to_string(),
+            toml::Value::String(provider_id),
+        ));
     }
 
     overrides
@@ -225,7 +204,3 @@ pub(crate) async fn reject_all_server_requests(
     }
 }
 
-// PathBuf is used by the pool via TurnStartParams::cwd
-pub(crate) fn workspace_cwd(nc: &NexalConfig) -> PathBuf {
-    nc.workspace.clone()
-}

@@ -426,27 +426,3 @@ fn shell_escape(s: &str) -> String {
     format!("'{}'", s.replace('\'', "'\\''"))
 }
 
-#[allow(dead_code)]
-fn map_host_to_container_cwd(host_cwd: &std::path::Path) -> String {
-    use std::path::{Path, PathBuf};
-
-    if let Ok(workspace) = std::env::var("NEXAL_WORKSPACE") {
-        let workspace_path = Path::new(&workspace);
-        if let Ok(suffix) = host_cwd.strip_prefix(workspace_path) {
-            return Path::new("/workspace")
-                .join(suffix)
-                .to_string_lossy()
-                .to_string();
-        }
-    }
-    if let Ok(home) = std::env::var("HOME") {
-        let default_workspace = PathBuf::from(&home).join(".nexal").join("workspace");
-        if let Ok(suffix) = host_cwd.strip_prefix(&default_workspace) {
-            return Path::new("/workspace")
-                .join(suffix)
-                .to_string_lossy()
-                .to_string();
-        }
-    }
-    "/workspace".to_string()
-}

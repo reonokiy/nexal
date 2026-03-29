@@ -19,11 +19,7 @@ use crate::outgoing_message::ConnectionRequestId;
 use crate::outgoing_message::OutgoingMessageSender;
 use crate::outgoing_message::RequestContext;
 use crate::transport::AppServerTransport;
-use async_trait::async_trait;
 use nexal_app_server_protocol::AppListUpdatedNotification;
-use nexal_app_server_protocol::ChatgptAuthTokensRefreshParams;
-use nexal_app_server_protocol::ChatgptAuthTokensRefreshReason;
-use nexal_app_server_protocol::ChatgptAuthTokensRefreshResponse;
 use nexal_app_server_protocol::ClientInfo;
 use nexal_app_server_protocol::ClientNotification;
 use nexal_app_server_protocol::ClientRequest;
@@ -51,11 +47,9 @@ use nexal_app_server_protocol::JSONRPCNotification;
 use nexal_app_server_protocol::JSONRPCRequest;
 use nexal_app_server_protocol::JSONRPCResponse;
 use nexal_app_server_protocol::ServerNotification;
-use nexal_app_server_protocol::ServerRequestPayload;
 use nexal_app_server_protocol::experimental_required_message;
 use nexal_arg0::Arg0DispatchPaths;
-use nexal_chatgpt::connectors;
-use nexal_core::AnalyticsEventsClient;
+use nexal_core::connectors;
 use nexal_core::AuthManager;
 use nexal_core::ThreadManager;
 use nexal_core::config::Config;
@@ -71,10 +65,6 @@ use nexal_core::models_manager::collaboration_mode_presets::CollaborationModesCo
 use nexal_exec_server::EnvironmentManager;
 use nexal_features::Feature;
 use nexal_feedback::NexalFeedback;
-use nexal_login::auth::ExternalAuthRefreshContext;
-use nexal_login::auth::ExternalAuthRefreshReason;
-use nexal_login::auth::ExternalAuthRefresher;
-use nexal_login::auth::ExternalAuthTokens;
 use nexal_protocol::ThreadId;
 use nexal_protocol::protocol::SessionSource;
 use nexal_protocol::protocol::W3cTraceContext;
@@ -82,77 +72,10 @@ use nexal_rollout_state::log_db::LogDbLayer;
 use futures::FutureExt;
 use tokio::sync::broadcast;
 use tokio::sync::watch;
-use tokio::time::Duration;
-use tokio::time::timeout;
 use toml::Value as TomlValue;
 use tracing::Instrument;
 
-const EXTERNAL_AUTH_REFRESH_TIMEOUT: Duration = Duration::from_secs(10);
 const TUI_APP_SERVER_CLIENT_NAME: &str = "nexal-tui";
-
-#[derive(Clone)]
-struct ExternalAuthRefreshBridge {
-    outgoing: Arc<OutgoingMessageSender>,
-}
-
-impl ExternalAuthRefreshBridge {
-    fn map_reason(reason: ExternalAuthRefreshReason) -> ChatgptAuthTokensRefreshReason {
-        match reason {
-            ExternalAuthRefreshReason::Unauthorized => ChatgptAuthTokensRefreshReason::Unauthorized,
-        }
-    }
-}
-
-#[async_trait]
-impl ExternalAuthRefresher for ExternalAuthRefreshBridge {
-    async fn refresh(
-        &self,
-        context: ExternalAuthRefreshContext,
-    ) -> std::io::Result<ExternalAuthTokens> {
-        let params = ChatgptAuthTokensRefreshParams {
-            reason: Self::map_reason(context.reason),
-            previous_account_id: context.previous_account_id,
-        };
-
-        let (request_id, rx) = self
-            .outgoing
-            .send_request(ServerRequestPayload::ChatgptAuthTokensRefresh(params))
-            .await;
-
-        let result = match timeout(EXTERNAL_AUTH_REFRESH_TIMEOUT, rx).await {
-            Ok(result) => {
-                // Two failure scenarios:
-                // 1) `oneshot::Receiver` failed (sender dropped) => request canceled/channel closed.
-                // 2) client answered with JSON-RPC error payload => propagate code/message.
-                let result = result.map_err(|err| {
-                    std::io::Error::other(format!("auth refresh request canceled: {err}"))
-                })?;
-                result.map_err(|err| {
-                    std::io::Error::other(format!(
-                        "auth refresh request failed: code={} message={}",
-                        err.code, err.message
-                    ))
-                })?
-            }
-            Err(_) => {
-                let _canceled = self.outgoing.cancel_request(&request_id).await;
-                return Err(std::io::Error::other(format!(
-                    "auth refresh request timed out after {}s",
-                    EXTERNAL_AUTH_REFRESH_TIMEOUT.as_secs()
-                )));
-            }
-        };
-
-        let response: ChatgptAuthTokensRefreshResponse =
-            serde_json::from_value(result).map_err(std::io::Error::other)?;
-
-        Ok(ExternalAuthTokens {
-            access_token: response.access_token,
-            chatgpt_account_id: response.chatgpt_account_id,
-            chatgpt_plan_type: response.chatgpt_plan_type,
-        })
-    }
-}
 
 pub(crate) struct MessageProcessor {
     outgoing: Arc<OutgoingMessageSender>,
@@ -224,19 +147,6 @@ impl MessageProcessor {
             },
             environment_manager,
         ));
-        auth_manager.set_forced_chatgpt_workspace_id(config.forced_chatgpt_workspace_id.clone());
-        auth_manager.set_external_auth_refresher(Arc::new(ExternalAuthRefreshBridge {
-            outgoing: outgoing.clone(),
-        }));
-        let analytics_events_client = AnalyticsEventsClient::new(
-            Arc::clone(&auth_manager),
-            config.chatgpt_base_url.trim_end_matches('/').to_string(),
-            config.analytics_enabled,
-        );
-        thread_manager
-            .plugins_manager()
-            .set_analytics_events_client(analytics_events_client.clone());
-
         let cli_overrides = Arc::new(RwLock::new(cli_overrides));
         let runtime_feature_enablement = Arc::new(RwLock::new(BTreeMap::new()));
         let cloud_requirements = Arc::new(RwLock::new(cloud_requirements));
@@ -264,7 +174,6 @@ impl MessageProcessor {
             loader_overrides,
             cloud_requirements,
             thread_manager,
-            analytics_events_client,
         );
         let external_agent_config_api = ExternalAgentConfigApi::new(config.nexal_home.clone());
         let fs_api = FsApi::default();
@@ -284,7 +193,7 @@ impl MessageProcessor {
     }
 
     pub(crate) fn clear_runtime_references(&self) {
-        self.auth_manager.clear_external_auth_refresher();
+        // No-op: external auth refresher has been removed.
     }
 
     pub(crate) async fn process_request(
@@ -471,10 +380,6 @@ impl MessageProcessor {
 
     pub(crate) async fn drain_background_tasks(&self) {
         self.nexal_message_processor.drain_background_tasks().await;
-    }
-
-    pub(crate) async fn cancel_active_login(&self) {
-        self.nexal_message_processor.cancel_active_login().await;
     }
 
     pub(crate) async fn clear_all_thread_listeners(&self) {

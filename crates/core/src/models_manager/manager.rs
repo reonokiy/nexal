@@ -1,139 +1,27 @@
 use super::cache::ModelsCacheManager;
-use crate::api_bridge::auth_provider_from_auth;
-use crate::api_bridge::map_api_error;
 use crate::auth::AuthManager;
-use crate::auth::AuthMode;
-use crate::auth::NexalAuth;
-use crate::auth_env_telemetry::AuthEnvTelemetry;
-use crate::auth_env_telemetry::collect_auth_env_telemetry;
 use crate::config::Config;
-use crate::default_client::build_reqwest_client;
-use crate::error::NexalErr;
 use crate::error::Result as CoreResult;
 use crate::model_provider_info::ModelProviderInfo;
 use crate::models_manager::collaboration_mode_presets::CollaborationModesConfig;
 use crate::models_manager::collaboration_mode_presets::builtin_collaboration_mode_presets;
 use crate::models_manager::model_info;
-use crate::response_debug_context::extract_response_debug_context;
-use crate::response_debug_context::telemetry_transport_error_message;
-use crate::util::FeedbackRequestTags;
-use crate::util::emit_feedback_request_tags_with_auth_env;
-use nexal_api::ModelsClient;
-use nexal_api::RequestTelemetry;
-use nexal_api::ReqwestTransport;
-use nexal_api::TransportError;
-use nexal_otel::TelemetryAuthMode;
 use nexal_protocol::config_types::CollaborationModeMask;
 use nexal_protocol::openai_models::ModelInfo;
 use nexal_protocol::openai_models::ModelPreset;
 use nexal_protocol::openai_models::ModelsResponse;
-use http::HeaderMap;
 use std::fmt;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::RwLock;
 use tokio::sync::TryLockError;
-use tokio::time::timeout;
 use tracing::error;
 use tracing::info;
 use tracing::instrument;
 
 const MODEL_CACHE_FILE: &str = "models_cache.json";
 const DEFAULT_MODEL_CACHE_TTL: Duration = Duration::from_secs(300);
-const MODELS_REFRESH_TIMEOUT: Duration = Duration::from_secs(5);
-const MODELS_ENDPOINT: &str = "/models";
-#[derive(Clone)]
-struct ModelsRequestTelemetry {
-    auth_mode: Option<String>,
-    auth_header_attached: bool,
-    auth_header_name: Option<&'static str>,
-    auth_env: AuthEnvTelemetry,
-}
-
-impl RequestTelemetry for ModelsRequestTelemetry {
-    fn on_request(
-        &self,
-        attempt: u64,
-        status: Option<http::StatusCode>,
-        error: Option<&TransportError>,
-        duration: Duration,
-    ) {
-        let success = status.is_some_and(|code| code.is_success()) && error.is_none();
-        let error_message = error.map(telemetry_transport_error_message);
-        let response_debug = error
-            .map(extract_response_debug_context)
-            .unwrap_or_default();
-        let status = status.map(|status| status.as_u16());
-        tracing::event!(
-            target: "nexal_otel.log_only",
-            tracing::Level::INFO,
-            event.name = "nexal.api_request",
-            duration_ms = %duration.as_millis(),
-            http.response.status_code = status,
-            success = success,
-            error.message = error_message.as_deref(),
-            attempt = attempt,
-            endpoint = MODELS_ENDPOINT,
-            auth.header_attached = self.auth_header_attached,
-            auth.header_name = self.auth_header_name,
-            auth.env_openai_api_key_present = self.auth_env.openai_api_key_env_present,
-            auth.env_nexal_api_key_present = self.auth_env.nexal_api_key_env_present,
-            auth.env_nexal_api_key_enabled = self.auth_env.nexal_api_key_env_enabled,
-            auth.env_provider_key_name = self.auth_env.provider_env_key_name.as_deref(),
-            auth.env_provider_key_present = self.auth_env.provider_env_key_present,
-            auth.env_refresh_token_url_override_present = self.auth_env.refresh_token_url_override_present,
-            auth.request_id = response_debug.request_id.as_deref(),
-            auth.cf_ray = response_debug.cf_ray.as_deref(),
-            auth.error = response_debug.auth_error.as_deref(),
-            auth.error_code = response_debug.auth_error_code.as_deref(),
-            auth.mode = self.auth_mode.as_deref(),
-        );
-        tracing::event!(
-            target: "nexal_otel.trace_safe",
-            tracing::Level::INFO,
-            event.name = "nexal.api_request",
-            duration_ms = %duration.as_millis(),
-            http.response.status_code = status,
-            success = success,
-            error.message = error_message.as_deref(),
-            attempt = attempt,
-            endpoint = MODELS_ENDPOINT,
-            auth.header_attached = self.auth_header_attached,
-            auth.header_name = self.auth_header_name,
-            auth.env_openai_api_key_present = self.auth_env.openai_api_key_env_present,
-            auth.env_nexal_api_key_present = self.auth_env.nexal_api_key_env_present,
-            auth.env_nexal_api_key_enabled = self.auth_env.nexal_api_key_env_enabled,
-            auth.env_provider_key_name = self.auth_env.provider_env_key_name.as_deref(),
-            auth.env_provider_key_present = self.auth_env.provider_env_key_present,
-            auth.env_refresh_token_url_override_present = self.auth_env.refresh_token_url_override_present,
-            auth.request_id = response_debug.request_id.as_deref(),
-            auth.cf_ray = response_debug.cf_ray.as_deref(),
-            auth.error = response_debug.auth_error.as_deref(),
-            auth.error_code = response_debug.auth_error_code.as_deref(),
-            auth.mode = self.auth_mode.as_deref(),
-        );
-        emit_feedback_request_tags_with_auth_env(
-            &FeedbackRequestTags {
-                endpoint: MODELS_ENDPOINT,
-                auth_header_attached: self.auth_header_attached,
-                auth_header_name: self.auth_header_name,
-                auth_mode: self.auth_mode.as_deref(),
-                auth_retry_after_unauthorized: None,
-                auth_recovery_mode: None,
-                auth_recovery_phase: None,
-                auth_connection_reused: None,
-                auth_request_id: response_debug.request_id.as_deref(),
-                auth_cf_ray: response_debug.cf_ray.as_deref(),
-                auth_error: response_debug.auth_error.as_deref(),
-                auth_error_code: response_debug.auth_error_code.as_deref(),
-                auth_recovery_followup_success: None,
-                auth_recovery_followup_status: None,
-            },
-            &self.auth_env,
-        );
-    }
-}
 
 /// Strategy for refreshing available models.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -177,10 +65,8 @@ pub struct ModelsManager {
     remote_models: RwLock<Vec<ModelInfo>>,
     catalog_mode: CatalogMode,
     collaboration_modes_config: CollaborationModesConfig,
-    auth_manager: Arc<AuthManager>,
     etag: RwLock<Option<String>>,
     cache_manager: ModelsCacheManager,
-    provider: ModelProviderInfo,
 }
 
 impl ModelsManager {
@@ -207,10 +93,10 @@ impl ModelsManager {
     /// Construct a manager with an explicit provider used for remote model refreshes.
     pub fn new_with_provider(
         nexal_home: PathBuf,
-        auth_manager: Arc<AuthManager>,
+        _auth_manager: Arc<AuthManager>,
         model_catalog: Option<ModelsResponse>,
         collaboration_modes_config: CollaborationModesConfig,
-        provider: ModelProviderInfo,
+        _provider: ModelProviderInfo,
     ) -> Self {
         let cache_path = nexal_home.join(MODEL_CACHE_FILE);
         let cache_manager = ModelsCacheManager::new(cache_path, DEFAULT_MODEL_CACHE_TTL);
@@ -229,10 +115,8 @@ impl ModelsManager {
             remote_models: RwLock::new(remote_models),
             catalog_mode,
             collaboration_modes_config,
-            auth_manager,
             etag: RwLock::new(None),
             cache_manager,
-            provider,
         }
     }
 
@@ -390,79 +274,13 @@ impl ModelsManager {
     }
 
     /// Refresh available models according to the specified strategy.
-    async fn refresh_available_models(&self, refresh_strategy: RefreshStrategy) -> CoreResult<()> {
+    async fn refresh_available_models(&self, _refresh_strategy: RefreshStrategy) -> CoreResult<()> {
         // don't override the custom model catalog if one was provided by the user
         if matches!(self.catalog_mode, CatalogMode::Custom) {
             return Ok(());
         }
 
-        if self.auth_manager.auth_mode() != Some(AuthMode::Chatgpt) {
-            if matches!(
-                refresh_strategy,
-                RefreshStrategy::Offline | RefreshStrategy::OnlineIfUncached
-            ) {
-                self.try_load_cache().await;
-            }
-            return Ok(());
-        }
-
-        match refresh_strategy {
-            RefreshStrategy::Offline => {
-                // Only try to load from cache, never fetch
-                self.try_load_cache().await;
-                Ok(())
-            }
-            RefreshStrategy::OnlineIfUncached => {
-                // Try cache first, fall back to online if unavailable
-                if self.try_load_cache().await {
-                    info!("models cache: using cached models for OnlineIfUncached");
-                    return Ok(());
-                }
-                info!("models cache: cache miss, fetching remote models");
-                self.fetch_and_update_models().await
-            }
-            RefreshStrategy::Online => {
-                // Always fetch from network
-                self.fetch_and_update_models().await
-            }
-        }
-    }
-
-    async fn fetch_and_update_models(&self) -> CoreResult<()> {
-        let _timer =
-            nexal_otel::start_global_timer("nexal.remote_models.fetch_update.duration_ms", &[]);
-        let auth = self.auth_manager.auth().await;
-        let auth_mode = auth.as_ref().map(NexalAuth::auth_mode);
-        let api_provider = self.provider.to_api_provider(auth_mode)?;
-        let api_auth = auth_provider_from_auth(auth.clone(), &self.provider)?;
-        let auth_env = collect_auth_env_telemetry(
-            &self.provider,
-            self.auth_manager.nexal_api_key_env_enabled(),
-        );
-        let transport = ReqwestTransport::new(build_reqwest_client());
-        let request_telemetry: Arc<dyn RequestTelemetry> = Arc::new(ModelsRequestTelemetry {
-            auth_mode: auth_mode.map(|mode| TelemetryAuthMode::from(mode).to_string()),
-            auth_header_attached: api_auth.auth_header_attached(),
-            auth_header_name: api_auth.auth_header_name(),
-            auth_env,
-        });
-        let client = ModelsClient::new(transport, api_provider, api_auth)
-            .with_telemetry(Some(request_telemetry));
-
-        let client_version = crate::models_manager::client_version_to_whole();
-        let (models, etag) = timeout(
-            MODELS_REFRESH_TIMEOUT,
-            client.list_models(&client_version, HeaderMap::new()),
-        )
-        .await
-        .map_err(|_| NexalErr::Timeout)?
-        .map_err(map_api_error)?;
-
-        self.apply_remote_models(models.clone()).await;
-        *self.etag.write().await = etag.clone();
-        self.cache_manager
-            .persist_cache(&models, etag, client_version)
-            .await;
+        self.try_load_cache().await;
         Ok(())
     }
 
@@ -494,8 +312,6 @@ impl ModelsManager {
 
     /// Attempt to satisfy the refresh from the cache when it matches the provider and TTL.
     async fn try_load_cache(&self) -> bool {
-        let _timer =
-            nexal_otel::start_global_timer("nexal.remote_models.load_cache.duration_ms", &[]);
         let client_version = crate::models_manager::client_version_to_whole();
         info!(client_version, "models cache: evaluating cache eligibility");
         let cache = match self.cache_manager.load_fresh(&client_version).await {
@@ -521,8 +337,7 @@ impl ModelsManager {
         remote_models.sort_by(|a, b| a.priority.cmp(&b.priority));
 
         let mut presets: Vec<ModelPreset> = remote_models.into_iter().map(Into::into).collect();
-        let chatgpt_mode = matches!(self.auth_manager.auth_mode(), Some(AuthMode::Chatgpt));
-        presets = ModelPreset::filter_by_auth(presets, chatgpt_mode);
+        presets = ModelPreset::filter_by_auth(presets, false);
 
         ModelPreset::mark_default_by_picker_visibility(&mut presets);
 

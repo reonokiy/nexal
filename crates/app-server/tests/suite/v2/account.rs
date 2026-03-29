@@ -48,7 +48,6 @@ const DEFAULT_READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs
 #[derive(Default)]
 struct CreateConfigTomlParams {
     forced_method: Option<String>,
-    forced_workspace_id: Option<String>,
     requires_openai_auth: Option<bool>,
     base_url: Option<String>,
 }
@@ -63,11 +62,6 @@ fn create_config_toml(nexal_home: &Path, params: CreateConfigTomlParams) -> std:
     } else {
         String::new()
     };
-    let forced_workspace_line = if let Some(ws) = params.forced_workspace_id {
-        format!("forced_chatgpt_workspace_id = \"{ws}\"\n")
-    } else {
-        String::new()
-    };
     let requires_line = match params.requires_openai_auth {
         Some(true) => "requires_openai_auth = true\n".to_string(),
         Some(false) => String::new(),
@@ -79,8 +73,6 @@ model = "mock-model"
 approval_policy = "never"
 sandbox_mode = "danger-full-access"
 {forced_line}
-{forced_workspace_line}
-
 model_provider = "mock_provider"
 
 [features]
@@ -577,7 +569,6 @@ async fn external_auth_refresh_mismatched_workspace_fails_turn() -> Result<()> {
     create_config_toml(
         nexal_home.path(),
         CreateConfigTomlParams {
-            forced_workspace_id: Some("org-expected".to_string()),
             requires_openai_auth: Some(true),
             base_url: Some(format!("{}/v1", mock_server.uri())),
             ..Default::default()
@@ -1054,10 +1045,7 @@ async fn login_account_chatgpt_includes_forced_workspace_query_param() -> Result
     let nexal_home = TempDir::new()?;
     create_config_toml(
         nexal_home.path(),
-        CreateConfigTomlParams {
-            forced_workspace_id: Some("ws-forced".to_string()),
-            ..Default::default()
-        },
+        CreateConfigTomlParams::default(),
     )?;
 
     let mut mcp = McpProcess::new(nexal_home.path()).await?;

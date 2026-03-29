@@ -14,11 +14,8 @@ use ratatui::style::Color;
 use ratatui::widgets::Clear;
 use ratatui::widgets::WidgetRef;
 
-use nexal_protocol::config_types::ForcedLoginMethod;
-
 use crate::LoginStatus;
 use crate::onboarding::auth::AuthModeWidget;
-use crate::onboarding::auth::SignInOption;
 use crate::onboarding::auth::SignInState;
 use crate::onboarding::trust_directory::TrustDirectorySelection;
 use crate::onboarding::trust_directory::TrustDirectoryWidget;
@@ -83,7 +80,6 @@ impl OnboardingScreen {
             config,
         } = args;
         let cwd = config.cwd.to_path_buf();
-        let forced_chatgpt_workspace_id = config.forced_chatgpt_workspace_id.clone();
         let forced_login_method = config.forced_login_method;
         let nexal_home = config.nexal_home.clone();
         let cli_auth_credentials_store_mode = config.cli_auth_credentials_store_mode;
@@ -94,22 +90,15 @@ impl OnboardingScreen {
             config.animations,
         )));
         if show_login_screen {
-            let highlighted_mode = match forced_login_method {
-                Some(ForcedLoginMethod::Api) => SignInOption::ApiKey,
-                _ => SignInOption::ApiKey,
-            };
             steps.push(Step::Auth(AuthModeWidget {
                 request_frame: tui.frame_requester(),
-                highlighted_mode,
                 error: None,
                 sign_in_state: Arc::new(RwLock::new(SignInState::PickMode)),
                 nexal_home: nexal_home.clone(),
                 cli_auth_credentials_store_mode,
                 login_status,
                 auth_manager,
-                forced_chatgpt_workspace_id,
                 forced_login_method,
-                animations_enabled: config.animations,
             }))
         }
         #[cfg(target_os = "windows")]
@@ -399,8 +388,6 @@ pub(crate) async fn run_onboarding_app(
     use tokio_stream::StreamExt;
 
     let mut onboarding_screen = OnboardingScreen::new(tui, args);
-    // One-time guard to fully clear the screen after ChatGPT login success message is shown
-    let mut did_full_clear_after_success = false;
 
     tui.draw(u16::MAX, |frame| {
         frame.render_widget_ref(&onboarding_screen, frame.area());
@@ -419,36 +406,6 @@ pub(crate) async fn run_onboarding_app(
                     onboarding_screen.handle_paste(text);
                 }
                 TuiEvent::Draw => {
-                    if !did_full_clear_after_success
-                        && onboarding_screen.steps.iter().any(|step| {
-                            if let Step::Auth(w) = step {
-                                w.sign_in_state.read().is_ok_and(|g| {
-                                    matches!(&*g, super::auth::SignInState::ChatGptSuccessMessage)
-                                })
-                            } else {
-                                false
-                            }
-                        })
-                    {
-                        // Reset any lingering SGR (underline/color) before clearing
-                        let _ = ratatui::crossterm::execute!(
-                            std::io::stdout(),
-                            ratatui::crossterm::style::SetAttribute(
-                                ratatui::crossterm::style::Attribute::Reset
-                            ),
-                            ratatui::crossterm::style::SetAttribute(
-                                ratatui::crossterm::style::Attribute::NoUnderline
-                            ),
-                            ratatui::crossterm::style::SetForegroundColor(
-                                ratatui::crossterm::style::Color::Reset
-                            ),
-                            ratatui::crossterm::style::SetBackgroundColor(
-                                ratatui::crossterm::style::Color::Reset
-                            )
-                        );
-                        let _ = tui.terminal.clear();
-                        did_full_clear_after_success = true;
-                    }
                     let _ = tui.draw(u16::MAX, |frame| {
                         frame.render_widget_ref(&onboarding_screen, frame.area());
                     });

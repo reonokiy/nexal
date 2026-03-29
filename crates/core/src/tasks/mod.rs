@@ -36,11 +36,7 @@ use crate::protocol::TurnCompleteEvent;
 use crate::state::ActiveTurn;
 use crate::state::RunningTask;
 use crate::state::TaskKind;
-use nexal_otel::SessionTelemetry;
-use nexal_otel::metrics::names::TURN_E2E_DURATION_METRIC;
-use nexal_otel::metrics::names::TURN_NETWORK_PROXY_METRIC;
-use nexal_otel::metrics::names::TURN_TOKEN_USAGE_METRIC;
-use nexal_otel::metrics::names::TURN_TOOL_CALL_METRIC;
+use nexal_protocol::telemetry_types::SessionTelemetry;
 use nexal_protocol::models::ContentItem;
 use nexal_protocol::models::ResponseInputItem;
 use nexal_protocol::models::ResponseItem;
@@ -87,7 +83,7 @@ fn emit_turn_network_proxy_metric(
         "false"
     };
     session_telemetry.counter(
-        TURN_NETWORK_PROXY_METRIC,
+        "codex.turn.network_proxy",
         /*inc*/ 1,
         &[("active", active), tmp_mem],
     );
@@ -242,7 +238,7 @@ impl Session {
 
         let timer = turn_context
             .session_telemetry
-            .start_timer(TURN_E2E_DURATION_METRIC, &[])
+            .start_timer("codex.turn.e2e_duration_ms", &[])
             .ok();
 
         let running_task = RunningTask {
@@ -360,7 +356,7 @@ impl Session {
                 tmp_mem,
             );
             self.services.session_telemetry.histogram(
-                TURN_TOOL_CALL_METRIC,
+                "codex.turn.tool.call",
                 i64::try_from(turn_tool_calls).unwrap_or(i64::MAX),
                 &[tmp_mem],
             );
@@ -383,27 +379,27 @@ impl Session {
                     .max(0),
             };
             self.services.session_telemetry.histogram(
-                TURN_TOKEN_USAGE_METRIC,
+                "codex.turn.token_usage",
                 turn_token_usage.total_tokens,
                 &[("token_type", "total"), tmp_mem],
             );
             self.services.session_telemetry.histogram(
-                TURN_TOKEN_USAGE_METRIC,
+                "codex.turn.token_usage",
                 turn_token_usage.input_tokens,
                 &[("token_type", "input"), tmp_mem],
             );
             self.services.session_telemetry.histogram(
-                TURN_TOKEN_USAGE_METRIC,
+                "codex.turn.token_usage",
                 turn_token_usage.cached_input(),
                 &[("token_type", "cached_input"), tmp_mem],
             );
             self.services.session_telemetry.histogram(
-                TURN_TOKEN_USAGE_METRIC,
+                "codex.turn.token_usage",
                 turn_token_usage.output_tokens,
                 &[("token_type", "output"), tmp_mem],
             );
             self.services.session_telemetry.histogram(
-                TURN_TOKEN_USAGE_METRIC,
+                "codex.turn.token_usage",
                 turn_token_usage.reasoning_output_tokens,
                 &[("token_type", "reasoning_output"), tmp_mem],
             );

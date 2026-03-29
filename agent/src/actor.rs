@@ -19,8 +19,7 @@ use nexal_config::NexalConfig;
 use tokio::sync::mpsc;
 use tracing::{debug, info, warn};
 
-use crate::podman::PodmanContainer;
-use crate::runner::{reject_all_server_requests, workspace_cwd};
+use crate::runner::reject_all_server_requests;
 use crate::split_response;
 
 /// Message types that can be sent to an agent actor.
@@ -89,8 +88,6 @@ pub(crate) struct AgentActor {
     client: AppServerClient,
     thread_id: String,
     config: Arc<NexalConfig>,
-    #[allow(dead_code)]
-    container: Option<PodmanContainer>,
 }
 
 impl AgentActor {
@@ -99,14 +96,12 @@ impl AgentActor {
         client: AppServerClient,
         thread_id: String,
         config: Arc<NexalConfig>,
-        container: Option<PodmanContainer>,
     ) -> Self {
         Self {
             session_key,
             client,
             thread_id,
             config,
-            container,
         }
     }
 
@@ -179,7 +174,7 @@ impl AgentActor {
             .await;
         write_agent_status(&self.config, "working", &truncate(&text, 40));
 
-        let cwd = workspace_cwd(&self.config);
+        let cwd = self.config.workspace.clone();
 
         use nexal_app_server_protocol::TurnStartResponse;
 
@@ -220,10 +215,9 @@ impl AgentActor {
             }
         };
 
-        let task_id = turn_resp.turn.id;
         debug!(
             session = %self.session_key,
-            task = %task_id,
+            task = %turn_resp.turn.id,
             "turn started"
         );
 

@@ -10,7 +10,6 @@ use nexal_app_server_protocol::Result;
 use nexal_app_server_protocol::ServerNotification;
 use nexal_app_server_protocol::ServerRequest;
 use nexal_app_server_protocol::ServerRequestPayload;
-use nexal_otel::span_w3c_trace_context;
 use nexal_protocol::ThreadId;
 use nexal_protocol::protocol::W3cTraceContext;
 use serde::Serialize;
@@ -69,7 +68,7 @@ impl RequestContext {
     }
 
     pub(crate) fn request_trace(&self) -> Option<W3cTraceContext> {
-        span_w3c_trace_context(&self.span).or_else(|| self.parent_trace.clone())
+        self.parent_trace.clone()
     }
 
     pub(crate) fn span(&self) -> Span {
@@ -261,14 +260,12 @@ impl OutgoingMessageSender {
         self.request_contexts.lock().await.len()
     }
 
+    #[cfg(test)]
     pub(crate) async fn send_request(
         &self,
-        request: ServerRequestPayload,
+        payload: ServerRequestPayload,
     ) -> (RequestId, oneshot::Receiver<ClientRequestResult>) {
-        self.send_request_to_connections(
-            /*connection_ids*/ None, request, /*thread_id*/ None,
-        )
-        .await
+        self.send_request_to_connections(None, payload, None).await
     }
 
     fn next_request_id(&self) -> RequestId {
@@ -390,9 +387,6 @@ impl OutgoingMessageSender {
         }
     }
 
-    pub(crate) async fn cancel_request(&self, id: &RequestId) -> bool {
-        self.take_request_callback(id).await.is_some()
-    }
 
     pub(crate) async fn cancel_all_requests(&self, error: Option<JSONRPCErrorError>) {
         let entries = {
