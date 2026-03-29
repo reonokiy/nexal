@@ -56,7 +56,32 @@ uv run ./scripts/telegram_edit.py \
   --text "<TEXT>"
 ```
 
-For other Telegram Bot API actions, send requests to the proxy socket at `/workspace/agents/proxy/api.telegram.org` — the path maps directly to the Bot API method (e.g. POST `/getMe`).
+## Custom API Calls
+
+For any Telegram Bot API method not covered by the scripts above, call the proxy socket directly. The auth token is injected automatically — just use the API path.
+
+```python
+#!/usr/bin/env -S uv run
+# /// script
+# requires-python = ">=3.10"
+# dependencies = ["httpx"]
+# ///
+import httpx, json, sys
+
+PROXY = "/workspace/agents/proxy/api.telegram.org"
+transport = httpx.HTTPTransport(uds=PROXY)
+client = httpx.Client(transport=transport, base_url="http://localhost")
+
+# Example: any Bot API method
+resp = client.post("/sendPhoto", json={
+    "chat_id": sys.argv[1],
+    "photo": sys.argv[2],
+    "caption": sys.argv[3] if len(sys.argv) > 3 else ""
+})
+print(json.dumps(resp.json(), indent=2))
+```
+
+Run with `uv run script.py <chat_id> <photo_url> [caption]`. Works for any Bot API method — sendDocument, sendLocation, getUpdates, etc.
 
 ## Failure Handling
 
