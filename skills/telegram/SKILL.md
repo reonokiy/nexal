@@ -83,6 +83,41 @@ print(json.dumps(resp.json(), indent=2))
 
 Run with `uv run script.py <chat_id> <photo_url> [caption]`. Works for any Bot API method — sendDocument, sendLocation, getUpdates, etc.
 
+## Downloading Files
+
+When you receive a message with a `file_id` (documents, voice, video, audio, stickers), download the file using the Telegram Bot API `getFile` method through the proxy:
+
+```python
+#!/usr/bin/env -S uv run
+# /// script
+# requires-python = ">=3.10"
+# dependencies = ["httpx"]
+# ///
+import httpx, json, sys
+
+PROXY = "/workspace/agents/proxy/api.telegram.org"
+transport = httpx.HTTPTransport(uds=PROXY)
+client = httpx.Client(transport=transport, base_url="http://localhost")
+
+file_id = sys.argv[1]
+output_path = sys.argv[2] if len(sys.argv) > 2 else "/workspace/downloaded_file"
+
+# Step 1: get file path
+resp = client.post("/getFile", json={"file_id": file_id})
+file_path = resp.json()["result"]["file_path"]
+
+# Step 2: download (use the Telegram file API directly)
+# Note: file downloads go through api.telegram.org/file/bot<token>/<path>
+# The proxy handles the /file/ prefix too
+file_resp = client.get(f"/file/{file_path}")
+with open(output_path, "wb") as f:
+    f.write(file_resp.content)
+
+print(f"Downloaded to {output_path} ({len(file_resp.content)} bytes)")
+```
+
+Run: `uv run download.py <file_id> [output_path]`
+
 ## Failure Handling
 
 - On HTTP errors, inspect API response and adjust.

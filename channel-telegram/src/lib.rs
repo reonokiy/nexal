@@ -67,15 +67,14 @@ impl Channel for TelegramChannel {
                     }
 
                     // Extract text + media info from message
-                    let (text, images, file_info) = extract_message_content(&the_bot, &msg).await;
+                    let (text, images) = extract_message_content(&the_bot, &msg).await;
 
                     // Skip completely empty messages (e.g. service messages)
-                    if text.is_empty() && images.is_empty() && file_info.is_none() {
+                    if text.is_empty() && images.is_empty() {
                         return Ok(());
                     }
 
-                    // Build text with media context
-                    let full_text = build_message_text(&text, &file_info);
+                    let full_text = text;
 
                     info!(
                         "telegram message from @{username} in {chat_id}: {}",
@@ -157,28 +156,19 @@ impl Channel for TelegramChannel {
     }
 }
 
-/// File/media info extracted from a Telegram message.
-struct FileInfo {
-    kind: &'static str,
-    file_name: Option<String>,
-    file_id: String,
-    mime_type: Option<String>,
-    #[allow(dead_code)]
-    caption: Option<String>,
-}
 
-/// Extract text, images, and file info from a Telegram message.
+/// Extract text and images from a Telegram message.
 async fn extract_message_content(
     bot: &Bot,
     msg: &Message,
-) -> (String, Vec<ImageAttachment>, Option<FileInfo>) {
+) -> (String, Vec<ImageAttachment>) {
     let MessageKind::Common(common) = &msg.kind else {
-        return (String::new(), Vec::new(), None);
+        return (String::new(), Vec::new());
     };
 
     match &common.media_kind {
         MediaKind::Text(text_media) => {
-            (text_media.text.clone(), Vec::new(), None)
+            (text_media.text.clone(), Vec::new())
         }
 
         MediaKind::Photo(photo) => {
@@ -196,102 +186,79 @@ async fn extract_message_content(
                 }
             }
 
-            (caption, images, None)
+            (caption, images)
         }
 
         MediaKind::Document(doc) => {
             let caption = doc.caption.clone().unwrap_or_default();
-            
-            let mime = doc
-                .document
-                .mime_type
-                .as_ref()
-                .map(|m| m.to_string());
-
-            (
-                caption,
-                Vec::new(),
-                Some(FileInfo {
-                    kind: "document",
-                    file_name: doc.document.file_name.clone(),
-                    file_id: doc.document.file.id.clone(),
-                    mime_type: mime,
-                    caption: doc.caption.clone(),
-                }),
-            )
+            let name = doc.document.file_name.as_deref().unwrap_or("file");
+            let mime = doc.document.mime_type.as_ref().map(|m| m.to_string()).unwrap_or_default();
+            let text = format!(
+                "{caption}\n[received document: {name} ({mime}), file_id: {}]",
+                doc.document.file.id
+            ).trim().to_string();
+            (text, Vec::new())
         }
 
         MediaKind::Sticker(sticker) => {
-            let emoji = sticker
-                .sticker
-                .emoji
-                .clone()
-                .unwrap_or_default();
-            let text = format!("[sticker: {emoji}]");
-            (text, Vec::new(), None)
+            let emoji = sticker.sticker.emoji.clone().unwrap_or_default();
+            let mut images = Vec::new();
+            // Download thumbnail as image
+            if let Some(thumb) = &sticker.sticker.thumbnail {
+                if let Ok(data) = download_file(bot, &thumb.file.id).await {
+                    images.push(ImageAttachment {
+                        data,
+                        mime_type: "image/jpeg".to_string(),
+                        filename: format!("{}.jpg", thumb.file.unique_id),
+                    });
+                }
+            }
+            let text = format!("[sticker {emoji}, file_id: {}]", sticker.sticker.file.id);
+            (text, images)
         }
 
         MediaKind::Voice(voice) => {
             let caption = voice.caption.clone().unwrap_or_default();
-            (
-                caption,
-                Vec::new(),
-                Some(FileInfo {
-                    kind: "voice",
-                    file_name: None,
-                    file_id: voice.voice.file.id.clone(),
-                    mime_type: voice.voice.mime_type.as_ref().map(|m| m.to_string()),
-                    caption: voice.caption.clone(),
-                }),
-            )
+            let text = format!(
+                "{caption}\n[received voice message, file_id: {}]",
+                voice.voice.file.id
+            ).trim().to_string();
+            (text, Vec::new())
         }
 
         MediaKind::Video(video) => {
             let caption = video.caption.clone().unwrap_or_default();
-            (
-                caption,
-                Vec::new(),
-                Some(FileInfo {
-                    kind: "video",
-                    file_name: video.video.file_name.clone(),
-                    file_id: video.video.file.id.clone(),
-                    mime_type: video.video.mime_type.as_ref().map(|m| m.to_string()),
-                    caption: video.caption.clone(),
-                }),
-            )
+            let name = video.video.file_name.as_deref().unwrap_or("video");
+            let text = format!(
+                "{caption}\n[received video: {name}, file_id: {}]",
+                video.video.file.id
+            ).trim().to_string();
+            (text, Vec::new())
+        }
+
+        MediaKind::Animation(anim) => {
+            let caption = anim.caption.clone().unwrap_or_default();
+            let text = format!(
+                "{caption}\n[received animation/gif, file_id: {}]",
+                anim.animation.file.id
+            ).trim().to_string();
+            (text, Vec::new())
+        }
+
+        MediaKind::Audio(audio) => {
+            let caption = audio.caption.clone().unwrap_or_default();
+            let title = audio.audio.title.as_deref().unwrap_or("audio");
+            let text = format!(
+                "{caption}\n[received audio: {title}, file_id: {}]",
+                audio.audio.file.id
+            ).trim().to_string();
+            (text, Vec::new())
         }
 
         _ => {
-            // Audio, animation, contact, location, etc.
             debug!("unhandled media kind in telegram message");
-            (String::new(), Vec::new(), None)
+            (String::new(), Vec::new())
         }
-    }
-}
-
-/// Build the text string passed to the agent, with media context.
-fn build_message_text(text: &str, file_info: &Option<FileInfo>) -> String {
-    match file_info {
-        Some(info) => {
-            let mut parts = Vec::new();
-            if !text.is_empty() {
-                parts.push(text.to_string());
-            }
-            let name = info
-                .file_name
-                .as_deref()
-                .unwrap_or("unnamed");
-            let mime = info
-                .mime_type
-                .as_deref()
-                .unwrap_or("unknown");
-            parts.push(format!(
-                "[{}: {} ({}), file_id: {}]",
-                info.kind, name, mime, info.file_id
-            ));
-            parts.join("\n")
-        }
-        None => text.to_string(),
     }
 }
 
