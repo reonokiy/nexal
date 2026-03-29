@@ -283,7 +283,7 @@ impl AgentActor {
                             {
                                 info!(
                                     session = %self.session_key,
-                                    usage = ?completed.token_usage,
+                                    turn_id = %completed.turn.id,
                                     "received turn completed notification"
                                 );
                                 break;
