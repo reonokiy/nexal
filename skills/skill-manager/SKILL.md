@@ -1,16 +1,13 @@
 ---
 name: skill-manager
 description: |
-  Create, install, list, and manage custom skills.
-  Use when the user wants to create a new skill, install one from GitHub,
-  list available skills, or remove a custom skill.
+  Create, install, list, and manage custom skills (admin only).
 metadata:
   always_load: true
+  admin_only: true
 ---
 
 # Skill Manager
-
-**Access control**: Creating, installing, and removing skills requires admin privileges. Check `is_admin` in the message metadata before executing these operations. Listing skills is available to everyone.
 
 Skills live in two directories inside the container:
 

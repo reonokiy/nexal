@@ -8,6 +8,7 @@
 use std::collections::HashMap;
 use std::path::Path;
 
+use serde::Deserialize;
 use tracing::debug;
 
 /// Container-side paths.
@@ -15,10 +16,13 @@ const BUILTIN_SKILLS_DIR: &str = "/workspace/agents/skills";
 const OVERRIDE_SKILLS_DIR: &str = "/workspace/agents/skills.override";
 
 /// Load skill docs from both built-in and override directories.
+///
+/// `is_admin`: if false, skills with `admin_only: true` in frontmatter are skipped.
 pub async fn load_skill_docs(
     builtin_dir: &Path,
     override_dir: &Path,
     channel_names: &[&str],
+    is_admin: bool,
 ) -> String {
     let mut skills: HashMap<String, SkillEntry> = HashMap::new();
 
@@ -30,6 +34,10 @@ pub async fn load_skill_docs(
     let mut parts = Vec::new();
 
     for (name, entry) in &skills {
+        // Skip admin-only skills for non-admin users
+        if entry.admin_only && !is_admin {
+            continue;
+        }
         if entry.always_load || channels.contains(name) {
             parts.push(entry.content.clone());
         }
@@ -45,6 +53,7 @@ pub async fn load_skill_docs(
 struct SkillEntry {
     content: String,
     always_load: bool,
+    admin_only: bool,
 }
 
 async fn scan_dir(dir: &Path, container_dir: &str, skills: &mut HashMap<String, SkillEntry>) {
@@ -60,22 +69,43 @@ async fn scan_dir(dir: &Path, container_dir: &str, skills: &mut HashMap<String, 
         let Ok(raw) = tokio::fs::read_to_string(&skill_md).await else {
             continue;
         };
-        let always_load = is_always_load(&raw);
+        let fm = parse_frontmatter(&raw);
         let content = strip_frontmatter(&raw)
             .replace("./scripts/", &format!("{container_dir}/{name}/scripts/"));
-        debug!(skill = %name, source = %container_dir, always_load, "loaded skill");
-        skills.insert(name, SkillEntry { content, always_load });
+        debug!(skill = %name, source = %container_dir, always_load = fm.metadata.always_load, admin_only = fm.metadata.admin_only, "loaded skill");
+        skills.insert(name, SkillEntry {
+            content,
+            always_load: fm.metadata.always_load,
+            admin_only: fm.metadata.admin_only,
+        });
     }
 }
 
-fn is_always_load(raw: &str) -> bool {
+/// Parsed SKILL.md frontmatter.
+#[derive(Debug, Default, Deserialize)]
+struct SkillFrontmatter {
+    #[serde(default)]
+    metadata: SkillMetadataBlock,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct SkillMetadataBlock {
+    #[serde(default)]
+    always_load: bool,
+    #[serde(default)]
+    admin_only: bool,
+}
+
+/// Parse YAML frontmatter from a SKILL.md file.
+fn parse_frontmatter(raw: &str) -> SkillFrontmatter {
     if !raw.starts_with("---") {
-        return false;
+        return SkillFrontmatter::default();
     }
     let Some(end) = raw[3..].find("---") else {
-        return false;
+        return SkillFrontmatter::default();
     };
-    raw[3..3 + end].contains("always_load: true")
+    let yaml = &raw[3..3 + end];
+    serde_yaml::from_str(yaml).unwrap_or_default()
 }
 
 fn strip_frontmatter(content: &str) -> String {
@@ -106,9 +136,16 @@ mod tests {
     }
 
     #[test]
-    fn test_is_always_load() {
-        assert!(is_always_load("---\nalways_load: true\n---\ncontent"));
-        assert!(!is_always_load("---\nalways_load: false\n---\ncontent"));
-        assert!(!is_always_load("no frontmatter"));
+    fn test_parse_frontmatter() {
+        let fm = parse_frontmatter("---\nmetadata:\n  always_load: true\n  admin_only: true\n---\ncontent");
+        assert!(fm.metadata.always_load);
+        assert!(fm.metadata.admin_only);
+
+        let fm = parse_frontmatter("---\nname: test\n---\ncontent");
+        assert!(!fm.metadata.always_load);
+        assert!(!fm.metadata.admin_only);
+
+        let fm = parse_frontmatter("no frontmatter");
+        assert!(!fm.metadata.always_load);
     }
 }

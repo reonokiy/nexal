@@ -471,8 +471,11 @@ async fn run_idle(args: IdleArgs, config: Arc<NexalConfig>) -> anyhow::Result<()
         debounce_config,
     );
 
-    let run_telegram = args.telegram || config.telegram_bot_token.is_some();
-    let run_discord = args.discord || config.discord_bot_token.is_some();
+    // If any flag is explicit, only start flagged channels.
+    // If no flags, auto-detect from configured tokens.
+    let explicit = args.telegram || args.discord;
+    let run_telegram = if explicit { args.telegram } else { config.telegram_bot_token.is_some() };
+    let run_discord = if explicit { args.discord } else { config.discord_bot_token.is_some() };
 
     if run_telegram {
         bot.add_channel(nexal_channel_telegram::TelegramChannel::new(
