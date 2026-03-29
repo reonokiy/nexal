@@ -59,20 +59,28 @@ impl Channel for TelegramChannel {
                             warn!("rejected message from chat {chat_id}");
                             return Ok(());
                         }
-                        if !config.is_telegram_allowed_user(username) {
+                        // Skip user check for system bots (Channel_Bot forwards)
+                        if username != "Channel_Bot" && !config.is_telegram_allowed_user(username) {
                             warn!("rejected message from user @{username}");
                             return Ok(());
                         }
 
                         info!("telegram message from @{username} in {chat_id}");
 
-                        // Detect if bot was mentioned (for group chats)
+                        // Detect if bot was mentioned:
+                        // - Private chat: always mentioned
+                        // - Group: reply to bot, or @mention in text
+                        let bot_username = _bot.get_me().await
+                            .map(|me| me.username.clone().unwrap_or_default())
+                            .unwrap_or_default();
                         let is_mentioned = msg.chat.is_private()
                             || msg
                                 .reply_to_message()
                                 .and_then(|r| r.from.as_ref())
                                 .map(|u| u.is_bot)
-                                .unwrap_or(false);
+                                .unwrap_or(false)
+                            || (!bot_username.is_empty()
+                                && text.contains(&format!("@{bot_username}")));
 
                         let incoming = IncomingMessage {
                             channel: "telegram".to_string(),
