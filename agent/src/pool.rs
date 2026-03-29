@@ -146,12 +146,13 @@ impl AgentPool {
 
     async fn create_inprocess_actor(&self, key: &str) -> anyhow::Result<AgentActor> {
         let soul = self.config.load_soul().await;
+        let cli_overrides = crate::runner::providers_to_cli_overrides_full(&self.config);
         let codex_config = Arc::new(
             build_nexal_config_loader(&self.config, soul)
                 .await
                 .context("building config")?,
         );
-        let mut client = build_client(Arc::clone(&codex_config)).await?;
+        let mut client = build_client(Arc::clone(&codex_config), cli_overrides).await?;
         let thread_id = start_thread(&mut client, &codex_config).await?;
         info!("in-process session ready: thread={thread_id}");
 

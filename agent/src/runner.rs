@@ -33,11 +33,12 @@ use tracing::warn;
 /// Build an [`InProcessAppServerClient`] from a nexal config.
 pub(crate) async fn build_client(
     nexal_config_loader: Arc<Config>,
+    cli_overrides: Vec<(String, toml::Value)>,
 ) -> anyhow::Result<InProcessAppServerClient> {
     let start_args = InProcessClientStartArgs {
         arg0_paths: Arg0DispatchPaths::default(),
         config: Arc::clone(&nexal_config_loader),
-        cli_overrides: vec![],
+        cli_overrides,
         loader_overrides: LoaderOverrides::default(),
         cloud_requirements: CloudRequirementsLoader::default(),
         feedback: NexalFeedback::new(),
@@ -121,6 +122,19 @@ pub(crate) async fn build_nexal_config_loader(nc: &NexalConfig, soul: String) ->
         .build()
         .await
         .context("building codex config")
+}
+
+/// Build full CLI overrides including provider configs and auto-selection.
+pub(crate) fn providers_to_cli_overrides_full(nc: &NexalConfig) -> Vec<(String, toml::Value)> {
+    let mut overrides = providers_to_cli_overrides(nc);
+    if !nc.providers.is_empty() {
+        let provider_id = nc.providers.keys().next().unwrap().clone();
+        overrides.push((
+            "model_provider".to_string(),
+            toml::Value::String(provider_id),
+        ));
+    }
+    overrides
 }
 
 /// Convert NexalConfig providers into core CLI overrides.
