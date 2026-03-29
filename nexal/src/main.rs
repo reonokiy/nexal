@@ -54,6 +54,9 @@ async fn main() -> anyhow::Result<()> {
         Some(Command::Idle(args)) => {
             init_tracing();
             let config = Arc::new(NexalConfig::from_env());
+            info!("admins: {:?}", config.admins);
+            info!("telegram_allow_from: {:?}", config.telegram_allow_from);
+            info!("telegram_allow_chats: {:?}", config.telegram_allow_chats);
             run_idle(args, config).await
         }
         None => {
