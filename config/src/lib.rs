@@ -218,10 +218,14 @@ impl NexalConfig {
         }
     }
 
-    /// Read SOUL.md content. Creates the file with defaults if absent.
+    /// Read SOUL.md + SOUL.override.md content.
+    ///
+    /// SOUL.md is the base persona (user-controlled, highest priority).
+    /// SOUL.override.md is self-modifiable by the agent for style adjustments.
+    /// Combined as: SOUL.md + "\n\n" + SOUL.override.md
     pub async fn load_soul(&self) -> String {
         let path = self.soul_path();
-        match tokio::fs::read_to_string(&path).await {
+        let base = match tokio::fs::read_to_string(&path).await {
             Ok(content) if !content.trim().is_empty() => content,
             _ => {
                 if let Some(parent) = path.parent() {
@@ -230,6 +234,18 @@ impl NexalConfig {
                 let _ = tokio::fs::write(&path, DEFAULT_SOUL).await;
                 DEFAULT_SOUL.to_string()
             }
+        };
+
+        // Append agent's self-modified override if it exists
+        let override_path = path.with_file_name("SOUL.override.md");
+        let override_content = tokio::fs::read_to_string(&override_path)
+            .await
+            .unwrap_or_default();
+
+        if override_content.trim().is_empty() {
+            base
+        } else {
+            format!("{base}\n\n---\n\n{override_content}")
         }
     }
 
