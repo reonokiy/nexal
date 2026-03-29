@@ -357,9 +357,12 @@ async fn cleanup_sandbox_container(name: &str) {
 }
 
 async fn sync_skills(config: &NexalConfig) -> anyhow::Result<()> {
-    // Skills go under agents/ so container sees them at /workspace/agents/skills/
+    // Layout:
+    //   agents/skills/          ← built-in (read-only in container)
+    //   agents/skills.override/ ← agent-created (read-write in container)
     let agents_dir = config.workspace.join("agents");
     let _ = tokio::fs::create_dir_all(&agents_dir).await;
+    let _ = tokio::fs::create_dir_all(agents_dir.join("skills.override")).await;
     let skills_dst = agents_dir.join("skills");
 
     if skills_dst.is_dir() && skills_dst.read_link().is_err() {

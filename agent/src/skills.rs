@@ -1,71 +1,73 @@
-//! Skill loading — scans SKILL.md files and builds a system prompt section.
+//! Skill loading — two directories, override takes priority:
 //!
-//! Ports the Python `_load_skill_docs` function from `nexal/bots/agent.py`.
+//! 1. Built-in skills (`skills/`) — read-only, shipped with nexal
+//! 2. Override skills (`skills.override/`) — read-write, agent-created
 //!
-//! Skills are directories under the workspace `skills/` directory, each containing
-//! a `SKILL.md` file with optional YAML frontmatter.
-//!
-//! Skills matching active channel names are always loaded. Skills with
-//! `always_load: true` in their frontmatter are loaded regardless of channel.
+//! Override skills with the same name replace built-in ones.
 
+use std::collections::HashMap;
 use std::path::Path;
 
 use tracing::debug;
 
-/// Container-side path where skills are mounted.
-const CONTAINER_SKILLS_DIR: &str = "/workspace/agents/skills";
+/// Container-side paths.
+const BUILTIN_SKILLS_DIR: &str = "/workspace/agents/skills";
+const OVERRIDE_SKILLS_DIR: &str = "/workspace/agents/skills.override";
 
-/// Load skill docs for the given channel names.
-///
-/// Returns a combined string of all matching SKILL.md contents,
-/// with paths rewritten to container-side mount points.
-pub async fn load_skill_docs(skills_dir: &Path, channel_names: &[&str]) -> String {
-    let mut skill_names: Vec<String> = channel_names.iter().map(|s| s.to_string()).collect();
+/// Load skill docs from both built-in and override directories.
+pub async fn load_skill_docs(
+    builtin_dir: &Path,
+    override_dir: &Path,
+    channel_names: &[&str],
+) -> String {
+    let mut skills: HashMap<String, SkillEntry> = HashMap::new();
 
-    // Scan for always_load skills
-    if let Ok(mut entries) = tokio::fs::read_dir(skills_dir).await {
-        while let Ok(Some(entry)) = entries.next_entry().await {
-            let name = entry.file_name().to_string_lossy().to_string();
-            if !entry.path().is_dir() || skill_names.contains(&name) {
-                continue;
-            }
+    // Built-in first, then override replaces same-name
+    scan_dir(builtin_dir, BUILTIN_SKILLS_DIR, &mut skills).await;
+    scan_dir(override_dir, OVERRIDE_SKILLS_DIR, &mut skills).await;
 
-            let skill_md = entry.path().join("SKILL.md");
-            if let Ok(raw) = tokio::fs::read_to_string(&skill_md).await {
-                if is_always_load(&raw) {
-                    debug!(skill = %name, "auto-loading always_load skill");
-                    skill_names.push(name);
-                }
-            }
-        }
-    }
-
-    // Load content for each skill
+    let channels: Vec<String> = channel_names.iter().map(|s| s.to_string()).collect();
     let mut parts = Vec::new();
-    for name in &skill_names {
-        let skill_md = skills_dir.join(name).join("SKILL.md");
-        match tokio::fs::read_to_string(&skill_md).await {
-            Ok(content) => {
-                let content = strip_frontmatter(&content);
-                // Rewrite relative script paths to container-side paths
-                let content =
-                    content.replace("./scripts/", &format!("{CONTAINER_SKILLS_DIR}/{name}/scripts/"));
-                parts.push(content);
-            }
-            Err(_) => {
-                debug!(skill = %name, "SKILL.md not found, skipping");
-            }
+
+    for (name, entry) in &skills {
+        if entry.always_load || channels.contains(name) {
+            parts.push(entry.content.clone());
         }
     }
 
     if parts.is_empty() {
-        "(no channel skills available)".to_string()
+        "(no skills available)".to_string()
     } else {
         parts.join("\n\n")
     }
 }
 
-/// Check if a SKILL.md has `always_load: true` in its frontmatter.
+struct SkillEntry {
+    content: String,
+    always_load: bool,
+}
+
+async fn scan_dir(dir: &Path, container_dir: &str, skills: &mut HashMap<String, SkillEntry>) {
+    let Ok(mut entries) = tokio::fs::read_dir(dir).await else {
+        return;
+    };
+    while let Ok(Some(entry)) = entries.next_entry().await {
+        let name = entry.file_name().to_string_lossy().to_string();
+        if !entry.path().is_dir() {
+            continue;
+        }
+        let skill_md = entry.path().join("SKILL.md");
+        let Ok(raw) = tokio::fs::read_to_string(&skill_md).await else {
+            continue;
+        };
+        let always_load = is_always_load(&raw);
+        let content = strip_frontmatter(&raw)
+            .replace("./scripts/", &format!("{container_dir}/{name}/scripts/"));
+        debug!(skill = %name, source = %container_dir, always_load, "loaded skill");
+        skills.insert(name, SkillEntry { content, always_load });
+    }
+}
+
 fn is_always_load(raw: &str) -> bool {
     if !raw.starts_with("---") {
         return false;
@@ -73,11 +75,9 @@ fn is_always_load(raw: &str) -> bool {
     let Some(end) = raw[3..].find("---") else {
         return false;
     };
-    let frontmatter = &raw[3..3 + end];
-    frontmatter.contains("always_load: true")
+    raw[3..3 + end].contains("always_load: true")
 }
 
-/// Strip YAML frontmatter (between `---` delimiters) from the content.
 fn strip_frontmatter(content: &str) -> String {
     if !content.starts_with("---") {
         return content.to_string();
