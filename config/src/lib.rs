@@ -188,10 +188,16 @@ impl NexalConfig {
 
         match figment.extract::<NexalConfig>() {
             Ok(mut config) => {
-                // Resolve soul_path default
                 if config.soul_path.is_none() {
                     config.soul_path = Some(config.workspace.join("agents").join("SOUL.md"));
                 }
+                // Normalize admins: split comma-separated entries once at load time
+                config.admins = config
+                    .admins
+                    .iter()
+                    .flat_map(|s| s.split(',').map(|a| a.trim().to_string()))
+                    .filter(|a| !a.is_empty())
+                    .collect();
                 config
             }
             Err(e) => {
@@ -254,17 +260,8 @@ impl NexalConfig {
         }
     }
 
-    /// Check if a username is an admin (can install/create skills, etc.)
-    ///
-    /// Supports both TOML arrays `admins = ["user1", "user2"]`
-    /// and comma-separated env var `NEXAL_ADMINS=user1,user2`
     pub fn is_admin(&self, username: &str) -> bool {
-        self.admins.iter().any(|entry| {
-            entry
-                .split(',')
-                .map(str::trim)
-                .any(|a| a.eq_ignore_ascii_case(username))
-        })
+        self.admins.iter().any(|a| a.eq_ignore_ascii_case(username))
     }
 
     pub fn is_telegram_allowed_user(&self, username: &str) -> bool {
