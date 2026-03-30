@@ -17,7 +17,6 @@ anyhow = { workspace = true }
 nexal-app-server-protocol = { workspace = true }
 nexal-config-loader = { workspace = true }
 nexal-instructions = { workspace = true }
-nexal-login = { workspace = true }
 nexal-protocol = { workspace = true }
 nexal-skills = { workspace = true }
 nexal-utils-absolute-path = { workspace = true }
@@ -31,7 +30,6 @@ shlex = { workspace = true }
 tokio = { workspace = true, features = ["fs", "macros", "rt"] }
 toml = { workspace = true }
 tracing = { workspace = true }
-zip = { workspace = true }
 
 [dev-dependencies]
 pretty_assertions = { workspace = true }
