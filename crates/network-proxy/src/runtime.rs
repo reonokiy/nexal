@@ -231,19 +231,6 @@ impl NetworkProxyState {
         )
     }
 
-    pub fn with_reloader_and_blocked_observer(
-        state: ConfigState,
-        reloader: Arc<dyn ConfigReloader>,
-        blocked_request_observer: Option<Arc<dyn BlockedRequestObserver>>,
-    ) -> Self {
-        Self::with_reloader_and_audit_metadata_and_blocked_observer(
-            state,
-            reloader,
-            NetworkProxyAuditMetadata::default(),
-            blocked_request_observer,
-        )
-    }
-
     pub fn with_reloader_and_audit_metadata(
         state: ConfigState,
         reloader: Arc<dyn ConfigReloader>,

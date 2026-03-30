@@ -134,10 +134,6 @@ impl Policy {
         Ok(())
     }
 
-    pub fn set_host_executable_paths(&mut self, name: String, paths: Vec<AbsolutePathBuf>) {
-        self.host_executables_by_name.insert(name, paths.into());
-    }
-
     pub fn merge_overlay(&self, overlay: &Policy) -> Policy {
         let mut combined_rules = self.rules_by_program.clone();
         for (program, rules) in overlay.rules_by_program.iter_all() {

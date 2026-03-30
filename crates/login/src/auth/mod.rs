@@ -41,15 +41,6 @@ pub enum RefreshTokenError {
     Transient(std::io::Error),
 }
 
-impl RefreshTokenError {
-    pub fn failed_reason(&self) -> Option<RefreshTokenFailedReason> {
-        match self {
-            Self::Permanent(_) => Some(RefreshTokenFailedReason::Other),
-            Self::Transient(_) => None,
-        }
-    }
-}
-
 impl From<RefreshTokenError> for std::io::Error {
     fn from(err: RefreshTokenError) -> Self {
         match err {

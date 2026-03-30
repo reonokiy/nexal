@@ -1,5 +1,4 @@
 use std::collections::VecDeque;
-use std::fs;
 use std::io::Write;
 use std::io::{self};
 use std::path::PathBuf;
@@ -193,22 +192,6 @@ impl FeedbackSnapshot {
     pub fn with_feedback_diagnostics(mut self, feedback_diagnostics: FeedbackDiagnostics) -> Self {
         self.feedback_diagnostics = feedback_diagnostics;
         self
-    }
-
-    pub fn feedback_diagnostics_attachment_text(&self, include_logs: bool) -> Option<String> {
-        if !include_logs {
-            return None;
-        }
-
-        self.feedback_diagnostics.attachment_text()
-    }
-
-    pub fn save_to_temp_file(&self) -> io::Result<PathBuf> {
-        let dir = std::env::temp_dir();
-        let filename = format!("nexal-feedback-{}.log", self.thread_id);
-        let path = dir.join(filename);
-        fs::write(&path, self.as_bytes())?;
-        Ok(path)
     }
 
     /// No-op: feedback upload is disabled.

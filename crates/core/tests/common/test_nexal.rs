@@ -657,10 +657,6 @@ impl TestNexal {
         self.cwd_path().join(rel)
     }
 
-    pub fn executor_environment(&self) -> &TestEnv {
-        &self._test_env
-    }
-
     pub fn fs(&self) -> Arc<dyn ExecutorFileSystem> {
         self._test_env.environment().get_filesystem()
     }

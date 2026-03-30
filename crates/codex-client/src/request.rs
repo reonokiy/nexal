@@ -39,10 +39,6 @@ impl Request {
         self
     }
 
-    pub fn with_compression(mut self, compression: RequestCompression) -> Self {
-        self.compression = compression;
-        self
-    }
 }
 
 #[derive(Debug, Clone)]

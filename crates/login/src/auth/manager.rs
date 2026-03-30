@@ -176,7 +176,6 @@ impl AuthManager {
         let r = logout(&self.nexal_home, self.auth_credentials_store_mode)?; self.reload(); Ok(r)
     }
 
-    pub fn get_api_auth_mode(&self) -> Option<ApiAuthMode> { self.auth_cached().as_ref().map(NexalAuth::api_auth_mode) }
     pub fn auth_mode(&self) -> Option<crate::AuthMode> { self.auth_cached().as_ref().map(NexalAuth::auth_mode) }
     pub fn nexal_api_key_env_enabled(&self) -> bool { self.enable_nexal_api_key_env }
 

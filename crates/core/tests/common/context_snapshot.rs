@@ -224,24 +224,6 @@ pub fn format_labeled_requests_snapshot(
     format!("Scenario: {scenario}\n\n{sections}")
 }
 
-pub fn format_labeled_items_snapshot(
-    scenario: &str,
-    sections: &[(&str, &[Value])],
-    options: &ContextSnapshotOptions,
-) -> String {
-    let sections = sections
-        .iter()
-        .map(|(title, items)| {
-            format!(
-                "## {title}\n{}",
-                format_response_items_snapshot(items, options)
-            )
-        })
-        .collect::<Vec<String>>()
-        .join("\n\n");
-    format!("Scenario: {scenario}\n\n{sections}")
-}
-
 fn format_snapshot_text(text: &str, options: &ContextSnapshotOptions) -> String {
     match options.render_mode {
         ContextSnapshotRenderMode::RedactedText => {

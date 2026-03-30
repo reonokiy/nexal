@@ -246,8 +246,6 @@ impl SessionTelemetry {
         // no-op
     }
 
-    pub fn shutdown_metrics(&self) {}
-
     pub fn reset_runtime_metrics(&self) {
         // no-op
     }
