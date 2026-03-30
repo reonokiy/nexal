@@ -37,7 +37,7 @@ pub fn ansi_escape_line(s: &str) -> Line<'static> {
     }
 }
 
-pub fn ansi_escape(s: &str) -> Text<'static> {
+fn ansi_escape(s: &str) -> Text<'static> {
     // to_text() claims to be faster, but introduces complex lifetime issues
     // such that it's not worth it.
     match s.into_text() {
