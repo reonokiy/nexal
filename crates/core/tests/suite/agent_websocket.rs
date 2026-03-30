@@ -1,5 +1,4 @@
 use anyhow::Result;
-use nexal_features::Feature;
 use nexal_protocol::config_types::ServiceTier;
 use core_test_support::responses::WebSocketConnectionConfig;
 use core_test_support::responses::ev_assistant_message;
@@ -183,12 +182,7 @@ async fn websocket_v2_test_nexal_shell_chain() -> Result<()> {
     ]])
     .await;
 
-    let mut builder = test_nexal().with_windows_cmd_shell().with_config(|config| {
-        config
-            .features
-            .enable(Feature::ResponsesWebsocketsV2)
-            .expect("test config should allow feature update");
-    });
+    let mut builder = test_nexal().with_windows_cmd_shell();
 
     let test = builder.build_with_websocket_server(&server).await?;
     test.submit_turn_with_policy(
@@ -265,12 +259,7 @@ async fn websocket_v2_first_turn_uses_updated_fast_tier_after_startup_prewarm() 
     ]])
     .await;
 
-    let mut builder = test_nexal().with_config(|config| {
-        config
-            .features
-            .enable(Feature::ResponsesWebsocketsV2)
-            .expect("test config should allow feature update");
-    });
+    let mut builder = test_nexal();
     let test = builder.build_with_websocket_server(&server).await?;
 
     let warmup = server.wait_for_request(0, 0).await.body_json();
@@ -318,10 +307,6 @@ async fn websocket_v2_first_turn_drops_fast_tier_after_startup_prewarm() -> Resu
     .await;
 
     let mut builder = test_nexal().with_config(|config| {
-        config
-            .features
-            .enable(Feature::ResponsesWebsocketsV2)
-            .expect("test config should allow feature update");
         config.service_tier = Some(ServiceTier::Fast);
     });
     let test = builder.build_with_websocket_server(&server).await?;
@@ -374,12 +359,7 @@ async fn websocket_v2_next_turn_uses_updated_service_tier() -> Result<()> {
     ]])
     .await;
 
-    let mut builder = test_nexal().with_config(|config| {
-        config
-            .features
-            .enable(Feature::ResponsesWebsocketsV2)
-            .expect("test config should allow feature update");
-    });
+    let mut builder = test_nexal();
     let test = builder.build_with_websocket_server(&server).await?;
 
     let warmup = server.wait_for_request(0, 0).await.body_json();

@@ -751,16 +751,12 @@ fn create_config_toml(
     feature_flags: &BTreeMap<Feature, bool>,
     zsh_path: &Path,
 ) -> std::io::Result<()> {
-    let mut features = BTreeMap::from([(Feature::RemoteModels, false)]);
-    for (feature, enabled) in feature_flags {
-        features.insert(*feature, *enabled);
-    }
-    let feature_entries = features
-        .into_iter()
+    let feature_entries = feature_flags
+        .iter()
         .map(|(feature, enabled)| {
             let key = FEATURES
                 .iter()
-                .find(|spec| spec.id == feature)
+                .find(|spec| spec.id == *feature)
                 .map(|spec| spec.key)
                 .unwrap_or_else(|| panic!("missing feature key for {feature:?}"));
             format!("{key} = {enabled}")

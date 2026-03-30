@@ -196,7 +196,7 @@ pub async fn list_thread_ids_db(
 
 /// List thread metadata from SQLite without rollout directory traversal.
 #[allow(clippy::too_many_arguments)]
-pub async fn list_threads_db(
+pub(crate) async fn list_threads_db(
     context: Option<&nexal_rollout_state::StateRuntime>,
     nexal_home: &Path,
     page_size: usize,

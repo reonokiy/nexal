@@ -4,7 +4,6 @@ use nexal_core::ModelProviderInfo;
 use nexal_core::compact::SUMMARIZATION_PROMPT;
 use nexal_core::compact::SUMMARY_PREFIX;
 use nexal_core::config::Config;
-use nexal_features::Feature;
 use nexal_protocol::items::TurnItem;
 use nexal_protocol::openai_models::ModelInfo;
 use nexal_protocol::openai_models::ModelsResponse;
@@ -3120,7 +3119,6 @@ async fn snapshot_request_shape_pre_turn_compaction_strips_incoming_model_switch
         .with_config(move |config| {
             config.model_provider = model_provider;
             set_test_compact_prompt(config);
-            let _ = config.features.enable(Feature::RemoteModels);
             config.model_auto_compact_token_limit = Some(200);
         })
         .build(&server)

@@ -46,7 +46,7 @@ pub async fn append_thread_name(
 
 /// Append a raw session index entry to `session_index.jsonl`.
 /// The file is append-only; consumers scan from the end to find the newest match.
-pub async fn append_session_index_entry(
+async fn append_session_index_entry(
     nexal_home: &Path,
     entry: &SessionIndexEntry,
 ) -> std::io::Result<()> {
@@ -112,7 +112,7 @@ pub async fn find_thread_names_by_ids(
 }
 
 /// Find the most recently updated thread id for a thread name, if any.
-pub async fn find_thread_id_by_name(
+async fn find_thread_id_by_name(
     nexal_home: &Path,
     name: &str,
 ) -> std::io::Result<Option<ThreadId>> {
