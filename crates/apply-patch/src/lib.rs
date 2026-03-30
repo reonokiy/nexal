@@ -508,14 +508,14 @@ pub struct ApplyPatchFileUpdate {
     content: String,
 }
 
-pub fn unified_diff_from_chunks(
+pub(crate) fn unified_diff_from_chunks(
     path: &Path,
     chunks: &[UpdateFileChunk],
 ) -> std::result::Result<ApplyPatchFileUpdate, ApplyPatchError> {
     unified_diff_from_chunks_with_context(path, chunks, /*context*/ 1)
 }
 
-pub fn unified_diff_from_chunks_with_context(
+pub(crate) fn unified_diff_from_chunks_with_context(
     path: &Path,
     chunks: &[UpdateFileChunk],
     context: usize,
@@ -534,7 +534,7 @@ pub fn unified_diff_from_chunks_with_context(
 
 /// Print the summary of changes in git-style format.
 /// Write a summary of changes to the given writer.
-pub fn print_summary(
+pub(crate) fn print_summary(
     affected: &AffectedPaths,
     out: &mut impl std::io::Write,
 ) -> std::io::Result<()> {
