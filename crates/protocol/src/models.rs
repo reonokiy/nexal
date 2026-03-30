@@ -1342,13 +1342,6 @@ impl FunctionCallOutputPayload {
         }
     }
 
-    pub fn text_content_mut(&mut self) -> Option<&mut String> {
-        match &mut self.body {
-            FunctionCallOutputBody::Text(content) => Some(content),
-            FunctionCallOutputBody::ContentItems(_) => None,
-        }
-    }
-
     pub fn content_items(&self) -> Option<&[FunctionCallOutputContentItem]> {
         match &self.body {
             FunctionCallOutputBody::Text(_) => None,

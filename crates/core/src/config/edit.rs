@@ -896,29 +896,6 @@ impl ConfigEditsBuilder {
         self
     }
 
-    pub fn set_hide_model_migration_prompt(mut self, model: &str, acknowledged: bool) -> Self {
-        self.edits
-            .push(ConfigEdit::SetNoticeHideModelMigrationPrompt(
-                model.to_string(),
-                acknowledged,
-            ));
-        self
-    }
-
-    pub fn record_model_migration_seen(mut self, from: &str, to: &str) -> Self {
-        self.edits.push(ConfigEdit::RecordModelMigrationSeen {
-            from: from.to_string(),
-            to: to.to_string(),
-        });
-        self
-    }
-
-    pub fn set_windows_wsl_setup_acknowledged(mut self, acknowledged: bool) -> Self {
-        self.edits
-            .push(ConfigEdit::SetWindowsWslSetupAcknowledged(acknowledged));
-        self
-    }
-
     pub fn set_model_availability_nux_count(mut self, shown_count: &HashMap<String, u32>) -> Self {
         self.edits
             .extend(model_availability_nux_count_edits(shown_count));

@@ -35,21 +35,6 @@ pub enum PlanType {
     Unknown(String),
 }
 
-impl PlanType {
-    pub fn from_raw_value(raw: &str) -> Self {
-        match raw.to_ascii_lowercase().as_str() {
-            "free" => Self::Known(KnownPlan::Free),
-            "go" => Self::Known(KnownPlan::Go),
-            "plus" => Self::Known(KnownPlan::Plus),
-            "pro" => Self::Known(KnownPlan::Pro),
-            "team" => Self::Known(KnownPlan::Team),
-            "business" => Self::Known(KnownPlan::Business),
-            "enterprise" | "hc" => Self::Known(KnownPlan::Enterprise),
-            "education" | "edu" => Self::Known(KnownPlan::Edu),
-            _ => Self::Unknown(raw.to_string()),
-        }
-    }
-}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
