@@ -92,7 +92,7 @@ const MCP_TOOL_NAME_DELIMITER: &str = "__";
 const MAX_TOOL_NAME_LENGTH: usize = 64;
 
 /// Default timeout for initializing MCP server & initially listing tools.
-pub const DEFAULT_STARTUP_TIMEOUT: Duration = Duration::from_secs(10);
+pub(crate) const DEFAULT_STARTUP_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Default timeout for individual tool calls.
 const DEFAULT_TOOL_TIMEOUT: Duration = Duration::from_secs(120);
@@ -563,11 +563,11 @@ impl AsyncManagedClient {
     }
 }
 
-pub const MCP_SANDBOX_STATE_CAPABILITY: &str = "nexal/sandbox-state";
+pub(crate) const MCP_SANDBOX_STATE_CAPABILITY: &str = "nexal/sandbox-state";
 
 /// Custom MCP request to push sandbox state updates.
 /// When used, the `params` field of the notification is [`SandboxState`].
-pub const MCP_SANDBOX_STATE_METHOD: &str = "nexal/sandbox-state/update";
+pub(crate) const MCP_SANDBOX_STATE_METHOD: &str = "nexal/sandbox-state/update";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
