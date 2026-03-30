@@ -54,7 +54,7 @@ pub fn stream_from_fixture(
     Ok(ResponseStream { rx_event })
 }
 
-pub fn spawn_response_stream(
+pub(crate) fn spawn_response_stream(
     stream_response: StreamResponse,
     idle_timeout: Duration,
     telemetry: Option<Arc<dyn SseTelemetry>>,
@@ -160,7 +160,7 @@ struct ResponseCompletedOutputTokensDetails {
 }
 
 #[derive(Deserialize, Debug)]
-pub struct ResponsesStreamEvent {
+pub(crate) struct ResponsesStreamEvent {
     #[serde(rename = "type")]
     pub(crate) kind: String,
     headers: Option<Value>,
@@ -220,7 +220,7 @@ fn json_value_as_string(value: &Value) -> Option<String> {
 }
 
 #[derive(Debug)]
-pub enum ResponsesEventError {
+pub(crate) enum ResponsesEventError {
     Api(ApiError),
 }
 
@@ -232,7 +232,7 @@ impl ResponsesEventError {
     }
 }
 
-pub fn process_responses_event(
+pub(crate) fn process_responses_event(
     event: ResponsesStreamEvent,
 ) -> std::result::Result<Option<ResponseEvent>, ResponsesEventError> {
     match event.kind.as_str() {
@@ -353,7 +353,7 @@ pub fn process_responses_event(
     Ok(None)
 }
 
-pub async fn process_sse(
+pub(crate) async fn process_sse(
     stream: ByteStream,
     tx_event: mpsc::Sender<Result<ResponseEvent, ApiError>>,
     idle_timeout: Duration,
