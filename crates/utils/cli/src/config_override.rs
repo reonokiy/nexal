@@ -86,50 +86,6 @@ fn canonicalize_override_key(key: &str) -> String {
     }
 }
 
-/// Apply a single override onto `root`, creating intermediate objects as
-/// necessary.
-fn apply_single_override(root: &mut Value, path: &str, value: Value) {
-    use toml::value::Table;
-
-    let parts: Vec<&str> = path.split('.').collect();
-    let mut current = root;
-
-    for (i, part) in parts.iter().enumerate() {
-        let is_last = i == parts.len() - 1;
-
-        if is_last {
-            match current {
-                Value::Table(tbl) => {
-                    tbl.insert((*part).to_string(), value);
-                }
-                _ => {
-                    let mut tbl = Table::new();
-                    tbl.insert((*part).to_string(), value);
-                    *current = Value::Table(tbl);
-                }
-            }
-            return;
-        }
-
-        // Traverse or create intermediate table.
-        match current {
-            Value::Table(tbl) => {
-                current = tbl
-                    .entry((*part).to_string())
-                    .or_insert_with(|| Value::Table(Table::new()));
-            }
-            _ => {
-                *current = Value::Table(Table::new());
-                if let Value::Table(tbl) = current {
-                    current = tbl
-                        .entry((*part).to_string())
-                        .or_insert_with(|| Value::Table(Table::new()));
-                }
-            }
-        }
-    }
-}
-
 fn parse_toml_value(raw: &str) -> Result<Value, toml::de::Error> {
     let wrapped = format!("_x_ = {raw}");
     let table: toml::Table = toml::from_str(&wrapped)?;

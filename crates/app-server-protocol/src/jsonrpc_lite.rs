@@ -8,8 +8,6 @@ use serde::Serialize;
 use std::fmt;
 use ts_rs::TS;
 
-pub const JSONRPC_VERSION: &str = "2.0";
-
 #[derive(
     Debug, Clone, PartialEq, PartialOrd, Ord, Deserialize, Serialize, Hash, Eq, JsonSchema, TS,
 )]

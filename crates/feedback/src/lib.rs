@@ -175,12 +175,14 @@ impl RingBuffer {
 }
 
 pub struct FeedbackSnapshot {
+    #[cfg_attr(not(test), allow(dead_code))]
     bytes: Vec<u8>,
     feedback_diagnostics: FeedbackDiagnostics,
     pub thread_id: String,
 }
 
 impl FeedbackSnapshot {
+    #[cfg(test)]
     pub(crate) fn as_bytes(&self) -> &[u8] {
         &self.bytes
     }
