@@ -227,7 +227,7 @@ impl ThreadMetadata {
     }
 
     /// Return the list of field names that differ between `self` and `other`.
-    pub fn diff_fields(&self, other: &Self) -> Vec<&'static str> {
+    pub(crate) fn diff_fields(&self, other: &Self) -> Vec<&'static str> {
         let mut diffs = Vec::new();
         if self.id != other.id {
             diffs.push("id");
