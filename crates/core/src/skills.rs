@@ -24,7 +24,7 @@ pub use nexal_core_skills::SkillsManager;
 pub use nexal_core_skills::build_skill_name_counts;
 pub use nexal_core_skills::collect_env_var_dependencies;
 pub use nexal_core_skills::config_rules;
-pub use nexal_core_skills::detect_implicit_skill_invocation_for_command;
+use nexal_core_skills::detect_implicit_skill_invocation_for_command;
 pub use nexal_core_skills::filter_skill_load_outcome_for_product;
 pub use nexal_core_skills::injection;
 pub use nexal_core_skills::injection::SkillInjections;
