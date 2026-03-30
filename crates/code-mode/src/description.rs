@@ -2,8 +2,6 @@ use serde::Deserialize;
 use serde::Serialize;
 use serde_json::Value as JsonValue;
 
-use crate::PUBLIC_TOOL_NAME;
-
 const MAX_JS_SAFE_INTEGER: u64 = (1_u64 << 53) - 1;
 const CODE_MODE_ONLY_PREFACE: &str =
     "Use `exec/wait` tool to run all other tools, do not attempt to use any other tools directly";
