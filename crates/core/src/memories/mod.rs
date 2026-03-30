@@ -98,7 +98,7 @@ mod metrics {
 use std::path::Path;
 use std::path::PathBuf;
 
-pub fn memory_root(nexal_home: &Path) -> PathBuf {
+pub(crate) fn memory_root(nexal_home: &Path) -> PathBuf {
     nexal_home.join("memories")
 }
 

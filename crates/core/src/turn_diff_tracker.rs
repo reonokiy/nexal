@@ -30,7 +30,7 @@ struct BaselineFileInfo {
 /// 3. To compute the aggregated unified diff, compare each baseline snapshot to the current file on disk entirely in-memory
 ///    using the `similar` crate and emit unified diffs with rewritten external paths.
 #[derive(Default)]
-pub struct TurnDiffTracker {
+pub(crate) struct TurnDiffTracker {
     /// Map external path -> internal filename (uuid).
     external_to_temp_name: HashMap<PathBuf, String>,
     /// Internal filename -> baseline file info.
