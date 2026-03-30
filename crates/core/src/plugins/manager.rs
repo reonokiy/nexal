@@ -1619,17 +1619,6 @@ pub fn load_plugin_mcp_servers(plugin_root: &Path) -> HashMap<String, McpServerC
     mcp_servers
 }
 
-pub fn installed_plugin_telemetry_metadata(
-    nexal_home: &Path,
-    plugin_id: &PluginId,
-) -> PluginTelemetryMetadata {
-    let store = PluginStore::new(nexal_home.to_path_buf());
-    let Some(plugin_root) = store.active_plugin_root(plugin_id) else {
-        return PluginTelemetryMetadata::from_plugin_id(plugin_id);
-    };
-
-    plugin_telemetry_metadata_from_root(plugin_id, plugin_root.as_path())
-}
 
 fn load_mcp_servers_from_file(
     plugin_root: &Path,
