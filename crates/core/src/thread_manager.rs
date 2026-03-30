@@ -1,7 +1,5 @@
 use crate::AuthManager;
 use crate::NexalAuth;
-use crate::ModelProviderInfo;
-use crate::OPENAI_PROVIDER_ID;
 use crate::SkillsManager;
 use crate::agent::AgentControl;
 use crate::nexal::Nexal;
@@ -221,11 +219,6 @@ impl ThreadManager {
     ) -> Self {
         let nexal_home = config.nexal_home.clone();
         let restriction_product = session_source.restriction_product();
-        let openai_models_provider = config
-            .model_providers
-            .get(OPENAI_PROVIDER_ID)
-            .cloned()
-            .unwrap_or_else(|| ModelProviderInfo::create_openai_provider(/*base_url*/ None));
         let (thread_created_tx, _) = broadcast::channel(THREAD_CREATED_CHANNEL_CAPACITY);
         let plugins_manager = Arc::new(PluginsManager::new_with_restriction_product(
             nexal_home.clone(),
@@ -242,12 +235,10 @@ impl ThreadManager {
             state: Arc::new(ThreadManagerState {
                 threads: Arc::new(RwLock::new(HashMap::new())),
                 thread_created_tx,
-                models_manager: Arc::new(ModelsManager::new_with_provider(
+                models_manager: Arc::new(ModelsManager::new(
                     nexal_home,
-                    auth_manager.clone(),
                     config.model_catalog.clone(),
                     collaboration_modes_config,
-                    openai_models_provider,
                 )),
                 environment_manager,
                 skills_manager,
@@ -265,10 +256,7 @@ impl ThreadManager {
 
     /// Construct with a dummy AuthManager containing the provided NexalAuth.
     /// Used for integration tests: should not be used by ordinary business logic.
-    pub(crate) fn with_models_provider_for_tests(
-        auth: NexalAuth,
-        provider: ModelProviderInfo,
-    ) -> Self {
+    pub(crate) fn with_models_provider_for_tests(auth: NexalAuth) -> Self {
         set_thread_manager_test_mode_for_tests(/*enabled*/ true);
         let nexal_home = std::env::temp_dir().join(format!(
             "nexal-thread-manager-test-{}",
@@ -278,7 +266,6 @@ impl ThreadManager {
             .unwrap_or_else(|err| panic!("temp nexal home dir create failed: {err}"));
         let mut manager = Self::with_models_provider_and_home_for_tests(
             auth,
-            provider,
             nexal_home.clone(),
             Arc::new(EnvironmentManager::new(/*exec_server_url*/ None)),
         );
@@ -290,7 +277,6 @@ impl ThreadManager {
     /// Used for integration tests: should not be used by ordinary business logic.
     pub(crate) fn with_models_provider_and_home_for_tests(
         auth: NexalAuth,
-        provider: ModelProviderInfo,
         nexal_home: PathBuf,
         environment_manager: Arc<EnvironmentManager>,
     ) -> Self {
@@ -313,11 +299,7 @@ impl ThreadManager {
             state: Arc::new(ThreadManagerState {
                 threads: Arc::new(RwLock::new(HashMap::new())),
                 thread_created_tx,
-                models_manager: Arc::new(ModelsManager::with_provider_for_tests(
-                    nexal_home,
-                    auth_manager.clone(),
-                    provider,
-                )),
+                models_manager: Arc::new(ModelsManager::with_provider_for_tests(nexal_home)),
                 environment_manager,
                 skills_manager,
                 plugins_manager,

@@ -45,7 +45,7 @@ impl Hooks {
         let after_agent = config
             .legacy_notify_argv
             .filter(|argv| !argv.is_empty() && !argv[0].is_empty())
-            .map(crate::notify_hook)
+            .map(crate::legacy_notify::notify_hook)
             .into_iter()
             .collect();
         let engine = ClaudeHooksEngine::new(
@@ -152,7 +152,7 @@ impl Hooks {
     }
 }
 
-pub fn command_from_argv(argv: &[String]) -> Option<Command> {
+pub(crate) fn command_from_argv(argv: &[String]) -> Option<Command> {
     let (program, args) = argv.split_first()?;
     if program.is_empty() {
         return None;

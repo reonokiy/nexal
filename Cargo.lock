@@ -5267,14 +5267,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "nexal-process-hardening"
-version = "0.1.0"
-dependencies = [
- "libc",
- "pretty_assertions",
-]
-
-[[package]]
 name = "nexal-protocol"
 version = "0.1.0"
 dependencies = [

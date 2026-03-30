@@ -1,4 +1,3 @@
-use nexal_core::NexalAuth;
 use nexal_core::models_manager::collaboration_mode_presets::CollaborationModesConfig;
 use nexal_core::models_manager::manager::ModelsManager;
 use nexal_protocol::openai_models::TruncationPolicyConfig;
@@ -10,12 +9,8 @@ use tempfile::TempDir;
 async fn offline_model_info_without_tool_output_override() {
     let nexal_home = TempDir::new().expect("create temp dir");
     let config = load_default_config_for_test(&nexal_home).await;
-    let auth_manager = nexal_core::test_support::auth_manager_from_auth(
-        NexalAuth::create_dummy_chatgpt_auth_for_testing(),
-    );
     let manager = ModelsManager::new(
         config.nexal_home.clone(),
-        auth_manager,
         None,
         CollaborationModesConfig::default(),
     );
@@ -33,12 +28,8 @@ async fn offline_model_info_with_tool_output_override() {
     let nexal_home = TempDir::new().expect("create temp dir");
     let mut config = load_default_config_for_test(&nexal_home).await;
     config.tool_output_token_limit = Some(123);
-    let auth_manager = nexal_core::test_support::auth_manager_from_auth(
-        NexalAuth::create_dummy_chatgpt_auth_for_testing(),
-    );
     let manager = ModelsManager::new(
         config.nexal_home.clone(),
-        auth_manager,
         None,
         CollaborationModesConfig::default(),
     );

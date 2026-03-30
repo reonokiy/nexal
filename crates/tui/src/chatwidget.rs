@@ -6538,18 +6538,14 @@ impl ChatWidget {
     }
 
     fn model_menu_warning_line(&self) -> Option<Line<'static>> {
-        let base_url = self.custom_openai_base_url()?;
+        let base_url = self.custom_base_url()?;
         let warning = format!(
             "Warning: API base URL is overridden to {base_url}. Selecting models may not be supported or work properly."
         );
         Some(Line::from(warning.red()))
     }
 
-    fn custom_openai_base_url(&self) -> Option<String> {
-        if !self.config.model_provider.is_openai() {
-            return None;
-        }
-
+    fn custom_base_url(&self) -> Option<String> {
         let base_url = self.config.model_provider.base_url.as_ref()?;
         let trimmed = base_url.trim();
         if trimmed.is_empty() {

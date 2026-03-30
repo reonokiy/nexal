@@ -4308,20 +4308,16 @@ model_verbosity = "high"
         stream_max_retries: Some(10),
         stream_idle_timeout_ms: Some(300_000),
         websocket_connect_timeout_ms: Some(15_000),
-        requires_openai_auth: false,
         supports_websockets: false,
         thinking_mode: false,
     };
+    let openai_provider = ModelProviderInfo::create_openai_provider(None);
     let model_provider_map = {
-        let mut model_provider_map = built_in_model_providers(/* openai_base_url */ None);
+        let mut model_provider_map = built_in_model_providers();
+        model_provider_map.insert("openai".to_string(), openai_provider.clone());
         model_provider_map.insert("openai-custom".to_string(), openai_custom_provider.clone());
         model_provider_map
     };
-
-    let openai_provider = model_provider_map
-        .get("openai")
-        .expect("openai provider should exist")
-        .clone();
 
     Ok(PrecedenceTestFixture {
         cwd: cwd_temp_dir,

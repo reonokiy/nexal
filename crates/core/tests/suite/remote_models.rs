@@ -5,8 +5,6 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use nexal_core::NexalAuth;
-use nexal_core::ModelProviderInfo;
-use nexal_core::built_in_model_providers;
 use nexal_core::models_manager::manager::ModelsManager;
 use nexal_core::models_manager::manager::RefreshStrategy;
 use nexal_protocol::config_types::ReasoningSummary;
@@ -92,15 +90,8 @@ async fn remote_models_get_model_info_uses_longest_matching_prefix() -> Result<(
     let nexal_home = TempDir::new()?;
     let config = load_default_config_for_test(&nexal_home).await;
 
-    let auth = NexalAuth::create_dummy_chatgpt_auth_for_testing();
-    let provider = ModelProviderInfo {
-        base_url: Some(format!("{}/v1", server.uri())),
-        ..built_in_model_providers(/* openai_base_url */ None)["openai"].clone()
-    };
     let manager = nexal_core::test_support::models_manager_with_provider(
         nexal_home.path().to_path_buf(),
-        nexal_core::test_support::auth_manager_from_auth(auth),
-        provider,
     );
 
     manager.list_models(RefreshStrategy::OnlineIfUncached).await;
@@ -653,15 +644,8 @@ async fn remote_models_do_not_append_removed_builtin_presets() -> Result<()> {
 
     let nexal_home = TempDir::new()?;
 
-    let auth = NexalAuth::create_dummy_chatgpt_auth_for_testing();
-    let provider = ModelProviderInfo {
-        base_url: Some(format!("{}/v1", server.uri())),
-        ..built_in_model_providers(/* openai_base_url */ None)["openai"].clone()
-    };
     let manager = nexal_core::test_support::models_manager_with_provider(
         nexal_home.path().to_path_buf(),
-        nexal_core::test_support::auth_manager_from_auth(auth),
-        provider,
     );
 
     let available = manager.list_models(RefreshStrategy::OnlineIfUncached).await;
@@ -710,15 +694,8 @@ async fn remote_models_merge_adds_new_high_priority_first() -> Result<()> {
 
     let nexal_home = TempDir::new()?;
 
-    let auth = NexalAuth::create_dummy_chatgpt_auth_for_testing();
-    let provider = ModelProviderInfo {
-        base_url: Some(format!("{}/v1", server.uri())),
-        ..built_in_model_providers(/* openai_base_url */ None)["openai"].clone()
-    };
     let manager = nexal_core::test_support::models_manager_with_provider(
         nexal_home.path().to_path_buf(),
-        nexal_core::test_support::auth_manager_from_auth(auth),
-        provider,
     );
 
     let available = manager.list_models(RefreshStrategy::OnlineIfUncached).await;
@@ -757,15 +734,8 @@ async fn remote_models_merge_replaces_overlapping_model() -> Result<()> {
 
     let nexal_home = TempDir::new()?;
 
-    let auth = NexalAuth::create_dummy_chatgpt_auth_for_testing();
-    let provider = ModelProviderInfo {
-        base_url: Some(format!("{}/v1", server.uri())),
-        ..built_in_model_providers(/* openai_base_url */ None)["openai"].clone()
-    };
     let manager = nexal_core::test_support::models_manager_with_provider(
         nexal_home.path().to_path_buf(),
-        nexal_core::test_support::auth_manager_from_auth(auth),
-        provider,
     );
 
     let available = manager.list_models(RefreshStrategy::OnlineIfUncached).await;
@@ -801,15 +771,8 @@ async fn remote_models_merge_preserves_bundled_models_on_empty_response() -> Res
 
     let nexal_home = TempDir::new()?;
 
-    let auth = NexalAuth::create_dummy_chatgpt_auth_for_testing();
-    let provider = ModelProviderInfo {
-        base_url: Some(format!("{}/v1", server.uri())),
-        ..built_in_model_providers(/* openai_base_url */ None)["openai"].clone()
-    };
     let manager = nexal_core::test_support::models_manager_with_provider(
         nexal_home.path().to_path_buf(),
-        nexal_core::test_support::auth_manager_from_auth(auth),
-        provider,
     );
 
     let available = manager.list_models(RefreshStrategy::OnlineIfUncached).await;
@@ -842,15 +805,8 @@ async fn remote_models_request_times_out_after_5s() -> Result<()> {
 
     let nexal_home = TempDir::new()?;
 
-    let auth = NexalAuth::create_dummy_chatgpt_auth_for_testing();
-    let provider = ModelProviderInfo {
-        base_url: Some(format!("{}/v1", server.uri())),
-        ..built_in_model_providers(/* openai_base_url */ None)["openai"].clone()
-    };
     let manager = nexal_core::test_support::models_manager_with_provider(
         nexal_home.path().to_path_buf(),
-        nexal_core::test_support::auth_manager_from_auth(auth),
-        provider,
     );
 
     let start = Instant::now();
@@ -908,15 +864,8 @@ async fn remote_models_hide_picker_only_models() -> Result<()> {
 
     let nexal_home = TempDir::new()?;
 
-    let auth = NexalAuth::create_dummy_chatgpt_auth_for_testing();
-    let provider = ModelProviderInfo {
-        base_url: Some(format!("{}/v1", server.uri())),
-        ..built_in_model_providers(/* openai_base_url */ None)["openai"].clone()
-    };
     let manager = nexal_core::test_support::models_manager_with_provider(
         nexal_home.path().to_path_buf(),
-        nexal_core::test_support::auth_manager_from_auth(auth),
-        provider,
     );
 
     let selected = manager

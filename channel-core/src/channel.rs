@@ -43,5 +43,3 @@ pub trait Channel: Send + Sync + 'static {
 pub type MessageCallback =
     Box<dyn Fn(IncomingMessage) -> tokio::task::JoinHandle<()> + Send + Sync>;
 
-/// A boxed, Send future returning `()`.
-pub type BoxSendFut = std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>;

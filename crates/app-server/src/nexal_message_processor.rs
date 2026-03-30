@@ -915,8 +915,7 @@ impl NexalMessageProcessor {
                 self.login_api_key_v2(request_id, LoginApiKeyParams { api_key })
                     .await;
             }
-            LoginAccountParams::Chatgpt
-            | LoginAccountParams::ChatgptAuthTokens { .. } => {
+            LoginAccountParams::Chatgpt | LoginAccountParams::ChatgptAuthTokens { .. } => {
                 let error = JSONRPCErrorError {
                     code: INVALID_REQUEST_ERROR_CODE,
                     message: "ChatGPT login is not supported. Use an API key.".to_string(),
@@ -1045,19 +1044,8 @@ impl NexalMessageProcessor {
     async fn get_auth_status(&self, request_id: ConnectionRequestId, params: GetAuthStatusParams) {
         let include_token = params.include_token.unwrap_or(false);
 
-        // Determine whether auth is required based on the active model provider.
-        // If a custom provider is configured with `requires_openai_auth == false`,
-        // then no auth step is required; otherwise, default to requiring auth.
-        let requires_openai_auth = self.config.model_provider.requires_openai_auth;
-
-        let response = if !requires_openai_auth {
-            GetAuthStatusResponse {
-                auth_method: None,
-                auth_token: None,
-                requires_openai_auth: Some(false),
-            }
-        } else {
-            let auth = self.auth_manager.auth().await;
+        let auth = self.auth_manager.auth().await;
+        let response = {
             match auth {
                 Some(auth) => {
                     let auth_mode = auth.api_auth_mode();
@@ -1075,13 +1063,11 @@ impl NexalMessageProcessor {
                     GetAuthStatusResponse {
                         auth_method: reported_auth_method,
                         auth_token: token_opt,
-                        requires_openai_auth: Some(true),
                     }
                 }
                 None => GetAuthStatusResponse {
                     auth_method: None,
                     auth_token: None,
-                    requires_openai_auth: Some(true),
                 },
             }
         };
@@ -1090,24 +1076,9 @@ impl NexalMessageProcessor {
     }
 
     async fn get_account(&self, request_id: ConnectionRequestId, _params: GetAccountParams) {
-        // Whether auth is required for the active model provider.
-        let requires_openai_auth = self.config.model_provider.requires_openai_auth;
-
-        if !requires_openai_auth {
-            let response = GetAccountResponse {
-                account: None,
-                requires_openai_auth,
-            };
-            self.outgoing.send_response(request_id, response).await;
-            return;
-        }
-
         let account = self.auth_manager.auth_cached().map(|_| Account::ApiKey {});
 
-        let response = GetAccountResponse {
-            account,
-            requires_openai_auth,
-        };
+        let response = GetAccountResponse { account };
         self.outgoing.send_response(request_id, response).await;
     }
 

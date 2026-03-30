@@ -77,9 +77,6 @@ members = [
     "crates/utils/string",
     "crates/utils/template",
 
-    # Additional
-    "crates/process-hardening",
-
     # Stubs
     "crates/stubs/windows-sandbox",
 ]
@@ -144,7 +141,6 @@ nexal-terminal-detection = { path = "crates/terminal-detection" }
 nexal-tui = { path = "crates/tui" }
 nexal-tui-app-server = { path = "crates/tui_app_server" }
 nexal-windows-sandbox = { path = "crates/stubs/windows-sandbox" }
-nexal-process-hardening = { path = "crates/process-hardening" }
 core_test_support = { path = "crates/core/tests/common" }
 
 # Utils

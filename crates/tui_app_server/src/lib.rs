@@ -255,9 +255,6 @@ use crate::onboarding::onboarding_screen::run_onboarding_app;
 use crate::tui::Tui;
 pub use cli::Cli;
 use nexal_arg0::Arg0DispatchPaths;
-pub use markdown_render::render_markdown_text;
-pub use public_widgets::composer_input::ComposerAction;
-pub use public_widgets::composer_input::ComposerInput;
 // (tests access modules directly within the crate)
 
 async fn start_embedded_app_server(
@@ -966,8 +963,7 @@ async fn run_ratatui_app(
 
     let should_show_trust_screen_flag = !remote_mode && should_show_trust_screen(&initial_config);
     let mut trust_decision_was_made = false;
-    let needs_onboarding_app_server =
-        should_show_trust_screen_flag || initial_config.model_provider.requires_openai_auth;
+    let needs_onboarding_app_server = should_show_trust_screen_flag;
     let mut onboarding_app_server = if needs_onboarding_app_server {
         Some(AppServerSession::new(
             start_app_server(
@@ -984,14 +980,7 @@ async fn run_ratatui_app(
     } else {
         None
     };
-    let login_status = if initial_config.model_provider.requires_openai_auth {
-        let Some(app_server) = onboarding_app_server.as_mut() else {
-            unreachable!("onboarding app server should exist when auth is required");
-        };
-        get_login_status(app_server, &initial_config).await?
-    } else {
-        LoginStatus::NotAuthenticated
-    };
+    let login_status = LoginStatus::NotAuthenticated;
     let should_show_onboarding =
         should_show_onboarding(login_status, &initial_config, should_show_trust_screen_flag);
 
@@ -1533,21 +1522,6 @@ pub enum LoginStatus {
     NotAuthenticated,
 }
 
-async fn get_login_status(
-    app_server: &mut AppServerSession,
-    config: &Config,
-) -> color_eyre::Result<LoginStatus> {
-    if !config.model_provider.requires_openai_auth {
-        return Ok(LoginStatus::NotAuthenticated);
-    }
-
-    let bootstrap = app_server.bootstrap(config).await?;
-    Ok(match bootstrap.account_auth_mode {
-        Some(auth_mode) => LoginStatus::AuthMode(auth_mode),
-        None => LoginStatus::NotAuthenticated,
-    })
-}
-
 async fn load_config_or_exit(
     cli_kv_overrides: Vec<(String, toml::Value)>,
     overrides: ConfigOverrides,
@@ -1602,14 +1576,8 @@ fn should_show_onboarding(
     should_show_login_screen(login_status, config)
 }
 
-fn should_show_login_screen(login_status: LoginStatus, config: &Config) -> bool {
-    // Only show the login screen for providers that actually require OpenAI auth
-    // (OpenAI or equivalents). For OSS/other providers, skip login entirely.
-    if !config.model_provider.requires_openai_auth {
-        return false;
-    }
-
-    login_status == LoginStatus::NotAuthenticated
+fn should_show_login_screen(_login_status: LoginStatus, _config: &Config) -> bool {
+    false
 }
 
 #[cfg(test)]

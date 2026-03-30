@@ -7,7 +7,6 @@ use nexal_core::ResponseEvent;
 use nexal_core::ThreadManager;
 use nexal_core::WireApi;
 use nexal_core::auth::AuthCredentialsStoreMode;
-use nexal_core::built_in_model_providers;
 use nexal_core::default_client::originator;
 use nexal_core::error::NexalErr;
 use nexal_core::models_manager::collaboration_mode_presets::CollaborationModesConfig;
@@ -717,7 +716,7 @@ async fn chatgpt_auth_sends_correct_request() {
     )
     .await;
 
-    let mut model_provider = built_in_model_providers(/* openai_base_url */ None)["openai"].clone();
+    let mut model_provider = ModelProviderInfo::create_openai_provider(None);
     model_provider.base_url = Some(format!("{}/api/nexal", server.uri()));
     model_provider.supports_websockets = false;
     let mut builder = test_nexal()
@@ -796,7 +795,7 @@ async fn prefers_apikey_when_config_prefers_apikey_even_with_chatgpt_tokens() {
         base_url: Some(format!("{}/v1", server.uri())),
         supports_websockets: false,
         thinking_mode: false,
-        ..built_in_model_providers(/* openai_base_url */ None)["openai"].clone()
+        ..ModelProviderInfo::create_openai_provider(None)
     };
 
     // Init session
@@ -1803,7 +1802,6 @@ async fn azure_responses_request_includes_store_and_reasoning_ids() {
         stream_max_retries: Some(0),
         stream_idle_timeout_ms: Some(5_000),
         websocket_connect_timeout_ms: None,
-        requires_openai_auth: false,
         supports_websockets: false,
         thinking_mode: false,
     };
@@ -1976,7 +1974,7 @@ async fn token_count_includes_rate_limits_snapshot() {
         .mount(&server)
         .await;
 
-    let mut provider = built_in_model_providers(/* openai_base_url */ None)["openai"].clone();
+    let mut provider = ModelProviderInfo::create_openai_provider(None);
     provider.base_url = Some(format!("{}/v1", server.uri()));
     provider.supports_websockets = false;
 
@@ -2406,7 +2404,6 @@ async fn azure_overrides_assign_properties_used_for_responses_url() {
         stream_max_retries: None,
         stream_idle_timeout_ms: None,
         websocket_connect_timeout_ms: None,
-        requires_openai_auth: false,
         supports_websockets: false,
         thinking_mode: false,
     };
@@ -2492,7 +2489,6 @@ async fn env_var_overrides_loaded_auth() {
         stream_max_retries: None,
         stream_idle_timeout_ms: None,
         websocket_connect_timeout_ms: None,
-        requires_openai_auth: false,
         supports_websockets: false,
         thinking_mode: false,
     };

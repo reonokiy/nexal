@@ -1904,7 +1904,6 @@ async fn helpers_are_available_and_do_not_panic() {
     let thread_manager = Arc::new(
         nexal_core::test_support::thread_manager_with_models_provider(
             NexalAuth::from_api_key("test"),
-            cfg.model_provider.clone(),
         ),
     );
     let auth_manager =
@@ -1983,7 +1982,6 @@ async fn make_chatwidget_manual(
     let nexal_home = cfg.nexal_home.clone();
     let models_manager = Arc::new(ModelsManager::new(
         nexal_home,
-        auth_manager.clone(),
         None,
         CollaborationModesConfig::default(),
     ));
@@ -2156,7 +2154,6 @@ pub(crate) fn set_chatgpt_auth(chat: &mut ChatWidget) {
     );
     chat.models_manager = Arc::new(ModelsManager::new(
         chat.config.nexal_home.clone(),
-        chat.auth_manager.clone(),
         None,
         CollaborationModesConfig::default(),
     ));
@@ -6032,7 +6029,6 @@ async fn collaboration_modes_defaults_to_code_on_startup() {
     let thread_manager = Arc::new(
         nexal_core::test_support::thread_manager_with_models_provider(
             NexalAuth::from_api_key("test"),
-            cfg.model_provider.clone(),
         ),
     );
     let auth_manager =
@@ -6083,7 +6079,6 @@ async fn experimental_mode_plan_is_ignored_on_startup() {
     let thread_manager = Arc::new(
         nexal_core::test_support::thread_manager_with_models_provider(
             NexalAuth::from_api_key("test"),
-            cfg.model_provider.clone(),
         ),
     );
     let auth_manager =

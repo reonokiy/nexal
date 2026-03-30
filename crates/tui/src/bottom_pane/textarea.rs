@@ -529,10 +529,7 @@ impl TextArea {
             } => {
                 self.move_cursor_to_end_of_line(/*move_down_at_eol*/ true);
             }
-            _o => {
-                #[cfg(feature = "debug-logs")]
-                tracing::debug!("Unhandled key event in TextArea: {:?}", _o);
-            }
+            _o => {}
         }
     }
 
@@ -962,7 +959,7 @@ impl TextArea {
 
     /// Update the element's text in place, preserving its id so callers can
     /// update it again later (e.g. recording -> transcribing -> final).
-    #[allow(dead_code)]
+    #[cfg_attr(target_os = "linux", allow(dead_code))]
     pub fn update_named_element_by_id(&mut self, id: &str, text: &str) -> bool {
         if let Some(elem_idx) = self
             .elements
@@ -982,7 +979,7 @@ impl TextArea {
         }
     }
 
-    #[allow(dead_code)]
+    #[cfg_attr(target_os = "linux", allow(dead_code))]
     pub fn named_element_range(&self, id: &str) -> Option<std::ops::Range<usize>> {
         self.elements
             .iter()

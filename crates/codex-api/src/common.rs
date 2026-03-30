@@ -16,8 +16,8 @@ use std::task::Context;
 use std::task::Poll;
 use tokio::sync::mpsc;
 
-pub const WS_REQUEST_HEADER_TRACEPARENT_CLIENT_METADATA_KEY: &str = "ws_request_header_traceparent";
-pub const WS_REQUEST_HEADER_TRACESTATE_CLIENT_METADATA_KEY: &str = "ws_request_header_tracestate";
+pub(crate) const WS_REQUEST_HEADER_TRACEPARENT_CLIENT_METADATA_KEY: &str = "ws_request_header_traceparent";
+pub(crate) const WS_REQUEST_HEADER_TRACESTATE_CLIENT_METADATA_KEY: &str = "ws_request_header_tracestate";
 
 /// Canonical input payload for the compaction endpoint.
 #[derive(Debug, Clone, Serialize)]
@@ -46,13 +46,13 @@ pub struct MemorySummarizeInput {
 #[derive(Debug, Clone, Serialize)]
 pub struct RawMemory {
     pub id: String,
-    pub metadata: RawMemoryMetadata,
+    pub(crate) metadata: RawMemoryMetadata,
     pub items: Vec<Value>,
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub struct RawMemoryMetadata {
-    pub source_path: String,
+pub(crate) struct RawMemoryMetadata {
+    pub(crate) source_path: String,
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]

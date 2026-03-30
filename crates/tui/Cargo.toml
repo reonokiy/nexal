@@ -16,8 +16,6 @@ path = "src/lib.rs"
 default = ["voice-input"]
 # Enable vt100-based tests (emulator) when running with `--features vt100-tests`.
 vt100-tests = []
-# Gate verbose debug logging inside the TUI implementation.
-debug-logs = []
 voice-input = ["dep:cpal", "dep:hound"]
 
 [lints]

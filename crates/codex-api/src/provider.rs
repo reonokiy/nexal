@@ -103,7 +103,7 @@ impl Provider {
     }
 }
 
-pub fn is_azure_responses_wire_base_url(name: &str, base_url: Option<&str>) -> bool {
+fn is_azure_responses_wire_base_url(name: &str, base_url: Option<&str>) -> bool {
     if name.eq_ignore_ascii_case("azure") {
         return true;
     }

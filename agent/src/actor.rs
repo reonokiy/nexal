@@ -68,11 +68,6 @@ pub struct AgentHandle {
 }
 
 impl AgentHandle {
-    /// Create a handle from a raw sender (for testing).
-    pub fn new_from_sender(tx: mpsc::Sender<AgentMessage>) -> Self {
-        Self { tx }
-    }
-
     /// Send a message to the actor (non-blocking).
     pub async fn send(&self, msg: AgentMessage) -> anyhow::Result<()> {
         self.tx

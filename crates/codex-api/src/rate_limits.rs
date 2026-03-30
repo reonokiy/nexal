@@ -19,12 +19,12 @@ impl Display for RateLimitError {
 }
 
 /// Parses the default Nexal rate-limit header family into a `RateLimitSnapshot`.
-pub fn parse_default_rate_limit(headers: &HeaderMap) -> Option<RateLimitSnapshot> {
+fn parse_default_rate_limit(headers: &HeaderMap) -> Option<RateLimitSnapshot> {
     parse_rate_limit_for_limit(headers, /*limit_id*/ None)
 }
 
 /// Parses all known rate-limit header families into update records keyed by limit id.
-pub fn parse_all_rate_limits(headers: &HeaderMap) -> Vec<RateLimitSnapshot> {
+pub(crate) fn parse_all_rate_limits(headers: &HeaderMap) -> Vec<RateLimitSnapshot> {
     let mut snapshots = Vec::new();
     if let Some(snapshot) = parse_default_rate_limit(headers) {
         snapshots.push(snapshot);

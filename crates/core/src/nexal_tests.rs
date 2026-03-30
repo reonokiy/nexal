@@ -2484,7 +2484,6 @@ async fn session_new_fails_when_zsh_fork_enabled_without_zsh_path() {
     let auth_manager = AuthManager::from_auth_for_testing(NexalAuth::from_api_key("Test API Key"));
     let models_manager = Arc::new(ModelsManager::new(
         config.nexal_home.clone(),
-        auth_manager.clone(),
         None,
         CollaborationModesConfig::default(),
     ));
@@ -2574,7 +2573,6 @@ pub(crate) async fn make_session_and_context() -> (Session, TurnContext) {
     let auth_manager = AuthManager::from_auth_for_testing(NexalAuth::from_api_key("Test API Key"));
     let models_manager = Arc::new(ModelsManager::new(
         config.nexal_home.clone(),
-        auth_manager.clone(),
         None,
         CollaborationModesConfig::default(),
     ));
@@ -3201,7 +3199,6 @@ pub(crate) async fn make_session_and_context_with_dynamic_tools_and_rx(
     let auth_manager = AuthManager::from_auth_for_testing(NexalAuth::from_api_key("Test API Key"));
     let models_manager = Arc::new(ModelsManager::new(
         config.nexal_home.clone(),
-        auth_manager.clone(),
         None,
         CollaborationModesConfig::default(),
     ));

@@ -7,7 +7,7 @@ use crate::Hook;
 use crate::HookEvent;
 use crate::HookPayload;
 use crate::HookResult;
-use crate::command_from_argv;
+use crate::registry::command_from_argv;
 
 /// Legacy notify payload appended as the final argv argument for backward compatibility.
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -25,7 +25,7 @@ enum UserNotification {
     },
 }
 
-pub fn legacy_notify_json(payload: &HookPayload) -> Result<String, serde_json::Error> {
+pub(crate) fn legacy_notify_json(payload: &HookPayload) -> Result<String, serde_json::Error> {
     match &payload.hook_event {
         HookEvent::AfterAgent { event } => {
             serde_json::to_string(&UserNotification::AgentTurnComplete {
@@ -43,7 +43,7 @@ pub fn legacy_notify_json(payload: &HookPayload) -> Result<String, serde_json::E
     }
 }
 
-pub fn notify_hook(argv: Vec<String>) -> Hook {
+pub(crate) fn notify_hook(argv: Vec<String>) -> Hook {
     let argv = Arc::new(argv);
     Hook {
         name: "legacy_notify".to_string(),

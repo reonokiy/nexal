@@ -6877,7 +6877,6 @@ guardian_approval = true
         let server = Arc::new(
             nexal_core::test_support::thread_manager_with_models_provider(
                 NexalAuth::from_api_key("Test API Key"),
-                config.model_provider.clone(),
             ),
         );
         let auth_manager = nexal_core::test_support::auth_manager_from_auth(
@@ -6940,7 +6939,6 @@ guardian_approval = true
         let server = Arc::new(
             nexal_core::test_support::thread_manager_with_models_provider(
                 NexalAuth::from_api_key("Test API Key"),
-                config.model_provider.clone(),
             ),
         );
         let auth_manager = nexal_core::test_support::auth_manager_from_auth(

@@ -2,22 +2,18 @@ use super::*;
 use crate::nexal::make_session_and_context;
 use crate::config::test_config;
 use crate::models_manager::collaboration_mode_presets::CollaborationModesConfig;
-use crate::models_manager::manager::RefreshStrategy;
 use crate::rollout::RolloutRecorder;
 use crate::tasks::interrupted_turn_history_marker;
 use nexal_protocol::models::ContentItem;
 use nexal_protocol::models::ReasoningItemReasoningSummary;
 use nexal_protocol::models::ResponseItem;
-use nexal_protocol::openai_models::ModelsResponse;
 use nexal_protocol::protocol::AgentMessageEvent;
 use nexal_protocol::protocol::TurnStartedEvent;
 use nexal_protocol::protocol::UserMessageEvent;
 use core_test_support::PathExt;
-use core_test_support::responses::mount_models_once;
 use pretty_assertions::assert_eq;
 use std::time::Duration;
 use tempfile::tempdir;
-use wiremock::MockServer;
 
 fn user_msg(text: &str) -> ResponseItem {
     ResponseItem::Message {
@@ -242,7 +238,6 @@ async fn shutdown_all_threads_bounded_submits_shutdown_to_every_thread() {
 
     let manager = ThreadManager::with_models_provider_and_home_for_tests(
         NexalAuth::from_api_key("dummy"),
-        config.model_provider.clone(),
         config.nexal_home.clone(),
         Arc::new(nexal_exec_server::EnvironmentManager::new(
             /*exec_server_url*/ None,
@@ -271,38 +266,6 @@ async fn shutdown_all_threads_bounded_submits_shutdown_to_every_thread() {
     assert!(manager.list_thread_ids().await.is_empty());
 }
 
-#[tokio::test]
-async fn new_uses_configured_openai_provider_for_model_refresh() {
-    let server = MockServer::start().await;
-    let models_mock = mount_models_once(&server, ModelsResponse { models: vec![] }).await;
-
-    let temp_dir = tempdir().expect("tempdir");
-    let mut config = test_config();
-    config.nexal_home = temp_dir.path().join("nexal-home");
-    config.cwd = config.nexal_home.abs();
-    std::fs::create_dir_all(&config.nexal_home).expect("create nexal home");
-    config.model_catalog = None;
-    config
-        .model_providers
-        .get_mut("openai")
-        .expect("openai provider should exist")
-        .base_url = Some(server.uri());
-
-    let auth_manager =
-        AuthManager::from_auth_for_testing(NexalAuth::create_dummy_chatgpt_auth_for_testing());
-    let manager = ThreadManager::new(
-        &config,
-        auth_manager,
-        SessionSource::Exec,
-        CollaborationModesConfig::default(),
-        Arc::new(nexal_exec_server::EnvironmentManager::new(
-            /*exec_server_url*/ None,
-        )),
-    );
-
-    let _ = manager.list_models(RefreshStrategy::Online).await;
-    assert_eq!(models_mock.requests().len(), 1);
-}
 
 #[test]
 fn interrupted_fork_snapshot_appends_interrupt_boundary() {

@@ -88,7 +88,6 @@ async fn emits_warning_when_resumed_model_differs() {
 
     let thread_manager = nexal_core::test_support::thread_manager_with_models_provider(
         NexalAuth::from_api_key("test"),
-        config.model_provider.clone(),
     );
     let auth_manager =
         nexal_core::test_support::auth_manager_from_auth(NexalAuth::from_api_key("test"));

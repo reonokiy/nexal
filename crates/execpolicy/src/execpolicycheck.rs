@@ -57,7 +57,7 @@ impl ExecPolicyCheckCommand {
     }
 }
 
-pub fn format_matches_json(matched_rules: &[RuleMatch], pretty: bool) -> Result<String> {
+fn format_matches_json(matched_rules: &[RuleMatch], pretty: bool) -> Result<String> {
     let output = ExecPolicyCheckOutput {
         matched_rules,
         decision: matched_rules.iter().map(RuleMatch::decision).max(),
@@ -70,7 +70,7 @@ pub fn format_matches_json(matched_rules: &[RuleMatch], pretty: bool) -> Result<
     }
 }
 
-pub fn load_policies(policy_paths: &[PathBuf]) -> Result<Policy> {
+fn load_policies(policy_paths: &[PathBuf]) -> Result<Policy> {
     let mut parser = PolicyParser::new();
 
     for policy_path in policy_paths {

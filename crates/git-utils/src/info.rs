@@ -117,19 +117,6 @@ pub async fn collect_git_info(cwd: &Path) -> Option<GitInfo> {
     Some(git_info)
 }
 
-/// Collect fetch remotes in a multi-root-friendly format: {"origin": "https://..."}.
-pub async fn get_git_remote_urls(cwd: &Path) -> Option<BTreeMap<String, String>> {
-    let is_git_repo = run_git_command_with_timeout(&["rev-parse", "--git-dir"], cwd)
-        .await?
-        .status
-        .success();
-    if !is_git_repo {
-        return None;
-    }
-
-    get_git_remote_urls_assume_git_repo(cwd).await
-}
-
 /// Collect fetch remotes without checking whether `cwd` is in a git repo.
 pub async fn get_git_remote_urls_assume_git_repo(cwd: &Path) -> Option<BTreeMap<String, String>> {
     let output = run_git_command_with_timeout(&["remote", "-v"], cwd).await?;
@@ -349,16 +336,6 @@ async fn get_default_branch(cwd: &Path) -> Option<String> {
 
     // No remote-derived default; try common local defaults if they exist
     get_default_branch_local(cwd).await
-}
-
-/// Determine the repository's default branch name, if available.
-///
-/// This inspects remote configuration first (including the symbolic `HEAD`
-/// reference) and falls back to common local defaults such as `main` or
-/// `master`. Returns `None` when the information cannot be determined, for
-/// example when the current directory is not inside a Git repository.
-pub async fn default_branch_name(cwd: &Path) -> Option<String> {
-    get_default_branch(cwd).await
 }
 
 /// Attempt to determine the repository's default branch name from local branches.

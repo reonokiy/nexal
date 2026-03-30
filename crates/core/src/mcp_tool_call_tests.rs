@@ -527,7 +527,7 @@ async fn mcp_tool_call_request_meta_includes_turn_metadata_for_custom_server() {
     assert_eq!(
         meta,
         serde_json::json!({
-            crate::X_NEXAL_TURN_METADATA_HEADER: expected_turn_metadata,
+            crate::client::X_NEXAL_TURN_METADATA_HEADER: expected_turn_metadata,
         })
     );
 }
@@ -568,7 +568,7 @@ async fn nexal_apps_tool_call_request_meta_includes_turn_metadata_and_nexal_apps
             Some(&metadata),
         ),
         Some(serde_json::json!({
-            crate::X_NEXAL_TURN_METADATA_HEADER: expected_turn_metadata,
+            crate::client::X_NEXAL_TURN_METADATA_HEADER: expected_turn_metadata,
             MCP_TOOL_NEXAL_APPS_META_KEY: {
                 "resource_uri": "connector://calendar/tools/calendar_create_event",
                 "contains_mcp_source": true,
@@ -1536,8 +1536,6 @@ async fn approve_mode_routes_arc_ask_user_to_guardian_when_guardian_reviewer_is_
     let config = Arc::new(config);
     let models_manager = Arc::new(crate::test_support::models_manager_with_provider(
         config.nexal_home.clone(),
-        Arc::clone(&session.services.auth_manager),
-        config.model_provider.clone(),
     ));
     session.services.models_manager = models_manager;
     turn_context.config = Arc::clone(&config);

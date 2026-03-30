@@ -1,8 +1,6 @@
 use super::cache::ModelsCacheManager;
-use crate::auth::AuthManager;
 use crate::config::Config;
 use crate::error::Result as CoreResult;
-use crate::model_provider_info::ModelProviderInfo;
 use crate::models_manager::collaboration_mode_presets::CollaborationModesConfig;
 use crate::models_manager::collaboration_mode_presets::builtin_collaboration_mode_presets;
 use crate::models_manager::model_info;
@@ -12,7 +10,6 @@ use nexal_protocol::openai_models::ModelPreset;
 use nexal_protocol::openai_models::ModelsResponse;
 use std::fmt;
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::RwLock;
 use tokio::sync::TryLockError;
@@ -70,33 +67,24 @@ pub struct ModelsManager {
 }
 
 impl ModelsManager {
-    /// Construct a manager scoped to the provided `AuthManager`.
+    /// Construct a manager scoped to `nexal_home`.
     ///
-    /// Uses `nexal_home` to store cached model metadata and initializes with bundled catalog
+    /// Uses `nexal_home` to store cached model metadata and initializes with bundled catalog.
     /// When `model_catalog` is provided, it becomes the authoritative remote model list and
     /// background refreshes from `/models` are disabled.
     pub fn new(
         nexal_home: PathBuf,
-        auth_manager: Arc<AuthManager>,
         model_catalog: Option<ModelsResponse>,
         collaboration_modes_config: CollaborationModesConfig,
     ) -> Self {
-        Self::new_with_provider(
-            nexal_home,
-            auth_manager,
-            model_catalog,
-            collaboration_modes_config,
-            ModelProviderInfo::create_openai_provider(/*base_url*/ None),
-        )
+        Self::new_with_provider(nexal_home, model_catalog, collaboration_modes_config)
     }
 
     /// Construct a manager with an explicit provider used for remote model refreshes.
     pub fn new_with_provider(
         nexal_home: PathBuf,
-        _auth_manager: Arc<AuthManager>,
         model_catalog: Option<ModelsResponse>,
         collaboration_modes_config: CollaborationModesConfig,
-        _provider: ModelProviderInfo,
     ) -> Self {
         let cache_path = nexal_home.join(MODEL_CACHE_FILE);
         let cache_manager = ModelsCacheManager::new(cache_path, DEFAULT_MODEL_CACHE_TTL);
@@ -352,18 +340,12 @@ impl ModelsManager {
         Ok(self.remote_models.try_read()?.clone())
     }
 
-    /// Construct a manager with a specific provider for testing.
-    pub(crate) fn with_provider_for_tests(
-        nexal_home: PathBuf,
-        auth_manager: Arc<AuthManager>,
-        provider: ModelProviderInfo,
-    ) -> Self {
+    /// Construct a manager for testing.
+    pub(crate) fn with_provider_for_tests(nexal_home: PathBuf) -> Self {
         Self::new_with_provider(
             nexal_home,
-            auth_manager,
             /*model_catalog*/ None,
             CollaborationModesConfig::default(),
-            provider,
         )
     }
 

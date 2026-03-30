@@ -28,7 +28,7 @@ const MAX_STREAM_MAX_RETRIES: u64 = 100;
 const MAX_REQUEST_MAX_RETRIES: u64 = 100;
 
 const OPENAI_PROVIDER_NAME: &str = "openai";
-pub const OPENAI_PROVIDER_ID: &str = "openai";
+pub(crate) const OPENAI_PROVIDER_ID: &str = "openai";
 pub(crate) const LEGACY_OLLAMA_CHAT_PROVIDER_ID: &str = "ollama-chat";
 pub(crate) const OLLAMA_CHAT_PROVIDER_REMOVED_ERROR: &str = "`ollama-chat` is no longer supported.\nHow to fix: replace `ollama-chat` with `ollama` in `model_provider`, `oss_provider`, or `--local-provider`.\nMore info: https://github.com/openai/nexal/discussions/7782";
 
@@ -121,13 +121,6 @@ pub struct ModelProviderInfo {
     /// Maximum time (in milliseconds) to wait for a websocket connection attempt before treating
     /// it as failed.
     pub websocket_connect_timeout_ms: Option<u64>,
-
-    /// Does this provider require an OpenAI API Key or ChatGPT login token? If true,
-    /// user is presented with login screen on first run, and login preference and token/key
-    /// are stored in auth.json. If false (which is the default), login screen is skipped,
-    /// and API key (if needed) comes from the "env_key" environment variable.
-    #[serde(default)]
-    pub requires_openai_auth: bool,
 
     /// Whether this provider supports the Responses API WebSocket transport.
     #[serde(default)]
@@ -296,14 +289,9 @@ impl ModelProviderInfo {
             stream_max_retries: None,
             stream_idle_timeout_ms: None,
             websocket_connect_timeout_ms: None,
-            requires_openai_auth: false,
             supports_websockets: true,
             thinking_mode: false,
         }
-    }
-
-    pub fn is_openai(&self) -> bool {
-        self.name == OPENAI_PROVIDER_NAME
     }
 }
 
@@ -314,18 +302,12 @@ pub const LMSTUDIO_OSS_PROVIDER_ID: &str = "lmstudio";
 pub const OLLAMA_OSS_PROVIDER_ID: &str = "ollama";
 
 /// Built-in default provider list.
-pub fn built_in_model_providers(
-    openai_base_url: Option<String>,
-) -> HashMap<String, ModelProviderInfo> {
-    use ModelProviderInfo as P;
-    let openai_provider = P::create_openai_provider(openai_base_url);
-
+pub(crate) fn built_in_model_providers() -> HashMap<String, ModelProviderInfo> {
     // We do not want to be in the business of adjucating which third-party
-    // providers are bundled with Nexal CLI, so we only include the OpenAI and
-    // open source ("oss") providers by default. Users are encouraged to add to
+    // providers are bundled with Nexal CLI, so we only include the open source
+    // ("oss") providers by default. Users are encouraged to add to
     // `model_providers` in config.toml to add their own providers.
     [
-        (OPENAI_PROVIDER_ID, openai_provider),
         (
             OLLAMA_OSS_PROVIDER_ID,
             create_oss_provider(DEFAULT_OLLAMA_PORT, WireApi::ChatCompletions),
@@ -340,7 +322,7 @@ pub fn built_in_model_providers(
     .collect()
 }
 
-pub fn create_oss_provider(default_provider_port: u16, wire_api: WireApi) -> ModelProviderInfo {
+pub(crate) fn create_oss_provider(default_provider_port: u16, wire_api: WireApi) -> ModelProviderInfo {
     // These NEXAL_OSS_ environment variables are experimental: we may
     // switch to reading values from config.toml instead.
     let default_nexal_oss_base_url = format!(
@@ -374,7 +356,6 @@ pub fn create_oss_provider_with_base_url(base_url: &str, wire_api: WireApi) -> M
         stream_max_retries: None,
         stream_idle_timeout_ms: None,
         websocket_connect_timeout_ms: None,
-        requires_openai_auth: false,
         supports_websockets: false,
         thinking_mode: false,
     }

@@ -48,7 +48,6 @@ const DEFAULT_READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs
 #[derive(Default)]
 struct CreateConfigTomlParams {
     forced_method: Option<String>,
-    requires_openai_auth: Option<bool>,
     base_url: Option<String>,
 }
 
@@ -61,11 +60,6 @@ fn create_config_toml(nexal_home: &Path, params: CreateConfigTomlParams) -> std:
         format!("forced_login_method = \"{method}\"\n")
     } else {
         String::new()
-    };
-    let requires_line = match params.requires_openai_auth {
-        Some(true) => "requires_openai_auth = true\n".to_string(),
-        Some(false) => String::new(),
-        None => String::new(),
     };
     let contents = format!(
         r#"
@@ -84,7 +78,6 @@ base_url = "{base_url}"
 wire_api = "responses"
 request_max_retries = 0
 stream_max_retries = 0
-{requires_line}
 "#
     );
     std::fs::write(config_toml, contents)
@@ -155,7 +148,6 @@ async fn set_auth_token_updates_account_and_notifies() -> Result<()> {
     create_config_toml(
         nexal_home.path(),
         CreateConfigTomlParams {
-            requires_openai_auth: Some(true),
             base_url: Some(format!("{}/v1", mock_server.uri())),
             ..Default::default()
         },
@@ -196,7 +188,7 @@ async fn set_auth_token_updates_account_and_notifies() -> Result<()> {
     let ServerNotification::AccountUpdated(payload) = parsed else {
         bail!("unexpected notification: {parsed:?}");
     };
-    assert_eq!(payload.auth_mode, Some(AuthMode::ChatgptAuthTokens));
+    assert_eq!(payload.auth_mode, Some(AuthMode::ApiKey));
     assert_eq!(payload.plan_type, Some(AccountPlanType::Pro));
 
     let get_id = mcp
@@ -217,7 +209,6 @@ async fn set_auth_token_updates_account_and_notifies() -> Result<()> {
                 email: "embedded@example.com".to_string(),
                 plan_type: AccountPlanType::Pro,
             }),
-            requires_openai_auth: true,
         }
     );
 
@@ -230,7 +221,6 @@ async fn account_read_refresh_token_is_noop_in_external_mode() -> Result<()> {
     create_config_toml(
         nexal_home.path(),
         CreateConfigTomlParams {
-            requires_openai_auth: Some(true),
             ..Default::default()
         },
     )?;
@@ -284,7 +274,6 @@ async fn account_read_refresh_token_is_noop_in_external_mode() -> Result<()> {
                 email: "embedded@example.com".to_string(),
                 plan_type: AccountPlanType::Pro,
             }),
-            requires_openai_auth: true,
         }
     );
 
@@ -334,7 +323,6 @@ async fn external_auth_refreshes_on_unauthorized() -> Result<()> {
     create_config_toml(
         nexal_home.path(),
         CreateConfigTomlParams {
-            requires_openai_auth: Some(true),
             base_url: Some(format!("{}/v1", mock_server.uri())),
             ..Default::default()
         },
@@ -454,7 +442,6 @@ async fn external_auth_refresh_error_fails_turn() -> Result<()> {
     create_config_toml(
         nexal_home.path(),
         CreateConfigTomlParams {
-            requires_openai_auth: Some(true),
             base_url: Some(format!("{}/v1", mock_server.uri())),
             ..Default::default()
         },
@@ -569,7 +556,6 @@ async fn external_auth_refresh_mismatched_workspace_fails_turn() -> Result<()> {
     create_config_toml(
         nexal_home.path(),
         CreateConfigTomlParams {
-            requires_openai_auth: Some(true),
             base_url: Some(format!("{}/v1", mock_server.uri())),
             ..Default::default()
         },
@@ -690,7 +676,6 @@ async fn external_auth_refresh_invalid_access_token_fails_turn() -> Result<()> {
     create_config_toml(
         nexal_home.path(),
         CreateConfigTomlParams {
-            requires_openai_auth: Some(true),
             base_url: Some(format!("{}/v1", mock_server.uri())),
             ..Default::default()
         },
@@ -1075,7 +1060,6 @@ async fn get_account_no_auth() -> Result<()> {
     create_config_toml(
         nexal_home.path(),
         CreateConfigTomlParams {
-            requires_openai_auth: Some(true),
             ..Default::default()
         },
     )?;
@@ -1096,7 +1080,6 @@ async fn get_account_no_auth() -> Result<()> {
     let account: GetAccountResponse = to_response(resp)?;
 
     assert_eq!(account.account, None, "expected no account");
-    assert_eq!(account.requires_openai_auth, true);
     Ok(())
 }
 
@@ -1106,7 +1089,6 @@ async fn get_account_with_api_key() -> Result<()> {
     create_config_toml(
         nexal_home.path(),
         CreateConfigTomlParams {
-            requires_openai_auth: Some(true),
             ..Default::default()
         },
     )?;
@@ -1138,7 +1120,6 @@ async fn get_account_with_api_key() -> Result<()> {
 
     let expected = GetAccountResponse {
         account: Some(Account::ApiKey {}),
-        requires_openai_auth: true,
     };
     assert_eq!(received, expected);
     Ok(())
@@ -1150,7 +1131,6 @@ async fn get_account_when_auth_not_required() -> Result<()> {
     create_config_toml(
         nexal_home.path(),
         CreateConfigTomlParams {
-            requires_openai_auth: Some(false),
             ..Default::default()
         },
     )?;
@@ -1172,7 +1152,6 @@ async fn get_account_when_auth_not_required() -> Result<()> {
 
     let expected = GetAccountResponse {
         account: None,
-        requires_openai_auth: false,
     };
     assert_eq!(received, expected);
     Ok(())
@@ -1184,7 +1163,6 @@ async fn get_account_with_chatgpt() -> Result<()> {
     create_config_toml(
         nexal_home.path(),
         CreateConfigTomlParams {
-            requires_openai_auth: Some(true),
             ..Default::default()
         },
     )?;
@@ -1216,7 +1194,6 @@ async fn get_account_with_chatgpt() -> Result<()> {
             email: "user@example.com".to_string(),
             plan_type: AccountPlanType::Pro,
         }),
-        requires_openai_auth: true,
     };
     assert_eq!(received, expected);
     Ok(())
@@ -1228,7 +1205,6 @@ async fn get_account_with_chatgpt_missing_plan_claim_returns_unknown() -> Result
     create_config_toml(
         nexal_home.path(),
         CreateConfigTomlParams {
-            requires_openai_auth: Some(true),
             ..Default::default()
         },
     )?;
@@ -1258,7 +1234,6 @@ async fn get_account_with_chatgpt_missing_plan_claim_returns_unknown() -> Result
             email: "user@example.com".to_string(),
             plan_type: AccountPlanType::Unknown,
         }),
-        requires_openai_auth: true,
     };
     assert_eq!(received, expected);
     Ok(())

@@ -66,8 +66,6 @@ async fn guardian_test_session_and_turn_with_base_url(
     let config = Arc::new(config);
     let models_manager = Arc::new(test_support::models_manager_with_provider(
         config.nexal_home.clone(),
-        Arc::clone(&session.services.auth_manager),
-        config.model_provider.clone(),
     ));
     session.services.models_manager = models_manager;
     turn.config = Arc::clone(&config);
@@ -518,8 +516,6 @@ async fn guardian_review_request_layout_matches_model_visible_request_snapshot()
     let config = Arc::new(config);
     let models_manager = Arc::new(test_support::models_manager_with_provider(
         config.nexal_home.clone(),
-        Arc::clone(&session.services.auth_manager),
-        config.model_provider.clone(),
     ));
     session.services.models_manager = models_manager;
     turn.config = Arc::clone(&config);
@@ -745,8 +741,6 @@ async fn guardian_review_surfaces_responses_api_errors_in_rejection_reason() -> 
     let config = Arc::new(config);
     let models_manager = Arc::new(test_support::models_manager_with_provider(
         config.nexal_home.clone(),
-        Arc::clone(&session.services.auth_manager),
-        config.model_provider.clone(),
     ));
     Arc::get_mut(&mut session)
         .expect("session should be uniquely owned")

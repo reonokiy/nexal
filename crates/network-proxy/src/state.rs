@@ -6,7 +6,6 @@ use crate::policy::compile_allowlist_globset;
 use crate::policy::compile_denylist_globset;
 use crate::policy::is_global_wildcard_domain_pattern;
 use crate::runtime::ConfigState;
-use serde::Deserialize;
 use std::collections::HashSet;
 use std::sync::Arc;
 
@@ -29,29 +28,6 @@ pub struct NetworkProxyConstraints {
     pub denied_domains: Option<Vec<String>>,
     pub denylist_expansion_enabled: Option<bool>,
     pub allow_unix_sockets: Option<Vec<String>>,
-    pub allow_local_binding: Option<bool>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct PartialNetworkProxyConfig {
-    #[serde(default)]
-    pub network: PartialNetworkConfig,
-}
-
-#[derive(Debug, Default, Clone, Deserialize)]
-pub struct PartialNetworkConfig {
-    pub enabled: Option<bool>,
-    pub mode: Option<NetworkMode>,
-    pub allow_upstream_proxy: Option<bool>,
-    pub dangerously_allow_non_loopback_proxy: Option<bool>,
-    pub dangerously_allow_all_unix_sockets: Option<bool>,
-    #[serde(default)]
-    pub allowed_domains: Option<Vec<String>>,
-    #[serde(default)]
-    pub denied_domains: Option<Vec<String>>,
-    #[serde(default)]
-    pub allow_unix_sockets: Option<Vec<String>>,
-    #[serde(default)]
     pub allow_local_binding: Option<bool>,
 }
 

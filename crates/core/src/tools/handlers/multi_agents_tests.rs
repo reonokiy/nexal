@@ -2,7 +2,6 @@ use super::*;
 use crate::AuthManager;
 use crate::NexalAuth;
 use crate::ThreadManager;
-use crate::built_in_model_providers;
 use crate::nexal::make_session_and_context;
 use crate::config::DEFAULT_AGENT_MAX_DEPTH;
 use crate::config::types::ShellEnvironmentPolicy;
@@ -80,10 +79,7 @@ fn parse_agent_id(id: &str) -> ThreadId {
 }
 
 fn thread_manager() -> ThreadManager {
-    ThreadManager::with_models_provider_for_tests(
-        NexalAuth::from_api_key("dummy"),
-        built_in_model_providers(/* openai_base_url */ None)["openai"].clone(),
-    )
+    ThreadManager::with_models_provider_for_tests(NexalAuth::from_api_key("dummy"))
 }
 
 fn history_contains_inter_agent_communication(
@@ -247,7 +243,7 @@ async fn spawn_agent_uses_explorer_role_and_preserves_approval_policy() {
     let manager = thread_manager();
     session.services.agent_control = manager.agent_control();
     let mut config = (*turn.config).clone();
-    let provider = built_in_model_providers(/* openai_base_url */ None)["ollama"].clone();
+    let provider = crate::model_provider_info::create_oss_provider_with_base_url("http://localhost:11434/v1", crate::WireApi::ChatCompletions);
     config.model_provider_id = "ollama".to_string();
     config.model_provider = provider.clone();
     config

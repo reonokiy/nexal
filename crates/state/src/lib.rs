@@ -54,8 +54,8 @@ pub use runtime::state_db_path;
 /// Environment variable for overriding the SQLite state database home directory.
 pub const SQLITE_HOME_ENV: &str = "NEXAL_SQLITE_HOME";
 
-pub const LOGS_DB_FILENAME: &str = "logs";
-pub const LOGS_DB_VERSION: u32 = 1;
-pub const STATE_DB_FILENAME: &str = "state";
-pub const STATE_DB_VERSION: u32 = 5;
+pub(crate) const LOGS_DB_FILENAME: &str = "logs";
+pub(crate) const LOGS_DB_VERSION: u32 = 1;
+pub(crate) const STATE_DB_FILENAME: &str = "state";
+pub(crate) const STATE_DB_VERSION: u32 = 5;
 

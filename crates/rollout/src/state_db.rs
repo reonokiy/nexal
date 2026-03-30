@@ -136,7 +136,7 @@ fn cursor_to_anchor(cursor: Option<&Cursor>) -> Option<nexal_rollout_state::Anch
     Some(nexal_rollout_state::Anchor { ts, id })
 }
 
-pub fn normalize_cwd_for_state_db(cwd: &Path) -> PathBuf {
+pub(crate) fn normalize_cwd_for_state_db(cwd: &Path) -> PathBuf {
     normalize_for_path_comparison(cwd).unwrap_or_else(|_| cwd.to_path_buf())
 }
 

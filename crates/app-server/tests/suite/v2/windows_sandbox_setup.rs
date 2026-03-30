@@ -27,7 +27,6 @@ async fn windows_sandbox_setup_start_emits_completion_notification() -> Result<(
         &server.uri(),
         &BTreeMap::new(),
         500_000,
-        Some(false),
         "mock_provider",
         "compact prompt",
     )?;

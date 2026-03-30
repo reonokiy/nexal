@@ -11,7 +11,7 @@ pub enum EventPersistenceMode {
 
 /// Whether a rollout `item` should be persisted in rollout files for the
 /// provided persistence `mode`.
-pub fn is_persisted_response_item(item: &RolloutItem, mode: EventPersistenceMode) -> bool {
+pub(crate) fn is_persisted_response_item(item: &RolloutItem, mode: EventPersistenceMode) -> bool {
     match item {
         RolloutItem::ResponseItem(item) => should_persist_response_item(item),
         RolloutItem::EventMsg(ev) => should_persist_event_msg(ev, mode),
@@ -24,7 +24,7 @@ pub fn is_persisted_response_item(item: &RolloutItem, mode: EventPersistenceMode
 
 /// Whether a `ResponseItem` should be persisted in rollout files.
 #[inline]
-pub fn should_persist_response_item(item: &ResponseItem) -> bool {
+pub(crate) fn should_persist_response_item(item: &ResponseItem) -> bool {
     match item {
         ResponseItem::Message { .. }
         | ResponseItem::Reasoning { .. }
@@ -67,7 +67,7 @@ pub fn should_persist_response_item_for_memories(item: &ResponseItem) -> bool {
 /// Whether an `EventMsg` should be persisted in rollout files for the
 /// provided persistence `mode`.
 #[inline]
-pub fn should_persist_event_msg(ev: &EventMsg, mode: EventPersistenceMode) -> bool {
+pub(crate) fn should_persist_event_msg(ev: &EventMsg, mode: EventPersistenceMode) -> bool {
     match mode {
         EventPersistenceMode::Limited => should_persist_event_msg_limited(ev),
         EventPersistenceMode::Extended => should_persist_event_msg_extended(ev),

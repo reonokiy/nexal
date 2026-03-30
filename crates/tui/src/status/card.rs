@@ -547,10 +547,6 @@ fn format_model_provider(config: &Config) -> Option<String> {
         name
     };
     let base_url = provider.base_url.as_deref().and_then(sanitize_base_url);
-    let is_default_openai = provider.is_openai() && base_url.is_none();
-    if is_default_openai {
-        return None;
-    }
 
     Some(match base_url {
         Some(base_url) => format!("{provider_name} - {base_url}"),

@@ -17,9 +17,9 @@ const SESSION_INDEX_FILE: &str = "session_index.jsonl";
 const READ_CHUNK_SIZE: usize = 8192;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct SessionIndexEntry {
-    pub id: ThreadId,
-    pub thread_name: String,
+pub(crate) struct SessionIndexEntry {
+    pub(crate) id: ThreadId,
+    pub(crate) thread_name: String,
     pub updated_at: String,
 }
 

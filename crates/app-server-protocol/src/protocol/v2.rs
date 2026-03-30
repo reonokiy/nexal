@@ -634,7 +634,6 @@ pub struct ProfileV2 {
     pub model_verbosity: Option<Verbosity>,
     pub web_search: Option<WebSearchMode>,
     pub tools: Option<ToolsV2>,
-    pub chatgpt_base_url: Option<String>,
     #[serde(default, flatten)]
     pub additional: HashMap<String, JsonValue>,
 }
@@ -1743,7 +1742,6 @@ pub struct GetAccountParams {
 #[ts(export_to = "v2/")]
 pub struct GetAccountResponse {
     pub account: Option<Account>,
-    pub requires_openai_auth: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default, JsonSchema, TS)]
@@ -7042,7 +7040,6 @@ mod tests {
             model_verbosity: None,
             web_search: None,
             tools: None,
-            chatgpt_base_url: None,
             additional: HashMap::new(),
         });
 
@@ -7154,7 +7151,6 @@ mod tests {
                     model_verbosity: None,
                     web_search: None,
                     tools: None,
-                    chatgpt_base_url: None,
                     additional: HashMap::new(),
                 },
             )]),
@@ -7202,7 +7198,6 @@ mod tests {
                     model_verbosity: None,
                     web_search: None,
                     tools: None,
-                    chatgpt_base_url: None,
                     additional: HashMap::new(),
                 },
             )]),

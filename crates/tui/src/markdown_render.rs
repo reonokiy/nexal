@@ -86,11 +86,13 @@ impl IndentContext {
     }
 }
 
+#[cfg(test)]
 pub fn render_markdown_text(input: &str) -> Text<'static> {
     render_markdown_text_with_width(input, /*width*/ None)
 }
 
 /// Render markdown using the current process working directory for local file-link display.
+#[cfg(test)]
 pub(crate) fn render_markdown_text_with_width(input: &str, width: Option<usize>) -> Text<'static> {
     let cwd = std::env::current_dir().ok();
     render_markdown_text_with_width_and_cwd(input, width, cwd.as_deref())

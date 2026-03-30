@@ -1,7 +1,6 @@
 #![allow(clippy::expect_used)]
 use nexal_core::NexalAuth;
 use nexal_core::ModelProviderInfo;
-use nexal_core::built_in_model_providers;
 use nexal_core::compact::SUMMARIZATION_PROMPT;
 use nexal_core::compact::SUMMARY_PREFIX;
 use nexal_core::config::Config;
@@ -94,7 +93,7 @@ fn json_fragment(text: &str) -> String {
 }
 
 fn non_openai_model_provider(server: &MockServer) -> ModelProviderInfo {
-    let mut provider = built_in_model_providers(/* openai_base_url */ None)["openai"].clone();
+    let mut provider = ModelProviderInfo::create_openai_provider(None);
     provider.name = "OpenAI (test)".into();
     provider.base_url = Some(format!("{}/v1", server.uri()));
     provider.supports_websockets = false;

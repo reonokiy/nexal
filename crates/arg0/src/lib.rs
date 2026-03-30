@@ -242,7 +242,7 @@ where
 ///
 /// IMPORTANT: This function modifies the PATH environment variable, so it MUST
 /// be called before multiple threads are spawned.
-pub fn prepend_path_entry_for_nexal_aliases() -> std::io::Result<Arg0PathEntryGuard> {
+fn prepend_path_entry_for_nexal_aliases() -> std::io::Result<Arg0PathEntryGuard> {
     let nexal_home = find_nexal_home()?;
     #[cfg(not(debug_assertions))]
     {

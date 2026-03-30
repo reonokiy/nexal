@@ -1,14 +1,10 @@
 use super::*;
-use crate::NexalAuth;
-use crate::auth::AuthCredentialsStoreMode;
 use crate::config::ConfigBuilder;
-use crate::model_provider_info::WireApi;
 use chrono::Utc;
 use nexal_protocol::openai_models::ModelsResponse;
 use core_test_support::responses::mount_models_once;
 use pretty_assertions::assert_eq;
 use serde_json::json;
-use std::sync::Arc;
 use tempfile::tempdir;
 use wiremock::MockServer;
 
@@ -58,27 +54,6 @@ fn assert_models_contain(actual: &[ModelInfo], expected: &[ModelInfo]) {
     }
 }
 
-fn provider_for(base_url: String) -> ModelProviderInfo {
-    ModelProviderInfo {
-        name: "mock".into(),
-        base_url: Some(base_url),
-        env_key: None,
-        env_key_instructions: None,
-        experimental_bearer_token: None,
-        wire_api: WireApi::Responses,
-        query_params: None,
-        http_headers: None,
-        env_http_headers: None,
-        request_max_retries: Some(0),
-        stream_max_retries: Some(0),
-        stream_idle_timeout_ms: Some(5_000),
-        websocket_connect_timeout_ms: None,
-        requires_openai_auth: false,
-        supports_websockets: false,
-        thinking_mode: false,
-    }
-}
-
 
 #[tokio::test]
 async fn get_model_info_tracks_fallback_usage() {
@@ -88,10 +63,8 @@ async fn get_model_info_tracks_fallback_usage() {
         .build()
         .await
         .expect("load default test config");
-    let auth_manager = AuthManager::from_auth_for_testing(NexalAuth::from_api_key("Test API Key"));
     let manager = ModelsManager::new(
         nexal_home.path().to_path_buf(),
-        auth_manager,
         None,
         CollaborationModesConfig::default(),
     );
@@ -125,10 +98,8 @@ async fn get_model_info_uses_custom_catalog() {
     let mut overlay = remote_model("gpt-overlay", "Overlay", 0);
     overlay.supports_image_detail_original = true;
 
-    let auth_manager = AuthManager::from_auth_for_testing(NexalAuth::from_api_key("Test API Key"));
     let manager = ModelsManager::new(
         nexal_home.path().to_path_buf(),
-        auth_manager,
         Some(ModelsResponse {
             models: vec![overlay],
         }),
@@ -157,10 +128,8 @@ async fn get_model_info_matches_namespaced_suffix() {
         .expect("load default test config");
     let mut remote = remote_model("gpt-image", "Image", 0);
     remote.supports_image_detail_original = true;
-    let auth_manager = AuthManager::from_auth_for_testing(NexalAuth::from_api_key("Test API Key"));
     let manager = ModelsManager::new(
         nexal_home.path().to_path_buf(),
-        auth_manager,
         Some(ModelsResponse {
             models: vec![remote],
         }),
@@ -183,10 +152,8 @@ async fn get_model_info_rejects_multi_segment_namespace_suffix_matching() {
         .build()
         .await
         .expect("load default test config");
-    let auth_manager = AuthManager::from_auth_for_testing(NexalAuth::from_api_key("Test API Key"));
     let manager = ModelsManager::new(
         nexal_home.path().to_path_buf(),
-        auth_manager,
         None,
         CollaborationModesConfig::default(),
     );
@@ -221,14 +188,7 @@ async fn refresh_available_models_sorts_by_priority() {
     .await;
 
     let nexal_home = tempdir().expect("temp dir");
-    let auth_manager =
-        AuthManager::from_auth_for_testing(NexalAuth::create_dummy_chatgpt_auth_for_testing());
-    let provider = provider_for(server.uri());
-    let manager = ModelsManager::with_provider_for_tests(
-        nexal_home.path().to_path_buf(),
-        auth_manager,
-        provider,
-    );
+    let manager = ModelsManager::with_provider_for_tests(nexal_home.path().to_path_buf());
 
     manager
         .refresh_available_models(RefreshStrategy::OnlineIfUncached)
@@ -270,14 +230,7 @@ async fn refresh_available_models_uses_cache_when_fresh() {
     .await;
 
     let nexal_home = tempdir().expect("temp dir");
-    let auth_manager =
-        AuthManager::from_auth_for_testing(NexalAuth::create_dummy_chatgpt_auth_for_testing());
-    let provider = provider_for(server.uri());
-    let manager = ModelsManager::with_provider_for_tests(
-        nexal_home.path().to_path_buf(),
-        auth_manager,
-        provider,
-    );
+    let manager = ModelsManager::with_provider_for_tests(nexal_home.path().to_path_buf());
 
     manager
         .refresh_available_models(RefreshStrategy::OnlineIfUncached)
@@ -311,14 +264,7 @@ async fn refresh_available_models_refetches_when_cache_stale() {
     .await;
 
     let nexal_home = tempdir().expect("temp dir");
-    let auth_manager =
-        AuthManager::from_auth_for_testing(NexalAuth::create_dummy_chatgpt_auth_for_testing());
-    let provider = provider_for(server.uri());
-    let manager = ModelsManager::with_provider_for_tests(
-        nexal_home.path().to_path_buf(),
-        auth_manager,
-        provider,
-    );
+    let manager = ModelsManager::with_provider_for_tests(nexal_home.path().to_path_buf());
 
     manager
         .refresh_available_models(RefreshStrategy::OnlineIfUncached)
@@ -374,14 +320,7 @@ async fn refresh_available_models_refetches_when_version_mismatch() {
     .await;
 
     let nexal_home = tempdir().expect("temp dir");
-    let auth_manager =
-        AuthManager::from_auth_for_testing(NexalAuth::create_dummy_chatgpt_auth_for_testing());
-    let provider = provider_for(server.uri());
-    let manager = ModelsManager::with_provider_for_tests(
-        nexal_home.path().to_path_buf(),
-        auth_manager,
-        provider,
-    );
+    let manager = ModelsManager::with_provider_for_tests(nexal_home.path().to_path_buf());
 
     manager
         .refresh_available_models(RefreshStrategy::OnlineIfUncached)
@@ -437,14 +376,7 @@ async fn refresh_available_models_drops_removed_remote_models() {
     .await;
 
     let nexal_home = tempdir().expect("temp dir");
-    let auth_manager =
-        AuthManager::from_auth_for_testing(NexalAuth::create_dummy_chatgpt_auth_for_testing());
-    let provider = provider_for(server.uri());
-    let mut manager = ModelsManager::with_provider_for_tests(
-        nexal_home.path().to_path_buf(),
-        auth_manager,
-        provider,
-    );
+    let mut manager = ModelsManager::with_provider_for_tests(nexal_home.path().to_path_buf());
     manager.cache_manager.set_ttl(Duration::ZERO);
 
     manager
@@ -503,17 +435,7 @@ async fn refresh_available_models_skips_network_without_chatgpt_auth() {
     .await;
 
     let nexal_home = tempdir().expect("temp dir");
-    let auth_manager = Arc::new(AuthManager::new(
-        nexal_home.path().to_path_buf(),
-        false,
-        AuthCredentialsStoreMode::File,
-    ));
-    let provider = provider_for(server.uri());
-    let manager = ModelsManager::with_provider_for_tests(
-        nexal_home.path().to_path_buf(),
-        auth_manager,
-        provider,
-    );
+    let manager = ModelsManager::with_provider_for_tests(nexal_home.path().to_path_buf());
 
     manager
         .refresh_available_models(RefreshStrategy::Online)
@@ -536,13 +458,7 @@ async fn refresh_available_models_skips_network_without_chatgpt_auth() {
 #[test]
 fn build_available_models_picks_default_after_hiding_hidden_models() {
     let nexal_home = tempdir().expect("temp dir");
-    let auth_manager = AuthManager::from_auth_for_testing(NexalAuth::from_api_key("Test API Key"));
-    let provider = provider_for("http://example.test".to_string());
-    let manager = ModelsManager::with_provider_for_tests(
-        nexal_home.path().to_path_buf(),
-        auth_manager,
-        provider,
-    );
+    let manager = ModelsManager::with_provider_for_tests(nexal_home.path().to_path_buf());
 
     let hidden_model = remote_model_with_visibility("hidden", "Hidden", 0, "hide");
     let visible_model = remote_model_with_visibility("visible", "Visible", 1, "list");

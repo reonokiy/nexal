@@ -6,7 +6,7 @@
 #![deny(clippy::print_stdout, clippy::print_stderr)]
 #![recursion_limit = "256"]
 
-pub mod api_bridge;
+mod api_bridge;
 mod apply_patch;
 mod apps;
 mod arc_monitor;
@@ -45,18 +45,14 @@ mod flags;
 mod git_info_tests;
 mod guardian;
 mod hook_runtime;
-pub mod instructions;
-pub mod landlock;
+mod instructions;
 pub mod mcp;
 mod mcp_connection_manager;
 mod mcp_tool_approval_templates;
 pub mod models_manager;
 mod network_policy_decision;
-pub mod network_proxy_loader;
 mod original_image_detail;
-pub use mcp_connection_manager::MCP_SANDBOX_STATE_CAPABILITY;
-pub use mcp_connection_manager::MCP_SANDBOX_STATE_METHOD;
-pub use mcp_connection_manager::SandboxState;
+pub(crate) use mcp_connection_manager::SandboxState;
 pub use text_encoding::bytes_to_string_smart;
 mod mcp_tool_call;
 mod memories;
@@ -112,9 +108,7 @@ pub use model_provider_info::DEFAULT_OLLAMA_PORT;
 pub use model_provider_info::LMSTUDIO_OSS_PROVIDER_ID;
 pub use model_provider_info::ModelProviderInfo;
 pub use model_provider_info::OLLAMA_OSS_PROVIDER_ID;
-pub use model_provider_info::OPENAI_PROVIDER_ID;
 pub use model_provider_info::WireApi;
-pub use model_provider_info::built_in_model_providers;
 pub use model_provider_info::create_oss_provider_with_base_url;
 mod event_mapping;
 mod response_debug_context;
@@ -142,13 +136,12 @@ pub(crate) mod safety;
 pub mod seatbelt;
 mod session_rollout_init_error;
 pub mod shell;
-pub mod shell_snapshot;
+mod shell_snapshot;
 pub mod spawn;
-pub mod state_db_bridge;
 pub use nexal_rollout::state_db;
 mod thread_rollout_truncation;
 mod tools;
-pub mod turn_diff_tracker;
+mod turn_diff_tracker;
 mod turn_metadata;
 mod turn_timing;
 pub use rollout::ARCHIVED_SESSIONS_SUBDIR;
@@ -186,7 +179,6 @@ pub(crate) use nexal_shell_command::powershell;
 
 pub use client::ModelClient;
 pub use client::ModelClientSession;
-pub use client::X_NEXAL_TURN_METADATA_HEADER;
 pub use client_common::Prompt;
 pub use client_common::REVIEW_PROMPT;
 pub use client_common::ResponseEvent;
@@ -200,9 +192,7 @@ pub use exec_policy::format_exec_policy_error_with_source;
 pub use exec_policy::load_exec_policy;
 pub use file_watcher::FileWatcherEvent;
 pub use tools::spec::parse_tool_input_schema;
-pub use turn_metadata::build_turn_metadata_header;
 pub mod compact;
-pub mod memory_trace;
 
 /// Convert an [`AuthMode`](nexal_app_server_protocol::AuthMode) to a
 /// [`TelemetryAuthMode`](nexal_protocol::telemetry_types::TelemetryAuthMode).
@@ -212,7 +202,5 @@ pub fn telemetry_auth_mode(
     use nexal_protocol::telemetry_types::TelemetryAuthMode;
     match mode {
         nexal_app_server_protocol::AuthMode::ApiKey => TelemetryAuthMode::ApiKey,
-        nexal_app_server_protocol::AuthMode::Chatgpt
-        | nexal_app_server_protocol::AuthMode::ChatgptAuthTokens => TelemetryAuthMode::Chatgpt,
     }
 }

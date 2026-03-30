@@ -33,7 +33,6 @@ async fn emits_warning_when_unstable_features_enabled_via_config() {
 
     let thread_manager = nexal_core::test_support::thread_manager_with_models_provider(
         NexalAuth::from_api_key("test"),
-        config.model_provider.clone(),
     );
     let auth_manager =
         nexal_core::test_support::auth_manager_from_auth(NexalAuth::from_api_key("test"));
@@ -74,7 +73,6 @@ async fn suppresses_warning_when_configured() {
 
     let thread_manager = nexal_core::test_support::thread_manager_with_models_provider(
         NexalAuth::from_api_key("test"),
-        config.model_provider.clone(),
     );
     let auth_manager =
         nexal_core::test_support::auth_manager_from_auth(NexalAuth::from_api_key("test"));

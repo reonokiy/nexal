@@ -482,7 +482,6 @@ mod phase2 {
 
             let manager = ThreadManager::with_models_provider_and_home_for_tests(
                 NexalAuth::from_api_key("dummy"),
-                config.model_provider.clone(),
                 config.nexal_home.clone(),
                 std::sync::Arc::new(nexal_exec_server::EnvironmentManager::new(
                     /*exec_server_url*/ None,

@@ -1547,7 +1547,6 @@ fn websocket_provider_with_connect_timeout(
         stream_max_retries: Some(0),
         stream_idle_timeout_ms: Some(5_000),
         websocket_connect_timeout_ms,
-        requires_openai_auth: false,
         supports_websockets: true,
         thinking_mode: false,
     }

@@ -7,6 +7,6 @@ mod channel;
 mod debounce;
 mod message;
 
-pub use channel::{BoxSendFut, Channel, MessageCallback};
+pub use channel::{Channel, MessageCallback};
 pub use debounce::{DebounceConfig, MessageHandler, SessionRunner};
 pub use message::{ImageAttachment, IncomingMessage};

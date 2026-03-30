@@ -8,7 +8,6 @@ use app::App;
 pub use app::AppExitInfo;
 pub use app::ExitReason;
 use nexal_core::AuthManager;
-use nexal_core::NexalAuth;
 use nexal_core::INTERACTIVE_SESSION_SOURCES;
 use nexal_core::RolloutRecorder;
 use nexal_core::ThreadSortKey;
@@ -259,9 +258,6 @@ use crate::tui::Tui;
 pub use app_server_tui_dispatch::should_use_app_server_tui;
 pub use cli::Cli;
 use nexal_arg0::Arg0DispatchPaths;
-pub use markdown_render::render_markdown_text;
-pub use public_widgets::composer_input::ComposerAction;
-pub use public_widgets::composer_input::ComposerInput;
 // (tests access modules directly within the crate)
 
 pub async fn run_main(
@@ -1168,22 +1164,8 @@ pub enum LoginStatus {
     NotAuthenticated,
 }
 
-fn get_login_status(config: &Config) -> LoginStatus {
-    if config.model_provider.requires_openai_auth {
-        // Reading the OpenAI API key is an async operation because it may need
-        // to refresh the token. Block on it.
-        let nexal_home = config.nexal_home.clone();
-        match NexalAuth::from_auth_storage(&nexal_home, config.cli_auth_credentials_store_mode) {
-            Ok(Some(auth)) => LoginStatus::AuthMode(auth.auth_mode()),
-            Ok(None) => LoginStatus::NotAuthenticated,
-            Err(err) => {
-                error!("Failed to read auth.json: {err}");
-                LoginStatus::NotAuthenticated
-            }
-        }
-    } else {
-        LoginStatus::NotAuthenticated
-    }
+fn get_login_status(_config: &Config) -> LoginStatus {
+    LoginStatus::NotAuthenticated
 }
 
 async fn load_config_or_exit(
@@ -1240,14 +1222,8 @@ fn should_show_onboarding(
     should_show_login_screen(login_status, config)
 }
 
-fn should_show_login_screen(login_status: LoginStatus, config: &Config) -> bool {
-    // Only show the login screen for providers that actually require OpenAI auth
-    // (OpenAI or equivalents). For OSS/other providers, skip login entirely.
-    if !config.model_provider.requires_openai_auth {
-        return false;
-    }
-
-    login_status == LoginStatus::NotAuthenticated
+fn should_show_login_screen(_login_status: LoginStatus, _config: &Config) -> bool {
+    false
 }
 
 #[cfg(test)]

@@ -1,5 +1,4 @@
 use std::collections::BTreeMap;
-use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -91,7 +90,12 @@ fn build_turn_metadata_bag(
     }
 }
 
-pub async fn build_turn_metadata_header(cwd: &Path, sandbox: Option<&str>) -> Option<String> {
+#[cfg(test)]
+#[allow(unused_imports)]
+use std::path::Path;
+
+#[cfg(test)]
+pub(crate) async fn build_turn_metadata_header(cwd: &Path, sandbox: Option<&str>) -> Option<String> {
     let repo_root = get_git_repo_root(cwd).map(|root| root.to_string_lossy().into_owned());
 
     let (head_commit_hash, associated_remote_urls, has_changes) = tokio::join!(

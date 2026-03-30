@@ -544,7 +544,7 @@ fn build_mcp_tool_call_request_meta(
 
     if let Some(turn_metadata) = turn_context.turn_metadata_state.current_meta_value() {
         request_meta.insert(
-            crate::X_NEXAL_TURN_METADATA_HEADER.to_string(),
+            crate::client::X_NEXAL_TURN_METADATA_HEADER.to_string(),
             turn_metadata,
         );
     }

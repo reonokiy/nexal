@@ -16,7 +16,6 @@ use once_cell::sync::Lazy;
 
 use crate::AuthManager;
 use crate::NexalAuth;
-use crate::ModelProviderInfo;
 use crate::ThreadManager;
 use crate::config::Config;
 use crate::models_manager::collaboration_mode_presets;
@@ -50,25 +49,16 @@ pub fn auth_manager_from_auth_with_home(auth: NexalAuth, nexal_home: PathBuf) ->
     AuthManager::from_auth_for_testing_with_home(auth, nexal_home)
 }
 
-pub fn thread_manager_with_models_provider(
-    auth: NexalAuth,
-    provider: ModelProviderInfo,
-) -> ThreadManager {
-    ThreadManager::with_models_provider_for_tests(auth, provider)
+pub fn thread_manager_with_models_provider(auth: NexalAuth) -> ThreadManager {
+    ThreadManager::with_models_provider_for_tests(auth)
 }
 
 pub fn thread_manager_with_models_provider_and_home(
     auth: NexalAuth,
-    provider: ModelProviderInfo,
     nexal_home: PathBuf,
     environment_manager: Arc<EnvironmentManager>,
 ) -> ThreadManager {
-    ThreadManager::with_models_provider_and_home_for_tests(
-        auth,
-        provider,
-        nexal_home,
-        environment_manager,
-    )
+    ThreadManager::with_models_provider_and_home_for_tests(auth, nexal_home, environment_manager)
 }
 
 pub async fn start_thread_with_user_shell_override(
@@ -98,12 +88,8 @@ pub async fn resume_thread_from_rollout_with_user_shell_override(
         .await
 }
 
-pub fn models_manager_with_provider(
-    nexal_home: PathBuf,
-    auth_manager: Arc<AuthManager>,
-    provider: ModelProviderInfo,
-) -> ModelsManager {
-    ModelsManager::with_provider_for_tests(nexal_home, auth_manager, provider)
+pub fn models_manager_with_provider(nexal_home: PathBuf) -> ModelsManager {
+    ModelsManager::with_provider_for_tests(nexal_home)
 }
 
 pub fn get_model_offline(model: Option<&str>) -> String {

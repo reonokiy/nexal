@@ -87,7 +87,6 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 pub(crate) struct AppServerBootstrap {
-    pub(crate) account_auth_mode: Option<AuthMode>,
     pub(crate) account_email: Option<String>,
     pub(crate) auth_mode: Option<TelemetryAuthMode>,
     pub(crate) status_account_display: Option<StatusAccountDisplay>,
@@ -195,19 +194,17 @@ impl AppServerSession {
             .or_else(|| available_models.first().map(|model| model.model.clone()))
             .wrap_err("model/list returned no models for TUI bootstrap")?;
 
-        let (account_auth_mode, auth_mode, status_account_display, feedback_audience) =
+        let (auth_mode, status_account_display, feedback_audience) =
             match account.account {
                 Some(Account::ApiKey {} | Account::Chatgpt { .. }) => (
-                    Some(AuthMode::ApiKey),
                     Some(TelemetryAuthMode::ApiKey),
                     Some(StatusAccountDisplay::ApiKey),
                     FeedbackAudience::External,
                 ),
-                None => (None, None, None, FeedbackAudience::External),
+                None => (None, None, FeedbackAudience::External),
             };
 
         Ok(AppServerBootstrap {
-            account_auth_mode,
             account_email: None,
             auth_mode,
             status_account_display,

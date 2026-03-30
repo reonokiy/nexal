@@ -15,7 +15,6 @@ use nexal_core::NexalAuth;
 use nexal_core::NexalThread;
 use nexal_core::ModelProviderInfo;
 use nexal_core::ThreadManager;
-use nexal_core::built_in_model_providers;
 use nexal_core::config::Config;
 use nexal_core::models_manager::collaboration_mode_presets::CollaborationModesConfig;
 use nexal_core::shell::Shell;
@@ -492,7 +491,6 @@ impl TestNexalBuilder {
         } else {
             nexal_core::test_support::thread_manager_with_models_provider_and_home(
                 auth.clone(),
-                config.model_provider.clone(),
                 config.nexal_home.clone(),
                 Arc::clone(&environment_manager),
             )
@@ -558,8 +556,8 @@ impl TestNexalBuilder {
             // Most core tests use SSE-only mock servers, so keep websocket transport off unless
             // a test explicitly opts into websocket coverage.
             supports_websockets: false,
-        thinking_mode: false,
-            ..built_in_model_providers(/*openai_base_url*/ None)["openai"].clone()
+            thinking_mode: false,
+            ..ModelProviderInfo::create_openai_provider(None)
         };
         let cwd = Arc::new(TempDir::new()?);
         let mut config = load_default_config_for_test(home).await;

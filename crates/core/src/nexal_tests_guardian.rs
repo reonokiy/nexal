@@ -99,8 +99,6 @@ async fn guardian_allows_shell_additional_permissions_requests_past_policy_valid
     let config = Arc::new(config);
     let models_manager = Arc::new(crate::test_support::models_manager_with_provider(
         config.nexal_home.clone(),
-        Arc::clone(&session.services.auth_manager),
-        config.model_provider.clone(),
     ));
     session.services.models_manager = models_manager;
     turn_context_raw.config = Arc::clone(&config);
@@ -425,7 +423,6 @@ async fn guardian_subagent_does_not_inherit_parent_exec_policy_rules() {
     let auth_manager = AuthManager::from_auth_for_testing(NexalAuth::from_api_key("Test API Key"));
     let models_manager = Arc::new(ModelsManager::new(
         config.nexal_home.clone(),
-        auth_manager.clone(),
         None,
         CollaborationModesConfig::default(),
     ));

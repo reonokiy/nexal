@@ -42,7 +42,7 @@ impl NexalFeedback {
         }
     }
 
-    pub fn make_writer(&self) -> FeedbackMakeWriter {
+    pub(crate) fn make_writer(&self) -> FeedbackMakeWriter {
         FeedbackMakeWriter {
             inner: self.inner.clone(),
         }
@@ -100,7 +100,7 @@ impl FeedbackInner {
 }
 
 #[derive(Clone)]
-pub struct FeedbackMakeWriter {
+pub(crate) struct FeedbackMakeWriter {
     inner: Arc<FeedbackInner>,
 }
 
@@ -114,7 +114,7 @@ impl<'a> MakeWriter<'a> for FeedbackMakeWriter {
     }
 }
 
-pub struct FeedbackWriter {
+pub(crate) struct FeedbackWriter {
     inner: Arc<FeedbackInner>,
 }
 

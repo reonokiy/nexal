@@ -73,7 +73,6 @@ impl AgentControlHarness {
         let (home, config) = test_config().await;
         let manager = ThreadManager::with_models_provider_and_home_for_tests(
             NexalAuth::from_api_key("dummy"),
-            config.model_provider.clone(),
             config.nexal_home.clone(),
             std::sync::Arc::new(nexal_exec_server::EnvironmentManager::new(
                 /*exec_server_url*/ None,
@@ -812,7 +811,6 @@ async fn spawn_agent_respects_max_threads_limit() {
     .await;
     let manager = ThreadManager::with_models_provider_and_home_for_tests(
         NexalAuth::from_api_key("dummy"),
-        config.model_provider.clone(),
         config.nexal_home.clone(),
         std::sync::Arc::new(nexal_exec_server::EnvironmentManager::new(
             /*exec_server_url*/ None,
@@ -858,7 +856,6 @@ async fn spawn_agent_releases_slot_after_shutdown() {
     .await;
     let manager = ThreadManager::with_models_provider_and_home_for_tests(
         NexalAuth::from_api_key("dummy"),
-        config.model_provider.clone(),
         config.nexal_home.clone(),
         std::sync::Arc::new(nexal_exec_server::EnvironmentManager::new(
             /*exec_server_url*/ None,
@@ -895,7 +892,6 @@ async fn spawn_agent_limit_shared_across_clones() {
     .await;
     let manager = ThreadManager::with_models_provider_and_home_for_tests(
         NexalAuth::from_api_key("dummy"),
-        config.model_provider.clone(),
         config.nexal_home.clone(),
         std::sync::Arc::new(nexal_exec_server::EnvironmentManager::new(
             /*exec_server_url*/ None,
@@ -934,7 +930,6 @@ async fn resume_agent_respects_max_threads_limit() {
     .await;
     let manager = ThreadManager::with_models_provider_and_home_for_tests(
         NexalAuth::from_api_key("dummy"),
-        config.model_provider.clone(),
         config.nexal_home.clone(),
         std::sync::Arc::new(nexal_exec_server::EnvironmentManager::new(
             /*exec_server_url*/ None,
@@ -984,7 +979,6 @@ async fn resume_agent_releases_slot_after_resume_failure() {
     .await;
     let manager = ThreadManager::with_models_provider_and_home_for_tests(
         NexalAuth::from_api_key("dummy"),
-        config.model_provider.clone(),
         config.nexal_home.clone(),
         std::sync::Arc::new(nexal_exec_server::EnvironmentManager::new(
             /*exec_server_url*/ None,
@@ -1377,7 +1371,6 @@ async fn resume_thread_subagent_restores_stored_nickname_and_role() {
         .expect("test config should allow sqlite");
     let manager = ThreadManager::with_models_provider_and_home_for_tests(
         NexalAuth::from_api_key("dummy"),
-        config.model_provider.clone(),
         config.nexal_home.clone(),
         std::sync::Arc::new(nexal_exec_server::EnvironmentManager::new(
             /*exec_server_url*/ None,

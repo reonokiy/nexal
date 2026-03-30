@@ -1278,7 +1278,6 @@ mod tests {
                     id: request.id,
                     result: serde_json::to_value(GetAccountResponse {
                         account: None,
-                        requires_openai_auth: false,
                     })
                     .expect("response should serialize"),
                 }),
@@ -1386,7 +1385,6 @@ mod tests {
                     id: request.id,
                     result: serde_json::to_value(GetAccountResponse {
                         account: None,
-                        requires_openai_auth: false,
                     })
                     .expect("response should serialize"),
                 }),
@@ -1439,7 +1437,6 @@ mod tests {
             first_response,
             GetAccountResponse {
                 account: None,
-                requires_openai_auth: false,
             }
         );
 

@@ -8,10 +8,8 @@
 #![expect(clippy::expect_used)]
 
 use anyhow::Result;
-use app_test_support::ChatGptAuthFixture;
 use app_test_support::McpProcess;
 use app_test_support::to_response;
-use app_test_support::write_chatgpt_auth;
 use app_test_support::write_mock_responses_config_toml;
 use nexal_app_server_protocol::ItemCompletedNotification;
 use nexal_app_server_protocol::ItemStartedNotification;
@@ -28,9 +26,6 @@ use nexal_app_server_protocol::TurnCompletedNotification;
 use nexal_app_server_protocol::TurnStartParams;
 use nexal_app_server_protocol::TurnStartResponse;
 use nexal_app_server_protocol::UserInput as V2UserInput;
-use nexal_core::auth::AuthCredentialsStoreMode;
-use nexal_protocol::models::ContentItem;
-use nexal_protocol::models::ResponseItem;
 use core_test_support::responses;
 use core_test_support::skip_if_no_network;
 use pretty_assertions::assert_eq;
@@ -72,7 +67,6 @@ async fn auto_compaction_local_emits_started_and_completed_items() -> Result<()>
         &server.uri(),
         &BTreeMap::default(),
         AUTO_COMPACT_LIMIT,
-        None,
         "mock_provider",
         COMPACT_PROMPT,
     )?;
@@ -103,94 +97,6 @@ async fn auto_compaction_local_emits_started_and_completed_items() -> Result<()>
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn auto_compaction_remote_emits_started_and_completed_items() -> Result<()> {
-    skip_if_no_network!(Ok(()));
-    const REMOTE_AUTO_COMPACT_LIMIT: i64 = 200_000;
-
-    let server = responses::start_mock_server().await;
-    let sse1 = responses::sse(vec![
-        responses::ev_assistant_message("m1", "FIRST_REPLY"),
-        responses::ev_completed_with_tokens("r1", 70_000),
-    ]);
-    let sse2 = responses::sse(vec![
-        responses::ev_assistant_message("m2", "SECOND_REPLY"),
-        responses::ev_completed_with_tokens("r2", 330_000),
-    ]);
-    let sse3 = responses::sse(vec![
-        responses::ev_assistant_message("m3", "FINAL_REPLY"),
-        responses::ev_completed_with_tokens("r3", 120),
-    ]);
-    let responses_log = responses::mount_sse_sequence(&server, vec![sse1, sse2, sse3]).await;
-
-    let compacted_history = vec![
-        ResponseItem::Message {
-            id: None,
-            role: "assistant".to_string(),
-            content: vec![ContentItem::OutputText {
-                text: "REMOTE_COMPACT_SUMMARY".to_string(),
-            }],
-            end_turn: None,
-            phase: None,
-        },
-        ResponseItem::Compaction {
-            encrypted_content: "ENCRYPTED_COMPACTION_SUMMARY".to_string(),
-        },
-    ];
-    let compact_mock = responses::mount_compact_json_once(
-        &server,
-        serde_json::json!({ "output": compacted_history }),
-    )
-    .await;
-
-    let nexal_home = TempDir::new()?;
-    write_mock_responses_config_toml(
-        nexal_home.path(),
-        &server.uri(),
-        &BTreeMap::default(),
-        REMOTE_AUTO_COMPACT_LIMIT,
-        Some(true),
-        "mock_provider",
-        COMPACT_PROMPT,
-    )?;
-    write_chatgpt_auth(
-        nexal_home.path(),
-        ChatGptAuthFixture::new("access-chatgpt").plan_type("pro"),
-        AuthCredentialsStoreMode::File,
-    )?;
-
-    let mut mcp = McpProcess::new_with_env(nexal_home.path(), &[("OPENAI_API_KEY", None)]).await?;
-    timeout(DEFAULT_READ_TIMEOUT, mcp.initialize()).await??;
-
-    let thread_id = start_thread(&mut mcp).await?;
-    for message in ["first", "second", "third"] {
-        send_turn_and_wait(&mut mcp, &thread_id, message).await?;
-    }
-
-    let started = wait_for_context_compaction_started(&mut mcp).await?;
-    let completed = wait_for_context_compaction_completed(&mut mcp).await?;
-
-    let ThreadItem::ContextCompaction { id: started_id } = started.item else {
-        unreachable!("started item should be context compaction");
-    };
-    let ThreadItem::ContextCompaction { id: completed_id } = completed.item else {
-        unreachable!("completed item should be context compaction");
-    };
-
-    assert_eq!(started.thread_id, thread_id);
-    assert_eq!(completed.thread_id, thread_id);
-    assert_eq!(started_id, completed_id);
-
-    let compact_requests = compact_mock.requests();
-    assert_eq!(compact_requests.len(), 1);
-    assert_eq!(compact_requests[0].path(), "/v1/responses/compact");
-
-    let response_requests = responses_log.requests();
-    assert_eq!(response_requests.len(), 3);
-
-    Ok(())
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn thread_compact_start_triggers_compaction_and_returns_empty_response() -> Result<()> {
     skip_if_no_network!(Ok(()));
 
@@ -207,7 +113,6 @@ async fn thread_compact_start_triggers_compaction_and_returns_empty_response() -
         &server.uri(),
         &BTreeMap::default(),
         AUTO_COMPACT_LIMIT,
-        None,
         "mock_provider",
         COMPACT_PROMPT,
     )?;
@@ -257,7 +162,6 @@ async fn thread_compact_start_rejects_invalid_thread_id() -> Result<()> {
         &server.uri(),
         &BTreeMap::default(),
         AUTO_COMPACT_LIMIT,
-        None,
         "mock_provider",
         COMPACT_PROMPT,
     )?;
@@ -293,7 +197,6 @@ async fn thread_compact_start_rejects_unknown_thread_id() -> Result<()> {
         &server.uri(),
         &BTreeMap::default(),
         AUTO_COMPACT_LIMIT,
-        None,
         "mock_provider",
         COMPACT_PROMPT,
     )?;

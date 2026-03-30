@@ -214,7 +214,6 @@ async fn build_test_config(nexal_home: &Path, server_uri: &str) -> Result<Config
         server_uri,
         &BTreeMap::new(),
         8_192,
-        Some(false),
         "mock_provider",
         "compact",
     )?;
