@@ -20,13 +20,6 @@ pub struct IdTokenInfo {
 }
 
 impl IdTokenInfo {
-    pub fn get_chatgpt_plan_type(&self) -> Option<String> {
-        self.chatgpt_plan_type.as_ref().map(|t| match t {
-            PlanType::Known(plan) => format!("{plan:?}"),
-            PlanType::Unknown(s) => s.clone(),
-        })
-    }
-
     pub fn is_workspace_account(&self) -> bool {
         matches!(
             self.chatgpt_plan_type,
@@ -67,6 +60,3 @@ pub enum KnownPlan {
     Edu,
 }
 
-pub fn parse_chatgpt_jwt_claims(_jwt: &str) -> Result<IdTokenInfo, std::io::Error> {
-    Err(std::io::Error::other("JWT parsing removed (ChatGPT auth removed)."))
-}
