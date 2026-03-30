@@ -47,16 +47,12 @@ fn create_test_tool_with_connector(
 
 fn create_nexal_apps_tools_cache_context(
     nexal_home: PathBuf,
-    account_id: Option<&str>,
-    chatgpt_user_id: Option<&str>,
+    _account_id: Option<&str>,
+    _chatgpt_user_id: Option<&str>,
 ) -> NexalAppsToolsCacheContext {
     NexalAppsToolsCacheContext {
         nexal_home,
-        user_key: NexalAppsToolsCacheKey {
-            account_id: account_id.map(ToOwned::to_owned),
-            chatgpt_user_id: chatgpt_user_id.map(ToOwned::to_owned),
-            is_workspace_account: false,
-        },
+        user_key: NexalAppsToolsCacheKey {},
     }
 }
 

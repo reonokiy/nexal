@@ -9,17 +9,13 @@ use std::sync::Mutex as StdMutex;
 use std::time::Duration;
 use std::time::Instant;
 
-use anyhow::Context;
 use async_channel::unbounded;
 pub use nexal_app_server_protocol::AppBranding;
 pub use nexal_app_server_protocol::AppInfo;
 pub use nexal_app_server_protocol::AppMetadata;
-use nexal_connectors::AllConnectorsCacheKey;
-use nexal_connectors::DirectoryListResponse;
 use nexal_protocol::protocol::SandboxPolicy;
 use rmcp::model::ToolAnnotations;
 use serde::Deserialize;
-use serde::de::DeserializeOwned;
 use tracing::warn;
 
 use crate::AuthManager;
@@ -43,14 +39,12 @@ use crate::mcp_connection_manager::nexal_apps_tools_cache_key;
 use crate::plugins::AppConnectorId;
 use crate::plugins::PluginsManager;
 use crate::plugins::list_tool_suggest_discoverable_plugins;
-use crate::token_data::TokenData;
 use crate::tools::discoverable::DiscoverablePluginInfo;
 use crate::tools::discoverable::DiscoverableTool;
 use nexal_features::Feature;
 
 pub use nexal_connectors::CONNECTORS_CACHE_TTL;
 const CONNECTORS_READY_TIMEOUT_ON_EMPTY_TOOLS: Duration = Duration::from_secs(30);
-const DIRECTORY_CONNECTORS_TIMEOUT: Duration = Duration::from_secs(60);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct AppToolPolicy {
@@ -70,9 +64,6 @@ impl Default for AppToolPolicy {
 #[derive(Clone, PartialEq, Eq)]
 struct AccessibleConnectorsCacheKey {
     chatgpt_base_url: String,
-    account_id: Option<String>,
-    chatgpt_user_id: Option<String>,
-    is_workspace_account: bool,
 }
 
 #[derive(Clone)]
@@ -311,23 +302,10 @@ pub async fn list_accessible_connectors_from_mcp_tools_with_options_and_status(
 
 fn accessible_connectors_cache_key(
     config: &Config,
-    auth: Option<&NexalAuth>,
+    _auth: Option<&NexalAuth>,
 ) -> AccessibleConnectorsCacheKey {
-    let token_data: Option<TokenData> = auth.and_then(|auth| auth.get_token_data().ok());
-    let account_id = token_data
-        .as_ref()
-        .and_then(|token_data| token_data.account_id.clone());
-    let chatgpt_user_id = token_data
-        .as_ref()
-        .and_then(|token_data| token_data.id_token.chatgpt_user_id.clone());
-    let is_workspace_account = token_data
-        .as_ref()
-        .is_some_and(|token_data| token_data.id_token.is_workspace_account());
     AccessibleConnectorsCacheKey {
         chatgpt_base_url: config.chatgpt_base_url.clone(),
-        account_id,
-        chatgpt_user_id,
-        is_workspace_account,
     }
 }
 
@@ -409,89 +387,10 @@ fn tool_suggest_connector_ids(config: &Config) -> HashSet<String> {
 }
 
 async fn list_directory_connectors_for_tool_suggest_with_auth(
-    config: &Config,
-    auth: Option<&NexalAuth>,
+    _config: &Config,
+    _auth: Option<&NexalAuth>,
 ) -> anyhow::Result<Vec<AppInfo>> {
-    if !config.features.enabled(Feature::Apps) {
-        return Ok(Vec::new());
-    }
-
-    let token_data = if let Some(auth) = auth {
-        auth.get_token_data().ok()
-    } else {
-        let auth_manager = auth_manager_from_config(config);
-        auth_manager
-            .auth()
-            .await
-            .and_then(|auth| auth.get_token_data().ok())
-    };
-    let Some(token_data) = token_data else {
-        return Ok(Vec::new());
-    };
-
-    let account_id = match token_data.account_id.as_deref() {
-        Some(account_id) if !account_id.is_empty() => account_id,
-        _ => return Ok(Vec::new()),
-    };
-    let access_token = token_data.access_token.clone();
-    let account_id = account_id.to_string();
-    let is_workspace_account = token_data.id_token.is_workspace_account();
-    let cache_key = AllConnectorsCacheKey::new(
-        config.chatgpt_base_url.clone(),
-        Some(account_id.clone()),
-        token_data.id_token.chatgpt_user_id.clone(),
-        is_workspace_account,
-    );
-
-    nexal_connectors::list_all_connectors_with_options(
-        cache_key,
-        is_workspace_account,
-        /*force_refetch*/ false,
-        |path| {
-            let access_token = access_token.clone();
-            let account_id = account_id.clone();
-            async move {
-                chatgpt_get_request_with_token::<DirectoryListResponse>(
-                    config,
-                    path,
-                    access_token.as_str(),
-                    account_id.as_str(),
-                )
-                .await
-            }
-        },
-    )
-    .await
-}
-
-async fn chatgpt_get_request_with_token<T: DeserializeOwned>(
-    config: &Config,
-    path: String,
-    access_token: &str,
-    account_id: &str,
-) -> anyhow::Result<T> {
-    let client = create_client();
-    let url = format!("{}{}", config.chatgpt_base_url, path);
-    let response = client
-        .get(&url)
-        .bearer_auth(access_token)
-        .header("chatgpt-account-id", account_id)
-        .header("Content-Type", "application/json")
-        .timeout(DIRECTORY_CONNECTORS_TIMEOUT)
-        .send()
-        .await
-        .context("failed to send request")?;
-
-    if response.status().is_success() {
-        response
-            .json()
-            .await
-            .context("failed to parse JSON response")
-    } else {
-        let status = response.status();
-        let body = response.text().await.unwrap_or_default();
-        anyhow::bail!("request failed with status {status}: {body}");
-    }
+    Ok(Vec::new())
 }
 
 fn auth_manager_from_config(config: &Config) -> std::sync::Arc<AuthManager> {

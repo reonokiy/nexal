@@ -1,7 +1,5 @@
 use crate::exec::ExecToolCallOutput;
 use crate::network_policy_decision::NetworkPolicyDecisionPayload;
-use crate::token_data::KnownPlan;
-use crate::token_data::PlanType;
 use chrono::DateTime;
 use chrono::Datelike;
 use chrono::Local;
@@ -403,7 +401,6 @@ impl std::fmt::Display for RetryLimitReachedError {
 
 #[derive(Debug)]
 pub struct UsageLimitReachedError {
-    pub(crate) plan_type: Option<PlanType>,
     pub(crate) resets_at: Option<DateTime<Utc>>,
     pub(crate) rate_limits: Option<Box<RateLimitSnapshot>>,
     pub(crate) promo_message: Option<String>,
@@ -434,54 +431,7 @@ impl std::fmt::Display for UsageLimitReachedError {
             );
         }
 
-        let message = match self.plan_type.as_ref() {
-            Some(PlanType::Known(KnownPlan::Plus)) => format!(
-                "You've hit your usage limit. Check your API provider's dashboard for details{}",
-                retry_suffix_after_or(self.resets_at.as_ref())
-            ),
-            Some(PlanType::Known(KnownPlan::Team)) | Some(PlanType::Known(KnownPlan::Business)) => {
-                format!(
-                    "You've hit your usage limit. To get more access now, send a request to your admin{}",
-                    retry_suffix_after_or(self.resets_at.as_ref())
-                )
-            }
-            Some(PlanType::Known(KnownPlan::Free)) | Some(PlanType::Known(KnownPlan::Go)) => {
-                format!(
-                    "You've hit your usage limit.{}",
-                    retry_suffix_after_or(self.resets_at.as_ref())
-                )
-            }
-            Some(PlanType::Known(KnownPlan::Pro)) => format!(
-                "You've hit your usage limit. Check your API provider's dashboard{}",
-                retry_suffix_after_or(self.resets_at.as_ref())
-            ),
-            Some(PlanType::Known(KnownPlan::Enterprise))
-            | Some(PlanType::Known(KnownPlan::Edu)) => format!(
-                "You've hit your usage limit.{}",
-                retry_suffix(self.resets_at.as_ref())
-            ),
-            Some(PlanType::Unknown(plan))
-                if plan.eq_ignore_ascii_case("self_serve_business_usage_based") =>
-            {
-                match self
-                    .rate_limits
-                    .as_ref()
-                    .and_then(|snapshot| snapshot.credits.as_ref())
-                    .map(|credits| credits.has_credits)
-                {
-                    Some(true) => "You've hit your usage limit. Contact your admin to increase spend limits to continue."
-                        .to_string(),
-                    Some(false) | None => "You've hit your usage limit. Contact your admin to add credits to continue."
-                        .to_string(),
-                }
-            }
-            Some(PlanType::Unknown(_)) | None => format!(
-                "You've hit your usage limit.{}",
-                retry_suffix(self.resets_at.as_ref())
-            ),
-        };
-
-        write!(f, "{message}")
+        write!(f, "You've hit your usage limit.{}", retry_suffix(self.resets_at.as_ref()))
     }
 }
 

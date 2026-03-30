@@ -1,5 +1,4 @@
 pub mod auth;
-pub mod token_data;
 
 pub use nexal_client::BuildCustomCaTransportError as BuildLoginHttpClientError;
 
@@ -24,4 +23,3 @@ pub use auth::logout;
 pub use auth::read_openai_api_key_from_env;
 pub use auth::save_auth;
 pub use nexal_app_server_protocol::AuthMode;
-pub use token_data::TokenData;

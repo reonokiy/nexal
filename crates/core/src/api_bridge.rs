@@ -16,7 +16,6 @@ use crate::error::RetryLimitReachedError;
 use crate::error::UnexpectedResponseError;
 use crate::error::UsageLimitReachedError;
 use crate::model_provider_info::ModelProviderInfo;
-use crate::token_data::PlanType;
 
 pub(crate) fn map_api_error(err: ApiError) -> NexalErr {
     match err {
@@ -81,7 +80,6 @@ pub(crate) fn map_api_error(err: ApiError) -> NexalErr {
                                 .resets_at
                                 .and_then(|seconds| DateTime::<Utc>::from_timestamp(seconds, 0));
                             return NexalErr::UsageLimitReached(UsageLimitReachedError {
-                                plan_type: err.error.plan_type,
                                 resets_at,
                                 rate_limits: rate_limits.map(Box::new),
                                 promo_message,
@@ -205,7 +203,6 @@ struct UsageErrorResponse {
 struct UsageErrorBody {
     #[serde(rename = "type")]
     error_type: Option<String>,
-    plan_type: Option<PlanType>,
     resets_at: Option<i64>,
 }
 

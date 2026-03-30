@@ -150,7 +150,6 @@ pub fn write_chatgpt_auth(
     let auth = AuthDotJson {
         auth_mode: Some(AuthMode::ApiKey),
         openai_api_key: Some(fixture.access_token),
-        tokens: None,
         last_refresh: None,
     };
     save_auth(nexal_home, &auth, cli_auth_credentials_store_mode).context("write auth.json")

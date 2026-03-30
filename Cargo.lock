@@ -4985,7 +4985,6 @@ dependencies = [
  "nexal-app-server-protocol",
  "nexal-config-loader",
  "nexal-instructions",
- "nexal-login",
  "nexal-protocol",
  "nexal-skills",
  "nexal-utils-absolute-path",
@@ -4999,7 +4998,6 @@ dependencies = [
  "tokio",
  "toml 0.9.12+spec-1.1.0",
  "tracing",
- "zip",
 ]
 
 [[package]]
@@ -5855,7 +5853,6 @@ name = "nexal-utils-string"
 version = "0.1.0"
 dependencies = [
  "pretty_assertions",
- "regex-lite",
 ]
 
 [[package]]

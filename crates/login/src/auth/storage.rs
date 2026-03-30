@@ -19,7 +19,6 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use tracing::warn;
 
-use crate::token_data::TokenData;
 use nexal_app_server_protocol::AuthMode;
 use nexal_keyring_store::DefaultKeyringStore;
 use nexal_keyring_store::KeyringStore;
@@ -48,9 +47,6 @@ pub struct AuthDotJson {
 
     #[serde(rename = "OPENAI_API_KEY")]
     pub openai_api_key: Option<String>,
-
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub tokens: Option<TokenData>,
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_refresh: Option<DateTime<Utc>>,

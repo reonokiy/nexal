@@ -54,10 +54,6 @@ impl NexalAuth {
         match self { Self::ApiKey(auth) => Some(auth.api_key.as_str()) }
     }
 
-    pub fn get_token_data(&self) -> Result<crate::token_data::TokenData, std::io::Error> {
-        Err(std::io::Error::other("Token data is not available (API key auth only)."))
-    }
-
     pub fn get_token(&self) -> Result<String, std::io::Error> {
         match self { Self::ApiKey(auth) => Ok(auth.api_key.clone()) }
     }
@@ -91,7 +87,6 @@ pub fn login_with_api_key(nexal_home: &Path, api_key: &str, mode: AuthCredential
     let auth = AuthDotJson {
         auth_mode: Some(ApiAuthMode::ApiKey),
         openai_api_key: Some(api_key.to_string()),
-        tokens: None,
         last_refresh: None,
     };
     save_auth(nexal_home, &auth, mode)
