@@ -75,10 +75,6 @@ fn cargo_bin_env_keys(name: &str) -> Vec<String> {
     keys
 }
 
-pub fn runfiles_available() -> bool {
-    false
-}
-
 /// Macro that derives the path to a test resource at runtime.
 #[macro_export]
 macro_rules! find_resource {
@@ -88,15 +84,6 @@ macro_rules! find_resource {
     }};
 }
 
-pub fn resolve_bazel_runfile(
-    _bazel_package: Option<&str>,
-    _resource: &Path,
-) -> std::io::Result<PathBuf> {
-    Err(io::Error::new(
-        io::ErrorKind::Unsupported,
-        "Bazel runfiles not supported",
-    ))
-}
 
 pub fn resolve_cargo_runfile(resource: &Path) -> std::io::Result<PathBuf> {
     let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));

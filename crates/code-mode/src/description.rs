@@ -216,13 +216,6 @@ pub fn normalize_code_mode_identifier(tool_key: &str) -> String {
     }
 }
 
-pub fn augment_tool_definition(mut definition: ToolDefinition) -> ToolDefinition {
-    if definition.name != PUBLIC_TOOL_NAME {
-        definition.description = append_code_mode_sample_for_definition(&definition);
-    }
-    definition
-}
-
 pub fn enabled_tool_metadata(definition: &ToolDefinition) -> EnabledToolMetadata {
     EnabledToolMetadata {
         tool_name: definition.name.clone(),
@@ -252,33 +245,6 @@ pub fn append_code_mode_sample(
         render_code_mode_tool_declaration(tool_name, input_name, input_type, output_type)
     );
     format!("{description}\n\nexec tool declaration:\n```ts\n{declaration}\n```")
-}
-
-fn append_code_mode_sample_for_definition(definition: &ToolDefinition) -> String {
-    let input_name = match definition.kind {
-        CodeModeToolKind::Function => "args",
-        CodeModeToolKind::Freeform => "input",
-    };
-    let input_type = match definition.kind {
-        CodeModeToolKind::Function => definition
-            .input_schema
-            .as_ref()
-            .map(render_json_schema_to_typescript)
-            .unwrap_or_else(|| "unknown".to_string()),
-        CodeModeToolKind::Freeform => "string".to_string(),
-    };
-    let output_type = definition
-        .output_schema
-        .as_ref()
-        .map(render_json_schema_to_typescript)
-        .unwrap_or_else(|| "unknown".to_string());
-    append_code_mode_sample(
-        &definition.description,
-        &definition.name,
-        input_name,
-        input_type,
-        output_type,
-    )
 }
 
 fn render_code_mode_tool_declaration(
@@ -472,15 +438,11 @@ fn render_json_schema_literal(value: &JsonValue) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::CodeModeToolKind;
     use super::ParsedExecSource;
-    use super::ToolDefinition;
-    use super::augment_tool_definition;
     use super::build_exec_tool_description;
     use super::normalize_code_mode_identifier;
     use super::parse_exec_source;
     use pretty_assertions::assert_eq;
-    use serde_json::json;
 
     #[test]
     fn parse_exec_source_without_pragma() {
@@ -515,34 +477,6 @@ mod tests {
         assert_eq!(
             "hidden_dynamic_tool",
             normalize_code_mode_identifier("hidden-dynamic-tool")
-        );
-    }
-
-    #[test]
-    fn augment_tool_definition_appends_typed_declaration() {
-        let definition = ToolDefinition {
-            name: "hidden_dynamic_tool".to_string(),
-            description: "Test tool".to_string(),
-            kind: CodeModeToolKind::Function,
-            input_schema: Some(json!({
-                "type": "object",
-                "properties": { "city": { "type": "string" } },
-                "required": ["city"],
-                "additionalProperties": false
-            })),
-            output_schema: Some(json!({
-                "type": "object",
-                "properties": { "ok": { "type": "boolean" } },
-                "required": ["ok"]
-            })),
-        };
-
-        let description = augment_tool_definition(definition).description;
-        assert!(description.contains("declare const tools"));
-        assert!(
-            description.contains(
-                "hidden_dynamic_tool(args: { city: string; }): Promise<{ ok: boolean; }>;"
-            )
         );
     }
 
