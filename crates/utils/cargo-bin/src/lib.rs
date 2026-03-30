@@ -85,7 +85,7 @@ macro_rules! find_resource {
 }
 
 
-pub fn resolve_cargo_runfile(resource: &Path) -> std::io::Result<PathBuf> {
+fn resolve_cargo_runfile(resource: &Path) -> std::io::Result<PathBuf> {
     let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     Ok(manifest_dir.join(resource))
 }
