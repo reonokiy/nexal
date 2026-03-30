@@ -33,8 +33,6 @@ pub use nexal_core_skills::injection::collect_explicit_skill_mentions;
 pub use nexal_core_skills::loader;
 pub use nexal_core_skills::manager;
 pub use nexal_core_skills::model;
-pub use nexal_core_skills::remote;
-pub use nexal_core_skills::render;
 pub use nexal_core_skills::render_skills_section;
 pub use nexal_core_skills::system;
 
