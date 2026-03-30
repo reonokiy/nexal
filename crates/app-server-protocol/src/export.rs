@@ -17,7 +17,6 @@ use crate::protocol::common::EXPERIMENTAL_CLIENT_METHODS;
 use anyhow::Context;
 use anyhow::Result;
 use anyhow::anyhow;
-use nexal_protocol::protocol::RolloutLine;
 use schemars::JsonSchema;
 use schemars::schema_for;
 use serde::Serialize;
@@ -73,12 +72,6 @@ impl GeneratedSchema {
 }
 
 type JsonSchemaEmitter = fn(&Path) -> Result<GeneratedSchema>;
-pub fn generate_types(out_dir: &Path, prettier: Option<&Path>) -> Result<()> {
-    generate_ts(out_dir, prettier)?;
-    generate_json(out_dir)?;
-    Ok(())
-}
-
 #[derive(Clone, Copy, Debug)]
 pub struct GenerateTsOptions {
     pub generate_indices: bool,
@@ -96,10 +89,6 @@ impl Default for GenerateTsOptions {
             experimental_api: false,
         }
     }
-}
-
-pub fn generate_ts(out_dir: &Path, prettier: Option<&Path>) -> Result<()> {
-    generate_ts_with_options(out_dir, prettier, GenerateTsOptions::default())
 }
 
 pub fn generate_ts_with_options(
@@ -179,16 +168,6 @@ pub fn generate_ts_with_options(
         }
     }
 
-    Ok(())
-}
-
-pub fn generate_json(out_dir: &Path) -> Result<()> {
-    generate_json_with_experimental(out_dir, /*experimental_api*/ false)
-}
-
-pub fn generate_internal_json_schema(out_dir: &Path) -> Result<()> {
-    ensure_dir(out_dir)?;
-    write_json_schema::<RolloutLine>(out_dir, "RolloutLine")?;
     Ok(())
 }
 

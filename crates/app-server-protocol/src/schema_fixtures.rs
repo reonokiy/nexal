@@ -25,21 +25,6 @@ pub struct SchemaFixtureOptions {
     pub experimental_api: bool,
 }
 
-pub fn read_schema_fixture_tree(schema_root: &Path) -> Result<BTreeMap<PathBuf, Vec<u8>>> {
-    let typescript_root = schema_root.join("typescript");
-    let json_root = schema_root.join("json");
-
-    let mut all = BTreeMap::new();
-    for (rel, bytes) in collect_files_recursive(&typescript_root)? {
-        all.insert(PathBuf::from("typescript").join(rel), bytes);
-    }
-    for (rel, bytes) in collect_files_recursive(&json_root)? {
-        all.insert(PathBuf::from("json").join(rel), bytes);
-    }
-
-    Ok(all)
-}
-
 pub fn read_schema_fixture_subtree(
     schema_root: &Path,
     label: &str,
