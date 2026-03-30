@@ -127,7 +127,7 @@ struct RateLimitEvent {
     limit_name: Option<String>,
 }
 
-pub fn parse_rate_limit_event(payload: &str) -> Option<RateLimitSnapshot> {
+pub(crate) fn parse_rate_limit_event(payload: &str) -> Option<RateLimitSnapshot> {
     let event: RateLimitEvent = serde_json::from_str(payload).ok()?;
     if event.kind != "codex.rate_limits" {
         return None;

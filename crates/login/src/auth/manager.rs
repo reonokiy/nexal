@@ -163,10 +163,6 @@ impl AuthManager {
         Arc::new(Self { nexal_home: PathBuf::from("non-existent"), inner: RwLock::new(Some(auth)), enable_nexal_api_key_env: false, auth_credentials_store_mode: AuthCredentialsStoreMode::File })
     }
 
-    pub fn from_auth_for_testing_with_home(auth: NexalAuth, nexal_home: PathBuf) -> Arc<Self> {
-        Arc::new(Self { nexal_home, inner: RwLock::new(Some(auth)), enable_nexal_api_key_env: false, auth_credentials_store_mode: AuthCredentialsStoreMode::File })
-    }
-
     pub fn auth_cached(&self) -> Option<NexalAuth> { self.inner.read().ok().and_then(|c| c.clone()) }
     pub async fn auth(&self) -> Option<NexalAuth> { self.auth_cached() }
 

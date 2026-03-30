@@ -45,10 +45,6 @@ pub fn auth_manager_from_auth(auth: NexalAuth) -> Arc<AuthManager> {
     AuthManager::from_auth_for_testing(auth)
 }
 
-pub fn auth_manager_from_auth_with_home(auth: NexalAuth, nexal_home: PathBuf) -> Arc<AuthManager> {
-    AuthManager::from_auth_for_testing_with_home(auth, nexal_home)
-}
-
 pub fn thread_manager_with_models_provider(auth: NexalAuth) -> ThreadManager {
     ThreadManager::with_models_provider_for_tests(auth)
 }
