@@ -19,7 +19,6 @@ pub use auth::UnauthorizedRecovery;
 pub use auth::UnauthorizedRecoveryStepResult;
 pub use auth::default_client;
 pub use auth::enforce_login_restrictions;
-pub use auth::load_auth_dot_json;
 pub use auth::login_with_api_key;
 pub use auth::logout;
 pub use auth::read_openai_api_key_from_env;

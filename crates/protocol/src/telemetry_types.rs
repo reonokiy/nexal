@@ -349,12 +349,6 @@ impl SessionTelemetry {
         // no-op
     }
 
-    pub fn sse_event_failed<T>(&self, _kind: Option<&String>, _duration: Duration, _error: &T)
-    where
-        T: std::fmt::Display,
-    {
-        // no-op
-    }
 
     pub fn see_event_completed_failed<T>(&self, _error: &T)
     where

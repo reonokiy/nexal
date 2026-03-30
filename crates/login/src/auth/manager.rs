@@ -101,9 +101,6 @@ pub fn save_auth(nexal_home: &Path, auth: &AuthDotJson, mode: AuthCredentialsSto
     create_auth_storage(nexal_home.to_path_buf(), mode).save(auth)
 }
 
-pub fn load_auth_dot_json(nexal_home: &Path, mode: AuthCredentialsStoreMode) -> std::io::Result<Option<AuthDotJson>> {
-    create_auth_storage(nexal_home.to_path_buf(), mode).load()
-}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AuthConfig {
