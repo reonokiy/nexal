@@ -111,9 +111,9 @@ use crate::util::FeedbackRequestTags;
 use crate::util::emit_feedback_auth_recovery_tags;
 use crate::util::emit_feedback_request_tags_with_auth_env;
 
-pub const OPENAI_BETA_HEADER: &str = "OpenAI-Beta";
-pub const X_NEXAL_TURN_STATE_HEADER: &str = "x-nexal-turn-state";
-pub const X_NEXAL_TURN_METADATA_HEADER: &str = "x-nexal-turn-metadata";
+pub(crate) const OPENAI_BETA_HEADER: &str = "OpenAI-Beta";
+pub(crate) const X_NEXAL_TURN_STATE_HEADER: &str = "x-nexal-turn-state";
+pub(crate) const X_NEXAL_TURN_METADATA_HEADER: &str = "x-nexal-turn-metadata";
 pub const X_RESPONSESAPI_INCLUDE_TIMING_METRICS_HEADER: &str =
     "x-responsesapi-include-timing-metrics";
 const RESPONSES_WEBSOCKETS_V2_BETA_HEADER_VALUE: &str = "responses_websockets=2026-02-06";
