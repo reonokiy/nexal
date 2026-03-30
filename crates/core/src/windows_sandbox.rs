@@ -48,14 +48,6 @@ impl WindowsSandboxLevelExt for WindowsSandboxLevel {
     }
 }
 
-pub fn windows_sandbox_level_from_config(config: &Config) -> WindowsSandboxLevel {
-    WindowsSandboxLevel::from_config(config)
-}
-
-pub fn windows_sandbox_level_from_features(features: &Features) -> WindowsSandboxLevel {
-    WindowsSandboxLevel::from_features(features)
-}
-
 pub fn resolve_windows_sandbox_mode(
     cfg: &ConfigToml,
     profile: &ConfigProfile,

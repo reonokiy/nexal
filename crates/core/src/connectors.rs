@@ -588,32 +588,6 @@ pub fn merge_connectors(
     merged
 }
 
-pub fn merge_plugin_apps(
-    connectors: Vec<AppInfo>,
-    plugin_apps: Vec<AppConnectorId>,
-) -> Vec<AppInfo> {
-    let mut merged = connectors;
-    let mut connector_ids = merged
-        .iter()
-        .map(|connector| connector.id.clone())
-        .collect::<HashSet<_>>();
-
-    for connector_id in plugin_apps {
-        if connector_ids.insert(connector_id.0.clone()) {
-            merged.push(plugin_app_to_app_info(connector_id));
-        }
-    }
-
-    merged.sort_by(|left, right| {
-        right
-            .is_accessible
-            .cmp(&left.is_accessible)
-            .then_with(|| left.name.cmp(&right.name))
-            .then_with(|| left.id.cmp(&right.id))
-    });
-    merged
-}
-
 pub fn merge_plugin_apps_with_accessible(
     plugin_apps: Vec<AppConnectorId>,
     accessible_connectors: Vec<AppInfo>,
