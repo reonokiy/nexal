@@ -259,45 +259,6 @@ pub fn create_ghost_commit(
 }
 
 /// Compute a report describing the working tree for a ghost snapshot without creating a commit.
-pub fn capture_ghost_snapshot_report(
-    options: &CreateGhostCommitOptions<'_>,
-) -> Result<GhostSnapshotReport, GitToolingError> {
-    ensure_git_repository(options.repo_path)?;
-
-    let repo_root = resolve_repository_root(options.repo_path)?;
-    let repo_prefix = repo_subdir(repo_root.as_path(), options.repo_path);
-    let force_include = prepare_force_include(repo_prefix.as_deref(), &options.force_include)?;
-    let existing_untracked = capture_existing_untracked(
-        repo_root.as_path(),
-        repo_prefix.as_deref(),
-        options.ghost_snapshot.ignore_large_untracked_files,
-        options.ghost_snapshot.ignore_large_untracked_dirs,
-        &force_include,
-    )?;
-
-    let warning_ignored_files = existing_untracked
-        .ignored_untracked_files
-        .iter()
-        .map(|file| IgnoredUntrackedFile {
-            path: to_session_relative_path(file.path.as_path(), repo_prefix.as_deref()),
-            byte_size: file.byte_size,
-        })
-        .collect::<Vec<_>>();
-    let warning_ignored_dirs = existing_untracked
-        .ignored_large_untracked_dirs
-        .iter()
-        .map(|dir| LargeUntrackedDir {
-            path: to_session_relative_path(dir.path.as_path(), repo_prefix.as_deref()),
-            file_count: dir.file_count,
-        })
-        .collect::<Vec<_>>();
-
-    Ok(GhostSnapshotReport {
-        large_untracked_dirs: warning_ignored_dirs,
-        ignored_untracked_files: warning_ignored_files,
-    })
-}
-
 /// Create a ghost commit capturing the current state of the repository's working tree along with a report.
 pub fn create_ghost_commit_with_report(
     options: &CreateGhostCommitOptions<'_>,

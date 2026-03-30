@@ -15,7 +15,6 @@ pub use ghost_commits::GhostSnapshotReport;
 pub use ghost_commits::IgnoredUntrackedFile;
 pub use ghost_commits::LargeUntrackedDir;
 pub use ghost_commits::RestoreGhostCommitOptions;
-pub use ghost_commits::capture_ghost_snapshot_report;
 pub use ghost_commits::create_ghost_commit;
 pub use ghost_commits::create_ghost_commit_with_report;
 pub use ghost_commits::restore_ghost_commit;
