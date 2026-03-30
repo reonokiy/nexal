@@ -816,7 +816,7 @@ where
     out
 }
 
-#[allow(dead_code)]
+#[cfg(test)]
 pub(crate) fn word_wrap_lines_borrowed<'a, I, O>(lines: I, width_or_options: O) -> Vec<Line<'a>>
 where
     I: IntoIterator<Item = &'a Line<'a>>,

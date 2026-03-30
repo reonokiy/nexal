@@ -1,11 +1,13 @@
 use crate::client_common::tools::ToolSpec;
 
-#[allow(unused_imports)]
 #[cfg(test)]
 pub(crate) use nexal_code_mode::append_code_mode_sample;
-#[allow(unused_imports)]
 #[cfg(test)]
 pub(crate) use nexal_code_mode::render_json_schema_to_typescript;
+
+#[cfg(test)]
+#[path = "code_mode_description_tests.rs"]
+mod code_mode_description_tests;
 
 pub(crate) fn augment_tool_spec_for_code_mode(spec: ToolSpec, code_mode_enabled: bool) -> ToolSpec {
     if !code_mode_enabled {

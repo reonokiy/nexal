@@ -13,7 +13,6 @@ use nexal_protocol::protocol::SandboxPolicy;
 use nexal_utils_absolute_path::AbsolutePathBuf;
 
 use landlock::ABI;
-#[allow(unused_imports)]
 use landlock::Access;
 use landlock::AccessFs;
 use landlock::CompatLevel;
