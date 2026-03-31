@@ -407,16 +407,15 @@ async fn cleanup_sandbox_container(name: &str) {
 
 async fn sync_skills(config: &NexalConfig) -> anyhow::Result<()> {
     // Layout:
-    //   agents/skills/          ← built-in (read-only in container)
-    //   agents/skills.override/ ← agent-created (read-write in container)
+    //   agents/skills/          ← built-in, copied from source on startup
+    //   agents/skills.override/ ← agent-created (read-write)
+    // Both are inside workspace, so they're visible in the Podman container.
+    // The agent can modify files in skills/ at runtime; they'll be overwritten
+    // on next startup from the source.
     let agents_dir = config.workspace.join("agents");
     let _ = tokio::fs::create_dir_all(&agents_dir).await;
     let _ = tokio::fs::create_dir_all(agents_dir.join("skills.override")).await;
     let skills_dst = agents_dir.join("skills");
-
-    if skills_dst.is_dir() && skills_dst.read_link().is_err() {
-        return Ok(());
-    }
 
     let candidates: Vec<std::path::PathBuf> = [
         config.skills_dir.clone(),
@@ -431,13 +430,32 @@ async fn sync_skills(config: &NexalConfig) -> anyhow::Result<()> {
         return Ok(());
     };
 
+    // Remove old symlink or stale directory, then copy fresh from source.
     if skills_dst.read_link().is_ok() {
         tokio::fs::remove_file(&skills_dst).await.ok();
+    } else if skills_dst.is_dir() {
+        tokio::fs::remove_dir_all(&skills_dst).await.ok();
     }
 
     let src = skills_src.canonicalize().unwrap_or(skills_src.clone());
-    tokio::fs::symlink(&src, &skills_dst).await.ok();
+    copy_dir_recursive(&src, &skills_dst).await?;
 
+    Ok(())
+}
+
+/// Recursively copy a directory tree.
+async fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) -> anyhow::Result<()> {
+    tokio::fs::create_dir_all(dst).await?;
+    let mut entries = tokio::fs::read_dir(src).await?;
+    while let Some(entry) = entries.next_entry().await? {
+        let src_path = entry.path();
+        let dst_path = dst.join(entry.file_name());
+        if entry.file_type().await?.is_dir() {
+            Box::pin(copy_dir_recursive(&src_path, &dst_path)).await?;
+        } else {
+            tokio::fs::copy(&src_path, &dst_path).await?;
+        }
+    }
     Ok(())
 }
 
