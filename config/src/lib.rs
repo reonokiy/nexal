@@ -172,11 +172,6 @@ impl NexalConfig {
             .merge(Env::raw().only(&[
                 "TELEGRAM_BOT_TOKEN",
                 "DISCORD_BOT_TOKEN",
-                "LLM_BASE_URL",
-                "LLM_API_KEY",
-                "LLM_MODEL",
-                "OPENAI_API_KEY",
-                "OPENAI_BASE_URL",
                 "SANDBOX_IMAGE",
                 "SANDBOX_RUNTIME",
             ]).map(|key| {
