@@ -22,7 +22,6 @@ members = [
     "crates/codex-client",
     "crates/codex-experimental-api-macros",
     "crates/config",
-    "crates/connectors",
     "crates/core",
     "crates/core-skills",
     "crates/exec-server",
@@ -109,7 +108,6 @@ nexal-async-utils = { path = "crates/async-utils" }
 nexal-client = { path = "crates/codex-client" }
 nexal-code-mode = { path = "crates/code-mode" }
 nexal-config-loader = { path = "crates/config" }
-nexal-connectors = { path = "crates/connectors" }
 nexal-core = { path = "crates/core" }
 nexal-core-skills = { path = "crates/core-skills" }
 nexal-exec-server = { path = "crates/exec-server" }

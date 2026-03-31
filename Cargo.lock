@@ -4849,18 +4849,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "nexal-connectors"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "nexal-app-server-protocol",
- "pretty_assertions",
- "serde",
- "tokio",
- "urlencoding",
-]
-
-[[package]]
 name = "nexal-core"
 version = "0.1.0"
 dependencies = [
