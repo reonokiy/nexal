@@ -414,15 +414,6 @@ pub fn restore_ghost_commit_with_options(
     )
 }
 
-/// Restore the working tree to match the given commit ID.
-pub fn restore_to_commit(repo_path: &Path, commit_id: &str) -> Result<(), GitToolingError> {
-    ensure_git_repository(repo_path)?;
-
-    let repo_root = resolve_repository_root(repo_path)?;
-    let repo_prefix = repo_subdir(repo_root.as_path(), repo_path);
-    restore_to_commit_inner(repo_root.as_path(), repo_prefix.as_deref(), commit_id)
-}
-
 /// Restores the working tree and index to the given commit using `git restore`.
 /// The repository root and optional repository-relative prefix limit the restore scope.
 fn restore_to_commit_inner(
@@ -1448,14 +1439,6 @@ mod tests {
             .force_include(vec![PathBuf::from("../outside.txt")]);
         let err = create_ghost_commit(&options).unwrap_err();
         assert_matches!(err, GitToolingError::PathEscapesRepository { .. });
-    }
-
-    #[test]
-    /// Restoring a ghost commit from a non-git directory fails.
-    fn restore_requires_git_repository() {
-        let temp = tempfile::tempdir().expect("tempdir");
-        let err = restore_to_commit(temp.path(), "deadbeef").unwrap_err();
-        assert_matches!(err, GitToolingError::NotAGitRepository { .. });
     }
 
     #[test]
