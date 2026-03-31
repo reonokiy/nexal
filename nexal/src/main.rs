@@ -415,6 +415,8 @@ async fn sync_skills(config: &NexalConfig) -> anyhow::Result<()> {
     let agents_dir = config.workspace.join("agents");
     let _ = tokio::fs::create_dir_all(&agents_dir).await;
     let _ = tokio::fs::create_dir_all(agents_dir.join("skills.override")).await;
+    // Ensure uv/pip cache dir exists so tools can install dependencies inside the container.
+    let _ = tokio::fs::create_dir_all(config.workspace.join(".cache")).await;
     let skills_dst = agents_dir.join("skills");
 
     let candidates: Vec<std::path::PathBuf> = [
