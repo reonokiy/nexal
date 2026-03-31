@@ -347,17 +347,13 @@ fn verified_connector_suggestion_completed(
 }
 
 fn verified_plugin_suggestion_completed(
-    tool_id: &str,
-    config: &crate::config::Config,
-    plugins_manager: &crate::plugins::PluginsManager,
+    _tool_id: &str,
+    _config: &crate::config::Config,
+    _plugins_manager: &crate::plugins::PluginsManager,
 ) -> bool {
-    plugins_manager
-        .list_marketplaces_for_config(config, &[])
-        .ok()
-        .into_iter()
-        .flat_map(|outcome| outcome.marketplaces)
-        .flat_map(|marketplace| marketplace.plugins.into_iter())
-        .any(|plugin| plugin.id == tool_id && plugin.installed)
+    // Plugin marketplace install flow has been removed; plugin suggestions
+    // can no longer be marked as completed via marketplace state.
+    false
 }
 
 #[cfg(test)]

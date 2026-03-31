@@ -77,7 +77,7 @@ use nexal_core::config_loader::ConfigRequirements;
 use nexal_core::config_loader::ConfigRequirementsToml;
 use nexal_core::config_loader::RequirementSource;
 use nexal_core::models_manager::collaboration_mode_presets::CollaborationModesConfig;
-use nexal_core::plugins::OPENAI_CURATED_MARKETPLACE_NAME;
+const OPENAI_CURATED_MARKETPLACE_NAME: &str = "openai-curated";
 use nexal_core::skills::model::SkillMetadata;
 use nexal_features::FEATURES;
 use nexal_features::Feature;
