@@ -2,8 +2,6 @@
 name: telegram
 description: |
   Telegram Bot skill for sending and editing messages via Bot API.
-  Use to: (1) Send messages to Telegram users/groups, (2) Reply to specific messages,
-  (3) Edit existing messages, (4) Push proactive notifications.
 metadata:
   channel: telegram
 ---
