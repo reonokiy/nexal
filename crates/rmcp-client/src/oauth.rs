@@ -142,7 +142,7 @@ fn load_oauth_tokens_from_keyring_with_fallback_to_file<K: KeyringStore>(
         Ok(Some(tokens)) => Ok(Some(tokens)),
         Ok(None) => load_oauth_tokens_from_file(server_name, url),
         Err(error) => {
-            warn!("failed to read OAuth tokens from keyring: {error}");
+            tracing::debug!("failed to read OAuth tokens from keyring: {error}");
             load_oauth_tokens_from_file(server_name, url)
                 .with_context(|| format!("failed to read OAuth tokens from keyring: {error}"))
         }
