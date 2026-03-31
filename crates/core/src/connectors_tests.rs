@@ -20,7 +20,7 @@ use rmcp::model::JsonObject;
 use rmcp::model::Tool;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
-use std::collections::HashSet;
+
 use std::sync::Arc;
 use tempfile::tempdir;
 
@@ -49,15 +49,6 @@ fn app(id: &str) -> AppInfo {
         is_accessible: false,
         is_enabled: true,
         plugin_display_names: Vec::new(),
-    }
-}
-
-fn named_app(id: &str, name: &str) -> AppInfo {
-    AppInfo {
-        id: id.to_string(),
-        name: name.to_string(),
-        install_url: Some(connector_install_url(name, id)),
-        ..app(id)
     }
 }
 
@@ -978,97 +969,4 @@ fn first_party_chat_originator_filters_target_and_openai_prefixed_connectors() {
         filtered,
         vec![app("asdk_app_6938a94a61d881918ef32cb999ff937c")]
     );
-}
-
-#[tokio::test]
-async fn tool_suggest_connector_ids_include_configured_tool_suggest_discoverables() {
-    let nexal_home = tempdir().expect("tempdir should succeed");
-    std::fs::write(
-        nexal_home.path().join(CONFIG_TOML_FILE),
-        r#"
-[tool_suggest]
-discoverables = [
-  { type = "connector", id = "connector_2128aebfecb84f64a069897515042a44" },
-  { type = "plugin", id = "slack@openai-curated" },
-  { type = "connector", id = "   " }
-]
-"#,
-    )
-    .expect("write config");
-    let config = ConfigBuilder::default()
-        .nexal_home(nexal_home.path().to_path_buf())
-        .build()
-        .await
-        .expect("config should load");
-
-    assert_eq!(
-        tool_suggest_connector_ids(&config),
-        HashSet::from(["connector_2128aebfecb84f64a069897515042a44".to_string()])
-    );
-}
-
-#[test]
-fn filter_tool_suggest_discoverable_connectors_keeps_only_plugin_backed_uninstalled_apps() {
-    let filtered = filter_tool_suggest_discoverable_connectors(
-        vec![
-            named_app(
-                "connector_2128aebfecb84f64a069897515042a44",
-                "Google Calendar",
-            ),
-            named_app("connector_68df038e0ba48191908c8434991bbac2", "Gmail"),
-            named_app("connector_other", "Other"),
-        ],
-        &[AppInfo {
-            is_accessible: true,
-            ..named_app(
-                "connector_2128aebfecb84f64a069897515042a44",
-                "Google Calendar",
-            )
-        }],
-        &HashSet::from([
-            "connector_2128aebfecb84f64a069897515042a44".to_string(),
-            "connector_68df038e0ba48191908c8434991bbac2".to_string(),
-        ]),
-    );
-
-    assert_eq!(
-        filtered,
-        vec![named_app(
-            "connector_68df038e0ba48191908c8434991bbac2",
-            "Gmail",
-        )]
-    );
-}
-
-#[test]
-fn filter_tool_suggest_discoverable_connectors_excludes_accessible_apps_even_when_disabled() {
-    let filtered = filter_tool_suggest_discoverable_connectors(
-        vec![
-            named_app(
-                "connector_2128aebfecb84f64a069897515042a44",
-                "Google Calendar",
-            ),
-            named_app("connector_68df038e0ba48191908c8434991bbac2", "Gmail"),
-        ],
-        &[
-            AppInfo {
-                is_accessible: true,
-                ..named_app(
-                    "connector_2128aebfecb84f64a069897515042a44",
-                    "Google Calendar",
-                )
-            },
-            AppInfo {
-                is_accessible: true,
-                is_enabled: false,
-                ..named_app("connector_68df038e0ba48191908c8434991bbac2", "Gmail")
-            },
-        ],
-        &HashSet::from([
-            "connector_2128aebfecb84f64a069897515042a44".to_string(),
-            "connector_68df038e0ba48191908c8434991bbac2".to_string(),
-        ]),
-    );
-
-    assert_eq!(filtered, Vec::<AppInfo>::new());
 }

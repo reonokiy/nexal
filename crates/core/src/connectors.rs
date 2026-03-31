@@ -24,7 +24,6 @@ use crate::SandboxState;
 use crate::config::Config;
 use crate::config::types::AppToolApproval;
 use crate::config::types::AppsConfigToml;
-use crate::config::types::ToolSuggestDiscoverableType;
 use crate::config_loader::AppsRequirementsToml;
 use crate::default_client::is_first_party_chat_originator;
 use crate::default_client::originator;
@@ -108,26 +107,14 @@ pub(crate) async fn list_accessible_and_enabled_connectors_from_manager(
 
 pub(crate) async fn list_tool_suggest_discoverable_tools_with_auth(
     config: &Config,
-    auth: Option<&NexalAuth>,
-    accessible_connectors: &[AppInfo],
+    _auth: Option<&NexalAuth>,
+    _accessible_connectors: &[AppInfo],
 ) -> anyhow::Result<Vec<DiscoverableTool>> {
-    let directory_connectors =
-        list_directory_connectors_for_tool_suggest_with_auth(config, auth).await?;
-    let connector_ids = tool_suggest_connector_ids(config);
-    let discoverable_connectors = filter_tool_suggest_discoverable_connectors(
-        directory_connectors,
-        accessible_connectors,
-        &connector_ids,
-    )
-    .into_iter()
-    .map(DiscoverableTool::from);
     let discoverable_plugins = list_tool_suggest_discoverable_plugins(config)?
         .into_iter()
         .map(DiscoverablePluginInfo::from)
         .map(DiscoverableTool::from);
-    Ok(discoverable_connectors
-        .chain(discoverable_plugins)
-        .collect())
+    Ok(discoverable_plugins.collect())
 }
 
 pub async fn list_cached_accessible_connectors_from_mcp_tools(
@@ -340,56 +327,6 @@ fn write_cached_accessible_connectors(
         expires_at: Instant::now() + CONNECTORS_CACHE_TTL,
         connectors: connectors.to_vec(),
     });
-}
-
-fn filter_tool_suggest_discoverable_connectors(
-    directory_connectors: Vec<AppInfo>,
-    accessible_connectors: &[AppInfo],
-    discoverable_connector_ids: &HashSet<String>,
-) -> Vec<AppInfo> {
-    let accessible_connector_ids: HashSet<&str> = accessible_connectors
-        .iter()
-        .filter(|connector| connector.is_accessible)
-        .map(|connector| connector.id.as_str())
-        .collect();
-
-    let mut connectors = filter_disallowed_connectors(directory_connectors)
-        .into_iter()
-        .filter(|connector| !accessible_connector_ids.contains(connector.id.as_str()))
-        .filter(|connector| discoverable_connector_ids.contains(connector.id.as_str()))
-        .collect::<Vec<_>>();
-    connectors.sort_by(|left, right| {
-        left.name
-            .cmp(&right.name)
-            .then_with(|| left.id.cmp(&right.id))
-    });
-    connectors
-}
-
-fn tool_suggest_connector_ids(config: &Config) -> HashSet<String> {
-    let mut connector_ids = PluginsManager::new(config.nexal_home.clone())
-        .plugins_for_config(config)
-        .capability_summaries()
-        .iter()
-        .flat_map(|plugin| plugin.app_connector_ids.iter())
-        .map(|connector_id| connector_id.0.clone())
-        .collect::<HashSet<_>>();
-    connector_ids.extend(
-        config
-            .tool_suggest
-            .discoverables
-            .iter()
-            .filter(|discoverable| discoverable.kind == ToolSuggestDiscoverableType::Connector)
-            .map(|discoverable| discoverable.id.clone()),
-    );
-    connector_ids
-}
-
-async fn list_directory_connectors_for_tool_suggest_with_auth(
-    _config: &Config,
-    _auth: Option<&NexalAuth>,
-) -> anyhow::Result<Vec<AppInfo>> {
-    Ok(Vec::new())
 }
 
 fn auth_manager_from_config(config: &Config) -> std::sync::Arc<AuthManager> {
