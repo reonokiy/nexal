@@ -1,7 +1,7 @@
 use serde_json::Value as JsonValue;
 use std::collections::BTreeMap;
 
-pub fn collect_plugin_enabled_candidates<'a>(
+fn collect_plugin_enabled_candidates<'a>(
     edits: impl Iterator<Item = (&'a String, &'a JsonValue)>,
 ) -> BTreeMap<String, bool> {
     let mut pending_changes = BTreeMap::new();
