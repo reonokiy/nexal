@@ -355,7 +355,11 @@ fn truncate(s: &str, max: usize) -> String {
     if s.len() <= max {
         s.to_string()
     } else {
-        format!("{}...", &s[..max])
+        let end = s.char_indices()
+            .map(|(i, _)| i)
+            .find(|&i| i >= max)
+            .unwrap_or(s.len());
+        format!("{}...", &s[..end])
     }
 }
 
