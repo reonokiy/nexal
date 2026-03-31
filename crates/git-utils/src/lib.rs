@@ -19,7 +19,6 @@ pub use ghost_commits::create_ghost_commit;
 pub use ghost_commits::create_ghost_commit_with_report;
 pub use ghost_commits::restore_ghost_commit;
 pub use ghost_commits::restore_ghost_commit_with_options;
-pub use ghost_commits::restore_to_commit;
 pub use info::CommitLogEntry;
 pub use info::GitDiffToRemote;
 pub use info::GitInfo;

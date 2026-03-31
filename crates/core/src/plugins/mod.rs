@@ -12,7 +12,6 @@ mod startup_sync;
 mod store;
 #[cfg(test)]
 pub(crate) mod test_support;
-mod toggles;
 
 pub use nexal_plugin::AppConnectorId;
 pub use nexal_plugin::EffectiveSkillRoots;
