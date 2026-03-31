@@ -23,7 +23,7 @@ use tokio::sync::Notify;
 use tokio::sync::mpsc;
 use tokio::time::Instant;
 use tokio::time::sleep_until;
-use tracing::warn;
+use tracing::{debug, warn};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 /// Coalesced file change notification for a subscriber.
@@ -469,7 +469,7 @@ impl FileWatcher {
 
         if existing_mode.is_some() {
             if let Err(err) = guard.watcher.unwatch(path) {
-                warn!("failed to unwatch {}: {err}", path.display());
+                debug!("failed to unwatch {}: {err}", path.display());
             }
             guard.watched_paths.remove(path);
         }
