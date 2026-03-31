@@ -66,12 +66,22 @@ impl ToolCallRuntime {
         async move {
             match future.await {
                 Ok(response) => {
-                    tracing::debug!(
-                        %thread_id,
-                        tool_name = %tool_name,
-                        "ToolCall succeeded: {}",
-                        tool_name,
-                    );
+                    if response.result.success_for_logging() {
+                        tracing::debug!(
+                            %thread_id,
+                            tool_name = %tool_name,
+                            "ToolCall succeeded: {}",
+                            tool_name,
+                        );
+                    } else {
+                        tracing::warn!(
+                            %thread_id,
+                            tool_name = %tool_name,
+                            "ToolCall failed: {} — {}",
+                            tool_name,
+                            response.result.log_preview(),
+                        );
+                    }
                     Ok(response.into_response())
                 }
                 Err(FunctionCallError::Fatal(message)) => {
