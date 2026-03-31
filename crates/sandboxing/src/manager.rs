@@ -345,23 +345,27 @@ impl SandboxManager {
 ///
 /// Core produces things like:
 ///   ["/usr/sbin/bash", "-lc", "ls -la"]
-///   ["/usr/sbin/bash", "-c", "if . 'snapshot'...\n\nexec '/bin/bash' -c 'actual cmd'"]
+///   ["/usr/sbin/bash", "-c", "if . 'snapshot'...\n\nexec '/bin/bash' -lc 'actual cmd'"]
 ///
-/// We extract just "actual cmd" — the container runs it directly with `bash -c`.
+/// We extract just "actual cmd" — the container runs it via `sh -c`.
 fn extract_raw_command(argv: &[String]) -> String {
     // Common pattern: [shell, "-c"|"-lc", script]
     if argv.len() >= 3 && (argv[1] == "-c" || argv[1] == "-lc") {
         let script = &argv[2];
 
-        // If script has "exec ... -c 'actual cmd'" pattern (snapshot wrapper),
-        // extract the inner command
-        if let Some(exec_pos) = script.find("exec ") {
-            let after_exec = &script[exec_pos + 5..];
-            // Pattern: exec '/bin/bash' -c 'actual cmd'
-            if let Some(c_pos) = after_exec.find(" -c ") {
-                let inner = after_exec[c_pos + 4..].trim();
-                // Strip surrounding quotes
-                let inner = inner.trim_matches('\'').trim_matches('"');
+        // Shell snapshot wrapper: look for the LAST `exec ... -c '...'` or
+        // `exec ... -lc '...'` at the end of the script. Use rfind to avoid
+        // matching `exec` inside user code (e.g. Python's exec()).
+        if let Some(exec_pos) = script.rfind("\nexec ") {
+            let after_exec = &script[exec_pos + 6..]; // skip "\nexec "
+            // Find " -c " or " -lc " after the shell path
+            let c_pos = after_exec.find(" -lc ")
+                .map(|p| (p, 5))
+                .or_else(|| after_exec.find(" -c ").map(|p| (p, 4)));
+            if let Some((pos, len)) = c_pos {
+                let inner = after_exec[pos + len..].trim();
+                // Strip matching outer quotes only
+                let inner = strip_outer_quotes(inner);
                 return inner.to_string();
             }
         }
@@ -372,6 +376,18 @@ fn extract_raw_command(argv: &[String]) -> String {
 
     // Fallback: join all args
     argv.join(" ")
+}
+
+/// Strip a single layer of matching outer quotes (' or ").
+fn strip_outer_quotes(s: &str) -> &str {
+    if s.len() >= 2 {
+        let first = s.as_bytes()[0];
+        let last = s.as_bytes()[s.len() - 1];
+        if (first == b'\'' && last == b'\'') || (first == b'"' && last == b'"') {
+            return &s[1..s.len() - 1];
+        }
+    }
+    s
 }
 
 /// Map a host-side cwd to the container-side path.
