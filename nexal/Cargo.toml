@@ -15,6 +15,7 @@ nexal-state = { workspace = true }
 nexal-channel-core = { workspace = true }
 nexal-channel-telegram = { workspace = true }
 nexal-channel-discord = { workspace = true }
+nexal-channel-http = { workspace = true }
 
 nexal-arg0 = { workspace = true }
 nexal-config-loader = { workspace = true }

@@ -1,6 +1,5 @@
 use crate::config::types::McpServerConfig;
 
-mod discoverable;
 mod injection;
 mod manager;
 mod manifest;
@@ -8,7 +7,6 @@ mod marketplace;
 mod mentions;
 mod remote;
 mod render;
-mod startup_sync;
 mod store;
 #[cfg(test)]
 pub(crate) mod test_support;
@@ -23,7 +21,6 @@ pub use nexal_plugin::PluginTelemetryMetadata;
 pub type LoadedPlugin = nexal_plugin::LoadedPlugin<McpServerConfig>;
 pub type PluginLoadOutcome = nexal_plugin::PluginLoadOutcome<McpServerConfig>;
 
-pub(crate) use discoverable::list_tool_suggest_discoverable_plugins;
 pub(crate) use injection::build_plugin_injections;
 pub use manager::ConfiguredMarketplace;
 pub use manager::ConfiguredMarketplaceListOutcome;
@@ -55,9 +52,6 @@ pub use remote::RemotePluginFetchError;
 pub use remote::fetch_remote_featured_plugin_ids;
 pub(crate) use render::render_explicit_plugin_instructions;
 pub(crate) use render::render_plugins_section;
-pub(crate) use startup_sync::curated_plugins_repo_path;
-pub(crate) use startup_sync::read_curated_plugins_sha;
-pub(crate) use startup_sync::sync_openai_plugins_repo;
 pub(crate) use mentions::build_connector_slug_counts;
 pub(crate) use mentions::build_skill_name_counts;
 pub(crate) use mentions::collect_explicit_app_ids;

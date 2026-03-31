@@ -88,6 +88,9 @@ pub struct NexalConfig {
     /// Path to skills directory
     pub skills_dir: Option<PathBuf>,
 
+    /// HTTP channel listen port (default: 3000)
+    pub http_channel_port: Option<u16>,
+
     /// LLM provider configurations
     pub providers: HashMap<String, ProviderConfig>,
 }
@@ -138,6 +141,7 @@ impl Default for NexalConfig {
             sandbox_pids_limit: 256,
             sandbox_network: true,
             skills_dir: None,
+            http_channel_port: None,
             providers: HashMap::new(),
         }
     }

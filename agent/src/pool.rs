@@ -99,12 +99,13 @@ impl AgentPool {
             base_instructions_len = soul.len(),
             "prepared base instructions for in-process session"
         );
+        let cli_overrides = crate::runner::providers_to_cli_overrides_full(&self.config);
         let codex_config = Arc::new(
             build_nexal_config_loader(&self.config, soul)
                 .await
                 .context("building config")?,
         );
-        let mut client = build_client(Arc::clone(&codex_config), vec![]).await?;
+        let mut client = build_client(Arc::clone(&codex_config), cli_overrides).await?;
         let thread_id = start_thread(&mut client, &codex_config).await?;
         info!("in-process session ready: thread={thread_id}");
 
@@ -155,7 +156,21 @@ impl AgentPool {
         if skill_docs.trim().is_empty() || skill_docs.trim() == "(no skills available)" {
             soul
         } else {
-            format!("{soul}\n\n---\n\n{skill_docs}")
+            format!(
+                "{soul}\n\n\
+                 ---\n\n\
+                 # Channel Response Protocol\n\n\
+                 You are operating in headless mode — you have NO direct text output to the user.\n\
+                 Your plain text responses are NOT delivered. The ONLY way to communicate with \
+                 the user is by executing the channel skill scripts described below.\n\n\
+                 For EVERY reply, you MUST call the appropriate skill script via the exec tool. \
+                 Each incoming message includes a `[channel=... chat_id=...]` header — use those \
+                 values as arguments to the skill script.\n\n\
+                 Other channel capabilities (send files, edit messages, reactions, etc.) are also \
+                 available through the skill scripts. Refer to the skill documentation below.\n\n\
+                 ---\n\n\
+                 {skill_docs}"
+            )
         }
     }
 

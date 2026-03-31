@@ -7,6 +7,7 @@ members = [
     "channel-core",
     "channel-telegram",
     "channel-discord",
+    "channel-http",
     "state",
 
     # ── Forked codex crates ──
@@ -94,6 +95,7 @@ nexal-state = { path = "state" }
 nexal-channel-core = { path = "channel-core" }
 nexal-channel-telegram = { path = "channel-telegram" }
 nexal-channel-discord = { path = "channel-discord" }
+nexal-channel-http = { path = "channel-http" }
 
 # ── Internal: forked codex crates ──
 app_test_support = { path = "crates/app-server/tests/common" }

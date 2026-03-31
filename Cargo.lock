@@ -4226,6 +4226,7 @@ dependencies = [
  "nexal-arg0",
  "nexal-channel-core",
  "nexal-channel-discord",
+ "nexal-channel-http",
  "nexal-channel-telegram",
  "nexal-config",
  "nexal-config-loader",
@@ -4472,6 +4473,21 @@ dependencies = [
  "nexal-config",
  "serde_json",
  "serenity",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "nexal-channel-http"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "axum",
+ "nexal-channel-core",
+ "nexal-config",
+ "serde",
+ "serde_json",
  "tokio",
  "tracing",
 ]

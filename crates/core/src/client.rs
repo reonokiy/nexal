@@ -1360,7 +1360,21 @@ impl ModelClientSession {
         let session = ChatCompletionsSession::new(base_url, headers, http_client);
 
         let thinking_mode = provider_info.thinking_mode;
-        let messages = convert_prompt_to_chat_messages(&prompt.input, thinking_mode);
+        let mut messages = Vec::new();
+        // Inject base_instructions as the system message — the Responses API
+        // path handles this via the `instructions` field, but Chat Completions
+        // needs an explicit system message.
+        if !prompt.base_instructions.text.is_empty() {
+            messages.push(ChatMessage {
+                role: "system".to_string(),
+                content: Some(serde_json::Value::String(prompt.base_instructions.text.clone())),
+                name: None,
+                tool_calls: None,
+                tool_call_id: None,
+                reasoning_content: None,
+            });
+        }
+        messages.extend(convert_prompt_to_chat_messages(&prompt.input, thinking_mode));
         let tools = convert_tools_to_chat_format(&prompt.tools);
 
 

@@ -71,6 +71,7 @@ pub(crate) async fn start_thread(
                 approval_policy: Some(ApiAskForApproval::Never),
                 sandbox: Some(ApiSandboxMode::WorkspaceWrite),
                 ephemeral: Some(false),
+                base_instructions: config.base_instructions.clone(),
                 ..Default::default()
             },
         })
@@ -116,7 +117,7 @@ pub(crate) async fn build_nexal_config_loader(nc: &NexalConfig, soul: String) ->
 ///   ("model_providers.moonshot.base_url", "https://api.moonshot.cn/v1")
 ///   ("model_providers.moonshot.wire_api", "chat")
 ///   ("model_provider", "moonshot")
-pub(crate) fn providers_to_cli_overrides_full(nc: &NexalConfig) -> Vec<(String, toml::Value)> {
+pub fn providers_to_cli_overrides_full(nc: &NexalConfig) -> Vec<(String, toml::Value)> {
     let mut overrides = Vec::new();
 
     for (name, provider) in &nc.providers {

@@ -36,8 +36,6 @@ use crate::mcp_connection_manager::McpConnectionManager;
 use crate::mcp_connection_manager::nexal_apps_tools_cache_key;
 use crate::plugins::AppConnectorId;
 use crate::plugins::PluginsManager;
-use crate::plugins::list_tool_suggest_discoverable_plugins;
-use crate::tools::discoverable::DiscoverablePluginInfo;
 use crate::tools::discoverable::DiscoverableTool;
 use nexal_features::Feature;
 
@@ -106,15 +104,11 @@ pub(crate) async fn list_accessible_and_enabled_connectors_from_manager(
 }
 
 pub(crate) async fn list_tool_suggest_discoverable_tools_with_auth(
-    config: &Config,
+    _config: &Config,
     _auth: Option<&NexalAuth>,
     _accessible_connectors: &[AppInfo],
 ) -> anyhow::Result<Vec<DiscoverableTool>> {
-    let discoverable_plugins = list_tool_suggest_discoverable_plugins(config)?
-        .into_iter()
-        .map(DiscoverablePluginInfo::from)
-        .map(DiscoverableTool::from);
-    Ok(discoverable_plugins.collect())
+    Ok(Vec::new())
 }
 
 pub async fn list_cached_accessible_connectors_from_mcp_tools(

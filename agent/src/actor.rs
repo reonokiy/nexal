@@ -371,19 +371,14 @@ fn render_channel_context(
     }
 
     let mut out = format!(
-        "Channel context:\n- channel: {channel}\n- sender: {sender}\n- chat_id: {chat_id}\n"
+        "[channel={channel} sender={sender} chat_id={chat_id}",
     );
 
     if !metadata.is_null() {
-        out.push_str("- metadata: ");
-        out.push_str(&metadata.to_string());
-        out.push('\n');
+        out.push_str(&format!(" metadata={metadata}"));
     }
 
-    out.push_str(
-        "\nUse the channel-specific skill to send replies back to the user. \
-If the channel skill requires identifiers such as chat_id or message_id, use the values above.\n\nUser message:\n",
-    );
+    out.push_str("]\n");
     out.push_str(text);
     out
 }

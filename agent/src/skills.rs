@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use serde::Deserialize;
-use tracing::debug;
+use tracing::{debug, info};
 
 /// Container-side paths.
 const BUILTIN_SKILLS_DIR: &str = "/workspace/agents/skills";
@@ -31,17 +31,33 @@ pub async fn load_skill_docs(
     scan_dir(override_dir, OVERRIDE_SKILLS_DIR, &mut skills).await;
 
     let channels: Vec<String> = channel_names.iter().map(|s| s.to_string()).collect();
+    let mut loaded = Vec::new();
+    let mut skipped = Vec::new();
     let mut parts = Vec::new();
 
     for (name, entry) in &skills {
         // Skip admin-only skills for non-admin users
         if entry.admin_only && !is_admin {
+            skipped.push(format!("{name} (admin_only)"));
             continue;
         }
         if entry.always_load || channels.contains(name) {
+            loaded.push(name.clone());
             parts.push(entry.content.clone());
+        } else {
+            skipped.push(name.clone());
         }
     }
+
+    info!(
+        scanned = skills.len(),
+        loaded = loaded.len(),
+        skipped = skipped.len(),
+        "skills scan: found={}, loaded=[{}], skipped=[{}]",
+        skills.len(),
+        loaded.join(", "),
+        skipped.join(", "),
+    );
 
     if parts.is_empty() {
         "(no skills available)".to_string()

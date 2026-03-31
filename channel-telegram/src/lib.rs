@@ -96,7 +96,11 @@ impl Channel for TelegramChannel {
                     info!(
                         "telegram message from @{username} in {chat_id}: {}",
                         if full_text.len() > 50 {
-                            format!("{}...", &full_text[..50])
+                            let end = full_text.char_indices()
+                                .map(|(i, _)| i)
+                                .find(|&i| i >= 50)
+                                .unwrap_or(full_text.len());
+                            format!("{}...", &full_text[..end])
                         } else {
                             full_text.clone()
                         }

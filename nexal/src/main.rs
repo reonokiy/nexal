@@ -25,6 +25,10 @@ struct Cli {
     /// Also listen on Discord (requires DISCORD_BOT_TOKEN)
     #[arg(long)]
     discord: bool,
+
+    /// Also listen on HTTP (port configurable via http_channel_port, default 3000)
+    #[arg(long)]
+    http: bool,
 }
 
 #[derive(Subcommand)]
@@ -42,6 +46,10 @@ struct IdleArgs {
     /// Enable the Discord channel (requires DISCORD_BOT_TOKEN)
     #[arg(long)]
     discord: bool,
+
+    /// Enable the HTTP channel (port configurable via http_channel_port)
+    #[arg(long)]
+    http: bool,
 }
 
 #[tokio::main]
@@ -61,12 +69,12 @@ async fn main() -> anyhow::Result<()> {
         }
         None => {
             // Default: TUI, optionally with channels running alongside
-            run_tui(cli.telegram, cli.discord).await
+            run_tui(cli.telegram, cli.discord, cli.http).await
         }
     }
 }
 
-async fn run_tui(enable_telegram: bool, enable_discord: bool) -> anyhow::Result<()> {
+async fn run_tui(enable_telegram: bool, enable_discord: bool, enable_http: bool) -> anyhow::Result<()> {
     let config = Arc::new(NexalConfig::from_env());
 
     // Ensure workspace exists
@@ -164,6 +172,7 @@ async fn run_tui(enable_telegram: bool, enable_discord: bool) -> anyhow::Result<
     let bot_handle = maybe_start_channels(
         enable_telegram,
         enable_discord,
+        enable_http,
         Arc::clone(&config),
     )
     .await?;
@@ -193,12 +202,14 @@ async fn run_tui(enable_telegram: bool, enable_discord: bool) -> anyhow::Result<
 async fn maybe_start_channels(
     enable_telegram: bool,
     enable_discord: bool,
+    enable_http: bool,
     config: Arc<NexalConfig>,
 ) -> anyhow::Result<Option<tokio::task::JoinHandle<()>>> {
     let run_telegram = enable_telegram || config.telegram_bot_token.is_some();
     let run_discord = enable_discord || config.discord_bot_token.is_some();
+    let run_http = enable_http;
 
-    if !run_telegram && !run_discord {
+    if !run_telegram && !run_discord && !run_http {
         return Ok(None);
     }
 
@@ -228,10 +239,16 @@ async fn maybe_start_channels(
             Arc::clone(&config),
         ));
     }
+    if run_http {
+        bot.add_channel(nexal_channel_http::HttpChannel::new(
+            Arc::clone(&config),
+        ));
+    }
 
     let mut channels: Vec<&str> = Vec::new();
     if run_telegram { channels.push("telegram"); }
     if run_discord { channels.push("discord"); }
+    if run_http { channels.push("http"); }
     info!("starting channels alongside TUI: {}", channels.join(", "));
 
     let handle = tokio::spawn(async move {
@@ -341,7 +358,46 @@ async fn create_sandbox_container(config: &NexalConfig) -> anyhow::Result<String
     Ok(name)
 }
 
+/// Check if the sandbox container has active processes beyond `sleep infinity`.
+async fn container_has_active_tasks(name: &str) -> bool {
+    let output = tokio::process::Command::new("podman")
+        .args(["top", name, "-eo", "comm"])
+        .output()
+        .await;
+    let Ok(output) = output else { return false };
+    if !output.status.success() { return false; }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    // Each line is a process name. Filter out the idle `sleep` and the header.
+    stdout.lines()
+        .filter(|line| {
+            let cmd = line.trim();
+            !cmd.is_empty() && cmd != "COMMAND" && cmd != "sleep"
+        })
+        .count() > 0
+}
+
+/// Cleanup sandbox container on exit.
+/// If there are active tasks running inside, prompt the user before killing.
 async fn cleanup_sandbox_container(name: &str) {
+    if container_has_active_tasks(name).await {
+        info!("container {name} still has running tasks, waiting for user input");
+        eprint!("Container has running tasks. Kill? [Y/n] ");
+
+        let choice = tokio::task::spawn_blocking(|| {
+            let mut buf = String::new();
+            let _ = std::io::stdin().read_line(&mut buf);
+            buf.trim().to_lowercase()
+        })
+        .await
+        .unwrap_or_default();
+
+        if choice.starts_with('n') {
+            info!("leaving container {name} running (podman rm -f {name} to remove)");
+            return;
+        }
+    }
+
     let _ = tokio::process::Command::new("podman")
         .args(["rm", "-f", name])
         .output()
@@ -426,11 +482,13 @@ async fn run_idle(args: IdleArgs, config: Arc<NexalConfig>) -> anyhow::Result<()
     sync_skills(&config).await?;
 
     // Create Podman sandbox container for idle mode (same as TUI).
-    if !is_sandbox_disabled(&config) {
-        
+    let sandbox_container = if !is_sandbox_disabled(&config) {
         let container = create_sandbox_container(&config).await?;
         nexal_config::sandbox::SandboxState::init(Some(container.clone()));
-    }
+        Some(container)
+    } else {
+        None
+    };
 
     // Start token proxies
     let _proxy_handles = nexal_agent::proxy::start_proxies(
@@ -454,9 +512,10 @@ async fn run_idle(args: IdleArgs, config: Arc<NexalConfig>) -> anyhow::Result<()
 
     // If any flag is explicit, only start flagged channels.
     // If no flags, auto-detect from configured tokens.
-    let explicit = args.telegram || args.discord;
+    let explicit = args.telegram || args.discord || args.http;
     let run_telegram = if explicit { args.telegram } else { config.telegram_bot_token.is_some() };
     let run_discord = if explicit { args.discord } else { config.discord_bot_token.is_some() };
+    let run_http = args.http;
 
     if run_telegram {
         bot.add_channel(nexal_channel_telegram::TelegramChannel::new(
@@ -468,18 +527,30 @@ async fn run_idle(args: IdleArgs, config: Arc<NexalConfig>) -> anyhow::Result<()
             Arc::clone(&config),
         ));
     }
+    if run_http {
+        bot.add_channel(nexal_channel_http::HttpChannel::new(
+            Arc::clone(&config),
+        ));
+    }
 
-    if !run_telegram && !run_discord {
+    if !run_telegram && !run_discord && !run_http {
         anyhow::bail!(
-            "No channel token configured. Set TELEGRAM_BOT_TOKEN and/or DISCORD_BOT_TOKEN."
+            "No channel configured. Set TELEGRAM_BOT_TOKEN, DISCORD_BOT_TOKEN, or use --http."
         );
     }
 
-    tokio::select! {
+    let result = tokio::select! {
         result = bot.run() => result,
         _ = tokio::signal::ctrl_c() => {
             info!("received Ctrl+C, shutting down");
-            std::process::exit(0);
+            Ok(())
         }
+    };
+
+    // Cleanup sandbox container
+    if let Some(name) = sandbox_container {
+        cleanup_sandbox_container(&name).await;
     }
+
+    result
 }
