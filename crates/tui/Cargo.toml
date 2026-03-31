@@ -49,7 +49,6 @@ nexal-utils-absolute-path = { workspace = true }
 nexal-utils-cli = { workspace = true }
 nexal-utils-elapsed = { workspace = true }
 nexal-utils-fuzzy-match = { workspace = true }
-nexal-utils-oss = { workspace = true }
 nexal-utils-sandbox-summary = { workspace = true }
 nexal-utils-sleep-inhibitor = { workspace = true }
 nexal-utils-string = { workspace = true }

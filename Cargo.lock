@@ -5182,7 +5182,6 @@ dependencies = [
  "nexal-utils-cli",
  "nexal-utils-elapsed",
  "nexal-utils-fuzzy-match",
- "nexal-utils-oss",
  "nexal-utils-pty",
  "nexal-utils-sandbox-summary",
  "nexal-utils-sleep-inhibitor",
@@ -5272,7 +5271,6 @@ dependencies = [
  "nexal-utils-cli",
  "nexal-utils-elapsed",
  "nexal-utils-fuzzy-match",
- "nexal-utils-oss",
  "nexal-utils-pty",
  "nexal-utils-sandbox-summary",
  "nexal-utils-sleep-inhibitor",
@@ -5402,13 +5400,6 @@ dependencies = [
  "pretty_assertions",
  "serde_json",
  "toml 0.9.12+spec-1.1.0",
-]
-
-[[package]]
-name = "nexal-utils-oss"
-version = "0.1.0"
-dependencies = [
- "nexal-core",
 ]
 
 [[package]]

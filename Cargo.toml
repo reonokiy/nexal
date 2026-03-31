@@ -62,7 +62,6 @@ members = [
     "crates/utils/home-dir",
     "crates/utils/image",
     "crates/utils/json-to-toml",
-    "crates/utils/oss",
     "crates/utils/output-truncation",
     "crates/utils/path-utils",
     "crates/utils/plugins",
@@ -150,7 +149,6 @@ nexal-utils-fuzzy-match = { path = "crates/utils/fuzzy-match" }
 nexal-utils-home-dir = { path = "crates/utils/home-dir" }
 nexal-utils-image = { path = "crates/utils/image" }
 nexal-utils-json-to-toml = { path = "crates/utils/json-to-toml" }
-nexal-utils-oss = { path = "crates/utils/oss" }
 nexal-utils-output-truncation = { path = "crates/utils/output-truncation" }
 nexal-utils-path = { path = "crates/utils/path-utils" }
 nexal-utils-plugins = { path = "crates/utils/plugins" }

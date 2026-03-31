@@ -42,8 +42,6 @@ use nexal_rollout_state::log_db;
 use nexal_terminal_detection::Multiplexer;
 use nexal_terminal_detection::terminal_info;
 use nexal_utils_absolute_path::AbsolutePathBuf;
-use nexal_utils_oss::ensure_oss_provider_ready;
-use nexal_utils_oss::get_default_model_for_oss_provider;
 use cwd_prompt::CwdPromptAction;
 use cwd_prompt::CwdPromptOutcome;
 use cwd_prompt::CwdSelection;
@@ -379,12 +377,6 @@ pub async fn run_main(
     // When using `--oss`, let the bootstrapper pick the model based on selected provider
     let model = if let Some(model) = &cli.model {
         Some(model.clone())
-    } else if cli.oss {
-        // Use the provider from model_provider_override
-        model_provider_override
-            .as_ref()
-            .and_then(|provider_id| get_default_model_for_oss_provider(provider_id))
-            .map(std::borrow::ToOwned::to_owned)
     } else {
         None // No model specified, will use the default.
     };
@@ -481,21 +473,6 @@ pub async fn run_main(
     let feedback = nexal_feedback::NexalFeedback::new();
     let feedback_layer = feedback.logger_layer();
     let feedback_metadata_layer = feedback.metadata_layer();
-
-    if cli.oss && model_provider_override.is_some() {
-        // We're in the oss section, so provider_id should be Some
-        // Let's handle None case gracefully though just in case
-        let provider_id = match model_provider_override.as_ref() {
-            Some(id) => id,
-            None => {
-                error!("OSS provider unexpectedly not set when oss flag is used");
-                return Err(std::io::Error::other(
-                    "OSS provider not set but oss flag was used",
-                ));
-            }
-        };
-        ensure_oss_provider_ready(provider_id, &config).await?;
-    }
 
     let log_db_layer = nexal_core::state_db::get_state_db(&config)
         .await
