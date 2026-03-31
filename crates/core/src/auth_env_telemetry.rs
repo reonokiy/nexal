@@ -2,7 +2,6 @@ use nexal_protocol::telemetry_types::AuthEnvTelemetryMetadata;
 
 use crate::auth::NEXAL_API_KEY_ENV_VAR;
 use crate::auth::OPENAI_API_KEY_ENV_VAR;
-use crate::auth::REFRESH_TOKEN_URL_OVERRIDE_ENV_VAR;
 use crate::model_provider_info::ModelProviderInfo;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -39,7 +38,7 @@ pub(crate) fn collect_auth_env_telemetry(
         // Custom provider `env_key` is arbitrary config text, so emit only a safe bucket.
         provider_env_key_name: provider.env_key.as_ref().map(|_| "configured".to_string()),
         provider_env_key_present: provider.env_key.as_deref().map(env_var_present),
-        refresh_token_url_override_present: env_var_present(REFRESH_TOKEN_URL_OVERRIDE_ENV_VAR),
+        refresh_token_url_override_present: false,
     }
 }
 

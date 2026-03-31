@@ -908,7 +908,7 @@ fn encode_wav_normalized(audio: &RecordedAudio) -> Result<Vec<u8>, String> {
 
 async fn resolve_auth() -> Result<TranscriptionAuthContext, String> {
     let nexal_home = find_nexal_home().map_err(|e| format!("failed to find nexal home: {e}"))?;
-    let auth = NexalAuth::from_auth_storage(&nexal_home, AuthCredentialsStoreMode::Auto)
+    let auth = NexalAuth::from_auth_storage(&nexal_home, AuthCredentialsStoreMode::File)
         .map_err(|e| format!("failed to read auth.json: {e}"))?
         .ok_or_else(|| "No Nexal auth is configured; please run `nexal login`".to_string())?;
     let token = auth

@@ -20,8 +20,6 @@ use nexal_app_server_protocol::Thread as AppServerThread;
 use nexal_app_server_protocol::ThreadListParams;
 use nexal_app_server_protocol::ThreadSortKey as AppServerThreadSortKey;
 use nexal_app_server_protocol::ThreadSourceKind;
-use nexal_core::auth::AuthConfig;
-use nexal_core::auth::enforce_login_restrictions;
 use nexal_core::check_execpolicy_for_warnings;
 use nexal_core::config::Config;
 use nexal_core::config::ConfigBuilder;
@@ -798,18 +796,6 @@ pub async fn run_main(
         #[allow(clippy::print_stderr)]
         {
             eprintln!("Error adding directories: {warning}");
-            std::process::exit(1);
-        }
-    }
-
-    if matches!(app_server_target, AppServerTarget::Embedded) {
-        #[allow(clippy::print_stderr)]
-        if let Err(err) = enforce_login_restrictions(&AuthConfig {
-            nexal_home: config.nexal_home.clone(),
-            auth_credentials_store_mode: config.cli_auth_credentials_store_mode,
-            forced_login_method: config.forced_login_method,
-        }) {
-            eprintln!("{err}");
             std::process::exit(1);
         }
     }

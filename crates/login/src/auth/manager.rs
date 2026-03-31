@@ -6,7 +6,6 @@ use std::sync::Arc;
 use std::sync::RwLock;
 
 use nexal_app_server_protocol::AuthMode as ApiAuthMode;
-use nexal_protocol::config_types::ForcedLoginMethod;
 
 pub use crate::auth::storage::AuthCredentialsStoreMode;
 pub use crate::auth::storage::AuthDotJson;
@@ -32,7 +31,6 @@ impl NexalAuth {
     fn from_auth_dot_json(
         _nexal_home: &Path,
         auth_dot_json: AuthDotJson,
-        _auth_credentials_store_mode: AuthCredentialsStoreMode,
     ) -> std::io::Result<Self> {
         let api_key = auth_dot_json
             .openai_api_key
@@ -42,9 +40,9 @@ impl NexalAuth {
 
     pub fn from_auth_storage(
         nexal_home: &Path,
-        auth_credentials_store_mode: AuthCredentialsStoreMode,
+        _auth_credentials_store_mode: AuthCredentialsStoreMode,
     ) -> std::io::Result<Option<Self>> {
-        load_auth(nexal_home, false, auth_credentials_store_mode)
+        load_auth(nexal_home, false, AuthCredentialsStoreMode::File)
     }
 
     pub fn auth_mode(&self) -> crate::AuthMode { crate::AuthMode::ApiKey }
@@ -96,46 +94,14 @@ pub fn save_auth(nexal_home: &Path, auth: &AuthDotJson, mode: AuthCredentialsSto
     create_auth_storage(nexal_home.to_path_buf(), mode).save(auth)
 }
 
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AuthConfig {
-    pub nexal_home: PathBuf,
-    pub auth_credentials_store_mode: AuthCredentialsStoreMode,
-    pub forced_login_method: Option<ForcedLoginMethod>,
-}
-
-pub fn enforce_login_restrictions(config: &AuthConfig) -> std::io::Result<()> {
-    let Some(_auth) = load_auth(&config.nexal_home, true, config.auth_credentials_store_mode)? else {
-        return Ok(());
-    };
-    if let Some(required_method) = config.forced_login_method {
-        if matches!(required_method, ForcedLoginMethod::Chatgpt) {
-            return logout_with_message(&config.nexal_home,
-                "ChatGPT login is required, but an API key is currently being used. Logging out.".to_string(),
-                config.auth_credentials_store_mode);
-        }
-    }
-    Ok(())
-}
-
-fn logout_with_message(nexal_home: &Path, message: String, mode: AuthCredentialsStoreMode) -> std::io::Result<()> {
-    match logout(nexal_home, mode) {
-        Ok(_) => Err(std::io::Error::other(message)),
-        Err(err) => Err(std::io::Error::other(format!("{message}. Failed to remove auth.json: {err}"))),
-    }
-}
-
 fn load_auth(nexal_home: &Path, enable_env: bool, mode: AuthCredentialsStoreMode) -> std::io::Result<Option<NexalAuth>> {
     if enable_env { if let Some(k) = read_nexal_api_key_from_env() { return Ok(Some(NexalAuth::from_api_key(&k))); } }
     let storage = create_auth_storage(nexal_home.to_path_buf(), mode);
     match storage.load()? {
-        Some(adj) => Ok(Some(NexalAuth::from_auth_dot_json(nexal_home, adj, mode)?)),
+        Some(adj) => Ok(Some(NexalAuth::from_auth_dot_json(nexal_home, adj)?)),
         None => Ok(None),
     }
 }
-
-pub const CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
-pub const REFRESH_TOKEN_URL_OVERRIDE_ENV_VAR: &str = "NEXAL_REFRESH_TOKEN_URL_OVERRIDE";
 
 #[derive(Debug)]
 pub struct AuthManager {

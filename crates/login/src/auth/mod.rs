@@ -60,7 +60,7 @@ impl std::fmt::Display for RefreshTokenError {
 }
 
 pub struct UnauthorizedRecovery {
-    _private: (),
+    pub(crate) _private: (),
 }
 
 impl UnauthorizedRecovery {

@@ -11,9 +11,7 @@ use nexal_core::AuthManager;
 use nexal_core::INTERACTIVE_SESSION_SOURCES;
 use nexal_core::RolloutRecorder;
 use nexal_core::ThreadSortKey;
-use nexal_core::auth::AuthConfig;
 use nexal_core::auth::AuthMode;
-use nexal_core::auth::enforce_login_restrictions;
 use nexal_core::check_execpolicy_for_warnings;
 use nexal_core::config::Config;
 use nexal_core::config::ConfigBuilder;
@@ -437,16 +435,6 @@ pub async fn run_main(
             eprintln!("Error adding directories: {warning}");
             std::process::exit(1);
         }
-    }
-
-    #[allow(clippy::print_stderr)]
-    if let Err(err) = enforce_login_restrictions(&AuthConfig {
-        nexal_home: config.nexal_home.clone(),
-        auth_credentials_store_mode: config.cli_auth_credentials_store_mode,
-        forced_login_method: config.forced_login_method,
-    }) {
-        eprintln!("{err}");
-        std::process::exit(1);
     }
 
     let log_dir = nexal_core::config::log_dir(&config)?;

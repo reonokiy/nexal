@@ -17,7 +17,8 @@ use nexal_app_server_protocol::ThreadStartedNotification;
 use nexal_app_server_protocol::ThreadStatus;
 use nexal_app_server_protocol::ThreadStatusChangedNotification;
 use nexal_core::auth::AuthCredentialsStoreMode;
-use nexal_core::auth::REFRESH_TOKEN_URL_OVERRIDE_ENV_VAR;
+
+const REFRESH_TOKEN_URL_OVERRIDE_ENV_VAR: &str = "NEXAL_REFRESH_TOKEN_URL_OVERRIDE";
 use nexal_core::config::set_project_trust_level;
 use nexal_protocol::config_types::ServiceTier;
 use nexal_protocol::config_types::TrustLevel;

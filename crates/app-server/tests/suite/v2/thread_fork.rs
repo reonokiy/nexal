@@ -25,7 +25,8 @@ use nexal_app_server_protocol::TurnStartResponse;
 use nexal_app_server_protocol::TurnStatus;
 use nexal_app_server_protocol::UserInput;
 use nexal_core::auth::AuthCredentialsStoreMode;
-use nexal_core::auth::REFRESH_TOKEN_URL_OVERRIDE_ENV_VAR;
+
+const REFRESH_TOKEN_URL_OVERRIDE_ENV_VAR: &str = "NEXAL_REFRESH_TOKEN_URL_OVERRIDE";
 use pretty_assertions::assert_eq;
 use serde_json::Value;
 use serde_json::json;

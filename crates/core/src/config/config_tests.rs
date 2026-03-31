@@ -1412,10 +1412,10 @@ fn config_defaults_to_file_cli_auth_store_mode() -> std::io::Result<()> {
 }
 
 #[test]
-fn config_honors_explicit_keyring_auth_store_mode() -> std::io::Result<()> {
+fn config_honors_explicit_file_auth_store_mode() -> std::io::Result<()> {
     let nexal_home = TempDir::new()?;
     let cfg = ConfigToml {
-        cli_auth_credentials_store: Some(AuthCredentialsStoreMode::Keyring),
+        cli_auth_credentials_store: Some(AuthCredentialsStoreMode::File),
         ..Default::default()
     };
 
@@ -1427,7 +1427,7 @@ fn config_honors_explicit_keyring_auth_store_mode() -> std::io::Result<()> {
 
     assert_eq!(
         config.cli_auth_credentials_store_mode,
-        AuthCredentialsStoreMode::Keyring,
+        AuthCredentialsStoreMode::File,
     );
 
     Ok(())
