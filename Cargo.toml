@@ -35,10 +35,8 @@ members = [
     "crates/instructions",
     "crates/keyring-store",
     "crates/linux-sandbox",
-    "crates/lmstudio",
     "crates/login",
     "crates/network-proxy",
-    "crates/ollama",
     "crates/plugin",
     "crates/protocol",
     "crates/rmcp-client",
@@ -123,10 +121,8 @@ nexal-hooks = { path = "crates/hooks" }
 nexal-instructions = { path = "crates/instructions" }
 nexal-keyring-store = { path = "crates/keyring-store" }
 nexal-linux-sandbox = { path = "crates/linux-sandbox" }
-nexal-lmstudio = { path = "crates/lmstudio" }
 nexal-login = { path = "crates/login" }
 nexal-network-proxy = { path = "crates/network-proxy" }
-nexal-ollama = { path = "crates/ollama" }
 nexal-plugin = { path = "crates/plugin" }
 nexal-protocol = { path = "crates/protocol" }
 nexal-rmcp-client = { path = "crates/rmcp-client" }
