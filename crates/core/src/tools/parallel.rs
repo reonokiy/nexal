@@ -59,13 +59,41 @@ impl ToolCallRuntime {
         cancellation_token: CancellationToken,
     ) -> impl std::future::Future<Output = Result<ResponseInputItem, NexalErr>> {
         let error_call = call.clone();
+        let tool_name = call.tool_name.clone();
+        let thread_id = self.session.conversation_id;
         let future =
             self.handle_tool_call_with_source(call, ToolCallSource::Direct, cancellation_token);
         async move {
             match future.await {
-                Ok(response) => Ok(response.into_response()),
-                Err(FunctionCallError::Fatal(message)) => Err(NexalErr::Fatal(message)),
-                Err(other) => Ok(Self::failure_response(error_call, other)),
+                Ok(response) => {
+                    tracing::debug!(
+                        %thread_id,
+                        tool_name = %tool_name,
+                        "ToolCall succeeded: {}",
+                        tool_name,
+                    );
+                    Ok(response.into_response())
+                }
+                Err(FunctionCallError::Fatal(message)) => {
+                    tracing::warn!(
+                        %thread_id,
+                        tool_name = %tool_name,
+                        "ToolCall failed (fatal): {} — {}",
+                        tool_name,
+                        message,
+                    );
+                    Err(NexalErr::Fatal(message))
+                }
+                Err(other) => {
+                    tracing::warn!(
+                        %thread_id,
+                        tool_name = %tool_name,
+                        "ToolCall failed: {} — {}",
+                        tool_name,
+                        other,
+                    );
+                    Ok(Self::failure_response(error_call, other))
+                }
             }
         }
         .in_current_span()

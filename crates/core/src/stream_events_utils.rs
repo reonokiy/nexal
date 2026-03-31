@@ -206,7 +206,7 @@ pub(crate) async fn handle_output_item_done(
         // The model emitted a tool call; log it, persist the item immediately, and queue the tool execution.
         Ok(Some(call)) => {
             let payload_preview = call.payload.log_payload().into_owned();
-            tracing::info!(
+            tracing::debug!(
                 thread_id = %ctx.sess.conversation_id,
                 "ToolCall: {} {}",
                 call.tool_name,
