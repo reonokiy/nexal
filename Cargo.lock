@@ -4901,7 +4901,6 @@ dependencies = [
  "nexal-code-mode",
  "nexal-config",
  "nexal-config-loader",
- "nexal-connectors",
  "nexal-core-skills",
  "nexal-exec-server",
  "nexal-execpolicy",
