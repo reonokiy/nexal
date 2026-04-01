@@ -96,10 +96,27 @@ impl Bot {
         let event_handle = tokio::spawn(async move {
             while let Some(event) = pool.recv_event().await {
                 match event {
-                    AgentEvent::Response { session_key, .. } => {
+                    AgentEvent::Response { session_key, chunks, .. } => {
                         tracing::debug!(session = %session_key, "agent turn completed");
-                        // Stop typing on response
                         typing_handles.lock().await.remove(&session_key);
+
+                        // If the model produced a text response (headless mode fallback),
+                        // auto-send it to the user via the channel. This happens when the
+                        // model gives up on tool calls and writes a text summary.
+                        if !chunks.is_empty() {
+                            if let Some((channel_name, chat_id)) = session_key.split_once(':') {
+                                if let Some(channel) = channels_by_name.get(channel_name) {
+                                    for chunk in &chunks {
+                                        if let Err(e) = channel.send(chat_id, chunk).await {
+                                            tracing::warn!(
+                                                session = %session_key,
+                                                "failed to send fallback text: {e}"
+                                            );
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                     AgentEvent::Error { session_key, message } => {
                         tracing::error!(session = %session_key, "agent error: {message}");
