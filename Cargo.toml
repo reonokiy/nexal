@@ -286,6 +286,7 @@ tiny_http = "0.12"
 tokio = { version = "1", features = ["full"] }
 tokio-stream = "0.1.18"
 tokio-test = "0.4"
+tokio-rustls = "0.26"
 tokio-tungstenite = { version = "0.28.0", features = ["proxy", "rustls-tls-native-roots"] }
 tokio-util = "0.7.18"
 toml = "0.9.5"

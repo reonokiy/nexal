@@ -1,41 +1,34 @@
 //! HTTP reverse proxy over Unix sockets.
 //!
-//! Listens on a Unix socket and forwards HTTP requests to an upstream URL,
-//! injecting configured headers (e.g. auth tokens).
+//! Listens on a Unix socket, establishes a TCP connection to the upstream,
+//! and bridges bytes bidirectionally. Auth headers are injected by rewriting
+//! the first HTTP request before forwarding.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::UnixListener;
+use tokio::net::{TcpStream, UnixListener};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
 
 /// A running proxy instance.
 struct ProxyInstance {
     cancel: CancellationToken,
+    #[allow(dead_code)]
     _task: tokio::task::JoinHandle<()>,
 }
 
 /// Manages multiple proxy Unix sockets.
 pub(crate) struct ProxyManager {
     instances: tokio::sync::Mutex<HashMap<PathBuf, ProxyInstance>>,
-    http_client: reqwest::Client,
 }
 
 impl ProxyManager {
     pub fn new() -> Self {
         Self {
             instances: tokio::sync::Mutex::new(HashMap::new()),
-            // Disable auto-decompression so we forward raw response bytes as-is.
-            http_client: reqwest::Client::builder()
-                .no_gzip()
-                .no_brotli()
-                .no_deflate()
-                .no_zstd()
-                .build()
-                .unwrap_or_else(|_| reqwest::Client::new()),
         }
     }
 
@@ -47,14 +40,12 @@ impl ProxyManager {
     ) -> Result<(), String> {
         let path = PathBuf::from(socket_path);
 
-        // Ensure parent directory exists.
         if let Some(parent) = path.parent() {
             tokio::fs::create_dir_all(parent)
                 .await
                 .map_err(|e| format!("create proxy dir: {e}"))?;
         }
 
-        // Remove stale socket file.
         let _ = tokio::fs::remove_file(&path).await;
 
         let listener = UnixListener::bind(&path)
@@ -62,13 +53,15 @@ impl ProxyManager {
 
         let cancel = CancellationToken::new();
         let cancel_clone = cancel.clone();
-        let upstream = upstream_url.to_string();
-        let client = self.http_client.clone();
+
+        // Parse upstream URL into host:port for TCP connection.
+        let upstream_info = parse_upstream(upstream_url)
+            .map_err(|e| format!("invalid upstream URL: {e}"))?;
 
         info!(socket = %socket_path, upstream = %upstream_url, "proxy registered");
 
         let task = tokio::spawn(async move {
-            run_proxy_listener(listener, &upstream, headers, client, cancel_clone).await;
+            run_proxy_listener(listener, upstream_info, headers, cancel_clone).await;
         });
 
         let mut instances = self.instances.lock().await;
@@ -102,14 +95,44 @@ impl ProxyManager {
     }
 }
 
+/// Parsed upstream connection info.
+#[derive(Clone)]
+struct UpstreamInfo {
+    /// Host for TCP connection (e.g. "s.jina.ai")
+    host: String,
+    /// Port (443 for https, 80 for http)
+    port: u16,
+    /// Whether to use TLS
+    tls: bool,
+    /// Path prefix from the upstream URL (e.g. "/bot<token>" for Telegram)
+    path_prefix: String,
+}
+
+fn parse_upstream(url: &str) -> Result<UpstreamInfo, String> {
+    let (scheme, rest) = url.split_once("://").ok_or("missing scheme")?;
+    let tls = scheme == "https";
+    let port = if tls { 443 } else { 80 };
+
+    let (host_port, path_prefix) = match rest.find('/') {
+        Some(i) => (&rest[..i], rest[i..].to_string()),
+        None => (rest, String::new()),
+    };
+
+    let (host, port) = match host_port.split_once(':') {
+        Some((h, p)) => (h.to_string(), p.parse().map_err(|_| "invalid port")?),
+        None => (host_port.to_string(), port),
+    };
+
+    Ok(UpstreamInfo { host, port, tls, path_prefix })
+}
+
 async fn run_proxy_listener(
     listener: UnixListener,
-    upstream: &str,
+    upstream: UpstreamInfo,
     headers: HashMap<String, String>,
-    client: reqwest::Client,
     cancel: CancellationToken,
 ) {
-    let upstream = Arc::new(upstream.to_string());
+    let upstream = Arc::new(upstream);
     let headers = Arc::new(headers);
 
     loop {
@@ -119,9 +142,8 @@ async fn run_proxy_listener(
                     Ok((stream, _)) => {
                         let upstream = Arc::clone(&upstream);
                         let headers = Arc::clone(&headers);
-                        let client = client.clone();
                         tokio::spawn(async move {
-                            if let Err(e) = handle_proxy_connection(stream, &upstream, &headers, &client).await {
+                            if let Err(e) = handle_connection(stream, &upstream, &headers).await {
                                 debug!("proxy connection error: {e}");
                             }
                         });
@@ -137,136 +159,150 @@ async fn run_proxy_listener(
     }
 }
 
-/// Handle a single HTTP request over a Unix socket connection.
+/// Handle a single proxied connection.
 ///
-/// Reads an HTTP request, forwards it to the upstream, and writes the response back.
-/// Supports simple HTTP/1.1 request/response (one per connection).
-async fn handle_proxy_connection(
-    mut stream: tokio::net::UnixStream,
-    upstream: &str,
+/// Reads the first HTTP request from the Unix socket, rewrites it to inject
+/// auth headers and the upstream path prefix, then opens a TLS/TCP connection
+/// to the upstream and bridges bytes in both directions.
+async fn handle_connection(
+    mut client: tokio::net::UnixStream,
+    upstream: &UpstreamInfo,
     inject_headers: &HashMap<String, String>,
-    client: &reqwest::Client,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    // Read the full HTTP request.
+    // Read the HTTP request head from the client.
     let mut buf = Vec::with_capacity(8192);
     let mut tmp = [0u8; 8192];
-    let headers_end;
 
-    // Read until we find \r\n\r\n (end of headers).
+    let headers_end;
     loop {
-        let n = stream.read(&mut tmp).await?;
+        let n = client.read(&mut tmp).await?;
         if n == 0 {
             return Ok(());
         }
         buf.extend_from_slice(&tmp[..n]);
 
-        if let Some(pos) = find_header_end(&buf) {
-            headers_end = Some(pos);
+        if let Some(pos) = find_subsequence(&buf, b"\r\n\r\n") {
+            headers_end = pos;
             break;
         }
         if buf.len() > 1024 * 1024 {
-            return Err("request too large".into());
+            return Err("request head too large".into());
         }
     }
 
-    let headers_end = headers_end.ok_or("no headers found")?;
-    let header_bytes = &buf[..headers_end];
-    let header_str = std::str::from_utf8(header_bytes)?;
+    // Parse just the request line to rewrite the path.
+    let head = std::str::from_utf8(&buf[..headers_end])?;
+    let first_line_end = head.find("\r\n").unwrap_or(head.len());
+    let request_line = &head[..first_line_end];
+    let rest_headers = &head[first_line_end..]; // includes leading \r\n
 
-    // Parse request line and headers.
-    let mut lines = header_str.split("\r\n");
-    let request_line = lines.next().ok_or("empty request")?;
+    // Rewrite request line: inject path prefix.
     let mut parts = request_line.splitn(3, ' ');
     let method = parts.next().ok_or("no method")?;
     let path = parts.next().ok_or("no path")?;
+    let version = parts.next().unwrap_or("HTTP/1.1");
 
-    let mut content_length: usize = 0;
-    let mut req_headers = Vec::new();
-    for line in lines {
+    let new_path = if upstream.path_prefix.is_empty() {
+        path.to_string()
+    } else {
+        format!("{}{}", upstream.path_prefix.trim_end_matches('/'), path)
+    };
+
+    // Build the rewritten request head.
+    let mut rewritten = format!("{method} {new_path} {version}\r\n");
+    rewritten.push_str(&format!("Host: {}\r\n", upstream.host));
+
+    // Copy original headers (skip Host — we set it above).
+    for line in rest_headers.split("\r\n") {
         if line.is_empty() {
-            break;
-        }
-        if let Some((key, value)) = line.split_once(':') {
-            let key = key.trim();
-            let value = value.trim();
-            if key.eq_ignore_ascii_case("content-length") {
-                content_length = value.parse().unwrap_or(0);
-            }
-            // Skip host header — we'll set it from upstream.
-            if key.eq_ignore_ascii_case("host") {
-                continue;
-            }
-            req_headers.push((key.to_string(), value.to_string()));
-        }
-    }
-
-    // Read remaining body if content-length > 0.
-    let body_start = headers_end + 4; // skip \r\n\r\n
-    let mut body = buf[body_start..].to_vec();
-    while body.len() < content_length {
-        let n = stream.read(&mut tmp).await?;
-        if n == 0 {
-            break;
-        }
-        body.extend_from_slice(&tmp[..n]);
-    }
-
-    // Build upstream URL.
-    let url = format!("{}{}", upstream.trim_end_matches('/'), path);
-
-    // Build request.
-    let reqwest_method = method.parse::<reqwest::Method>()?;
-    let mut req = client.request(reqwest_method, &url);
-
-    // Add original headers.
-    for (k, v) in &req_headers {
-        req = req.header(k.as_str(), v.as_str());
-    }
-
-    // Inject auth headers (overrides any existing).
-    for (k, v) in inject_headers {
-        req = req.header(k.as_str(), v.as_str());
-    }
-
-    if !body.is_empty() {
-        req = req.body(body);
-    }
-
-    // Send to upstream.
-    let resp = req.send().await?;
-
-    // Write HTTP response back to the Unix socket.
-    let status = resp.status();
-    let resp_headers = resp.headers().clone();
-    let resp_body = resp.bytes().await?;
-
-    let mut response = format!("HTTP/1.1 {} {}\r\n", status.as_u16(), status.canonical_reason().unwrap_or("OK"));
-    for (key, value) in &resp_headers {
-        let k = key.as_str();
-        // We buffer the full body, so replace chunked/content-length with our own.
-        if k.eq_ignore_ascii_case("transfer-encoding")
-            || k.eq_ignore_ascii_case("content-length")
-            || k.eq_ignore_ascii_case("connection")
-        {
             continue;
         }
-        if let Ok(v) = value.to_str() {
-            response.push_str(&format!("{}: {}\r\n", key, v));
+        if let Some((key, _)) = line.split_once(':') {
+            if key.trim().eq_ignore_ascii_case("host") {
+                continue;
+            }
+        }
+        rewritten.push_str(line);
+        rewritten.push_str("\r\n");
+    }
+
+    // Inject auth headers.
+    for (key, value) in inject_headers {
+        rewritten.push_str(&format!("{key}: {value}\r\n"));
+    }
+
+    rewritten.push_str("\r\n");
+
+    // Remaining bytes after the header (start of body, if any).
+    let body_start = headers_end + 4;
+    let remaining_body = if body_start < buf.len() {
+        &buf[body_start..]
+    } else {
+        &[]
+    };
+
+    // Connect to upstream.
+    let upstream_addr = format!("{}:{}", upstream.host, upstream.port);
+
+    if upstream.tls {
+        // TLS connection.
+        let tcp = TcpStream::connect(&upstream_addr).await?;
+        let connector = tokio_rustls_connector(&upstream.host)?;
+        let server_name = rustls::pki_types::ServerName::try_from(upstream.host.clone())?;
+        let mut tls_stream = connector.connect(server_name, tcp).await?;
+
+        // Send rewritten head + remaining body.
+        tls_stream.write_all(rewritten.as_bytes()).await?;
+        if !remaining_body.is_empty() {
+            tls_stream.write_all(remaining_body).await?;
+        }
+        tls_stream.flush().await?;
+
+        // Bridge bidirectionally.
+        let (mut tls_read, mut tls_write) = tokio::io::split(tls_stream);
+        let (mut client_read, mut client_write) = tokio::io::split(client);
+
+        tokio::select! {
+            r = tokio::io::copy(&mut tls_read, &mut client_write) => { r?; }
+            r = tokio::io::copy(&mut client_read, &mut tls_write) => { r?; }
+        }
+    } else {
+        // Plain TCP.
+        let mut tcp = TcpStream::connect(&upstream_addr).await?;
+
+        tcp.write_all(rewritten.as_bytes()).await?;
+        if !remaining_body.is_empty() {
+            tcp.write_all(remaining_body).await?;
+        }
+        tcp.flush().await?;
+
+        let (mut tcp_read, mut tcp_write) = tokio::io::split(tcp);
+        let (mut client_read, mut client_write) = tokio::io::split(client);
+
+        tokio::select! {
+            r = tokio::io::copy(&mut tcp_read, &mut client_write) => { r?; }
+            r = tokio::io::copy(&mut client_read, &mut tcp_write) => { r?; }
         }
     }
-    // Always set correct content-length for the buffered body.
-    response.push_str(&format!("content-length: {}\r\n", resp_body.len()));
-    response.push_str("connection: close\r\n");
-    response.push_str("\r\n");
-
-    stream.write_all(response.as_bytes()).await?;
-    stream.write_all(&resp_body).await?;
-    stream.flush().await?;
 
     Ok(())
 }
 
-fn find_header_end(buf: &[u8]) -> Option<usize> {
-    buf.windows(4)
-        .position(|w| w == b"\r\n\r\n")
+fn find_subsequence(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+    haystack.windows(needle.len()).position(|w| w == needle)
+}
+
+/// Build a TLS connector using native root certificates.
+fn tokio_rustls_connector(
+    _host: &str,
+) -> Result<tokio_rustls::TlsConnector, Box<dyn std::error::Error>> {
+    let mut root_store = rustls::RootCertStore::empty();
+    let certs = rustls_native_certs::load_native_certs();
+    for cert in certs.certs {
+        let _ = root_store.add(cert);
+    }
+    let config = rustls::ClientConfig::builder()
+        .with_root_certificates(root_store)
+        .with_no_client_auth();
+    Ok(tokio_rustls::TlsConnector::from(Arc::new(config)))
 }
