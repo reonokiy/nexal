@@ -274,7 +274,7 @@ impl AgentActor {
                                 if delta.thread_id == *thread_id =>
                             {
                                 buf.push_str(&delta.delta);
-                                debug!(
+                                tracing::trace!(
                                     session = %self.session_key,
                                     delta_len = delta.delta.len(),
                                     buffered_len = buf.len(),
