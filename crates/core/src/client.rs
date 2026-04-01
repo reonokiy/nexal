@@ -1479,6 +1479,9 @@ fn convert_prompt_to_chat_messages(
     for item in items {
         match item {
             ResponseItem::Message { role, content, .. } => {
+                // Check if there are any images — if so, use multimodal content format.
+                let has_images = content.iter().any(|c| matches!(c, nexal_protocol::models::ContentItem::InputImage { .. }));
+
                 let text = content
                     .iter()
                     .filter_map(|c| match c {
@@ -1508,13 +1511,32 @@ fn convert_prompt_to_chat_messages(
                 };
 
                 // Skip empty messages (providers reject empty content)
-                if text.is_empty() {
+                if text.is_empty() && !has_images {
                     continue;
                 }
 
+                let msg_content = if has_images {
+                    // Multimodal: array of text + image_url parts.
+                    let mut parts = Vec::new();
+                    if !text.is_empty() {
+                        parts.push(serde_json::json!({"type": "text", "text": text}));
+                    }
+                    for c in content {
+                        if let nexal_protocol::models::ContentItem::InputImage { image_url } = c {
+                            parts.push(serde_json::json!({
+                                "type": "image_url",
+                                "image_url": {"url": image_url}
+                            }));
+                        }
+                    }
+                    Some(serde_json::Value::Array(parts))
+                } else {
+                    Some(serde_json::Value::String(text))
+                };
+
                 messages.push(ChatMessage {
                     role: chat_role.clone(),
-                    content: Some(serde_json::Value::String(text)),
+                    content: msg_content,
                     name: None,
                     tool_calls: None,
                     tool_call_id: None,
