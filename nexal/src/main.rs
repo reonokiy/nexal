@@ -326,6 +326,21 @@ async fn register_container_proxies(
             Err(e) => tracing::warn!("failed to register discord proxy: {e}"),
         }
     }
+
+    if let Some(ref key) = config.jina_api_key {
+        let mut headers = HashMap::new();
+        headers.insert("Authorization".to_string(), format!("Bearer {key}"));
+        headers.insert("Accept".to_string(), "application/json".to_string());
+        let params = nexal_exec_server::ProxyRegisterParams {
+            socket_path: "/workspace/agents/proxy/api.jina.ai".to_string(),
+            upstream_url: "https://api.jina.ai".to_string(),
+            headers,
+        };
+        match client.proxy_register(params).await {
+            Ok(_) => info!("container proxy registered: api.jina.ai"),
+            Err(e) => tracing::warn!("failed to register jina proxy: {e}"),
+        }
+    }
 }
 
 fn is_sandbox_disabled(config: &NexalConfig) -> bool {

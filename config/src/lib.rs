@@ -88,6 +88,9 @@ pub struct NexalConfig {
     /// Path to skills directory
     pub skills_dir: Option<PathBuf>,
 
+    /// Jina AI API key (for search and reader)
+    pub jina_api_key: Option<String>,
+
     /// HTTP channel listen port (default: 3000)
     pub http_channel_port: Option<u16>,
 
@@ -167,6 +170,7 @@ impl Default for NexalConfig {
             sandbox_cpus: "1.0".to_string(),
             sandbox_pids_limit: 256,
             sandbox_network: true,
+            jina_api_key: None,
             skills_dir: None,
             http_channel_port: None,
             providers: HashMap::new(),
