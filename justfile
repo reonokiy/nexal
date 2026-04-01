@@ -7,10 +7,18 @@ build:
     NEXAL_EXEC_SERVER_BIN={{justfile_directory()}}/target/release/nexal-exec-server \
         cargo build --release -p nexal --features embedded-agent
 
+# Build and run (release, embedded exec-server). Pass args after --.
+run *ARGS: build
+    ./target/release/nexal {{ARGS}}
+
 # Development build (debug, no embedding — uses filesystem search fallback)
 dev:
     cargo build -p nexal-exec-server
     cargo build -p nexal
+
+# Development build and run. Pass args after --.
+dev-run *ARGS: dev
+    ./target/debug/nexal {{ARGS}}
 
 # Build only nexal-exec-server in release mode
 exec-server:
@@ -23,10 +31,6 @@ check:
 # Run all tests
 test:
     cargo test
-
-# Run nexal in idle mode (debug, no embedding)
-run-idle *ARGS:
-    cargo run -p nexal -- idle {{ARGS}}
 
 # Clean build artifacts
 clean:
