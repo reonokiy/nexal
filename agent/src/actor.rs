@@ -32,6 +32,7 @@ pub enum AgentMessage {
         channel: String,
         chat_id: String,
         metadata: serde_json::Value,
+        images: Vec<nexal_channel_core::ImageAttachment>,
     },
     /// Interrupt current work.
     Interrupt,
@@ -126,8 +127,9 @@ impl AgentActor {
                     channel,
                     chat_id,
                     metadata,
+                    images,
                 } => {
-                    self.handle_input(text, sender, channel, chat_id, metadata, &event_tx)
+                    self.handle_input(text, sender, channel, chat_id, metadata, images, &event_tx)
                         .await;
                 }
                 AgentMessage::Interrupt => {
@@ -150,6 +152,7 @@ impl AgentActor {
         channel: String,
         chat_id: String,
         metadata: serde_json::Value,
+        images: Vec<nexal_channel_core::ImageAttachment>,
         event_tx: &mpsc::Sender<AgentEvent>,
     ) {
         let prompt_text = render_channel_context(&text, &sender, &channel, &chat_id, &metadata);
@@ -181,10 +184,17 @@ impl AgentActor {
                 request_id: RequestId::Integer(1),
                 params: TurnStartParams {
                     thread_id: self.thread_id.clone(),
-                    input: vec![UserInput::Text {
-                        text: prompt_text,
-                        text_elements: vec![],
-                    }],
+                    input: {
+                        let mut items = vec![UserInput::Text {
+                            text: prompt_text,
+                            text_elements: vec![],
+                        }];
+                        for img in &images {
+                            let data_url = compress_and_encode_image(&img.data, &img.mime_type);
+                            items.push(UserInput::Image { url: data_url });
+                        }
+                        items
+                    },
                     cwd: Some(cwd),
                     approval_policy: Some(ApiAskForApproval::Never),
                     sandbox_policy: Some(ApiSandboxPolicy::WorkspaceWrite {
@@ -387,4 +397,33 @@ fn render_channel_context(
     out.push_str("]\n");
     out.push_str(text);
     out
+}
+
+/// Compress an image to a max dimension of 768px and encode as a data URI.
+/// This keeps images small enough for LLM vision context while still readable.
+fn compress_and_encode_image(data: &[u8], _mime_type: &str) -> String {
+    use base64::Engine;
+
+    const MAX_DIM: u32 = 768;
+    const JPEG_QUALITY: u8 = 60;
+
+    // Try to decode and resize. If decoding fails (unsupported format),
+    // fall back to encoding the raw bytes.
+    let jpeg_bytes = match image::load_from_memory(data) {
+        Ok(img) => {
+            let resized = img.resize(MAX_DIM, MAX_DIM, image::imageops::FilterType::Triangle);
+            let mut buf = std::io::Cursor::new(Vec::new());
+            resized
+                .write_to(&mut buf, image::ImageFormat::Jpeg)
+                .unwrap_or_else(|_| {
+                    // Fallback: write as-is
+                    buf = std::io::Cursor::new(data.to_vec());
+                });
+            buf.into_inner()
+        }
+        Err(_) => data.to_vec(),
+    };
+
+    let b64 = base64::engine::general_purpose::STANDARD.encode(&jpeg_bytes);
+    format!("data:image/jpeg;base64,{b64}")
 }

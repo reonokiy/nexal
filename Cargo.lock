@@ -4227,7 +4227,9 @@ name = "nexal-agent"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "base64 0.22.1",
  "dashmap",
+ "image",
  "nexal-app-server-client",
  "nexal-app-server-protocol",
  "nexal-arg0",

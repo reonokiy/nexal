@@ -170,6 +170,7 @@ fn make_send_handler(
                                     channel: merged_msg.channel,
                                     chat_id: merged_msg.chat_id,
                                     metadata: merged_msg.metadata,
+                                    images: merged_msg.images,
                                 },
                             )
                             .await

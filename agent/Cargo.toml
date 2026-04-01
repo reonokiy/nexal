@@ -18,6 +18,8 @@ nexal-protocol = { workspace = true }
 nexal-config-loader = { workspace = true }
 
 anyhow = { workspace = true }
+base64 = { workspace = true }
+image = { workspace = true }
 serde_yaml = { workspace = true }
 dashmap = { workspace = true }
 reqwest = { workspace = true }
