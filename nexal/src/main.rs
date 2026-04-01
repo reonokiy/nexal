@@ -303,7 +303,9 @@ fn sandbox_common_args(config: &NexalConfig, name: &str) -> Vec<String> {
         format!("--memory={}", config.sandbox_memory),
         format!("--cpus={}", config.sandbox_cpus),
         if config.sandbox_network {
-            "--network=host".to_string()
+            // Use pasta network (rootless podman default). Container ports
+            // are accessible on the host's loopback via pasta port forwarding.
+            "--network=pasta".to_string()
         } else {
             "--network=none".to_string()
         },
@@ -494,15 +496,32 @@ async fn create_sandbox_container(config: &NexalConfig) -> anyhow::Result<Sandbo
     // With pasta networking the container ports are accessible on the host's loopback.
     let host_url = listen_url.replace("0.0.0.0", "127.0.0.1");
 
+    // Retry connection — pasta networking may need a moment for port forwarding.
     debug!(container = %name, host_url = %host_url, "connecting WebSocket to nexal-exec-server");
-    let client = nexal_exec_server::ExecServerClient::connect_websocket(
-        nexal_exec_server::RemoteExecServerConnectArgs::new(
-            host_url.clone(),
-            "nexal-sandbox".to_string(),
-        ),
-    )
-    .await
-    .context("connect to nexal-exec-server WebSocket inside container")?;
+    let mut client = None;
+    for attempt in 1..=10 {
+        match nexal_exec_server::ExecServerClient::connect_websocket(
+            nexal_exec_server::RemoteExecServerConnectArgs::new(
+                host_url.clone(),
+                "nexal-sandbox".to_string(),
+            ),
+        )
+        .await
+        {
+            Ok(c) => {
+                client = Some(c);
+                break;
+            }
+            Err(e) if attempt < 10 => {
+                debug!(container = %name, attempt, "WebSocket connect failed, retrying: {e}");
+                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+            }
+            Err(e) => {
+                anyhow::bail!("connect to nexal-exec-server WebSocket inside container: {e}");
+            }
+        }
+    }
+    let client = client.unwrap();
     debug!(container = %name, "WebSocket connected");
 
     let init_resp = client.init_response().clone();
