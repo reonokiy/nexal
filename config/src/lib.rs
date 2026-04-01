@@ -210,12 +210,14 @@ impl NexalConfig {
                 "DISCORD_BOT_TOKEN",
                 "SANDBOX_IMAGE",
                 "SANDBOX_RUNTIME",
+                "JINA_API_KEY",
             ]).map(|key| {
                 match key.as_str() {
                     "TELEGRAM_BOT_TOKEN" => "telegram_bot_token".into(),
                     "DISCORD_BOT_TOKEN" => "discord_bot_token".into(),
                     "SANDBOX_IMAGE" => "sandbox_image".into(),
                     "SANDBOX_RUNTIME" => "sandbox_runtime".into(),
+                    "JINA_API_KEY" => "jina_api_key".into(),
                     _ => key.into(),
                 }
             }));
