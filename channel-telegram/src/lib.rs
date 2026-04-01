@@ -65,24 +65,20 @@ impl Channel for TelegramChannel {
                 let media_groups = Arc::clone(&media_groups);
                 async move {
                     let chat_id = msg.chat.id.0.to_string();
-                    let username = msg
-                        .from
-                        .as_ref()
-                        .and_then(|u| u.username.as_deref())
-                        .unwrap_or("unknown");
 
-                    // Access control — reject with debug info
-                    let user_id = msg
-                        .from
-                        .as_ref()
-                        .map(|u| u.id.0.to_string())
-                        .unwrap_or_default();
+                    // Extract the real sender. For channel-forwarded messages,
+                    // msg.from is "Channel_Bot" — use author_signature, sender_chat,
+                    // or forward_from for the actual identity.
+                    let (username, user_id) = extract_sender(&msg);
 
                     // Allow if chat OR user is in the allow list.
                     // Empty list = allow all.
                     let chat_ok = config.is_telegram_allowed_chat(&chat_id);
-                    let user_ok = username == "Channel_Bot"
-                        || config.is_telegram_allowed_user(username);
+                    let is_channel_forward = msg.from.as_ref()
+                        .and_then(|u| u.username.as_deref())
+                        .map_or(false, |u| u == "Channel_Bot" || u == "GroupAnonymousBot");
+                    let user_ok = is_channel_forward
+                        || config.is_telegram_allowed_user(&username);
 
                     if !chat_ok && !user_ok {
                         let _ = the_bot
@@ -159,7 +155,7 @@ impl Channel for TelegramChannel {
 
                     // Single message (not a media group) — dispatch immediately.
                     let is_mentioned = detect_mention(&the_bot, &msg, &full_text).await;
-                    let is_admin = config.is_admin(username);
+                    let is_admin = config.is_admin(&username);
                     let incoming = IncomingMessage {
                         channel: "telegram".to_string(),
                         chat_id,
@@ -344,6 +340,58 @@ async fn extract_message_content(
     }
 }
 
+/// Extract the real sender from a Telegram message.
+///
+/// For regular messages, `msg.from` has the correct user. But for messages
+/// forwarded from a channel into a linked group, `msg.from` is "Channel_Bot".
+/// In that case we check (in order):
+/// 1. `author_signature` — set by Telegram for signed channel posts
+/// 2. `sender_chat.title` / `sender_chat.username` — the channel identity
+/// 3. `forward_from` — the original user who sent the message
+fn extract_sender(msg: &Message) -> (String, String) {
+    let from_user = msg.from.as_ref();
+    let from_username = from_user
+        .and_then(|u| u.username.as_deref())
+        .unwrap_or("unknown");
+    let from_id = from_user.map(|u| u.id.0.to_string()).unwrap_or_default();
+
+    // If sender is not Channel_Bot, use it directly.
+    if from_username != "Channel_Bot" && from_username != "GroupAnonymousBot" {
+        return (from_username.to_string(), from_id);
+    }
+
+    // Try author_signature (e.g. "Alice" for signed channel posts).
+    if let MessageKind::Common(common) = &msg.kind {
+        if let Some(sig) = &common.author_signature {
+            if !sig.is_empty() {
+                return (sig.clone(), from_id);
+            }
+        }
+    }
+
+    // Try sender_chat (the channel/group that "sent" this message).
+    if let Some(sender_chat) = &msg.sender_chat {
+        if let Some(username) = &sender_chat.username() {
+            return (username.to_string(), sender_chat.id.0.to_string());
+        }
+        if let Some(title) = sender_chat.title() {
+            return (title.to_string(), sender_chat.id.0.to_string());
+        }
+    }
+
+    // Try forward_from_user.
+    if let Some(user) = msg.forward_from_user() {
+        let name = user
+            .username
+            .as_deref()
+            .unwrap_or(&user.first_name);
+        return (name.to_string(), user.id.0.to_string());
+    }
+
+    // Fallback.
+    (from_username.to_string(), from_id)
+}
+
 /// Download a file from Telegram by file_id.
 async fn download_file(bot: &Bot, file_id: &str) -> Result<Vec<u8>, teloxide::RequestError> {
     let file = bot.get_file(file_id).await?;
@@ -426,7 +474,7 @@ async fn dispatch_media_group(
     };
 
     let is_mentioned = detect_mention(bot, first_msg, &text).await;
-    let is_admin = config.is_admin(username);
+    let is_admin = config.is_admin(&username);
 
     let incoming = IncomingMessage {
         channel: "telegram".to_string(),
