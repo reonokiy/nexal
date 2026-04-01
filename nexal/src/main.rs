@@ -397,8 +397,6 @@ fn find_exec_server_binary_on_disk() -> anyhow::Result<std::path::PathBuf> {
 }
 
 async fn create_sandbox_container(config: &NexalConfig) -> anyhow::Result<SandboxHandle> {
-    use std::process::Stdio;
-    use tokio::io::AsyncBufReadExt;
     use tracing::debug;
 
     let name = format!("nexal-{}", short_id());
@@ -422,10 +420,14 @@ async fn create_sandbox_container(config: &NexalConfig) -> anyhow::Result<Sandbo
         create_args.push("--runtime".to_string());
         create_args.push(runtime.clone());
     }
+    // Use a fixed container port and let podman assign a random host port.
+    let container_port = 9100;
+    create_args.push("-p".to_string());
+    create_args.push(format!("127.0.0.1:0:{container_port}"));
     create_args.push(image.clone());
     create_args.push("/usr/local/bin/nexal-exec-server".to_string());
     create_args.push("--listen".to_string());
-    create_args.push("ws://0.0.0.0:0".to_string());
+    create_args.push(format!("ws://0.0.0.0:{container_port}"));
 
     debug!(container = %name, "podman create");
     let output = tokio::process::Command::new("podman")
@@ -461,45 +463,47 @@ async fn create_sandbox_container(config: &NexalConfig) -> anyhow::Result<Sandbo
     }
     debug!(container = %name, "podman cp succeeded");
 
-    // Step 3: podman start -a — start container and attach stdout
-    debug!(container = %name, "podman start -a");
-    let mut child = tokio::process::Command::new("podman")
-        .args(["start", "-a", &name])
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::inherit())
-        .spawn()
+    // Step 3: podman start (detached) then query mapped port
+    debug!(container = %name, "podman start");
+    let start_output = tokio::process::Command::new("podman")
+        .args(["start", &name])
+        .output()
+        .await
         .context("podman start")?;
-
-    // nexal-exec-server prints the actual listen URL (e.g. "ws://0.0.0.0:12345")
-    // to stdout on startup. Read the first line to discover the port.
-    let stdout = child.stdout.take().context("take child stdout")?;
-    let mut reader = tokio::io::BufReader::new(stdout);
-    let mut listen_line = String::new();
-    debug!(container = %name, "waiting for nexal-exec-server listen URL on stdout");
-    let read_result = tokio::time::timeout(
-        std::time::Duration::from_secs(30),
-        reader.read_line(&mut listen_line),
-    )
-    .await
-    .context("timed out waiting for nexal-exec-server listen URL")?
-    .context("reading nexal-exec-server stdout")?;
-
-    if read_result == 0 {
-        anyhow::bail!("nexal-exec-server exited before printing listen URL");
+    if !start_output.status.success() {
+        let stderr = String::from_utf8_lossy(&start_output.stderr);
+        anyhow::bail!("podman start failed: {stderr}");
     }
 
-    let listen_url = listen_line.trim().to_string();
-    debug!(container = %name, listen_url = %listen_url, "nexal-exec-server reported listen URL");
+    // Query the host-side mapped port via `podman port`.
+    // Retry a few times — the container needs a moment to start.
+    let mut host_url = String::new();
+    for attempt in 1..=20 {
+        let port_output = tokio::process::Command::new("podman")
+            .args(["port", &name, &format!("{container_port}/tcp")])
+            .output()
+            .await
+            .context("podman port")?;
+        if port_output.status.success() {
+            let mapping = String::from_utf8_lossy(&port_output.stdout).trim().to_string();
+            // Output is like "127.0.0.1:43210"
+            if !mapping.is_empty() {
+                host_url = format!("ws://{mapping}");
+                break;
+            }
+        }
+        if attempt < 20 {
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        }
+    }
+    if host_url.is_empty() {
+        anyhow::bail!("failed to discover mapped port for exec-server container {name}");
+    }
+    debug!(container = %name, host_url = %host_url, "discovered exec-server port mapping");
 
-    // The server reports its in-container address (e.g. ws://0.0.0.0:PORT).
-    // With pasta networking the container ports are accessible on the host's loopback.
-    let host_url = listen_url.replace("0.0.0.0", "127.0.0.1");
-
-    // Retry connection — pasta networking may need a moment for port forwarding.
-    debug!(container = %name, host_url = %host_url, "connecting WebSocket to nexal-exec-server");
+    // Connect via WebSocket with retry.
     let mut client = None;
-    for attempt in 1..=10 {
+    for attempt in 1..=20 {
         match nexal_exec_server::ExecServerClient::connect_websocket(
             nexal_exec_server::RemoteExecServerConnectArgs::new(
                 host_url.clone(),
@@ -512,9 +516,9 @@ async fn create_sandbox_container(config: &NexalConfig) -> anyhow::Result<Sandbo
                 client = Some(c);
                 break;
             }
-            Err(e) if attempt < 10 => {
+            Err(e) if attempt < 20 => {
                 debug!(container = %name, attempt, "WebSocket connect failed, retrying: {e}");
-                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
             }
             Err(e) => {
                 anyhow::bail!("connect to nexal-exec-server WebSocket inside container: {e}");
@@ -541,7 +545,7 @@ async fn create_sandbox_container(config: &NexalConfig) -> anyhow::Result<Sandbo
     info!(container = %name, url = %host_url, "sandbox container ready");
     Ok(SandboxHandle {
         name,
-        child: Some(child),
+        child: None,
         environment_manager: Some(env_manager),
     })
 }
