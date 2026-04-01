@@ -733,8 +733,11 @@ where
 
     let tracer = provider.tracer(service_name);
 
-    // Keep the provider alive — leak intentionally, it lives until process exit.
-    std::mem::forget(provider);
+    // Store provider in a global so it lives for the entire process.
+    // Dropping it would shut down the batch processor.
+    static PROVIDER: std::sync::OnceLock<opentelemetry_sdk::trace::SdkTracerProvider> =
+        std::sync::OnceLock::new();
+    let _ = PROVIDER.set(provider);
 
     Some((tracing_opentelemetry::layer().with_tracer(tracer), endpoint))
 }
