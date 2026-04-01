@@ -292,6 +292,42 @@ fn short_id() -> String {
 }
 
 /// Podman sandbox is enabled by default. Disable via config: sandbox = "none"
+/// Register API proxy sockets inside the container via exec-server.
+async fn register_container_proxies(
+    client: &nexal_exec_server::ExecServerClient,
+    config: &NexalConfig,
+) {
+    use std::collections::HashMap;
+
+    if let Some(ref token) = config.telegram_bot_token {
+        // Telegram Bot API uses the token in the URL path.
+        let upstream = format!("https://api.telegram.org/bot{token}");
+        let params = nexal_exec_server::ProxyRegisterParams {
+            socket_path: "/workspace/agents/proxy/api.telegram.org".to_string(),
+            upstream_url: upstream,
+            headers: HashMap::new(),
+        };
+        match client.proxy_register(params).await {
+            Ok(_) => info!("container proxy registered: api.telegram.org"),
+            Err(e) => tracing::warn!("failed to register telegram proxy: {e}"),
+        }
+    }
+
+    if let Some(ref token) = config.discord_bot_token {
+        let mut headers = HashMap::new();
+        headers.insert("Authorization".to_string(), format!("Bot {token}"));
+        let params = nexal_exec_server::ProxyRegisterParams {
+            socket_path: "/workspace/agents/proxy/discord.com".to_string(),
+            upstream_url: "https://discord.com".to_string(),
+            headers,
+        };
+        match client.proxy_register(params).await {
+            Ok(_) => info!("container proxy registered: discord.com"),
+            Err(e) => tracing::warn!("failed to register discord proxy: {e}"),
+        }
+    }
+}
+
 fn is_sandbox_disabled(config: &NexalConfig) -> bool {
     config.sandbox_backend() == nexal_config::SandboxBackend::None
 }
@@ -794,22 +830,25 @@ async fn run_idle(args: IdleArgs, config: Arc<NexalConfig>) -> anyhow::Result<()
 
     sync_skills(&config).await?;
 
-    // Start token proxies (Unix sockets for Telegram/Discord API access).
-    // Must happen BEFORE creating the container so the sockets exist when
-    // the workspace directory is bind-mounted into the sandbox.
-    let _proxy_handles = nexal_agent::proxy::start_proxies(
-        &config.workspace,
-        config.telegram_bot_token.as_deref(),
-        config.discord_bot_token.as_deref(),
-    )
-    .await;
-
-    // Create Podman sandbox container for idle mode (same as TUI).
+    // Create Podman sandbox container.
     let sandbox = if !is_sandbox_disabled(&config) {
         Some(create_sandbox_container(&config).await?)
     } else {
         None
     };
+
+    // Register API proxies inside the container via exec-server.
+    // The exec-server creates Unix sockets and forwards requests to upstream APIs,
+    // injecting auth tokens. No bind mount needed.
+    if let Some(ref handle) = sandbox {
+        if let Some(ref env_mgr) = handle.environment_manager {
+            if let Ok(env) = env_mgr.current().await {
+                if let Some(client) = env.exec_server_client() {
+                    register_container_proxies(client, &config).await;
+                }
+            }
+        }
+    }
 
     let mut pool = AgentPool::new(Arc::clone(&config));
     if let Some(ref handle) = sandbox {

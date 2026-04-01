@@ -38,6 +38,8 @@ tokio = { workspace = true, features = [
     "time",
 ] }
 tokio-tungstenite = { workspace = true }
+tokio-util = { workspace = true }
+reqwest = { workspace = true }
 tracing = { workspace = true }
 
 [dev-dependencies]

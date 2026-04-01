@@ -18,6 +18,10 @@ use crate::protocol::InitializeParams;
 use crate::protocol::ReadParams;
 use crate::protocol::TerminateParams;
 use crate::protocol::WriteParams;
+use crate::protocol::PROXY_REGISTER_METHOD;
+use crate::protocol::PROXY_UNREGISTER_METHOD;
+use crate::protocol::ProxyRegisterParams;
+use crate::protocol::ProxyUnregisterParams;
 use crate::rpc::RpcRouter;
 use crate::server::ExecServerHandler;
 use nexal_app_server_protocol::FsCopyParams;
@@ -104,6 +108,18 @@ pub(crate) fn build_router() -> RpcRouter<ExecServerHandler> {
         FS_COPY_METHOD,
         |handler: Arc<ExecServerHandler>, params: FsCopyParams| async move {
             handler.fs_copy(params).await
+        },
+    );
+    router.request(
+        PROXY_REGISTER_METHOD,
+        |handler: Arc<ExecServerHandler>, params: ProxyRegisterParams| async move {
+            handler.proxy_register(params).await
+        },
+    );
+    router.request(
+        PROXY_UNREGISTER_METHOD,
+        |handler: Arc<ExecServerHandler>, params: ProxyUnregisterParams| async move {
+            handler.proxy_unregister(params).await
         },
     );
     router

@@ -23,6 +23,11 @@ use crate::protocol::TerminateParams;
 use crate::protocol::TerminateResponse;
 use crate::protocol::WriteParams;
 use crate::protocol::WriteResponse;
+use crate::protocol::ProxyRegisterParams;
+use crate::protocol::ProxyRegisterResponse;
+use crate::protocol::ProxyUnregisterParams;
+use crate::protocol::ProxyUnregisterResponse;
+use crate::proxy::ProxyManager;
 use crate::rpc::RpcNotificationSender;
 use crate::server::file_system_handler::FileSystemHandler;
 use crate::server::process_handler::ProcessHandler;
@@ -31,6 +36,7 @@ use crate::server::process_handler::ProcessHandler;
 pub(crate) struct ExecServerHandler {
     process: ProcessHandler,
     file_system: FileSystemHandler,
+    proxy: std::sync::Arc<ProxyManager>,
 }
 
 impl ExecServerHandler {
@@ -38,10 +44,12 @@ impl ExecServerHandler {
         Self {
             process: ProcessHandler::new(notifications),
             file_system: FileSystemHandler::default(),
+            proxy: std::sync::Arc::new(ProxyManager::new()),
         }
     }
 
     pub(crate) async fn shutdown(&self) {
+        self.proxy.shutdown().await;
         self.process.shutdown().await;
     }
 
@@ -132,6 +140,31 @@ impl ExecServerHandler {
     ) -> Result<FsCopyResponse, JSONRPCErrorError> {
         self.process.require_initialized_for("filesystem")?;
         self.file_system.copy(params).await
+    }
+
+    pub(crate) async fn proxy_register(
+        &self,
+        params: ProxyRegisterParams,
+    ) -> Result<ProxyRegisterResponse, JSONRPCErrorError> {
+        self.process.require_initialized_for("proxy")?;
+        self.proxy
+            .register(&params.socket_path, &params.upstream_url, params.headers)
+            .await
+            .map_err(|e| JSONRPCErrorError {
+                code: -32603,
+                message: e,
+                data: None,
+            })?;
+        Ok(ProxyRegisterResponse { ok: true })
+    }
+
+    pub(crate) async fn proxy_unregister(
+        &self,
+        params: ProxyUnregisterParams,
+    ) -> Result<ProxyUnregisterResponse, JSONRPCErrorError> {
+        self.process.require_initialized_for("proxy")?;
+        let ok = self.proxy.unregister(&params.socket_path).await;
+        Ok(ProxyUnregisterResponse { ok })
     }
 }
 

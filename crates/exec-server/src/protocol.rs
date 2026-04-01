@@ -23,6 +23,39 @@ pub const FS_GET_METADATA_METHOD: &str = "fs/getMetadata";
 pub const FS_READ_DIRECTORY_METHOD: &str = "fs/readDirectory";
 pub const FS_REMOVE_METHOD: &str = "fs/remove";
 pub const FS_COPY_METHOD: &str = "fs/copy";
+pub const PROXY_REGISTER_METHOD: &str = "proxy/register";
+pub const PROXY_UNREGISTER_METHOD: &str = "proxy/unregister";
+
+/// Register a reverse proxy Unix socket inside the container.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProxyRegisterParams {
+    /// Path to the Unix socket (e.g. "/workspace/agents/proxy/api.telegram.org").
+    pub socket_path: String,
+    /// Upstream URL to forward requests to (e.g. "https://api.telegram.org").
+    pub upstream_url: String,
+    /// Headers to inject into every proxied request (e.g. auth tokens).
+    #[serde(default)]
+    pub headers: std::collections::HashMap<String, String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProxyRegisterResponse {
+    pub ok: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProxyUnregisterParams {
+    pub socket_path: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProxyUnregisterResponse {
+    pub ok: bool,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(transparent)]

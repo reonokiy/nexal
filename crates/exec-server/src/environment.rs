@@ -178,6 +178,11 @@ impl Environment {
         self.remote_env_info.as_ref()
     }
 
+    /// Get the raw exec-server client (for proxy registration, etc.).
+    pub fn exec_server_client(&self) -> Option<&ExecServerClient> {
+        self.remote_exec_server_client.as_ref()
+    }
+
     pub fn get_exec_backend(&self) -> Arc<dyn ExecBackend> {
         Arc::clone(&self.exec_backend)
     }

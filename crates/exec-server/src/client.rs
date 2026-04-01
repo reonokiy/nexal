@@ -353,6 +353,30 @@ impl ExecServerClient {
             .map_err(Into::into)
     }
 
+    /// Register a reverse proxy Unix socket inside the container.
+    pub async fn proxy_register(
+        &self,
+        params: crate::protocol::ProxyRegisterParams,
+    ) -> Result<crate::protocol::ProxyRegisterResponse, ExecServerError> {
+        self.inner
+            .client
+            .call(crate::protocol::PROXY_REGISTER_METHOD, &params)
+            .await
+            .map_err(Into::into)
+    }
+
+    /// Unregister a proxy.
+    pub async fn proxy_unregister(
+        &self,
+        params: crate::protocol::ProxyUnregisterParams,
+    ) -> Result<crate::protocol::ProxyUnregisterResponse, ExecServerError> {
+        self.inner
+            .client
+            .call(crate::protocol::PROXY_UNREGISTER_METHOD, &params)
+            .await
+            .map_err(Into::into)
+    }
+
     pub(crate) async fn register_session(
         &self,
         process_id: &ProcessId,
