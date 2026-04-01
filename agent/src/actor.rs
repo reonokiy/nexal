@@ -413,12 +413,10 @@ fn compress_and_encode_image(data: &[u8], _mime_type: &str) -> String {
         Ok(img) => {
             let resized = img.resize(MAX_DIM, MAX_DIM, image::imageops::FilterType::Triangle);
             let mut buf = std::io::Cursor::new(Vec::new());
-            resized
-                .write_to(&mut buf, image::ImageFormat::Jpeg)
-                .unwrap_or_else(|_| {
-                    // Fallback: write as-is
-                    buf = std::io::Cursor::new(data.to_vec());
-                });
+            let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut buf, JPEG_QUALITY);
+            if resized.write_with_encoder(encoder).is_err() {
+                buf = std::io::Cursor::new(data.to_vec());
+            }
             buf.into_inner()
         }
         Err(_) => data.to_vec(),
