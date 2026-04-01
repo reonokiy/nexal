@@ -19,13 +19,23 @@ def read_url(url: str) -> None:
 
     # Jina Reader: GET /<url>
     encoded_url = urllib.parse.quote(url, safe="")
-    resp = client.get(f"/{encoded_url}")
+    resp = client.get(
+        f"/{encoded_url}",
+        headers={"Accept": "application/json"},
+    )
 
     if resp.status_code != 200:
         print(f"Error: {resp.status_code} {resp.text[:300]}")
         sys.exit(1)
 
-    data = resp.json()
+    import json
+    try:
+        data = resp.json()
+    except json.JSONDecodeError:
+        text = resp.text.strip()
+        decoder = json.JSONDecoder()
+        data, _ = decoder.raw_decode(text)
+
     result = data.get("data", {})
 
     title = result.get("title", "Untitled")

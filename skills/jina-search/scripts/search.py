@@ -19,13 +19,24 @@ def search(query: str, limit: int = 5) -> None:
 
     # Jina Search: GET /<query>
     encoded_query = urllib.parse.quote(query)
-    resp = client.get(f"/{encoded_query}")
+    resp = client.get(
+        f"/{encoded_query}",
+        headers={"Accept": "application/json"},
+    )
 
     if resp.status_code != 200:
         print(f"Error: {resp.status_code} {resp.text[:300]}")
         sys.exit(1)
 
-    data = resp.json()
+    import json
+    try:
+        data = resp.json()
+    except json.JSONDecodeError:
+        # Chunked responses may concatenate multiple JSON objects; try first one
+        text = resp.text.strip()
+        decoder = json.JSONDecoder()
+        data, _ = decoder.raw_decode(text)
+
     results = data.get("data", [])
 
     if not results:
