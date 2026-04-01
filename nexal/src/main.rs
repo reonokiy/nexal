@@ -423,7 +423,7 @@ async fn create_sandbox_container(config: &NexalConfig) -> anyhow::Result<Sandbo
     // Use a fixed container port and let podman assign a random host port.
     let container_port = 9100;
     create_args.push("-p".to_string());
-    create_args.push(format!("127.0.0.1:0:{container_port}"));
+    create_args.push(format!("{container_port}"));
     create_args.push(image.clone());
     create_args.push("/usr/local/bin/nexal-exec-server".to_string());
     create_args.push("--listen".to_string());
