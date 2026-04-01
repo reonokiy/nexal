@@ -24,6 +24,7 @@ pub fn create_env(
     populate_env(std::env::vars(), policy, thread_id)
 }
 
+
 fn populate_env<I>(
     vars: I,
     policy: &ShellEnvironmentPolicy,

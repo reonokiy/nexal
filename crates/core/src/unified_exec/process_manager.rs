@@ -649,10 +649,15 @@ impl UnifiedExecProcessManager {
         cwd: PathBuf,
         context: &UnifiedExecContext,
     ) -> Result<(UnifiedExecProcess, Option<DeferredNetworkApproval>), UnifiedExecError> {
-        let env = apply_unified_exec_env(create_env(
+        let mut env = apply_unified_exec_env(create_env(
             &context.turn.shell_environment_policy,
             Some(context.session.conversation_id),
         ));
+        // When executing in a container, HOME from the host env is wrong.
+        // The exec-server uses env_clear() so we must inject the correct value.
+        if cwd.starts_with("/workspace") {
+            env.insert("HOME".to_string(), "/workspace".to_string());
+        }
         let mut orchestrator = ToolOrchestrator::new();
         let mut runtime = UnifiedExecRuntime::new(
             self,
