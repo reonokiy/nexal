@@ -20,7 +20,6 @@ use crate::protocol::EventMsg;
 use crate::protocol::SessionConfiguredEvent;
 use crate::rollout::RolloutRecorder;
 use crate::rollout::truncation;
-use crate::shell_snapshot::ShellSnapshot;
 use crate::skills_watcher::SkillsWatcher;
 use crate::skills_watcher::SkillsWatcherEvent;
 use crate::tasks::interrupted_turn_history_marker;
@@ -689,7 +688,6 @@ impl ThreadManagerState {
             self.session_source.clone(),
             /*persist_extended_history*/ false,
             /*metrics_service_name*/ None,
-            /*inherited_shell_snapshot*/ None,
             /*inherited_exec_policy*/ None,
         ))
         .await
@@ -703,7 +701,6 @@ impl ThreadManagerState {
         session_source: SessionSource,
         persist_extended_history: bool,
         metrics_service_name: Option<String>,
-        inherited_shell_snapshot: Option<Arc<ShellSnapshot>>,
         inherited_exec_policy: Option<Arc<crate::exec_policy::ExecPolicyManager>>,
     ) -> NexalResult<NewThread> {
         Box::pin(self.spawn_thread_with_source(
@@ -715,7 +712,6 @@ impl ThreadManagerState {
             Vec::new(),
             persist_extended_history,
             metrics_service_name,
-            inherited_shell_snapshot,
             inherited_exec_policy,
             /*parent_trace*/ None,
             /*user_shell_override*/ None,
@@ -729,7 +725,6 @@ impl ThreadManagerState {
         rollout_path: PathBuf,
         agent_control: AgentControl,
         session_source: SessionSource,
-        inherited_shell_snapshot: Option<Arc<ShellSnapshot>>,
         inherited_exec_policy: Option<Arc<crate::exec_policy::ExecPolicyManager>>,
     ) -> NexalResult<NewThread> {
         let initial_history = RolloutRecorder::get_rollout_history(&rollout_path).await?;
@@ -742,7 +737,6 @@ impl ThreadManagerState {
             Vec::new(),
             /*persist_extended_history*/ false,
             /*metrics_service_name*/ None,
-            inherited_shell_snapshot,
             inherited_exec_policy,
             /*parent_trace*/ None,
             /*user_shell_override*/ None,
@@ -758,7 +752,6 @@ impl ThreadManagerState {
         agent_control: AgentControl,
         session_source: SessionSource,
         persist_extended_history: bool,
-        inherited_shell_snapshot: Option<Arc<ShellSnapshot>>,
         inherited_exec_policy: Option<Arc<crate::exec_policy::ExecPolicyManager>>,
     ) -> NexalResult<NewThread> {
         Box::pin(self.spawn_thread_with_source(
@@ -770,7 +763,6 @@ impl ThreadManagerState {
             Vec::new(),
             persist_extended_history,
             /*metrics_service_name*/ None,
-            inherited_shell_snapshot,
             inherited_exec_policy,
             /*parent_trace*/ None,
             /*user_shell_override*/ None,
@@ -801,7 +793,6 @@ impl ThreadManagerState {
             dynamic_tools,
             persist_extended_history,
             metrics_service_name,
-            /*inherited_shell_snapshot*/ None,
             /*inherited_exec_policy*/ None,
             parent_trace,
             user_shell_override,
@@ -820,7 +811,6 @@ impl ThreadManagerState {
         dynamic_tools: Vec<nexal_protocol::dynamic_tools::DynamicToolSpec>,
         persist_extended_history: bool,
         metrics_service_name: Option<String>,
-        inherited_shell_snapshot: Option<Arc<ShellSnapshot>>,
         inherited_exec_policy: Option<Arc<crate::exec_policy::ExecPolicyManager>>,
         parent_trace: Option<W3cTraceContext>,
         user_shell_override: Option<crate::shell::Shell>,
@@ -847,7 +837,6 @@ impl ThreadManagerState {
             dynamic_tools,
             persist_extended_history,
             metrics_service_name,
-            inherited_shell_snapshot,
             inherited_exec_policy,
             user_shell_override,
             parent_trace,

@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::fmt::Debug;
-use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
@@ -312,7 +311,6 @@ use crate::rollout::metadata;
 use crate::rollout::policy::EventPersistenceMode;
 use crate::session_startup_prewarm::SessionStartupPrewarmHandle;
 use crate::shell;
-use crate::shell_snapshot::ShellSnapshot;
 use crate::skills_watcher::SkillsWatcher;
 use crate::skills_watcher::SkillsWatcherEvent;
 use crate::state::ActiveTurn;
@@ -402,7 +400,6 @@ pub(crate) struct NexalSpawnArgs {
     pub(crate) dynamic_tools: Vec<DynamicToolSpec>,
     pub(crate) persist_extended_history: bool,
     pub(crate) metrics_service_name: Option<String>,
-    pub(crate) inherited_shell_snapshot: Option<Arc<ShellSnapshot>>,
     pub(crate) inherited_exec_policy: Option<Arc<ExecPolicyManager>>,
     pub(crate) user_shell_override: Option<shell::Shell>,
     pub(crate) parent_trace: Option<W3cTraceContext>,
@@ -443,7 +440,6 @@ impl Nexal {
             dynamic_tools,
             persist_extended_history,
             metrics_service_name,
-            inherited_shell_snapshot,
             user_shell_override,
             inherited_exec_policy,
             parent_trace: _,
@@ -606,7 +602,6 @@ impl Nexal {
             session_source,
             dynamic_tools,
             persist_extended_history,
-            inherited_shell_snapshot,
             user_shell_override,
         };
 
@@ -1073,7 +1068,6 @@ pub(crate) struct SessionConfiguration {
     session_source: SessionSource,
     dynamic_tools: Vec<DynamicToolSpec>,
     persist_extended_history: bool,
-    inherited_shell_snapshot: Option<Arc<ShellSnapshot>>,
     user_shell_override: Option<shell::Shell>,
 }
 
@@ -1691,11 +1685,10 @@ impl Session {
             .map(|shell_path| shell::Shell {
                 shell_type: shell::ShellType::Bash,
                 shell_path: std::path::PathBuf::from(shell_path),
-                shell_snapshot: shell::empty_shell_snapshot_receiver(),
             });
 
         let use_zsh_fork_shell = config.features.enabled(Feature::ShellZshFork);
-        let mut default_shell = if let Some(user_shell_override) =
+        let default_shell = if let Some(user_shell_override) =
             session_configuration.user_shell_override.clone()
                 .or(remote_shell_override)
         {
@@ -1717,25 +1710,6 @@ impl Session {
             shell::default_user_shell()
         };
         // Create the mutable state for the Session.
-        let shell_snapshot_tx = if config.features.enabled(Feature::ShellSnapshot) {
-            if let Some(snapshot) = session_configuration.inherited_shell_snapshot.clone() {
-                let (tx, rx) = watch::channel(Some(snapshot));
-                default_shell.shell_snapshot = rx;
-                tx
-            } else {
-                ShellSnapshot::start_snapshotting(
-                    config.nexal_home.clone(),
-                    conversation_id,
-                    session_configuration.cwd.to_path_buf(),
-                    &mut default_shell,
-                    session_telemetry.clone(),
-                )
-            }
-        } else {
-            let (tx, rx) = watch::channel(None);
-            default_shell.shell_snapshot = rx;
-            tx
-        };
         let thread_name =
             match session_index::find_thread_name_by_id(&config.nexal_home, &conversation_id)
                 .instrument(info_span!(
@@ -1846,7 +1820,6 @@ impl Session {
             hooks,
             rollout: Mutex::new(rollout_recorder),
             user_shell: Arc::new(default_shell),
-            shell_snapshot_tx,
             show_raw_agent_reasoning: config.show_raw_agent_reasoning,
             exec_policy,
             auth_manager: Arc::clone(&auth_manager),
@@ -2255,38 +2228,6 @@ impl Session {
         state.set_previous_turn_settings(previous_turn_settings);
     }
 
-    fn maybe_refresh_shell_snapshot_for_cwd(
-        &self,
-        previous_cwd: &Path,
-        next_cwd: &Path,
-        nexal_home: &Path,
-        session_source: &SessionSource,
-    ) {
-        if previous_cwd == next_cwd {
-            return;
-        }
-
-        if !self.features.enabled(Feature::ShellSnapshot) {
-            return;
-        }
-
-        if matches!(
-            session_source,
-            SessionSource::SubAgent(SubAgentSource::ThreadSpawn { .. })
-        ) {
-            return;
-        }
-
-        ShellSnapshot::refresh_snapshot(
-            nexal_home.to_path_buf(),
-            self.conversation_id,
-            next_cwd.to_path_buf(),
-            self.services.user_shell.as_ref().clone(),
-            self.services.shell_snapshot_tx.clone(),
-            self.services.session_telemetry.clone(),
-        );
-    }
-
     pub(crate) async fn update_settings(
         &self,
         updates: SessionSettingsUpdate,
@@ -2295,19 +2236,8 @@ impl Session {
 
         match state.session_configuration.apply(&updates) {
             Ok(updated) => {
-                let previous_cwd = state.session_configuration.cwd.clone();
-                let next_cwd = updated.cwd.clone();
-                let nexal_home = updated.nexal_home.clone();
-                let session_source = updated.session_source.clone();
                 state.session_configuration = updated;
                 drop(state);
-
-                self.maybe_refresh_shell_snapshot_for_cwd(
-                    &previous_cwd,
-                    &next_cwd,
-                    &nexal_home,
-                    &session_source,
-                );
 
                 Ok(())
             }
@@ -2323,29 +2253,14 @@ impl Session {
         sub_id: String,
         updates: SessionSettingsUpdate,
     ) -> ConstraintResult<Arc<TurnContext>> {
-        let (
-            session_configuration,
-            sandbox_policy_changed,
-            previous_cwd,
-            nexal_home,
-            session_source,
-        ) = {
+        let (session_configuration, sandbox_policy_changed) = {
             let mut state = self.state.lock().await;
             match state.session_configuration.clone().apply(&updates) {
                 Ok(next) => {
-                    let previous_cwd = state.session_configuration.cwd.clone();
                     let sandbox_policy_changed =
                         state.session_configuration.sandbox_policy != next.sandbox_policy;
-                    let nexal_home = next.nexal_home.clone();
-                    let session_source = next.session_source.clone();
                     state.session_configuration = next.clone();
-                    (
-                        next,
-                        sandbox_policy_changed,
-                        previous_cwd,
-                        nexal_home,
-                        session_source,
-                    )
+                    (next, sandbox_policy_changed)
                 }
                 Err(err) => {
                     drop(state);
@@ -2361,13 +2276,6 @@ impl Session {
                 }
             }
         };
-
-        self.maybe_refresh_shell_snapshot_for_cwd(
-            &previous_cwd,
-            &session_configuration.cwd,
-            &nexal_home,
-            &session_source,
-        );
 
         Ok(self
             .new_turn_from_configuration(

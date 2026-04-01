@@ -19,7 +19,6 @@ use crate::shell::ShellType;
 use crate::tools::network_approval::NetworkApprovalMode;
 use crate::tools::network_approval::NetworkApprovalSpec;
 use crate::tools::runtimes::build_sandbox_command;
-use crate::tools::runtimes::maybe_wrap_shell_lc_with_snapshot;
 use crate::tools::runtimes::shell::zsh_fork_backend;
 use crate::tools::sandboxing::Approvable;
 use crate::tools::sandboxing::ApprovalCtx;
@@ -53,6 +52,7 @@ pub struct UnifiedExecRequest {
     pub process_id: i32,
     pub cwd: PathBuf,
     pub env: HashMap<String, String>,
+    #[allow(dead_code)]
     pub explicit_env_overrides: HashMap<String, String>,
     pub network: Option<NetworkProxy>,
     pub tty: bool,
@@ -208,16 +208,10 @@ impl<'a> ToolRuntime<UnifiedExecRequest, UnifiedExecProcess> for UnifiedExecRunt
             base_command.clone()
         } else {
             let session_shell = ctx.session.user_shell();
-            let cmd = maybe_wrap_shell_lc_with_snapshot(
-                base_command,
-                session_shell.as_ref(),
-                &req.cwd,
-                &req.explicit_env_overrides,
-            );
             if matches!(session_shell.shell_type, ShellType::PowerShell) {
-                prefix_powershell_script_with_utf8(&cmd)
+                prefix_powershell_script_with_utf8(base_command)
             } else {
-                cmd
+                base_command.clone()
             }
         };
 

@@ -90,7 +90,6 @@ pub(crate) async fn run_nexal_thread_interactive(
         dynamic_tools: Vec::new(),
         persist_extended_history: false,
         metrics_service_name: None,
-        inherited_shell_snapshot: None,
         user_shell_override: None,
         inherited_exec_policy: Some(Arc::clone(&parent_session.services.exec_policy)),
         parent_trace: None,

@@ -22,7 +22,6 @@ use crate::shell::ShellType;
 use crate::tools::network_approval::NetworkApprovalMode;
 use crate::tools::network_approval::NetworkApprovalSpec;
 use crate::tools::runtimes::build_sandbox_command;
-use crate::tools::runtimes::maybe_wrap_shell_lc_with_snapshot;
 use crate::tools::sandboxing::Approvable;
 use crate::tools::sandboxing::ApprovalCtx;
 use crate::tools::sandboxing::ExecApprovalRequirement;
@@ -48,6 +47,7 @@ pub struct ShellRequest {
     pub cwd: PathBuf,
     pub timeout_ms: Option<u64>,
     pub env: HashMap<String, String>,
+    #[allow(dead_code)]
     pub explicit_env_overrides: HashMap<String, String>,
     pub network: Option<NetworkProxy>,
     pub sandbox_permissions: SandboxPermissions,
@@ -227,16 +227,10 @@ impl ToolRuntime<ShellRequest, ExecToolCallOutput> for ShellRuntime {
             req.command.clone()
         } else {
             let session_shell = ctx.session.user_shell();
-            let command = maybe_wrap_shell_lc_with_snapshot(
-                &req.command,
-                session_shell.as_ref(),
-                &req.cwd,
-                &req.explicit_env_overrides,
-            );
             if matches!(session_shell.shell_type, ShellType::PowerShell) {
-                prefix_powershell_script_with_utf8(&command)
+                prefix_powershell_script_with_utf8(&req.command)
             } else {
-                command
+                req.command.clone()
             }
         };
 

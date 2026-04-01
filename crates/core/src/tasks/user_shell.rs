@@ -27,7 +27,6 @@ use crate::protocol::TurnStartedEvent;
 use crate::sandboxing::ExecRequest;
 use crate::state::TaskKind;
 use crate::tools::format_exec_output_str;
-use crate::tools::runtimes::maybe_wrap_shell_lc_with_snapshot;
 use crate::user_shell_command::user_shell_command_record_item;
 use nexal_sandboxing::SandboxType;
 
@@ -125,12 +124,7 @@ pub(crate) async fn execute_user_shell_command(
     let use_login_shell = true;
     let session_shell = session.user_shell();
     let display_command = session_shell.derive_exec_args(&command, use_login_shell);
-    let exec_command = maybe_wrap_shell_lc_with_snapshot(
-        &display_command,
-        session_shell.as_ref(),
-        turn_context.cwd.as_path(),
-        &turn_context.shell_environment_policy.r#set,
-    );
+    let exec_command = display_command.clone();
 
     let call_id = Uuid::new_v4().to_string();
     let raw_command = command;

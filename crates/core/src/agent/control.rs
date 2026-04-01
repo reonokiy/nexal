@@ -14,7 +14,6 @@ use crate::find_thread_path_by_id_str;
 use crate::rollout::RolloutRecorder;
 use crate::session_prefix::format_subagent_context_line;
 use crate::session_prefix::format_subagent_notification_message;
-use crate::shell_snapshot::ShellSnapshot;
 use crate::state_db;
 use crate::thread_manager::ThreadManagerState;
 use nexal_features::Feature;
@@ -147,9 +146,6 @@ impl AgentControl {
     ) -> NexalResult<LiveAgent> {
         let state = self.upgrade()?;
         let mut reservation = self.state.reserve_spawn_slot(config.agent_max_threads)?;
-        let inherited_shell_snapshot = self
-            .inherited_shell_snapshot_for_source(&state, session_source.as_ref())
-            .await;
         let inherited_exec_policy = self
             .inherited_exec_policy_for_source(&state, session_source.as_ref(), &config)
             .await;
@@ -235,7 +231,6 @@ impl AgentControl {
                             self.clone(),
                             session_source,
                             /*persist_extended_history*/ false,
-                            inherited_shell_snapshot,
                             inherited_exec_policy,
                         )
                         .await?
@@ -247,7 +242,6 @@ impl AgentControl {
                             session_source,
                             /*persist_extended_history*/ false,
                             /*metrics_service_name*/ None,
-                            inherited_shell_snapshot,
                             inherited_exec_policy,
                         )
                         .await?
@@ -408,9 +402,6 @@ impl AgentControl {
             other => (other, AgentMetadata::default()),
         };
         let notification_source = session_source.clone();
-        let inherited_shell_snapshot = self
-            .inherited_shell_snapshot_for_source(&state, Some(&session_source))
-            .await;
         let inherited_exec_policy = self
             .inherited_exec_policy_for_source(&state, Some(&session_source), &config)
             .await;
@@ -433,7 +424,6 @@ impl AgentControl {
                 rollout_path,
                 self.clone(),
                 session_source,
-                inherited_shell_snapshot,
                 inherited_exec_policy,
             )
             .await?;
@@ -903,22 +893,6 @@ impl AgentControl {
         self.manager
             .upgrade()
             .ok_or_else(|| NexalErr::UnsupportedOperation("thread manager dropped".to_string()))
-    }
-
-    async fn inherited_shell_snapshot_for_source(
-        &self,
-        state: &Arc<ThreadManagerState>,
-        session_source: Option<&SessionSource>,
-    ) -> Option<Arc<ShellSnapshot>> {
-        let Some(SessionSource::SubAgent(SubAgentSource::ThreadSpawn {
-            parent_thread_id, ..
-        })) = session_source
-        else {
-            return None;
-        };
-
-        let parent_thread = state.get_thread(*parent_thread_id).await.ok()?;
-        parent_thread.nexal.session.user_shell().shell_snapshot()
     }
 
     async fn inherited_exec_policy_for_source(

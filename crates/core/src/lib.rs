@@ -134,6 +134,7 @@ pub(crate) mod safety;
 pub mod seatbelt;
 mod session_rollout_init_error;
 pub mod shell;
+#[allow(dead_code)]
 mod shell_snapshot;
 pub mod spawn;
 pub use nexal_rollout::state_db;

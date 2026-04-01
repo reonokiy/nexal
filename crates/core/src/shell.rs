@@ -1,10 +1,7 @@
 use crate::shell_detect::detect_shell_type;
-use crate::shell_snapshot::ShellSnapshot;
 use serde::Deserialize;
 use serde::Serialize;
 use std::path::PathBuf;
-use std::sync::Arc;
-use tokio::sync::watch;
 
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub enum ShellType {
@@ -15,16 +12,10 @@ pub enum ShellType {
     Cmd,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Shell {
     pub(crate) shell_type: ShellType,
     pub(crate) shell_path: PathBuf,
-    #[serde(
-        skip_serializing,
-        skip_deserializing,
-        default = "empty_shell_snapshot_receiver"
-    )]
-    pub(crate) shell_snapshot: watch::Receiver<Option<Arc<ShellSnapshot>>>,
 }
 
 impl Shell {
@@ -68,25 +59,7 @@ impl Shell {
             }
         }
     }
-
-    /// Return the shell snapshot if existing.
-    pub fn shell_snapshot(&self) -> Option<Arc<ShellSnapshot>> {
-        self.shell_snapshot.borrow().clone()
-    }
 }
-
-pub(crate) fn empty_shell_snapshot_receiver() -> watch::Receiver<Option<Arc<ShellSnapshot>>> {
-    let (_tx, rx) = watch::channel(None);
-    rx
-}
-
-impl PartialEq for Shell {
-    fn eq(&self, other: &Self) -> bool {
-        self.shell_type == other.shell_type && self.shell_path == other.shell_path
-    }
-}
-
-impl Eq for Shell {}
 
 #[cfg(unix)]
 fn get_user_shell_path() -> Option<PathBuf> {
@@ -97,10 +70,6 @@ fn get_user_shell_path() -> Option<PathBuf> {
 
     let mut passwd = MaybeUninit::<libc::passwd>::uninit();
 
-    // We cannot use getpwuid here: it returns pointers into libc-managed
-    // storage, which is not safe to read concurrently on all targets (the musl
-    // static build used by the CLI can segfault when parallel callers race on
-    // that buffer). getpwuid_r keeps the passwd data in caller-owned memory.
     let suggested_buffer_len = unsafe { libc::sysconf(libc::_SC_GETPW_R_SIZE_MAX) };
     let buffer_len = usize::try_from(suggested_buffer_len)
         .ok()
@@ -140,7 +109,6 @@ fn get_user_shell_path() -> Option<PathBuf> {
             return None;
         }
 
-        // Retry with a larger buffer until libc can materialize the passwd entry.
         let new_len = buffer.len().checked_mul(2)?;
         if new_len > 1024 * 1024 {
             return None;
@@ -168,13 +136,10 @@ fn get_shell_path(
     binary_name: &str,
     fallback_paths: Vec<&str>,
 ) -> Option<PathBuf> {
-    // If exact provided path exists, use it
     if provided_path.and_then(file_exists).is_some() {
         return provided_path.cloned();
     }
 
-    // Check if the shell we are trying to load is user's default shell
-    // if just use it
     let default_shell_path = get_user_shell_path();
     if let Some(default_shell_path) = default_shell_path
         && detect_shell_type(&default_shell_path) == Some(shell_type)
@@ -188,7 +153,6 @@ fn get_shell_path(
     }
 
     for path in fallback_paths {
-        //check exists
         if let Some(path) = file_exists(&PathBuf::from(path)) {
             return Some(path);
         }
@@ -198,58 +162,44 @@ fn get_shell_path(
 }
 
 fn get_zsh_shell(path: Option<&PathBuf>) -> Option<Shell> {
-    let shell_path = get_shell_path(ShellType::Zsh, path, "zsh", vec!["/bin/zsh"]);
-
-    shell_path.map(|shell_path| Shell {
+    get_shell_path(ShellType::Zsh, path, "zsh", vec!["/bin/zsh"]).map(|shell_path| Shell {
         shell_type: ShellType::Zsh,
         shell_path,
-        shell_snapshot: empty_shell_snapshot_receiver(),
     })
 }
 
 fn get_bash_shell(path: Option<&PathBuf>) -> Option<Shell> {
-    let shell_path = get_shell_path(ShellType::Bash, path, "bash", vec!["/bin/bash"]);
-
-    shell_path.map(|shell_path| Shell {
+    get_shell_path(ShellType::Bash, path, "bash", vec!["/bin/bash"]).map(|shell_path| Shell {
         shell_type: ShellType::Bash,
         shell_path,
-        shell_snapshot: empty_shell_snapshot_receiver(),
     })
 }
 
 fn get_sh_shell(path: Option<&PathBuf>) -> Option<Shell> {
-    let shell_path = get_shell_path(ShellType::Sh, path, "sh", vec!["/bin/sh"]);
-
-    shell_path.map(|shell_path| Shell {
+    get_shell_path(ShellType::Sh, path, "sh", vec!["/bin/sh"]).map(|shell_path| Shell {
         shell_type: ShellType::Sh,
         shell_path,
-        shell_snapshot: empty_shell_snapshot_receiver(),
     })
 }
 
 fn get_powershell_shell(path: Option<&PathBuf>) -> Option<Shell> {
-    let shell_path = get_shell_path(
+    get_shell_path(
         ShellType::PowerShell,
         path,
         "pwsh",
         vec!["/usr/local/bin/pwsh"],
     )
-    .or_else(|| get_shell_path(ShellType::PowerShell, path, "powershell", vec![]));
-
-    shell_path.map(|shell_path| Shell {
+    .or_else(|| get_shell_path(ShellType::PowerShell, path, "powershell", vec![]))
+    .map(|shell_path| Shell {
         shell_type: ShellType::PowerShell,
         shell_path,
-        shell_snapshot: empty_shell_snapshot_receiver(),
     })
 }
 
 fn get_cmd_shell(path: Option<&PathBuf>) -> Option<Shell> {
-    let shell_path = get_shell_path(ShellType::Cmd, path, "cmd", vec![]);
-
-    shell_path.map(|shell_path| Shell {
+    get_shell_path(ShellType::Cmd, path, "cmd", vec![]).map(|shell_path| Shell {
         shell_type: ShellType::Cmd,
         shell_path,
-        shell_snapshot: empty_shell_snapshot_receiver(),
     })
 }
 
@@ -258,13 +208,11 @@ fn ultimate_fallback_shell() -> Shell {
         Shell {
             shell_type: ShellType::Cmd,
             shell_path: PathBuf::from("cmd.exe"),
-            shell_snapshot: empty_shell_snapshot_receiver(),
         }
     } else {
         Shell {
             shell_type: ShellType::Sh,
             shell_path: PathBuf::from("/bin/sh"),
-            shell_snapshot: empty_shell_snapshot_receiver(),
         }
     }
 }
@@ -291,20 +239,20 @@ pub fn default_user_shell() -> Shell {
 
 fn default_user_shell_from_path(user_shell_path: Option<PathBuf>) -> Shell {
     if cfg!(windows) {
-        get_shell(ShellType::PowerShell, /*path*/ None).unwrap_or(ultimate_fallback_shell())
+        get_shell(ShellType::PowerShell, None).unwrap_or(ultimate_fallback_shell())
     } else {
         let user_default_shell = user_shell_path
             .and_then(|shell| detect_shell_type(&shell))
-            .and_then(|shell_type| get_shell(shell_type, /*path*/ None));
+            .and_then(|shell_type| get_shell(shell_type, None));
 
         let shell_with_fallback = if cfg!(target_os = "macos") {
             user_default_shell
-                .or_else(|| get_shell(ShellType::Zsh, /*path*/ None))
-                .or_else(|| get_shell(ShellType::Bash, /*path*/ None))
+                .or_else(|| get_shell(ShellType::Zsh, None))
+                .or_else(|| get_shell(ShellType::Bash, None))
         } else {
             user_default_shell
-                .or_else(|| get_shell(ShellType::Bash, /*path*/ None))
-                .or_else(|| get_shell(ShellType::Zsh, /*path*/ None))
+                .or_else(|| get_shell(ShellType::Bash, None))
+                .or_else(|| get_shell(ShellType::Zsh, None))
         };
 
         shell_with_fallback.unwrap_or(ultimate_fallback_shell())
