@@ -22,7 +22,7 @@ use tracing::{debug, warn};
 use crate::IncomingMessage;
 
 /// Delay before forwarding unmentioned messages (seconds).
-const UNMENTIONED_DELAY_SECS: f64 = 5.0;
+const UNMENTIONED_DELAY_SECS: f64 = 0.1;
 
 /// Timing parameters for the debounce logic.
 #[derive(Debug, Clone)]
