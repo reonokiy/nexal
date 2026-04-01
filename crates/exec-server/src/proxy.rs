@@ -192,10 +192,13 @@ async fn handle_proxy_connection(
             if key.eq_ignore_ascii_case("content-length") {
                 content_length = value.parse().unwrap_or(0);
             }
-            // Skip host header — we'll set it from upstream.
-            if !key.eq_ignore_ascii_case("host") {
-                req_headers.push((key.to_string(), value.to_string()));
+            // Skip headers that the proxy handles itself.
+            if key.eq_ignore_ascii_case("host")
+                || key.eq_ignore_ascii_case("accept-encoding")
+            {
+                continue;
             }
+            req_headers.push((key.to_string(), value.to_string()));
         }
     }
 
