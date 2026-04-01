@@ -66,38 +66,27 @@ impl ChatCompletionsSession {
         }
 
         // OpenTelemetry GenAI semantic convention span.
-        // See: https://opentelemetry.io/docs/specs/semconv/gen-ai/
+        // Compact span attributes for logs; verbose data goes to debug events (OTLP only).
         let gen_ai_span = tracing::info_span!(
             "gen_ai.chat",
             "gen_ai.system" = extract_provider(&self.base_url),
             "gen_ai.request.model" = %model,
-            "gen_ai.operation.name" = "chat",
-            "gen_ai.request.temperature" = tracing::field::Empty,
-            "gen_ai.request.max_tokens" = tracing::field::Empty,
             "gen_ai.usage.input_tokens" = tracing::field::Empty,
             "gen_ai.usage.output_tokens" = tracing::field::Empty,
-            "gen_ai.response.id" = tracing::field::Empty,
             "gen_ai.response.finish_reason" = tracing::field::Empty,
-            "gen_ai.prompt.messages" = tracing::field::Empty,
-            "gen_ai.request.available_tools" = tracing::field::Empty,
         );
-        if let Some(temp) = temperature {
-            gen_ai_span.record("gen_ai.request.temperature", temp);
-        }
-        if let Some(max) = max_tokens {
-            gen_ai_span.record("gen_ai.request.max_tokens", max);
-        }
-        // Record prompt messages (full content).
-        if let Ok(msgs_json) = serde_json::to_string(&messages) {
-            gen_ai_span.record("gen_ai.prompt.messages", &msgs_json);
-        }
-        // Record available tool names (the full set offered to the model).
-        if let Some(ref tools) = tools {
-            let tool_names: Vec<&str> = tools.iter().map(|t| t.function.name.as_str()).collect();
-            gen_ai_span.record("gen_ai.request.available_tools", &format!("{tool_names:?}"));
-        }
 
         let _enter = gen_ai_span.enter();
+
+        // Verbose data → debug events (visible in OTLP, not in default logs).
+        if let Ok(msgs_json) = serde_json::to_string(&messages) {
+            debug!(gen_ai.prompt.messages = %msgs_json, "prompt");
+        }
+        if let Some(ref tools) = tools {
+            let tool_names: Vec<&str> = tools.iter().map(|t| t.function.name.as_str()).collect();
+            debug!(gen_ai.request.available_tools = ?tool_names, "available tools");
+        }
+
         debug!(url = %url, model = %model, "starting chat completions stream");
 
         let response = self
