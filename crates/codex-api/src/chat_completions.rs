@@ -65,6 +65,44 @@ impl ChatCompletionsSession {
             body["max_tokens"] = serde_json::json!(max);
         }
 
+        // OpenTelemetry GenAI semantic convention span.
+        // See: https://opentelemetry.io/docs/specs/semconv/gen-ai/
+        let gen_ai_span = tracing::info_span!(
+            "gen_ai.chat",
+            "gen_ai.system" = extract_provider(&self.base_url),
+            "gen_ai.request.model" = %model,
+            "gen_ai.operation.name" = "chat",
+            "gen_ai.request.temperature" = tracing::field::Empty,
+            "gen_ai.request.max_tokens" = tracing::field::Empty,
+            "gen_ai.usage.input_tokens" = tracing::field::Empty,
+            "gen_ai.usage.output_tokens" = tracing::field::Empty,
+            "gen_ai.response.id" = tracing::field::Empty,
+            "gen_ai.response.finish_reason" = tracing::field::Empty,
+            "gen_ai.prompt.messages" = tracing::field::Empty,
+            "gen_ai.tools" = tracing::field::Empty,
+        );
+        if let Some(temp) = temperature {
+            gen_ai_span.record("gen_ai.request.temperature", temp);
+        }
+        if let Some(max) = max_tokens {
+            gen_ai_span.record("gen_ai.request.max_tokens", max);
+        }
+        // Record prompt messages (truncated for safety).
+        if let Ok(msgs_json) = serde_json::to_string(&messages) {
+            let truncated = if msgs_json.len() > 4096 {
+                format!("{}...(truncated)", &msgs_json[..4096])
+            } else {
+                msgs_json
+            };
+            gen_ai_span.record("gen_ai.prompt.messages", &truncated);
+        }
+        // Record tool names.
+        if let Some(ref tools) = tools {
+            let tool_names: Vec<&str> = tools.iter().map(|t| t.function.name.as_str()).collect();
+            gen_ai_span.record("gen_ai.tools", &format!("{tool_names:?}"));
+        }
+
+        let _enter = gen_ai_span.enter();
         debug!(url = %url, model = %model, "starting chat completions stream");
 
         let response = self
@@ -93,7 +131,10 @@ impl ChatCompletionsSession {
         let (tx, rx) = mpsc::channel::<Result<ResponseEvent, ChatCompletionsError>>(64);
 
         // Spawn SSE parser task
+        let span = gen_ai_span.clone();
+        drop(_enter);
         tokio::spawn(async move {
+            let _enter = span.enter();
             let mut sse_stream = SseParser::new(byte_stream);
             let mut tool_calls: HashMap<i32, PartialToolCall> = HashMap::new();
             let mut response_id = String::new();
@@ -136,9 +177,14 @@ impl ChatCompletionsSession {
 
                         // Handle usage (often in the final chunk with stream_options)
                         if let Some(usage) = chunk.usage {
+                            let input_tokens = usage.prompt_tokens.unwrap_or(0);
+                            let output_tokens = usage.completion_tokens.unwrap_or(0);
+                            span.record("gen_ai.usage.input_tokens", input_tokens);
+                            span.record("gen_ai.usage.output_tokens", output_tokens);
+                            span.record("gen_ai.response.id", &response_id);
                             let token_usage = TokenUsage {
-                                input_tokens: usage.prompt_tokens.unwrap_or(0),
-                                output_tokens: usage.completion_tokens.unwrap_or(0),
+                                input_tokens,
+                                output_tokens,
                                 total_tokens: usage.total_tokens.unwrap_or(0),
                                 ..Default::default()
                             };
@@ -205,8 +251,18 @@ impl ChatCompletionsSession {
 
                             // finish_reason signals end of generation
                             if let Some(reason) = choice.finish_reason {
+                                span.record("gen_ai.response.finish_reason", reason.as_str());
                                 // Flush tool calls
                                 if reason == "tool_calls" || reason == "stop" {
+                                    // Record tool call names for observability.
+                                    let tc_names: Vec<&str> = tool_calls.values().map(|tc| tc.name.as_str()).collect();
+                                    if !tc_names.is_empty() {
+                                        tracing::info!(
+                                            parent: &span,
+                                            tool_calls = ?tc_names,
+                                            "LLM tool calls"
+                                        );
+                                    }
                                     for (_, tc) in tool_calls.drain() {
                                         let item = tc.into_response_item();
                                         let _ = tx
@@ -424,6 +480,23 @@ struct ChunkUsage {
 }
 
 // ── Error Type ──────────────────────────────────────────────────────────
+
+/// Extract a provider name from the base URL for telemetry.
+fn extract_provider(base_url: &str) -> &str {
+    if base_url.contains("openai.com") {
+        "openai"
+    } else if base_url.contains("anthropic.com") {
+        "anthropic"
+    } else if base_url.contains("moonshot.cn") {
+        "moonshot"
+    } else if base_url.contains("deepseek.com") {
+        "deepseek"
+    } else if base_url.contains("googleapis.com") {
+        "google"
+    } else {
+        "custom"
+    }
+}
 
 #[derive(Debug, thiserror::Error)]
 pub enum ChatCompletionsError {
