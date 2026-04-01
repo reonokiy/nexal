@@ -37,10 +37,9 @@ async fn initialized_handler() -> Arc<ExecServerHandler> {
     let handler = Arc::new(ExecServerHandler::new(RpcNotificationSender::new(
         outgoing_tx,
     )));
-    assert_eq!(
-        handler.initialize().expect("initialize"),
-        InitializeResponse {}
-    );
+    let init_resp = handler.initialize().expect("initialize");
+    assert!(init_resp.default_shell.is_some(), "should detect a shell");
+    assert!(init_resp.cwd.is_some(), "should report cwd");
     handler.initialized().expect("initialized");
     handler
 }

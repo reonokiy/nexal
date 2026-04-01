@@ -28,6 +28,8 @@ pub struct AgentPool {
     /// Channel for receiving events from all actors.
     event_tx: mpsc::Sender<AgentEvent>,
     event_rx: Mutex<mpsc::Receiver<AgentEvent>>,
+    /// Pre-created environment manager (e.g. for krun).
+    environment_manager: Option<Arc<nexal_exec_server::EnvironmentManager>>,
 }
 
 impl AgentPool {
@@ -42,7 +44,18 @@ impl AgentPool {
             sessions: Mutex::new(HashMap::new()),
             event_tx,
             event_rx: Mutex::new(event_rx),
+            environment_manager: None,
         })
+    }
+
+    pub fn with_environment_manager(
+        mut self: Arc<Self>,
+        env_manager: Arc<nexal_exec_server::EnvironmentManager>,
+    ) -> Arc<Self> {
+        Arc::get_mut(&mut self)
+            .expect("with_environment_manager must be called before sharing")
+            .environment_manager = Some(env_manager);
+        self
     }
 
     /// Send a message to the agent for this session (non-blocking).
@@ -105,7 +118,11 @@ impl AgentPool {
                 .await
                 .context("building config")?,
         );
-        let mut client = build_client(Arc::clone(&codex_config), cli_overrides).await?;
+        let mut client = build_client(
+            Arc::clone(&codex_config),
+            cli_overrides,
+            self.environment_manager.clone(),
+        ).await?;
         let thread_id = start_thread(&mut client, &codex_config).await?;
         info!("in-process session ready: thread={thread_id}");
 

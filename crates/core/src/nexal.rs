@@ -1680,9 +1680,24 @@ impl Session {
             config.active_profile.clone(),
         );
 
+        // If a remote exec-server reports a shell, use it instead of
+        // detecting on the host. The exec-server knows its own environment.
+        let remote_shell_override: Option<shell::Shell> = environment_manager
+            .current()
+            .await
+            .ok()
+            .and_then(|env| env.remote_env_info().cloned())
+            .and_then(|info| info.default_shell)
+            .map(|shell_path| shell::Shell {
+                shell_type: shell::ShellType::Bash,
+                shell_path: std::path::PathBuf::from(shell_path),
+                shell_snapshot: shell::empty_shell_snapshot_receiver(),
+            });
+
         let use_zsh_fork_shell = config.features.enabled(Feature::ShellZshFork);
         let mut default_shell = if let Some(user_shell_override) =
             session_configuration.user_shell_override.clone()
+                .or(remote_shell_override)
         {
             user_shell_override
         } else if use_zsh_fork_shell {

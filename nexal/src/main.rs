@@ -118,12 +118,8 @@ async fn run_tui(enable_telegram: bool, enable_discord: bool, enable_http: bool)
     // Create a persistent Podman container for this session.
     // All exec commands run inside this container.
     // Set NEXAL_SANDBOX=none to disable (not recommended).
-    let sandbox_container = if !is_sandbox_disabled(&config) {
-        // Ensure NEXAL_SANDBOX is set so downstream code picks it up
-        
-        let container = create_sandbox_container(&config).await?;
-        nexal_config::sandbox::SandboxState::init(Some(container.clone()));
-        Some(container)
+    let sandbox = if !is_sandbox_disabled(&config) {
+        Some(create_sandbox_container(&config).await?)
     } else {
         None
     };
@@ -189,8 +185,11 @@ async fn run_tui(enable_telegram: bool, enable_discord: bool, enable_http: bool)
     if let Some(handle) = bot_handle {
         handle.abort();
     }
-    if let Some(name) = sandbox_container {
-        cleanup_sandbox_container(&name).await;
+    if let Some(mut handle) = sandbox {
+        if let Some(ref mut child) = handle.child {
+            let _ = child.kill().await;
+        }
+        cleanup_sandbox_container(&handle.name).await;
     }
 
     result.map_err(|e| anyhow::anyhow!("TUI error: {e}"))?;
@@ -284,22 +283,18 @@ fn is_sandbox_disabled(config: &NexalConfig) -> bool {
     config.sandbox_backend() == nexal_config::SandboxBackend::None
 }
 
-async fn create_sandbox_container(config: &NexalConfig) -> anyhow::Result<String> {
-    let name = format!("nexal-{}", short_id());
-    let image = std::env::var("SANDBOX_IMAGE")
-        .unwrap_or_else(|_| config.sandbox_image.clone());
-    // Network is enabled by default (pasta). Use --dns for public DNS.
-    let network = if config.sandbox_network { "pasta" } else { "none" };
+struct SandboxHandle {
+    name: String,
+    /// For krun: the running `podman run` child process (keeps the VM alive).
+    child: Option<tokio::process::Child>,
+    /// For krun: pre-connected environment manager using child-process transport.
+    environment_manager: Option<Arc<nexal_exec_server::EnvironmentManager>>,
+}
 
-    let _ = tokio::process::Command::new("podman")
-        .args(["rm", "-f", &name])
-        .output()
-        .await;
-
-    let mut args = vec![
-        "create".to_string(),
+fn sandbox_common_args(config: &NexalConfig, name: &str) -> Vec<String> {
+    vec![
         "--name".to_string(),
-        name.clone(),
+        name.to_string(),
         "--userns=keep-id".to_string(),
         "--security-opt".to_string(),
         "no-new-privileges".to_string(),
@@ -307,55 +302,229 @@ async fn create_sandbox_container(config: &NexalConfig) -> anyhow::Result<String
         format!("--pids-limit={}", config.sandbox_pids_limit),
         format!("--memory={}", config.sandbox_memory),
         format!("--cpus={}", config.sandbox_cpus),
-        if network == "pasta" {
-            // pasta with private address filtering:
-            // Block access to host network (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16)
-            // by not forwarding local ports and using public DNS only.
-            format!("--network=pasta:--no-map-gw")
+        if config.sandbox_network {
+            "--network=host".to_string()
         } else {
-            format!("--network={network}")
+            "--network=none".to_string()
         },
         "--dns=1.1.1.1".to_string(),
         "--dns=8.8.8.8".to_string(),
+        // Set HOME to /workspace so tools like uv/pip write caches there
+        // instead of the non-existent host home directory.
+        "-e".to_string(),
+        "HOME=/workspace".to_string(),
         "-v".to_string(),
         format!("{}:/workspace", config.workspace.display()),
         "-w".to_string(),
         "/workspace".to_string(),
-    ];
+    ]
+}
 
-    if let Some(ref runtime) = config.sandbox_runtime {
-        args.push("--runtime".to_string());
-        args.push(runtime.clone());
+/// Embedded nexal-exec-server binary. Set `NEXAL_EXEC_SERVER_BIN` at compile time to embed.
+/// When not set, falls back to searching the filesystem.
+#[cfg(feature = "embedded-agent")]
+static EMBEDDED_EXEC_SERVER: &[u8] = include_bytes!(env!("NEXAL_EXEC_SERVER_BIN"));
+
+fn find_exec_server_binary() -> anyhow::Result<std::path::PathBuf> {
+    // 1. Try embedded binary — extract to a cache directory once.
+    #[cfg(feature = "embedded-agent")]
+    {
+        return extract_embedded_exec_server();
     }
 
-    args.push(image);
-    args.push("sleep".to_string());
-    args.push("infinity".to_string());
+    // 2. Filesystem search fallback (development builds without embedded agent).
+    #[allow(unreachable_code)]
+    find_exec_server_binary_on_disk()
+}
 
+#[cfg(feature = "embedded-agent")]
+fn extract_embedded_exec_server() -> anyhow::Result<std::path::PathBuf> {
+    use std::os::unix::fs::PermissionsExt;
+
+    let cache_dir = dirs_next::cache_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("/tmp"))
+        .join("nexal");
+    std::fs::create_dir_all(&cache_dir).context("create nexal cache dir")?;
+
+    let bin_path = cache_dir.join("nexal-exec-server");
+
+    // Only re-extract if size differs (cheap staleness check).
+    let needs_extract = match std::fs::metadata(&bin_path) {
+        Ok(meta) => meta.len() != EMBEDDED_EXEC_SERVER.len() as u64,
+        Err(_) => true,
+    };
+
+    if needs_extract {
+        std::fs::write(&bin_path, EMBEDDED_EXEC_SERVER)
+            .context("extract embedded nexal-exec-server")?;
+        std::fs::set_permissions(&bin_path, std::fs::Permissions::from_mode(0o755))
+            .context("chmod nexal-exec-server")?;
+    }
+
+    Ok(bin_path)
+}
+
+fn find_exec_server_binary_on_disk() -> anyhow::Result<std::path::PathBuf> {
+    let exe = std::env::current_exe().context("resolve current executable")?;
+    let exe_dir = exe.parent().unwrap_or(std::path::Path::new("."));
+
+    let candidates = [
+        exe_dir.join("nexal-exec-server"),
+        exe_dir.join("../release/nexal-exec-server"),
+        exe_dir.join("../debug/nexal-exec-server"),
+    ];
+
+    for candidate in &candidates {
+        if candidate.exists() {
+            return Ok(candidate.canonicalize().unwrap_or(candidate.clone()));
+        }
+    }
+
+    anyhow::bail!(
+        "nexal-exec-server binary not found. Either:\n\
+         - Build with embedding: cargo build --release -p nexal-exec-server && \
+           NEXAL_EXEC_SERVER_BIN=target/release/nexal-exec-server cargo build --features embedded-agent\n\
+         - Or place nexal-exec-server next to the nexal binary\n\
+         Searched: {}",
+        candidates
+            .iter()
+            .map(|p| p.display().to_string())
+            .collect::<Vec<_>>()
+            .join(", ")
+    )
+}
+
+async fn create_sandbox_container(config: &NexalConfig) -> anyhow::Result<SandboxHandle> {
+    use std::process::Stdio;
+    use tokio::io::AsyncBufReadExt;
+    use tracing::debug;
+
+    let name = format!("nexal-{}", short_id());
+    let image = std::env::var("SANDBOX_IMAGE")
+        .unwrap_or_else(|_| config.sandbox_image.clone());
+
+    debug!(container = %name, image = %image, "creating sandbox container");
+
+    let _ = tokio::process::Command::new("podman")
+        .args(["rm", "-f", &name])
+        .output()
+        .await;
+
+    let exec_server_bin = find_exec_server_binary()?;
+    debug!(binary = %exec_server_bin.display(), "resolved nexal-exec-server binary");
+
+    // Step 1: podman create
+    let mut create_args = vec!["create".to_string()];
+    create_args.extend(sandbox_common_args(config, &name));
+    if let Some(ref runtime) = config.sandbox_runtime {
+        create_args.push("--runtime".to_string());
+        create_args.push(runtime.clone());
+    }
+    create_args.push(image.clone());
+    create_args.push("/usr/local/bin/nexal-exec-server".to_string());
+    create_args.push("--listen".to_string());
+    create_args.push("ws://0.0.0.0:0".to_string());
+
+    debug!(container = %name, "podman create");
     let output = tokio::process::Command::new("podman")
-        .args(&args)
+        .args(&create_args)
         .output()
         .await
         .context("podman create")?;
-
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         anyhow::bail!("podman create failed: {stderr}");
     }
+    debug!(container = %name, "podman create succeeded");
 
+    // Step 2: podman cp — inject exec-server binary before starting
+    let container_dest = format!("{name}:/usr/local/bin/nexal-exec-server");
+    debug!(
+        src = %exec_server_bin.display(),
+        dest = %container_dest,
+        "podman cp nexal-exec-server into container"
+    );
     let output = tokio::process::Command::new("podman")
-        .args(["start", &name])
+        .args([
+            "cp",
+            &exec_server_bin.to_string_lossy(),
+            &container_dest,
+        ])
         .output()
         .await
-        .context("podman start")?;
-
+        .context("podman cp nexal-exec-server")?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        anyhow::bail!("podman start failed: {stderr}");
+        anyhow::bail!("podman cp failed: {stderr}");
+    }
+    debug!(container = %name, "podman cp succeeded");
+
+    // Step 3: podman start -a — start container and attach stdout
+    debug!(container = %name, "podman start -a");
+    let mut child = tokio::process::Command::new("podman")
+        .args(["start", "-a", &name])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit())
+        .spawn()
+        .context("podman start")?;
+
+    // nexal-exec-server prints the actual listen URL (e.g. "ws://0.0.0.0:12345")
+    // to stdout on startup. Read the first line to discover the port.
+    let stdout = child.stdout.take().context("take child stdout")?;
+    let mut reader = tokio::io::BufReader::new(stdout);
+    let mut listen_line = String::new();
+    debug!(container = %name, "waiting for nexal-exec-server listen URL on stdout");
+    let read_result = tokio::time::timeout(
+        std::time::Duration::from_secs(30),
+        reader.read_line(&mut listen_line),
+    )
+    .await
+    .context("timed out waiting for nexal-exec-server listen URL")?
+    .context("reading nexal-exec-server stdout")?;
+
+    if read_result == 0 {
+        anyhow::bail!("nexal-exec-server exited before printing listen URL");
     }
 
-    info!("sandbox container started: {name}");
-    Ok(name)
+    let listen_url = listen_line.trim().to_string();
+    debug!(container = %name, listen_url = %listen_url, "nexal-exec-server reported listen URL");
+
+    // The server reports its in-container address (e.g. ws://0.0.0.0:PORT).
+    // With pasta networking the container ports are accessible on the host's loopback.
+    let host_url = listen_url.replace("0.0.0.0", "127.0.0.1");
+
+    debug!(container = %name, host_url = %host_url, "connecting WebSocket to nexal-exec-server");
+    let client = nexal_exec_server::ExecServerClient::connect_websocket(
+        nexal_exec_server::RemoteExecServerConnectArgs::new(
+            host_url.clone(),
+            "nexal-sandbox".to_string(),
+        ),
+    )
+    .await
+    .context("connect to nexal-exec-server WebSocket inside container")?;
+    debug!(container = %name, "WebSocket connected");
+
+    let init_resp = client.init_response().clone();
+    let env_info = nexal_exec_server::RemoteEnvInfo {
+        default_shell: init_resp.default_shell,
+        cwd: init_resp.cwd,
+    };
+    info!(
+        container = %name,
+        shell = ?env_info.default_shell,
+        cwd = ?env_info.cwd,
+        "exec-server environment info"
+    );
+    let env = nexal_exec_server::Environment::create_from_client_with_env_info(client, env_info);
+    let env_manager = Arc::new(nexal_exec_server::EnvironmentManager::with_environment(env));
+
+    info!(container = %name, url = %host_url, "sandbox container ready");
+    Ok(SandboxHandle {
+        name,
+        child: Some(child),
+        environment_manager: Some(env_manager),
+    })
 }
 
 /// Check if the sandbox container has active processes beyond `sleep infinity`.
@@ -504,10 +673,8 @@ async fn run_idle(args: IdleArgs, config: Arc<NexalConfig>) -> anyhow::Result<()
     sync_skills(&config).await?;
 
     // Create Podman sandbox container for idle mode (same as TUI).
-    let sandbox_container = if !is_sandbox_disabled(&config) {
-        let container = create_sandbox_container(&config).await?;
-        nexal_config::sandbox::SandboxState::init(Some(container.clone()));
-        Some(container)
+    let sandbox = if !is_sandbox_disabled(&config) {
+        Some(create_sandbox_container(&config).await?)
     } else {
         None
     };
@@ -520,7 +687,12 @@ async fn run_idle(args: IdleArgs, config: Arc<NexalConfig>) -> anyhow::Result<()
     )
     .await;
 
-    let pool = AgentPool::new(Arc::clone(&config));
+    let mut pool = AgentPool::new(Arc::clone(&config));
+    if let Some(ref handle) = sandbox {
+        if let Some(ref env_mgr) = handle.environment_manager {
+            pool = pool.with_environment_manager(Arc::clone(env_mgr));
+        }
+    }
     let debounce_config = DebounceConfig {
         debounce_secs: config.debounce_secs,
         delay_secs: config.message_delay_secs,
@@ -570,8 +742,11 @@ async fn run_idle(args: IdleArgs, config: Arc<NexalConfig>) -> anyhow::Result<()
     };
 
     // Cleanup sandbox container
-    if let Some(name) = sandbox_container {
-        cleanup_sandbox_container(&name).await;
+    if let Some(mut handle) = sandbox {
+        if let Some(ref mut child) = handle.child {
+            let _ = child.kill().await;
+        }
+        cleanup_sandbox_container(&handle.name).await;
     }
 
     result

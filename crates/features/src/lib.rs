@@ -703,7 +703,7 @@ pub const FEATURES: &[FeatureSpec] = &[
         id: Feature::Apps,
         key: "apps",
         stage: Stage::Stable,
-        default_enabled: true,
+        default_enabled: false,
     },
     FeatureSpec {
         id: Feature::ToolSearch,
@@ -721,7 +721,7 @@ pub const FEATURES: &[FeatureSpec] = &[
         id: Feature::Plugins,
         key: "plugins",
         stage: Stage::Stable,
-        default_enabled: true,
+        default_enabled: false,
     },
     FeatureSpec {
         id: Feature::ImageGeneration,

@@ -130,6 +130,7 @@ impl Drop for Inner {
 #[derive(Clone)]
 pub struct ExecServerClient {
     inner: Arc<Inner>,
+    init_response: Arc<InitializeResponse>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -157,6 +158,27 @@ pub enum ExecServerError {
 }
 
 impl ExecServerClient {
+    /// The initialize response from the exec-server, containing environment info.
+    pub fn init_response(&self) -> &InitializeResponse {
+        &self.init_response
+    }
+
+    pub async fn connect_child_process(
+        stdin: tokio::process::ChildStdin,
+        stdout: tokio::process::ChildStdout,
+        options: ExecServerClientConnectOptions,
+    ) -> Result<Self, ExecServerError> {
+        Self::connect(
+            JsonRpcConnection::from_stdio(
+                stdout,
+                stdin,
+                "nexal-exec-server child-process".to_string(),
+            ),
+            options,
+        )
+        .await
+    }
+
     pub async fn connect_websocket(
         args: RemoteExecServerConnectArgs,
     ) -> Result<Self, ExecServerError> {
@@ -392,9 +414,9 @@ impl ExecServerClient {
             }
         });
 
-        let client = Self { inner };
-        client.initialize(options).await?;
-        Ok(client)
+        let client = Self { inner, init_response: Arc::new(InitializeResponse::default()) };
+        let response = client.initialize(options).await?;
+        Ok(Self { init_response: Arc::new(response), ..client })
     }
 
     async fn notify_initialized(&self) -> Result<(), ExecServerError> {
@@ -693,7 +715,7 @@ mod tests {
                 &mut server_writer,
                 JSONRPCMessage::Response(JSONRPCResponse {
                     id: request.id,
-                    result: serde_json::to_value(InitializeResponse {})
+                    result: serde_json::to_value(InitializeResponse::default())
                         .expect("initialize response should serialize"),
                 }),
             )

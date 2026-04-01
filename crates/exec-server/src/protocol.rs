@@ -46,9 +46,16 @@ pub struct InitializeParams {
     pub client_name: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct InitializeResponse {}
+pub struct InitializeResponse {
+    /// Default shell available in this execution environment (e.g. "/bin/bash").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_shell: Option<String>,
+    /// Working directory of the execution environment.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cwd: Option<PathBuf>,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

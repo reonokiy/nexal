@@ -937,7 +937,7 @@ pub async fn load_global_mcp_servers(
     )
     .await?;
     let merged_toml = config_layer_stack.effective_config();
-    let Some(servers_value) = merged_toml.get("mcp_servers") else {
+    let Some(servers_value) = merged_toml.get("mcp").or_else(|| merged_toml.get("mcp_servers")) else {
         return Ok(BTreeMap::new());
     };
 
@@ -1179,10 +1179,10 @@ pub struct ConfigToml {
     pub cli_auth_credentials_store: Option<AuthCredentialsStoreMode>,
 
     /// Definition for MCP servers that Nexal can reach out to for tool calls.
-    #[serde(default)]
-    // Uses the raw MCP input shape (custom deserialization) rather than `McpServerConfig`.
+    /// Configured via `[mcp]` section in config.toml (also accepts legacy `[mcp_servers]`).
+    #[serde(default, alias = "mcp_servers")]
     #[schemars(schema_with = "crate::config::schema::mcp_servers_schema")]
-    pub mcp_servers: HashMap<String, McpServerConfig>,
+    pub mcp: HashMap<String, McpServerConfig>,
 
     /// Preferred backend for storing MCP OAuth credentials.
     /// keyring: Use an OS-specific keyring service.
@@ -2472,7 +2472,7 @@ impl Config {
             &mut startup_warnings,
         )?;
 
-        let mcp_servers = constrain_mcp_servers(cfg.mcp_servers.clone(), mcp_servers.as_ref())
+        let mcp_servers = constrain_mcp_servers(cfg.mcp.clone(), mcp_servers.as_ref())
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidInput, format!("{e}")))?;
 
         let (network_requirements, network_requirements_source) = match network_requirements {

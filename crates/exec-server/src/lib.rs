@@ -35,6 +35,7 @@ pub use environment::NEXAL_EXEC_SERVER_URL_ENV_VAR;
 pub use environment::Environment;
 pub use environment::EnvironmentManager;
 pub use environment::ExecutorEnvironment;
+pub use environment::RemoteEnvInfo;
 pub use file_system::CopyOptions;
 pub use file_system::CreateDirectoryOptions;
 pub use file_system::ExecutorFileSystem;

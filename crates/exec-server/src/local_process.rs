@@ -134,7 +134,10 @@ impl LocalProcess {
                 "initialize may only be sent once per connection".to_string(),
             ));
         }
-        Ok(InitializeResponse {})
+        Ok(InitializeResponse {
+            default_shell: detect_default_shell(),
+            cwd: std::env::current_dir().ok(),
+        })
     }
 
     pub(crate) fn initialized(&self) -> Result<(), String> {
@@ -651,4 +654,24 @@ async fn maybe_emit_closed(process_id: ProcessId, inner: Arc<Inner>) {
         .await
         .is_err()
     {}
+}
+
+/// Detect the default shell in this execution environment.
+fn detect_default_shell() -> Option<String> {
+    // Try common shell paths in order of preference.
+    for candidate in &["/bin/bash", "/usr/bin/bash", "/bin/sh"] {
+        if std::path::Path::new(candidate).exists() {
+            return Some(candidate.to_string());
+        }
+    }
+    // Fallback: try `which bash`
+    std::process::Command::new("which")
+        .arg("bash")
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .and_then(|o| {
+            let path = String::from_utf8_lossy(&o.stdout).trim().to_string();
+            if path.is_empty() { None } else { Some(path) }
+        })
 }

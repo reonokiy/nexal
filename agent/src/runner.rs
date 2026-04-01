@@ -33,6 +33,7 @@ use tracing::warn;
 pub(crate) async fn build_client(
     nexal_config_loader: Arc<Config>,
     cli_overrides: Vec<(String, toml::Value)>,
+    environment_manager: Option<Arc<nexal_exec_server::EnvironmentManager>>,
 ) -> anyhow::Result<InProcessAppServerClient> {
     let start_args = InProcessClientStartArgs {
         arg0_paths: Arg0DispatchPaths::default(),
@@ -49,6 +50,7 @@ pub(crate) async fn build_client(
         experimental_api: true,
         opt_out_notification_methods: vec![],
         channel_capacity: DEFAULT_IN_PROCESS_CHANNEL_CAPACITY,
+        environment_manager,
     };
 
     InProcessAppServerClient::start(start_args)
@@ -87,10 +89,14 @@ pub(crate) async fn build_nexal_config_loader(nc: &NexalConfig, soul: String) ->
         None => find_nexal_home().context("finding codex home")?,
     };
 
-    let cwd = nc.workspace.clone();
-    tokio::fs::create_dir_all(&cwd)
+    tokio::fs::create_dir_all(&nc.workspace)
         .await
         .context("creating workspace dir")?;
+
+    // The agent always executes inside a container. All paths the model
+    // sees must be container-side paths. The host workspace is bind-mounted
+    // at /workspace inside the container.
+    let cwd = std::path::PathBuf::from("/workspace");
 
     let overrides = ConfigOverrides {
         approval_policy: Some(CoreAskForApproval::Never),

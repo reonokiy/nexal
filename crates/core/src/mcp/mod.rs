@@ -6,7 +6,6 @@ use std::collections::HashMap;
 use std::env;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Duration;
 
 use async_channel::unbounded;
 use nexal_protocol::mcp::Resource;
@@ -20,232 +19,68 @@ use crate::AuthManager;
 use crate::NexalAuth;
 use crate::config::Config;
 use crate::config::types::McpServerConfig;
-use crate::config::types::McpServerTransportConfig;
 use crate::mcp::auth::compute_auth_statuses;
 use crate::mcp_connection_manager::McpConnectionManager;
 use crate::mcp_connection_manager::SandboxState;
 use crate::mcp_connection_manager::nexal_apps_tools_cache_key;
-use crate::plugins::PluginCapabilitySummary;
 use crate::plugins::PluginsManager;
 
 const MCP_TOOL_NAME_PREFIX: &str = "mcp";
 const MCP_TOOL_NAME_DELIMITER: &str = "__";
+/// Name of the legacy nexal_apps MCP server (kept as a constant so that
+/// existing code that filters on this name still compiles; no server with
+/// this name will ever be injected).
 pub(crate) const NEXAL_APPS_MCP_SERVER_NAME: &str = "nexal_apps";
-const NEXAL_CONNECTORS_TOKEN_ENV_VAR: &str = "NEXAL_CONNECTORS_TOKEN";
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct ToolPluginProvenance {
-    plugin_display_names_by_connector_id: HashMap<String, Vec<String>>,
-    plugin_display_names_by_mcp_server_name: HashMap<String, Vec<String>>,
-}
+pub struct ToolPluginProvenance;
 
 impl ToolPluginProvenance {
-    pub fn plugin_display_names_for_connector_id(&self, connector_id: &str) -> &[String] {
-        self.plugin_display_names_by_connector_id
-            .get(connector_id)
-            .map(Vec::as_slice)
-            .unwrap_or(&[])
+    pub fn plugin_display_names_for_connector_id(&self, _connector_id: &str) -> &[String] {
+        &[]
     }
 
-    pub fn plugin_display_names_for_mcp_server_name(&self, server_name: &str) -> &[String] {
-        self.plugin_display_names_by_mcp_server_name
-            .get(server_name)
-            .map(Vec::as_slice)
-            .unwrap_or(&[])
-    }
-
-    fn from_capability_summaries(capability_summaries: &[PluginCapabilitySummary]) -> Self {
-        let mut tool_plugin_provenance = Self::default();
-        for plugin in capability_summaries {
-            for connector_id in &plugin.app_connector_ids {
-                tool_plugin_provenance
-                    .plugin_display_names_by_connector_id
-                    .entry(connector_id.0.clone())
-                    .or_default()
-                    .push(plugin.display_name.clone());
-            }
-
-            for server_name in &plugin.mcp_server_names {
-                tool_plugin_provenance
-                    .plugin_display_names_by_mcp_server_name
-                    .entry(server_name.clone())
-                    .or_default()
-                    .push(plugin.display_name.clone());
-            }
-        }
-
-        for plugin_names in tool_plugin_provenance
-            .plugin_display_names_by_connector_id
-            .values_mut()
-            .chain(
-                tool_plugin_provenance
-                    .plugin_display_names_by_mcp_server_name
-                    .values_mut(),
-            )
-        {
-            plugin_names.sort_unstable();
-            plugin_names.dedup();
-        }
-
-        tool_plugin_provenance
+    pub fn plugin_display_names_for_mcp_server_name(&self, _server_name: &str) -> &[String] {
+        &[]
     }
 }
 
-fn nexal_apps_mcp_bearer_token_env_var() -> Option<String> {
-    match env::var(NEXAL_CONNECTORS_TOKEN_ENV_VAR) {
-        Ok(value) if !value.trim().is_empty() => Some(NEXAL_CONNECTORS_TOKEN_ENV_VAR.to_string()),
-        Ok(_) => None,
-        Err(env::VarError::NotPresent) => None,
-        Err(env::VarError::NotUnicode(_)) => Some(NEXAL_CONNECTORS_TOKEN_ENV_VAR.to_string()),
-    }
-}
-
-fn nexal_apps_mcp_bearer_token(auth: Option<&NexalAuth>) -> Option<String> {
-    let token = auth.and_then(|auth| auth.get_token().ok())?;
-    let token = token.trim();
-    if token.is_empty() {
-        None
-    } else {
-        Some(token.to_string())
-    }
-}
-
-fn nexal_apps_mcp_http_headers(auth: Option<&NexalAuth>) -> Option<HashMap<String, String>> {
-    let mut headers = HashMap::new();
-    if let Some(token) = nexal_apps_mcp_bearer_token(auth) {
-        headers.insert("Authorization".to_string(), format!("Bearer {token}"));
-    }
-
-    if headers.is_empty() {
-        None
-    } else {
-        Some(headers)
-    }
-}
-
-fn normalize_nexal_apps_base_url(base_url: &str) -> String {
-    let mut base_url = base_url.trim_end_matches('/').to_string();
-    if (base_url.starts_with("https://api.openai.com")
-        || base_url.starts_with("https://chat.openai.com"))
-        && !base_url.contains("/backend-api")
-    {
-        base_url = format!("{base_url}/backend-api");
-    }
-    base_url
-}
-
-fn nexal_apps_mcp_url_for_base_url(base_url: &str) -> String {
-    let base_url = normalize_nexal_apps_base_url(base_url);
-    if base_url.contains("/backend-api") {
-        format!("{base_url}/wham/apps")
-    } else if base_url.contains("/api/nexal") {
-        format!("{base_url}/apps")
-    } else {
-        format!("{base_url}/api/nexal/apps")
-    }
-}
-
-pub(crate) fn nexal_apps_mcp_url(config: &Config) -> String {
-    nexal_apps_mcp_url_for_base_url(&config.chatgpt_base_url)
-}
-
-fn nexal_apps_mcp_server_config(config: &Config, auth: Option<&NexalAuth>) -> McpServerConfig {
-    let bearer_token_env_var = nexal_apps_mcp_bearer_token_env_var();
-    let http_headers = if bearer_token_env_var.is_some() {
-        None
-    } else {
-        nexal_apps_mcp_http_headers(auth)
-    };
-    let url = nexal_apps_mcp_url(config);
-
-    McpServerConfig {
-        transport: McpServerTransportConfig::StreamableHttp {
-            url,
-            bearer_token_env_var,
-            http_headers,
-            env_http_headers: None,
-        },
-        enabled: true,
-        required: false,
-        disabled_reason: None,
-        startup_timeout_sec: Some(Duration::from_secs(30)),
-        tool_timeout_sec: None,
-        enabled_tools: None,
-        disabled_tools: None,
-        scopes: None,
-        oauth_resource: None,
-        tools: HashMap::new(),
-    }
-}
-
+/// No-op: nexal_apps MCP is removed. MCP servers come from user config only.
 pub(crate) fn with_nexal_apps_mcp(
-    mut servers: HashMap<String, McpServerConfig>,
-    connectors_enabled: bool,
-    auth: Option<&NexalAuth>,
-    config: &Config,
+    servers: HashMap<String, McpServerConfig>,
+    _connectors_enabled: bool,
+    _auth: Option<&NexalAuth>,
+    _config: &Config,
 ) -> HashMap<String, McpServerConfig> {
-    if connectors_enabled {
-        servers.insert(
-            NEXAL_APPS_MCP_SERVER_NAME.to_string(),
-            nexal_apps_mcp_server_config(config, auth),
-        );
-    } else {
-        servers.remove(NEXAL_APPS_MCP_SERVER_NAME);
-    }
     servers
 }
 
 pub struct McpManager {
-    plugins_manager: Arc<PluginsManager>,
+    // Kept for API compatibility; plugins no longer inject MCP servers.
+    _plugins_manager: Arc<PluginsManager>,
 }
 
 impl McpManager {
     pub fn new(plugins_manager: Arc<PluginsManager>) -> Self {
-        Self { plugins_manager }
+        Self { _plugins_manager: plugins_manager }
     }
 
     pub fn configured_servers(&self, config: &Config) -> HashMap<String, McpServerConfig> {
-        configured_mcp_servers(config, self.plugins_manager.as_ref())
+        config.mcp_servers.get().clone()
     }
 
     pub fn effective_servers(
         &self,
         config: &Config,
-        auth: Option<&NexalAuth>,
+        _auth: Option<&NexalAuth>,
     ) -> HashMap<String, McpServerConfig> {
-        effective_mcp_servers(config, auth, self.plugins_manager.as_ref())
+        // Only user-configured MCP servers from [mcp] config section.
+        config.mcp_servers.get().clone()
     }
 
-    pub fn tool_plugin_provenance(&self, config: &Config) -> ToolPluginProvenance {
-        let loaded_plugins = self.plugins_manager.plugins_for_config(config);
-        ToolPluginProvenance::from_capability_summaries(loaded_plugins.capability_summaries())
+    pub fn tool_plugin_provenance(&self, _config: &Config) -> ToolPluginProvenance {
+        ToolPluginProvenance
     }
-}
-
-fn configured_mcp_servers(
-    config: &Config,
-    plugins_manager: &PluginsManager,
-) -> HashMap<String, McpServerConfig> {
-    let loaded_plugins = plugins_manager.plugins_for_config(config);
-    let mut servers = config.mcp_servers.get().clone();
-    for (name, plugin_server) in loaded_plugins.effective_mcp_servers() {
-        servers.entry(name).or_insert(plugin_server);
-    }
-    servers
-}
-
-fn effective_mcp_servers(
-    config: &Config,
-    auth: Option<&NexalAuth>,
-    plugins_manager: &PluginsManager,
-) -> HashMap<String, McpServerConfig> {
-    let servers = configured_mcp_servers(config, plugins_manager);
-    with_nexal_apps_mcp(
-        servers,
-        config.features.apps_enabled_for_auth(auth),
-        auth,
-        config,
-    )
 }
 
 pub async fn collect_mcp_snapshot(config: &Config) -> McpListToolsResponseEvent {

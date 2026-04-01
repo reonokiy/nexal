@@ -169,7 +169,9 @@ impl AgentActor {
             .await;
         write_agent_status(&self.config, "working", &truncate(&text, 40));
 
-        let cwd = self.config.workspace.clone();
+        // Use the container-side path. The host workspace is mounted at
+        // /workspace inside the container — the agent must never see host paths.
+        let cwd = std::path::PathBuf::from("/workspace");
 
         use nexal_app_server_protocol::TurnStartResponse;
 

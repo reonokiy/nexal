@@ -36,6 +36,15 @@ impl EnvironmentManager {
         Self::new(std::env::var(NEXAL_EXEC_SERVER_URL_ENV_VAR).ok())
     }
 
+    pub fn with_environment(env: Environment) -> Self {
+        let cell = OnceCell::new();
+        cell.set(Arc::new(env)).ok();
+        Self {
+            exec_server_url: None,
+            current_environment: cell,
+        }
+    }
+
     pub fn exec_server_url(&self) -> Option<&str> {
         self.exec_server_url.as_deref()
     }
@@ -52,11 +61,23 @@ impl EnvironmentManager {
     }
 }
 
+/// Information about the remote execution environment, reported by the
+/// exec-server during the initialize handshake.
+#[derive(Clone, Debug, Default)]
+pub struct RemoteEnvInfo {
+    /// Default shell path inside the execution environment (e.g. "/bin/bash").
+    pub default_shell: Option<String>,
+    /// Working directory of the execution environment (e.g. "/workspace").
+    pub cwd: Option<std::path::PathBuf>,
+}
+
 #[derive(Clone)]
 pub struct Environment {
     exec_server_url: Option<String>,
     remote_exec_server_client: Option<ExecServerClient>,
     exec_backend: Arc<dyn ExecBackend>,
+    /// Environment info reported by a remote exec-server.
+    remote_env_info: Option<RemoteEnvInfo>,
 }
 
 impl Default for Environment {
@@ -73,6 +94,7 @@ impl Default for Environment {
             exec_server_url: None,
             remote_exec_server_client: None,
             exec_backend: Arc::new(local_process),
+            remote_env_info: None,
         }
     }
 }
@@ -120,11 +142,40 @@ impl Environment {
             exec_server_url,
             remote_exec_server_client,
             exec_backend,
+            remote_env_info: None,
         })
+    }
+
+    pub fn create_from_client(client: ExecServerClient) -> Self {
+        Self {
+            exec_server_url: Some("child-process://local".into()),
+            remote_exec_server_client: Some(client.clone()),
+            exec_backend: Arc::new(RemoteProcess::new(client)),
+            remote_env_info: None,
+        }
+    }
+
+    /// Create from a client that has already completed the initialize
+    /// handshake, storing the environment info from the response.
+    pub fn create_from_client_with_env_info(
+        client: ExecServerClient,
+        env_info: RemoteEnvInfo,
+    ) -> Self {
+        Self {
+            exec_server_url: Some("child-process://local".into()),
+            remote_exec_server_client: Some(client.clone()),
+            exec_backend: Arc::new(RemoteProcess::new(client)),
+            remote_env_info: Some(env_info),
+        }
     }
 
     pub fn exec_server_url(&self) -> Option<&str> {
         self.exec_server_url.as_deref()
+    }
+
+    /// Environment info reported by the remote exec-server (shell, cwd, etc.).
+    pub fn remote_env_info(&self) -> Option<&RemoteEnvInfo> {
+        self.remote_env_info.as_ref()
     }
 
     pub fn get_exec_backend(&self) -> Arc<dyn ExecBackend> {

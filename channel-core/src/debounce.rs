@@ -21,6 +21,9 @@ use tracing::{debug, warn};
 
 use crate::IncomingMessage;
 
+/// Delay before forwarding unmentioned messages (seconds).
+const UNMENTIONED_DELAY_SECS: f64 = 5.0;
+
 /// Timing parameters for the debounce logic.
 #[derive(Debug, Clone)]
 pub struct DebounceConfig {
@@ -84,7 +87,7 @@ impl SessionRunner {
         let mut inner = self.inner.lock().await;
 
         if msg.is_mentioned {
-            // State 1: Mentioned → record time, add to pending, set short timer.
+            // Mentioned → record time, add to pending, set short timer.
             inner.last_mentioned_at = Some(Instant::now());
             inner.pending.push(msg);
             self.reset_timer(&mut inner, self.config.debounce_secs);
@@ -96,7 +99,7 @@ impl SessionRunner {
         } else if let Some(last) = inner.last_mentioned_at {
             let elapsed = last.elapsed();
             if elapsed < Duration::from_secs_f64(self.config.active_window_secs) {
-                // State 2: Within active window → accumulate, reset to longer timer.
+                // Within active window → accumulate, reset to longer timer.
                 inner.pending.push(msg);
                 self.reset_timer(&mut inner, self.config.delay_secs);
                 debug!(
@@ -105,18 +108,21 @@ impl SessionRunner {
                     self.config.delay_secs
                 );
             } else {
-                // State 3: Outside active window → drop.
+                // Outside active window → still forward, let the model decide.
+                inner.pending.push(msg);
+                self.reset_timer(&mut inner, UNMENTIONED_DELAY_SECS);
                 debug!(
                     session = %self.session_id,
-                    "message outside active window ({:.1}s elapsed), dropping",
-                    elapsed.as_secs_f64()
+                    "unmentioned message, forwarding with {UNMENTIONED_DELAY_SECS}s delay",
                 );
             }
         } else {
-            // No prior mention → drop.
+            // No prior mention → still forward, let the model decide.
+            inner.pending.push(msg);
+            self.reset_timer(&mut inner, UNMENTIONED_DELAY_SECS);
             debug!(
                 session = %self.session_id,
-                "no prior mention, dropping message"
+                "unmentioned message, forwarding with {UNMENTIONED_DELAY_SECS}s delay",
             );
         }
     }
