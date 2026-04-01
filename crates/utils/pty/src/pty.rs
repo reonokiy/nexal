@@ -150,7 +150,7 @@ async fn spawn_process_portable(
 
     let mut command_builder = CommandBuilder::new(arg0.as_ref().unwrap_or(&program.to_string()));
     command_builder.cwd(cwd);
-    command_builder.env_clear();
+    // Inherit current process environment, then apply overrides.
     for arg in args {
         command_builder.arg(arg);
     }
@@ -268,7 +268,7 @@ async fn spawn_process_preserving_fds(
         command.arg0(arg0);
     }
     command.current_dir(cwd);
-    command.env_clear();
+    // Inherit current process environment, then apply overrides.
     for arg in args {
         command.arg(arg);
     }

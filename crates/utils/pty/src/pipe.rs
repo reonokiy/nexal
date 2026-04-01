@@ -133,7 +133,8 @@ async fn spawn_process_with_stdin_mode(
     #[cfg(not(unix))]
     let _ = arg0;
     command.current_dir(cwd);
-    command.env_clear();
+    // Inherit the current process environment (container env when running
+    // inside exec-server), then apply caller-provided overrides on top.
     for (key, value) in env {
         command.env(key, value);
     }
