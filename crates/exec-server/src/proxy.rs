@@ -28,7 +28,14 @@ impl ProxyManager {
     pub fn new() -> Self {
         Self {
             instances: tokio::sync::Mutex::new(HashMap::new()),
-            http_client: reqwest::Client::new(),
+            // Disable auto-decompression so we forward raw response bytes as-is.
+            http_client: reqwest::Client::builder()
+                .no_gzip()
+                .no_brotli()
+                .no_deflate()
+                .no_zstd()
+                .build()
+                .unwrap_or_else(|_| reqwest::Client::new()),
         }
     }
 
@@ -234,11 +241,14 @@ async fn handle_proxy_connection(
 
     let mut response = format!("HTTP/1.1 {} {}\r\n", status.as_u16(), status.canonical_reason().unwrap_or("OK"));
     for (key, value) in &resp_headers {
+        // Skip transfer-encoding — we send the full body at once with content-length.
+        if key.as_str().eq_ignore_ascii_case("transfer-encoding") {
+            continue;
+        }
         if let Ok(v) = value.to_str() {
             response.push_str(&format!("{}: {}\r\n", key, v));
         }
     }
-    // Ensure content-length is set.
     if !resp_headers.contains_key("content-length") {
         response.push_str(&format!("content-length: {}\r\n", resp_body.len()));
     }
