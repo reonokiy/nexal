@@ -20,7 +20,6 @@ use tokio::sync::mpsc;
 use tracing::{debug, info, warn};
 
 use crate::runner::reject_all_server_requests;
-use crate::split_response;
 
 /// Message types that can be sent to an agent actor.
 #[derive(Debug)]
@@ -229,7 +228,7 @@ impl AgentActor {
         );
 
         // Drain events until turn completes
-        let (response_buf, had_any_tool_call) = self.drain_turn().await;
+        let (response_buf, _) = self.drain_turn().await;
         if response_buf.trim().is_empty() {
             warn!(
                 session = %self.session_key,
@@ -245,14 +244,11 @@ impl AgentActor {
             );
         }
 
-        // Send fallback text only if the model never executed any tool call.
-        // If it ran tool calls (even if they failed), it already communicated
-        // or tried to communicate with the user through the channel.
-        let chunks = if had_any_tool_call {
-            vec![]
-        } else {
-            split_response(response_buf)
-        };
+        // In headless mode, the model should communicate exclusively via tool
+        // calls (telegram_send.py etc.). Any plain text the model produces is
+        // not meant for the user — it's either an internal reasoning artifact
+        // or a hallucination. Don't forward it.
+        let chunks = vec![];
         let _ = event_tx
             .send(AgentEvent::Response {
                 session_key: self.session_key.clone(),
