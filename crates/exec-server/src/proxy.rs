@@ -192,10 +192,8 @@ async fn handle_proxy_connection(
             if key.eq_ignore_ascii_case("content-length") {
                 content_length = value.parse().unwrap_or(0);
             }
-            // Skip headers that the proxy handles itself.
-            if key.eq_ignore_ascii_case("host")
-                || key.eq_ignore_ascii_case("accept-encoding")
-            {
+            // Skip host header — we'll set it from upstream.
+            if key.eq_ignore_ascii_case("host") {
                 continue;
             }
             req_headers.push((key.to_string(), value.to_string()));
@@ -244,17 +242,20 @@ async fn handle_proxy_connection(
 
     let mut response = format!("HTTP/1.1 {} {}\r\n", status.as_u16(), status.canonical_reason().unwrap_or("OK"));
     for (key, value) in &resp_headers {
-        // Skip transfer-encoding — we send the full body at once with content-length.
-        if key.as_str().eq_ignore_ascii_case("transfer-encoding") {
+        let k = key.as_str();
+        // We buffer the full body, so replace chunked/content-length with our own.
+        if k.eq_ignore_ascii_case("transfer-encoding")
+            || k.eq_ignore_ascii_case("content-length")
+            || k.eq_ignore_ascii_case("connection")
+        {
             continue;
         }
         if let Ok(v) = value.to_str() {
             response.push_str(&format!("{}: {}\r\n", key, v));
         }
     }
-    if !resp_headers.contains_key("content-length") {
-        response.push_str(&format!("content-length: {}\r\n", resp_body.len()));
-    }
+    // Always set correct content-length for the buffered body.
+    response.push_str(&format!("content-length: {}\r\n", resp_body.len()));
     response.push_str("connection: close\r\n");
     response.push_str("\r\n");
 
