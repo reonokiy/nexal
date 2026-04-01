@@ -64,9 +64,19 @@ impl ToolCallRuntime {
         let future =
             self.handle_tool_call_with_source(call, ToolCallSource::Direct, cancellation_token);
         async move {
+            let tool_span = tracing::info_span!(
+                "tool.execute",
+                "tool.name" = %tool_name,
+                "tool.success" = tracing::field::Empty,
+                "tool.output" = tracing::field::Empty,
+                "tool.error" = tracing::field::Empty,
+            );
+            let _enter = tool_span.enter();
             match future.await {
                 Ok(response) => {
-                    if response.result.success_for_logging() {
+                    let success = response.result.success_for_logging();
+                    tool_span.record("tool.success", success);
+                    if success {
                         tracing::debug!(
                             %thread_id,
                             tool_name = %tool_name,
@@ -74,17 +84,21 @@ impl ToolCallRuntime {
                             tool_name,
                         );
                     } else {
+                        let preview = response.result.log_preview();
+                        tool_span.record("tool.output", &preview);
                         tracing::warn!(
                             %thread_id,
                             tool_name = %tool_name,
                             "ToolCall failed: {} — {}",
                             tool_name,
-                            response.result.log_preview(),
+                            preview,
                         );
                     }
                     Ok(response.into_response())
                 }
                 Err(FunctionCallError::Fatal(message)) => {
+                    tool_span.record("tool.success", false);
+                    tool_span.record("tool.error", &message);
                     tracing::warn!(
                         %thread_id,
                         tool_name = %tool_name,
@@ -95,12 +109,15 @@ impl ToolCallRuntime {
                     Err(NexalErr::Fatal(message))
                 }
                 Err(other) => {
+                    let err_msg = other.to_string();
+                    tool_span.record("tool.success", false);
+                    tool_span.record("tool.error", &err_msg);
                     tracing::warn!(
                         %thread_id,
                         tool_name = %tool_name,
                         "ToolCall failed: {} — {}",
                         tool_name,
-                        other,
+                        err_msg,
                     );
                     Ok(Self::failure_response(error_call, other))
                 }

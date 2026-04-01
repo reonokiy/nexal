@@ -79,7 +79,7 @@ impl ChatCompletionsSession {
             "gen_ai.response.id" = tracing::field::Empty,
             "gen_ai.response.finish_reason" = tracing::field::Empty,
             "gen_ai.prompt.messages" = tracing::field::Empty,
-            "gen_ai.tools" = tracing::field::Empty,
+            "gen_ai.request.available_tools" = tracing::field::Empty,
         );
         if let Some(temp) = temperature {
             gen_ai_span.record("gen_ai.request.temperature", temp);
@@ -87,19 +87,14 @@ impl ChatCompletionsSession {
         if let Some(max) = max_tokens {
             gen_ai_span.record("gen_ai.request.max_tokens", max);
         }
-        // Record prompt messages (truncated for safety).
+        // Record prompt messages (full content).
         if let Ok(msgs_json) = serde_json::to_string(&messages) {
-            let truncated = if msgs_json.len() > 4096 {
-                format!("{}...(truncated)", &msgs_json[..4096])
-            } else {
-                msgs_json
-            };
-            gen_ai_span.record("gen_ai.prompt.messages", &truncated);
+            gen_ai_span.record("gen_ai.prompt.messages", &msgs_json);
         }
-        // Record tool names.
+        // Record available tool names (the full set offered to the model).
         if let Some(ref tools) = tools {
             let tool_names: Vec<&str> = tools.iter().map(|t| t.function.name.as_str()).collect();
-            gen_ai_span.record("gen_ai.tools", &format!("{tool_names:?}"));
+            gen_ai_span.record("gen_ai.request.available_tools", &format!("{tool_names:?}"));
         }
 
         let _enter = gen_ai_span.enter();
@@ -134,7 +129,6 @@ impl ChatCompletionsSession {
         let span = gen_ai_span.clone();
         drop(_enter);
         tokio::spawn(async move {
-            let _enter = span.enter();
             let mut sse_stream = SseParser::new(byte_stream);
             let mut tool_calls: HashMap<i32, PartialToolCall> = HashMap::new();
             let mut response_id = String::new();
@@ -254,16 +248,15 @@ impl ChatCompletionsSession {
                                 span.record("gen_ai.response.finish_reason", reason.as_str());
                                 // Flush tool calls
                                 if reason == "tool_calls" || reason == "stop" {
-                                    // Record tool call names for observability.
-                                    let tc_names: Vec<&str> = tool_calls.values().map(|tc| tc.name.as_str()).collect();
-                                    if !tc_names.is_empty() {
+                                    for (_, tc) in tool_calls.drain() {
+                                        // Log each tool call as an event on the parent span.
                                         tracing::info!(
                                             parent: &span,
-                                            tool_calls = ?tc_names,
-                                            "LLM tool calls"
+                                            tool_call.name = %tc.name,
+                                            tool_call.id = %tc.id,
+                                            tool_call.arguments = %tc.arguments,
+                                            "gen_ai.tool_call"
                                         );
-                                    }
-                                    for (_, tc) in tool_calls.drain() {
                                         let item = tc.into_response_item();
                                         let _ = tx
                                             .send(Ok(ResponseEvent::OutputItemDone(item)))
