@@ -40,8 +40,20 @@ pub(crate) fn skills_load_input_from_config(
     config: &Config,
     effective_skill_roots: Vec<PathBuf>,
 ) -> SkillsLoadInput {
+    // When running inside a container (cwd = /workspace), don't scan the host
+    // filesystem for skills. The agent has its own skill system with docs
+    // embedded in base_instructions.
+    let cwd = config.cwd.clone().to_path_buf();
+    if cwd.starts_with("/workspace") {
+        return SkillsLoadInput::new(
+            cwd,
+            vec![],
+            config.config_layer_stack.clone(),
+            false,
+        );
+    }
     SkillsLoadInput::new(
-        config.cwd.clone().to_path_buf(),
+        cwd,
         effective_skill_roots,
         config.config_layer_stack.clone(),
         config.bundled_skills_enabled(),
