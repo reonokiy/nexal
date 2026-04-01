@@ -229,7 +229,7 @@ impl AgentActor {
         );
 
         // Drain events until turn completes
-        let response_buf = self.drain_turn().await;
+        let (response_buf, had_any_tool_call) = self.drain_turn().await;
         if response_buf.trim().is_empty() {
             warn!(
                 session = %self.session_key,
@@ -245,7 +245,14 @@ impl AgentActor {
             );
         }
 
-        let chunks = split_response(response_buf);
+        // Send fallback text only if the model never executed any tool call.
+        // If it ran tool calls (even if they failed), it already communicated
+        // or tried to communicate with the user through the channel.
+        let chunks = if had_any_tool_call {
+            vec![]
+        } else {
+            split_response(response_buf)
+        };
         let _ = event_tx
             .send(AgentEvent::Response {
                 session_key: self.session_key.clone(),
@@ -266,8 +273,10 @@ impl AgentActor {
     }
 
     /// Drain the event stream until `TurnCompleted` or `Error`.
-    async fn drain_turn(&mut self) -> String {
+    /// Returns the text buffer and whether any tool call ran (success or failure).
+    async fn drain_turn(&mut self) -> (String, bool) {
         let mut buf = String::new();
+        let mut had_any_tool_call = false;
         let thread_id = &self.thread_id;
 
         // Timeout to avoid hanging forever if API silently fails
@@ -312,6 +321,17 @@ impl AgentActor {
                                     break;
                                 }
                             }
+                            ServerNotification::ItemCompleted(item_completed)
+                                if item_completed.thread_id == *thread_id =>
+                            {
+                                // Track if any command was executed (regardless of result).
+                                if matches!(
+                                    &item_completed.item,
+                                    nexal_app_server_protocol::ThreadItem::CommandExecution { .. }
+                                ) {
+                                    had_any_tool_call = true;
+                                }
+                            }
                             other => {
                                 debug!(
                                     session = %self.session_key,
@@ -347,7 +367,7 @@ impl AgentActor {
             }
         }
 
-        buf
+        (buf, had_any_tool_call)
     }
 }
 
