@@ -712,16 +712,9 @@ where
         }
     }
 
-    // Build a reqwest client that doesn't depend on a tokio runtime at
-    // construction time. The OTLP batch processor runs on its own thread,
-    // so we need a client that carries its own runtime.
-    let http_client = reqwest::Client::builder()
-        .build()
-        .expect("reqwest client");
-
     let exporter = opentelemetry_otlp::SpanExporter::builder()
         .with_http()
-        .with_http_client(http_client)
+        .with_http_client(reqwest::Client::new())
         .with_endpoint(&endpoint)
         .with_headers(headers)
         .build()
@@ -729,7 +722,7 @@ where
         .ok()?;
 
     let provider = opentelemetry_sdk::trace::SdkTracerProvider::builder()
-        .with_simple_exporter(exporter)
+        .with_batch_exporter(exporter)
         .with_resource(
             opentelemetry_sdk::Resource::builder()
                 .with_service_name(service_name.clone())
@@ -742,7 +735,8 @@ where
     // Keep the provider alive — leak intentionally, it lives until process exit.
     std::mem::forget(provider);
 
-    eprintln!("OTLP tracing enabled: {endpoint}");
+    // Log before subscriber is installed — use eprintln.
+    eprintln!("[otel] OTLP tracing enabled: {endpoint}");
     Some(tracing_opentelemetry::layer().with_tracer(tracer))
 }
 
