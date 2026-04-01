@@ -663,13 +663,14 @@ fn init_tracing(otel: &nexal_config::OtelConfig) {
 
     let fmt_layer = tracing_subscriber::fmt::layer();
 
-    if let Some(otel_layer) = init_otel_layer(otel) {
+    if let Some((otel_layer, endpoint)) = init_otel_layer(otel) {
         tracing_subscriber::registry()
             .with(env_filter)
             .with(fmt_layer)
             .with(otel_layer)
             .try_init()
             .ok();
+        tracing::info!(endpoint = %endpoint, "OTLP tracing enabled");
     } else {
         tracing_subscriber::registry()
             .with(env_filter)
@@ -682,7 +683,7 @@ fn init_tracing(otel: &nexal_config::OtelConfig) {
 /// Build an OpenTelemetry tracing layer if OTLP is configured.
 fn init_otel_layer<S>(
     otel: &nexal_config::OtelConfig,
-) -> Option<tracing_opentelemetry::OpenTelemetryLayer<S, opentelemetry_sdk::trace::SdkTracer>>
+) -> Option<(tracing_opentelemetry::OpenTelemetryLayer<S, opentelemetry_sdk::trace::SdkTracer>, String)>
 where
     S: tracing::Subscriber + for<'span> tracing_subscriber::registry::LookupSpan<'span>,
 {
@@ -735,9 +736,7 @@ where
     // Keep the provider alive — leak intentionally, it lives until process exit.
     std::mem::forget(provider);
 
-    // Log before subscriber is installed — use eprintln.
-    eprintln!("[otel] OTLP tracing enabled: {endpoint}");
-    Some(tracing_opentelemetry::layer().with_tracer(tracer))
+    Some((tracing_opentelemetry::layer().with_tracer(tracer), endpoint))
 }
 
 /// Initialize tracing to a log file (for TUI mode, so logs don't corrupt the terminal).
