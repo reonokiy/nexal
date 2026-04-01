@@ -93,6 +93,33 @@ pub struct NexalConfig {
 
     /// LLM provider configurations
     pub providers: HashMap<String, ProviderConfig>,
+
+    /// OpenTelemetry configuration. Omit or leave endpoint empty to disable.
+    #[serde(default)]
+    pub otel: OtelConfig,
+}
+
+/// OpenTelemetry export configuration.
+///
+/// Supports any OTLP-compatible backend (Langfuse, Jaeger, Grafana Tempo, etc.).
+/// Environment variables `OTEL_EXPORTER_OTLP_ENDPOINT` and
+/// `OTEL_EXPORTER_OTLP_HEADERS` override config file values.
+///
+/// ```toml
+/// [otel]
+/// endpoint = "https://langfuse.example.com/api/public/otel"
+/// headers = { Authorization = "Basic ..." }
+/// service_name = "nexal"
+/// ```
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
+#[serde(default)]
+pub struct OtelConfig {
+    /// OTLP HTTP endpoint. If empty or absent, telemetry is disabled.
+    pub endpoint: Option<String>,
+    /// HTTP headers sent with every OTLP request (e.g. for auth).
+    pub headers: HashMap<String, String>,
+    /// Service name reported in traces (default: "nexal").
+    pub service_name: Option<String>,
 }
 
 /// Configuration for a single LLM provider.
@@ -143,6 +170,7 @@ impl Default for NexalConfig {
             skills_dir: None,
             http_channel_port: None,
             providers: HashMap::new(),
+            otel: OtelConfig::default(),
         }
     }
 }

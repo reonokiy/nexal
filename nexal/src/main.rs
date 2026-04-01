@@ -60,8 +60,8 @@ async fn main() -> anyhow::Result<()> {
 
     match cli.command {
         Some(Command::Idle(args)) => {
-            init_tracing();
             let config = Arc::new(NexalConfig::from_env());
+            init_tracing(&config.otel);
             info!("admins: {:?}", config.admins);
             info!("telegram_allow_from: {:?}", config.telegram_allow_from);
             info!("telegram_allow_chats: {:?}", config.telegram_allow_chats);
@@ -653,17 +653,89 @@ async fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) -> any
     Ok(())
 }
 
-/// Initialize tracing to stderr (for headless/idle mode).
-fn init_tracing() {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(
-                    "nexal=info,rmcp=off,warn"
-                )),
+/// Initialize tracing to stderr, optionally with OTLP export.
+fn init_tracing(otel: &nexal_config::OtelConfig) {
+    use tracing_subscriber::layer::SubscriberExt;
+    use tracing_subscriber::util::SubscriberInitExt;
+
+    let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("nexal=info,rmcp=off,warn"));
+
+    let fmt_layer = tracing_subscriber::fmt::layer();
+
+    if let Some(otel_layer) = init_otel_layer(otel) {
+        tracing_subscriber::registry()
+            .with(env_filter)
+            .with(fmt_layer)
+            .with(otel_layer)
+            .try_init()
+            .ok();
+    } else {
+        tracing_subscriber::registry()
+            .with(env_filter)
+            .with(fmt_layer)
+            .try_init()
+            .ok();
+    }
+}
+
+/// Build an OpenTelemetry tracing layer if OTLP is configured.
+fn init_otel_layer<S>(
+    otel: &nexal_config::OtelConfig,
+) -> Option<tracing_opentelemetry::OpenTelemetryLayer<S, opentelemetry_sdk::trace::SdkTracer>>
+where
+    S: tracing::Subscriber + for<'span> tracing_subscriber::registry::LookupSpan<'span>,
+{
+    use opentelemetry::trace::TracerProvider;
+    use opentelemetry_otlp::WithExportConfig;
+    use opentelemetry_otlp::WithHttpConfig;
+
+    // Environment variable overrides config file.
+    let endpoint = std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT")
+        .ok()
+        .or_else(|| otel.endpoint.clone())
+        .filter(|e| !e.is_empty())?;
+
+    let service_name = otel
+        .service_name
+        .clone()
+        .or_else(|| std::env::var("OTEL_SERVICE_NAME").ok())
+        .unwrap_or_else(|| "nexal".to_string());
+
+    // Merge config headers with env var headers (env takes precedence).
+    let mut headers = otel.headers.clone();
+    if let Ok(env_headers) = std::env::var("OTEL_EXPORTER_OTLP_HEADERS") {
+        for pair in env_headers.split(',') {
+            if let Some((k, v)) = pair.split_once('=') {
+                headers.insert(k.trim().to_string(), v.trim().to_string());
+            }
+        }
+    }
+
+    let exporter = opentelemetry_otlp::SpanExporter::builder()
+        .with_http()
+        .with_endpoint(&endpoint)
+        .with_headers(headers)
+        .build()
+        .map_err(|e| eprintln!("failed to create OTLP exporter: {e}"))
+        .ok()?;
+
+    let provider = opentelemetry_sdk::trace::SdkTracerProvider::builder()
+        .with_batch_exporter(exporter)
+        .with_resource(
+            opentelemetry_sdk::Resource::builder()
+                .with_service_name(service_name.clone())
+                .build(),
         )
-        .try_init()
-        .ok();
+        .build();
+
+    let tracer = provider.tracer(service_name);
+
+    // Keep the provider alive — leak intentionally, it lives until process exit.
+    std::mem::forget(provider);
+
+    eprintln!("OTLP tracing enabled: {endpoint}");
+    Some(tracing_opentelemetry::layer().with_tracer(tracer))
 }
 
 /// Initialize tracing to a log file (for TUI mode, so logs don't corrupt the terminal).

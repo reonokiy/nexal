@@ -29,6 +29,10 @@ nexal-tui = { workspace = true }
 anyhow = { workspace = true }
 clap = { workspace = true }
 dotenvy = "0.15"
+opentelemetry = { workspace = true }
+opentelemetry_sdk = { workspace = true }
+opentelemetry-otlp = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
+tracing-opentelemetry = { workspace = true }
 tracing-subscriber = { workspace = true }
