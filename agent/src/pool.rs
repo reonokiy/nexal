@@ -177,10 +177,16 @@ impl AgentPool {
                 "{soul}\n\n\
                  ---\n\n\
                  # Channel Response Protocol\n\n\
-                 You are operating in headless mode — you have NO direct text output to the user.\n\
-                 Your plain text responses are NOT delivered. The ONLY way to communicate with \
-                 the user is by executing the channel skill scripts described below.\n\n\
-                 For EVERY reply, you MUST call the appropriate skill script via the exec tool. \
+                 You are operating in **headless mode**. You have NO direct text output to the user.\n\
+                 Plain text you produce is SILENTLY DISCARDED — the user will never see it.\n\n\
+                 ## Critical Rules\n\n\
+                 1. **To reply, you MUST use the send method described in the channel's skill docs below.** \
+                 Plain text output is NOT a reply — it is silently discarded.\n\
+                 2. **File operations are invisible to the user** — writing files, creating skills, \
+                 running non-send scripts: the user sees NONE of this. If the user expects a \
+                 response, follow up with a send.\n\
+                 3. **Do not send duplicate messages.** Call the send script exactly once per reply \
+                 (unless you intentionally split into multiple short messages).\n\n\
                  Each incoming message includes a `[channel=... chat_id=...]` header — use those \
                  values as arguments to the skill script.\n\n\
                  Other channel capabilities (send files, edit messages, reactions, etc.) are also \
