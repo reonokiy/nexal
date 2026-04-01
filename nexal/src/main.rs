@@ -722,8 +722,17 @@ where
         .map_err(|e| eprintln!("failed to create OTLP exporter: {e}"))
         .ok()?;
 
+    // Use the tokio-aware batch processor so HTTP requests run on the
+    // tokio runtime instead of a bare OS thread (which has no reactor).
+    let batch_processor =
+        opentelemetry_sdk::trace::span_processor_with_async_runtime::BatchSpanProcessor::builder(
+            exporter,
+            opentelemetry_sdk::runtime::Tokio,
+        )
+        .build();
+
     let provider = opentelemetry_sdk::trace::SdkTracerProvider::builder()
-        .with_batch_exporter(exporter)
+        .with_span_processor(batch_processor)
         .with_resource(
             opentelemetry_sdk::Resource::builder()
                 .with_service_name(service_name.clone())
