@@ -9,6 +9,8 @@ name = "nexal"
 path = "src/main.rs"
 
 [features]
+default = ["tui"]
+tui = ["nexal-tui"]
 embedded-agent = ["dirs-next"]
 
 [dependencies]
@@ -24,7 +26,7 @@ nexal-channel-http = { workspace = true }
 nexal-arg0 = { workspace = true }
 nexal-config-loader = { workspace = true }
 nexal-exec-server = { workspace = true }
-nexal-tui = { workspace = true }
+nexal-tui = { workspace = true, optional = true }
 
 anyhow = { workspace = true }
 clap = { workspace = true }

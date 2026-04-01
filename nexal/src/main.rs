@@ -4,11 +4,15 @@ use anyhow::Context;
 use clap::Parser;
 use clap::Subcommand;
 use nexal_agent::{AgentPool, Bot};
-use nexal_arg0::Arg0DispatchPaths;
 use nexal_channel_core::DebounceConfig;
 use nexal_config::NexalConfig;
+#[cfg(feature = "tui")]
+use nexal_arg0::Arg0DispatchPaths;
+#[cfg(feature = "tui")]
 use nexal_config_loader::LoaderOverrides;
+#[cfg(feature = "tui")]
 use nexal_state::StateDb;
+#[cfg(feature = "tui")]
 use nexal_tui::Cli as TuiCli;
 use tracing::info;
 
@@ -68,12 +72,20 @@ async fn main() -> anyhow::Result<()> {
             run_idle(args, config).await
         }
         None => {
-            // Default: TUI, optionally with channels running alongside
-            run_tui(cli.telegram, cli.discord, cli.http).await
+            #[cfg(feature = "tui")]
+            {
+                // Default: TUI, optionally with channels running alongside
+                run_tui(cli.telegram, cli.discord, cli.http).await
+            }
+            #[cfg(not(feature = "tui"))]
+            {
+                anyhow::bail!("TUI not available. Use `nexal idle` or build with --features tui")
+            }
         }
     }
 }
 
+#[cfg(feature = "tui")]
 async fn run_tui(enable_telegram: bool, enable_discord: bool, enable_http: bool) -> anyhow::Result<()> {
     let config = Arc::new(NexalConfig::from_env());
 
@@ -196,6 +208,7 @@ async fn run_tui(enable_telegram: bool, enable_discord: bool, enable_http: bool)
     Ok(())
 }
 
+#[cfg(feature = "tui")]
 /// Start channel bot in the background if any channels are requested.
 /// Returns a JoinHandle that can be aborted on TUI exit.
 async fn maybe_start_channels(
@@ -752,6 +765,7 @@ where
 }
 
 /// Initialize tracing to a log file (for TUI mode, so logs don't corrupt the terminal).
+#[cfg(feature = "tui")]
 fn init_tracing_to_file(workspace_dir: &std::path::Path) {
     let log_dir = workspace_dir.join("agents").join("logs");
     let _ = std::fs::create_dir_all(&log_dir);
@@ -780,20 +794,22 @@ async fn run_idle(args: IdleArgs, config: Arc<NexalConfig>) -> anyhow::Result<()
 
     sync_skills(&config).await?;
 
-    // Create Podman sandbox container for idle mode (same as TUI).
-    let sandbox = if !is_sandbox_disabled(&config) {
-        Some(create_sandbox_container(&config).await?)
-    } else {
-        None
-    };
-
-    // Start token proxies
+    // Start token proxies (Unix sockets for Telegram/Discord API access).
+    // Must happen BEFORE creating the container so the sockets exist when
+    // the workspace directory is bind-mounted into the sandbox.
     let _proxy_handles = nexal_agent::proxy::start_proxies(
         &config.workspace,
         config.telegram_bot_token.as_deref(),
         config.discord_bot_token.as_deref(),
     )
     .await;
+
+    // Create Podman sandbox container for idle mode (same as TUI).
+    let sandbox = if !is_sandbox_disabled(&config) {
+        Some(create_sandbox_container(&config).await?)
+    } else {
+        None
+    };
 
     let mut pool = AgentPool::new(Arc::clone(&config));
     if let Some(ref handle) = sandbox {
