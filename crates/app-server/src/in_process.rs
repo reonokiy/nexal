@@ -125,6 +125,9 @@ pub struct InProcessStartArgs {
     pub initialize: InitializeParams,
     /// Capacity used for all runtime queues (clamped to at least 1).
     pub channel_capacity: usize,
+    /// Pre-created environment manager (e.g. for krun child-process transport).
+    /// If `None`, falls back to `EnvironmentManager::from_env()`.
+    pub environment_manager: Option<Arc<EnvironmentManager>>,
 }
 
 /// Event emitted from the app-server to the in-process client.
@@ -384,7 +387,7 @@ fn start_uninitialized(args: InProcessStartArgs) -> InProcessClientHandle {
                 outgoing: Arc::clone(&processor_outgoing),
                 arg0_paths: args.arg0_paths,
                 config: args.config,
-                environment_manager: Arc::new(EnvironmentManager::from_env()),
+                environment_manager: args.environment_manager.unwrap_or_else(|| Arc::new(EnvironmentManager::from_env())),
                 cli_overrides: args.cli_overrides,
                 loader_overrides: args.loader_overrides,
                 cloud_requirements: args.cloud_requirements,

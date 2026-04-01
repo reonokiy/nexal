@@ -287,6 +287,7 @@ async fn start_plugin_request_client(
         experimental_api: true,
         opt_out_notification_methods: Vec::new(),
         channel_capacity: DEFAULT_IN_PROCESS_CHANNEL_CAPACITY,
+        environment_manager: None,
     })
     .await
     .wrap_err("failed to start embedded app server for plugin request")

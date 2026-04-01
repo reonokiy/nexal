@@ -284,6 +284,9 @@ pub struct InProcessClientStartArgs {
     pub opt_out_notification_methods: Vec<String>,
     /// Queue capacity for command/event channels (clamped to at least 1).
     pub channel_capacity: usize,
+    /// Pre-created environment manager (e.g. for krun child-process transport).
+    /// If `None`, falls back to `EnvironmentManager::from_env()`.
+    pub environment_manager: Option<Arc<nexal_exec_server::EnvironmentManager>>,
 }
 
 impl InProcessClientStartArgs {
@@ -322,6 +325,7 @@ impl InProcessClientStartArgs {
             enable_nexal_api_key_env: self.enable_nexal_api_key_env,
             initialize,
             channel_capacity: self.channel_capacity,
+            environment_manager: self.environment_manager,
         }
     }
 }

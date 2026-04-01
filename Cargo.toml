@@ -338,10 +338,10 @@ ignored = [
 ]
 
 [profile.release]
-lto = "fat"
+lto = "thin"
 split-debuginfo = "off"
 strip = "symbols"
-codegen-units = 1
+codegen-units = 16
 
 [patch.crates-io]
 crossterm = { git = "https://github.com/nornagon/crossterm", branch = "nornagon/color-query" }

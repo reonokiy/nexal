@@ -8,9 +8,13 @@ default-run = "nexal"
 name = "nexal"
 path = "src/main.rs"
 
+[features]
+embedded-agent = ["dirs-next"]
+
 [dependencies]
 nexal-config = { workspace = true }
 nexal-agent = { workspace = true }
+dirs-next = { version = "2", optional = true }
 nexal-state = { workspace = true }
 nexal-channel-core = { workspace = true }
 nexal-channel-telegram = { workspace = true }
@@ -19,6 +23,7 @@ nexal-channel-http = { workspace = true }
 
 nexal-arg0 = { workspace = true }
 nexal-config-loader = { workspace = true }
+nexal-exec-server = { workspace = true }
 nexal-tui = { workspace = true }
 
 anyhow = { workspace = true }

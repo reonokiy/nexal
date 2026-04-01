@@ -16,6 +16,7 @@ nexal-app-server = { workspace = true }
 nexal-app-server-protocol = { workspace = true }
 nexal-arg0 = { workspace = true }
 nexal-core = { workspace = true }
+nexal-exec-server = { workspace = true }
 nexal-feedback = { workspace = true }
 nexal-protocol = { workspace = true }
 futures = { workspace = true }
