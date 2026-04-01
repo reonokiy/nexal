@@ -4,22 +4,25 @@
 # dependencies = ["httpx"]
 # ///
 
-"""Search the web using Jina AI Search API via the nexal proxy."""
+"""Search the web using Jina AI Search API (s.jina.ai) via the nexal proxy."""
 
 import httpx
 import sys
+import urllib.parse
 
-PROXY = "/workspace/agents/proxy/api.jina.ai"
+PROXY = "/workspace/agents/proxy/s.jina.ai"
 
 
 def search(query: str, limit: int = 5) -> None:
     transport = httpx.HTTPTransport(uds=PROXY)
     client = httpx.Client(transport=transport, base_url="http://localhost", timeout=30)
 
-    resp = client.post("/search", json={"q": query, "num": limit})
+    # Jina Search: GET /<query>
+    encoded_query = urllib.parse.quote(query)
+    resp = client.get(f"/{encoded_query}")
 
     if resp.status_code != 200:
-        print(f"Error: {resp.status_code} {resp.text[:200]}")
+        print(f"Error: {resp.status_code} {resp.text[:300]}")
         sys.exit(1)
 
     data = resp.json()
@@ -29,7 +32,7 @@ def search(query: str, limit: int = 5) -> None:
         print("No results found.")
         return
 
-    for i, result in enumerate(results, 1):
+    for i, result in enumerate(results[:limit], 1):
         title = result.get("title", "Untitled")
         url = result.get("url", "")
         description = result.get("description", "")

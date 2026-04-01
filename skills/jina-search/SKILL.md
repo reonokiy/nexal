@@ -7,7 +7,7 @@ metadata:
 
 # Web Search
 
-Search the web via Jina AI API. Auth is injected automatically — no API key needed.
+Search the web via Jina AI Search API (s.jina.ai). Auth is injected automatically — no API key needed.
 
 ```bash
 uv run /workspace/agents/skills/jina-search/scripts/search.py "your search query"

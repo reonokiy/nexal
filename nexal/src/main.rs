@@ -328,17 +328,29 @@ async fn register_container_proxies(
     }
 
     if let Some(ref key) = config.jina_api_key {
+        // Jina Search API (s.jina.ai)
         let mut headers = HashMap::new();
         headers.insert("Authorization".to_string(), format!("Bearer {key}"));
         headers.insert("Accept".to_string(), "application/json".to_string());
         let params = nexal_exec_server::ProxyRegisterParams {
-            socket_path: "/workspace/agents/proxy/api.jina.ai".to_string(),
-            upstream_url: "https://api.jina.ai".to_string(),
+            socket_path: "/workspace/agents/proxy/s.jina.ai".to_string(),
+            upstream_url: "https://s.jina.ai".to_string(),
+            headers: headers.clone(),
+        };
+        match client.proxy_register(params).await {
+            Ok(_) => info!("container proxy registered: s.jina.ai (search)"),
+            Err(e) => tracing::warn!("failed to register jina search proxy: {e}"),
+        }
+
+        // Jina Reader API (r.jina.ai)
+        let params = nexal_exec_server::ProxyRegisterParams {
+            socket_path: "/workspace/agents/proxy/r.jina.ai".to_string(),
+            upstream_url: "https://r.jina.ai".to_string(),
             headers,
         };
         match client.proxy_register(params).await {
-            Ok(_) => info!("container proxy registered: api.jina.ai"),
-            Err(e) => tracing::warn!("failed to register jina proxy: {e}"),
+            Ok(_) => info!("container proxy registered: r.jina.ai (reader)"),
+            Err(e) => tracing::warn!("failed to register jina reader proxy: {e}"),
         }
     }
 }

@@ -4,22 +4,25 @@
 # dependencies = ["httpx"]
 # ///
 
-"""Read and extract content from a URL using Jina AI Reader API via the nexal proxy."""
+"""Read and extract content from a URL using Jina AI Reader API (r.jina.ai) via the nexal proxy."""
 
 import httpx
 import sys
+import urllib.parse
 
-PROXY = "/workspace/agents/proxy/api.jina.ai"
+PROXY = "/workspace/agents/proxy/r.jina.ai"
 
 
 def read_url(url: str) -> None:
     transport = httpx.HTTPTransport(uds=PROXY)
     client = httpx.Client(transport=transport, base_url="http://localhost", timeout=60)
 
-    resp = client.post("/reader", json={"url": url})
+    # Jina Reader: GET /<url>
+    encoded_url = urllib.parse.quote(url, safe="")
+    resp = client.get(f"/{encoded_url}")
 
     if resp.status_code != 200:
-        print(f"Error: {resp.status_code} {resp.text[:200]}")
+        print(f"Error: {resp.status_code} {resp.text[:300]}")
         sys.exit(1)
 
     data = resp.json()
