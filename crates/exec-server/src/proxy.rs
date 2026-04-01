@@ -243,13 +243,16 @@ async fn handle_connection(
 
     // Connect to upstream.
     let upstream_addr = format!("{}:{}", upstream.host, upstream.port);
+    debug!(upstream = %upstream_addr, tls = upstream.tls, path = %new_path, "proxy connecting to upstream");
 
     if upstream.tls {
         // TLS connection.
         let tcp = TcpStream::connect(&upstream_addr).await?;
+        debug!("TCP connected, starting TLS handshake");
         let connector = tokio_rustls_connector(&upstream.host)?;
         let server_name = rustls::pki_types::ServerName::try_from(upstream.host.clone())?;
         let mut tls_stream = connector.connect(server_name, tcp).await?;
+        debug!("TLS handshake complete");
 
         // Send rewritten head + remaining body.
         tls_stream.write_all(rewritten.as_bytes()).await?;
@@ -301,8 +304,11 @@ fn tokio_rustls_connector(
     for cert in certs.certs {
         let _ = root_store.add(cert);
     }
-    let config = rustls::ClientConfig::builder()
-        .with_root_certificates(root_store)
-        .with_no_client_auth();
+    let config = rustls::ClientConfig::builder_with_provider(Arc::new(
+        rustls::crypto::ring::default_provider(),
+    ))
+    .with_safe_default_protocol_versions()?
+    .with_root_certificates(root_store)
+    .with_no_client_auth();
     Ok(tokio_rustls::TlsConnector::from(Arc::new(config)))
 }
