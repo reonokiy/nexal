@@ -1,6 +1,26 @@
 //! The [`Channel`] trait — abstract interface for message sources.
 
+use tokio_util::sync::CancellationToken;
+
 use crate::IncomingMessage;
+
+/// Handle that keeps a "typing" indicator alive. When dropped, the
+/// typing indicator stops.
+pub struct TypingHandle {
+    cancel: CancellationToken,
+}
+
+impl TypingHandle {
+    pub fn new(cancel: CancellationToken) -> Self {
+        Self { cancel }
+    }
+}
+
+impl Drop for TypingHandle {
+    fn drop(&mut self) {
+        self.cancel.cancel();
+    }
+}
 
 /// A message source (Telegram, Discord, CLI, etc.).
 ///
@@ -29,6 +49,13 @@ pub trait Channel: Send + Sync + 'static {
 
     /// Send a text message to a specific chat.
     async fn send(&self, chat_id: &str, text: &str) -> anyhow::Result<()>;
+
+    /// Signal that the bot is "typing" in a chat. Implementations should
+    /// keep sending the typing indicator until the returned handle is dropped.
+    /// Default: no-op.
+    fn start_typing(&self, _chat_id: &str) -> Option<TypingHandle> {
+        None
+    }
 
     /// Graceful shutdown.
     async fn stop(&self) -> anyhow::Result<()> {

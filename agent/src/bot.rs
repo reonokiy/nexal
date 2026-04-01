@@ -3,12 +3,14 @@
 //! Messages flow: Channel → SessionRunner → AgentPool.send() (non-blocking)
 //! Responses flow: AgentPool event stream → Channel.send()
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use dashmap::DashMap;
 use nexal_channel_core::{
-    Channel, DebounceConfig, IncomingMessage, MessageHandler, SessionRunner,
+    Channel, DebounceConfig, IncomingMessage, MessageHandler, SessionRunner, TypingHandle,
 };
+use tokio::sync::Mutex;
 use tracing::{error, info};
 
 use crate::actor::{AgentEvent, AgentMessage};
@@ -82,14 +84,26 @@ impl Bot {
         // Event consumer — agent sends messages via skill scripts (telegram_send.py etc.)
         // through the Unix socket proxy. No automatic channel.send() here.
         let pool = Arc::clone(&self.pool);
+        // Build a channel lookup by name so we can call start_typing.
+        let channels_by_name: Arc<HashMap<String, Arc<dyn Channel>>> = Arc::new(
+            self.channels
+                .iter()
+                .map(|ch| (ch.name().to_string(), Arc::clone(ch)))
+                .collect(),
+        );
+        let typing_handles: Arc<Mutex<HashMap<String, TypingHandle>>> =
+            Arc::new(Mutex::new(HashMap::new()));
         let event_handle = tokio::spawn(async move {
             while let Some(event) = pool.recv_event().await {
                 match event {
                     AgentEvent::Response { session_key, .. } => {
                         tracing::debug!(session = %session_key, "agent turn completed");
+                        // Stop typing on response
+                        typing_handles.lock().await.remove(&session_key);
                     }
                     AgentEvent::Error { session_key, message } => {
                         tracing::error!(session = %session_key, "agent error: {message}");
+                        typing_handles.lock().await.remove(&session_key);
                     }
                     AgentEvent::StatusChange { session_key, status, activity } => {
                         tracing::debug!(
@@ -98,6 +112,19 @@ impl Bot {
                             activity = %activity,
                             "agent status changed"
                         );
+                        if status == "working" {
+                            // Start typing indicator
+                            if let Some((channel_name, chat_id)) = session_key.split_once(':') {
+                                if let Some(channel) = channels_by_name.get(channel_name) {
+                                    if let Some(handle) = channel.start_typing(chat_id) {
+                                        typing_handles.lock().await.insert(session_key.clone(), handle);
+                                    }
+                                }
+                            }
+                        } else if status == "idle" {
+                            // Stop typing indicator
+                            typing_handles.lock().await.remove(&session_key);
+                        }
                     }
                 }
             }

@@ -6,11 +6,12 @@
 
 use std::sync::Arc;
 
-use nexal_channel_core::{Channel, ImageAttachment, IncomingMessage, MessageCallback};
+use nexal_channel_core::{Channel, ImageAttachment, IncomingMessage, MessageCallback, TypingHandle};
 use nexal_config::NexalConfig;
 use teloxide::net::Download;
 use teloxide::prelude::*;
-use teloxide::types::{MediaKind, MessageKind};
+use teloxide::types::{ChatAction, MediaKind, MessageKind};
+use tokio_util::sync::CancellationToken;
 use tracing::{debug, info};
 
 /// Telegram channel that implements the [`Channel`] trait.
@@ -148,6 +149,27 @@ impl Channel for TelegramChannel {
             .await;
 
         Ok(())
+    }
+
+    fn start_typing(&self, chat_id: &str) -> Option<TypingHandle> {
+        let token = self.config.telegram_bot_token.as_ref()?.clone();
+        let chat: ChatId = ChatId(chat_id.parse().ok()?);
+        let cancel = CancellationToken::new();
+        let cancel_clone = cancel.clone();
+
+        // Telegram typing indicator expires after 5s; resend every 4s.
+        tokio::spawn(async move {
+            let bot = Bot::new(token);
+            loop {
+                let _ = bot.send_chat_action(chat, ChatAction::Typing).await;
+                tokio::select! {
+                    _ = tokio::time::sleep(std::time::Duration::from_secs(4)) => {}
+                    _ = cancel_clone.cancelled() => break,
+                }
+            }
+        });
+
+        Some(TypingHandle::new(cancel))
     }
 
     async fn send(&self, chat_id: &str, text: &str) -> anyhow::Result<()> {
