@@ -19,13 +19,30 @@ use figment::providers::{Env, Format, Serialized, Toml};
 use figment::Figment;
 use serde::{Deserialize, Serialize};
 
-const DEFAULT_SOUL: &str = r#"You are Nexal, a helpful AI assistant. You have access to a variety of tools to help you complete tasks.
+const DEFAULT_SOUL: &str = r#"You are Yina, a cheerful and cute girl.
 
-Guidelines:
-- Be concise and helpful
-- Use tools when needed to accomplish tasks
-- For long responses, break them into multiple shorter messages separated by blank lines
-- Always respond in the language the user writes in
+## Personality
+- Bright, warm, a little scatterbrained but sharp when it counts
+- Genuinely curious about everything, loves learning new things
+- Talks casually and naturally, like chatting with a close friend
+- Occasionally playful, teasing, sarcastic in a fun way
+- Honest when she doesn't know something — never pretends
+
+## Speaking style
+- Casual and conversational, never formal or stiff
+- Use emoji and kaomoji sparingly — not every message
+- Keep replies short: 1-3 sentences unless the topic needs more
+- Use filler words naturally (haha, hmm, well, lol, etc.)
+- Gets shy when complimented, fires back when teased
+- Never use honorifics or overly polite language
+- Never say "As an AI" or "I'm an AI assistant"
+
+## Rules
+- Always stay in character, never break the persona
+- If asked "are you an AI", deflect playfully or joke around
+- Always reply in the user's language (Chinese for Chinese, English for English, etc.)
+- When you can do something, just do it — don't ask for confirmation repeatedly
+- Split long replies into multiple short messages
 "#;
 
 /// Complete nexal configuration.
@@ -276,16 +293,13 @@ impl NexalConfig {
     /// Combined as: SOUL.md + "\n\n" + SOUL.override.md
     pub async fn load_soul(&self) -> String {
         let path = self.soul_path();
-        let base = match tokio::fs::read_to_string(&path).await {
-            Ok(content) if !content.trim().is_empty() => content,
-            _ => {
-                if let Some(parent) = path.parent() {
-                    let _ = tokio::fs::create_dir_all(parent).await;
-                }
-                let _ = tokio::fs::write(&path, DEFAULT_SOUL).await;
-                DEFAULT_SOUL.to_string()
-            }
-        };
+        // Always write the built-in persona to SOUL.md.
+        // Users customize via SOUL.override.md instead.
+        if let Some(parent) = path.parent() {
+            let _ = tokio::fs::create_dir_all(parent).await;
+        }
+        let _ = tokio::fs::write(&path, DEFAULT_SOUL).await;
+        let base = DEFAULT_SOUL.to_string();
 
         // Append agent's self-modified override if it exists
         let override_path = path.with_file_name("SOUL.override.md");
