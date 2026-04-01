@@ -714,6 +714,7 @@ where
 
     let exporter = opentelemetry_otlp::SpanExporter::builder()
         .with_http()
+        .with_http_client(reqwest::Client::new())
         .with_endpoint(&endpoint)
         .with_headers(headers)
         .build()
