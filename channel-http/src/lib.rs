@@ -86,7 +86,7 @@ impl Channel for HttpChannel {
     }
 
     async fn start(&self, on_message: MessageCallback) -> anyhow::Result<()> {
-        let port = self.config.http_channel_port.unwrap_or(3000);
+        let port = self.config.channel.http.port.unwrap_or(3000);
         let outbox = Arc::clone(&self.outbox);
 
         let state = AppState {

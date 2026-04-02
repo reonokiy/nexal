@@ -39,6 +39,21 @@ impl SessionRecord {
     }
 }
 
+/// One row from `cron_jobs`.
+#[derive(Debug, Clone)]
+pub struct CronJobRecord {
+    pub id: String,
+    pub label: String,
+    pub schedule: String,
+    pub message: String,
+    pub target_channel: String,
+    pub target_chat_id: String,
+    pub context: String,
+    pub enabled: bool,
+    pub last_run_at: Option<i64>,
+    pub created_at: i64,
+}
+
 /// SQLite-backed store for bot sessions, messages, and tool calls.
 #[derive(Clone)]
 pub struct StateDb {
@@ -148,6 +163,72 @@ impl StateDb {
         .execute(&self.pool)
         .await?;
         Ok(())
+    }
+
+    // ── cron jobs ──────────────────────────────────────────────────────────
+
+    pub async fn list_cron_jobs(&self) -> anyhow::Result<Vec<CronJobRecord>> {
+        let rows = sqlx::query(
+            "SELECT id, label, schedule, message, target_channel, target_chat_id,
+                    context, enabled, last_run_at, created_at
+             FROM cron_jobs ORDER BY created_at",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(rows
+            .iter()
+            .map(|r| CronJobRecord {
+                id: r.get("id"),
+                label: r.get("label"),
+                schedule: r.get("schedule"),
+                message: r.get("message"),
+                target_channel: r.get("target_channel"),
+                target_chat_id: r.get("target_chat_id"),
+                context: r.get("context"),
+                enabled: r.get::<i32, _>("enabled") != 0,
+                last_run_at: r.get("last_run_at"),
+                created_at: r.get("created_at"),
+            })
+            .collect())
+    }
+
+    pub async fn create_cron_job(&self, job: &CronJobRecord) -> anyhow::Result<()> {
+        sqlx::query(
+            "INSERT INTO cron_jobs (id, label, schedule, message, target_channel,
+                                    target_chat_id, context, enabled, last_run_at, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(&job.id)
+        .bind(&job.label)
+        .bind(&job.schedule)
+        .bind(&job.message)
+        .bind(&job.target_channel)
+        .bind(&job.target_chat_id)
+        .bind(&job.context)
+        .bind(job.enabled as i32)
+        .bind(job.last_run_at)
+        .bind(job.created_at)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn update_cron_job_last_run(&self, id: &str, last_run_at: i64) -> anyhow::Result<()> {
+        sqlx::query("UPDATE cron_jobs SET last_run_at = ? WHERE id = ?")
+            .bind(last_run_at)
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn delete_cron_job(&self, id: &str) -> anyhow::Result<bool> {
+        let result = sqlx::query("DELETE FROM cron_jobs WHERE id = ?")
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(result.rows_affected() > 0)
     }
 
     // ── tool calls ────────────────────────────────────────────────────────

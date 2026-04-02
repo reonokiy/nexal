@@ -33,6 +33,14 @@ struct Cli {
     /// Also listen on HTTP (port configurable via http_channel_port, default 3000)
     #[arg(long)]
     http: bool,
+
+    /// Enable periodic heartbeat (interval configurable via heartbeat_interval_mins)
+    #[arg(long)]
+    heartbeat: bool,
+
+    /// Enable cron scheduler (jobs stored in workspace/agents/cron_jobs.json)
+    #[arg(long)]
+    cron: bool,
 }
 
 #[derive(Subcommand)]
@@ -54,6 +62,14 @@ struct IdleArgs {
     /// Enable the HTTP channel (port configurable via http_channel_port)
     #[arg(long)]
     http: bool,
+
+    /// Enable periodic heartbeat (interval configurable via heartbeat_interval_mins)
+    #[arg(long)]
+    heartbeat: bool,
+
+    /// Enable cron scheduler (jobs stored in workspace/agents/cron_jobs.json)
+    #[arg(long)]
+    cron: bool,
 }
 
 #[tokio::main]
@@ -67,15 +83,15 @@ async fn main() -> anyhow::Result<()> {
             let config = Arc::new(NexalConfig::from_env());
             init_tracing(&config.otel);
             info!("admins: {:?}", config.admins);
-            info!("telegram_allow_from: {:?}", config.telegram_allow_from);
-            info!("telegram_allow_chats: {:?}", config.telegram_allow_chats);
+            info!("telegram_allow_from: {:?}", config.channel.telegram.allow_from);
+            info!("telegram_allow_chats: {:?}", config.channel.telegram.allow_chats);
             run_idle(args, config).await
         }
         None => {
             #[cfg(feature = "tui")]
             {
                 // Default: TUI, optionally with channels running alongside
-                run_tui(cli.telegram, cli.discord, cli.http).await
+                run_tui(cli.telegram, cli.discord, cli.http, cli.heartbeat, cli.cron).await
             }
             #[cfg(not(feature = "tui"))]
             {
@@ -86,7 +102,7 @@ async fn main() -> anyhow::Result<()> {
 }
 
 #[cfg(feature = "tui")]
-async fn run_tui(enable_telegram: bool, enable_discord: bool, enable_http: bool) -> anyhow::Result<()> {
+async fn run_tui(enable_telegram: bool, enable_discord: bool, enable_http: bool, enable_heartbeat: bool, enable_cron: bool) -> anyhow::Result<()> {
     let config = Arc::new(NexalConfig::from_env());
 
     // Ensure workspace exists
@@ -122,8 +138,8 @@ async fn run_tui(enable_telegram: bool, enable_discord: bool, enable_http: bool)
     // Tokens stay on the host; container connects via socket.
     let _proxy_handles = nexal_agent::proxy::start_proxies(
         &config.workspace,
-        config.telegram_bot_token.as_deref(),
-        config.discord_bot_token.as_deref(),
+        config.channel.telegram.bot_token.as_deref(),
+        config.channel.discord.bot_token.as_deref(),
     )
     .await;
 
@@ -181,7 +197,10 @@ async fn run_tui(enable_telegram: bool, enable_discord: bool, enable_http: bool)
         enable_telegram,
         enable_discord,
         enable_http,
+        enable_heartbeat,
+        enable_cron,
         Arc::clone(&config),
+        Arc::clone(&db),
     )
     .await?;
 
@@ -215,13 +234,18 @@ async fn maybe_start_channels(
     enable_telegram: bool,
     enable_discord: bool,
     enable_http: bool,
+    enable_heartbeat: bool,
+    enable_cron: bool,
     config: Arc<NexalConfig>,
+    db: Arc<StateDb>,
 ) -> anyhow::Result<Option<tokio::task::JoinHandle<()>>> {
-    let run_telegram = enable_telegram || config.telegram_bot_token.is_some();
-    let run_discord = enable_discord || config.discord_bot_token.is_some();
+    let run_telegram = enable_telegram || config.channel.telegram.bot_token.is_some();
+    let run_discord = enable_discord || config.channel.discord.bot_token.is_some();
     let run_http = enable_http;
+    let run_heartbeat = enable_heartbeat;
+    let run_cron = enable_cron;
 
-    if !run_telegram && !run_discord && !run_http {
+    if !run_telegram && !run_discord && !run_http && !run_heartbeat && !run_cron {
         return Ok(None);
     }
 
@@ -269,11 +293,24 @@ async fn maybe_start_channels(
             Arc::clone(&config),
         ));
     }
+    if run_heartbeat {
+        bot.add_channel(nexal_channel_heartbeat::HeartbeatChannel::new(
+            Arc::clone(&config),
+        ));
+    }
+    if run_cron {
+        bot.add_channel(nexal_channel_cron::CronChannel::new(
+            Arc::clone(&config),
+            Arc::clone(&db),
+        ));
+    }
 
     let mut channels: Vec<&str> = Vec::new();
     if run_telegram { channels.push("telegram"); }
     if run_discord { channels.push("discord"); }
     if run_http { channels.push("http"); }
+    if run_heartbeat { channels.push("heartbeat"); }
+    if run_cron { channels.push("cron"); }
     info!("starting channels alongside TUI: {}", channels.join(", "));
 
     let handle = tokio::spawn(async move {
@@ -312,7 +349,7 @@ async fn register_container_proxies(
 ) {
     use std::collections::HashMap;
 
-    if let Some(ref token) = config.telegram_bot_token {
+    if let Some(ref token) = config.channel.telegram.bot_token {
         // Telegram Bot API uses the token in the URL path.
         let upstream = format!("https://api.telegram.org/bot{token}");
         let params = nexal_exec_server::ProxyRegisterParams {
@@ -326,7 +363,7 @@ async fn register_container_proxies(
         }
     }
 
-    if let Some(ref token) = config.discord_bot_token {
+    if let Some(ref token) = config.channel.discord.bot_token {
         let mut headers = HashMap::new();
         headers.insert("Authorization".to_string(), format!("Bot {token}"));
         let params = nexal_exec_server::ProxyRegisterParams {
@@ -870,6 +907,15 @@ async fn run_idle(args: IdleArgs, config: Arc<NexalConfig>) -> anyhow::Result<()
 
     sync_skills(&config).await?;
 
+    // Open state database (for cron jobs, chatlog, etc.)
+    let db_path = config.workspace.join("agents").join("nexal.db");
+    let _ = tokio::fs::create_dir_all(db_path.parent().unwrap()).await;
+    let db = Arc::new(
+        StateDb::open(&db_path)
+            .await
+            .context("opening state db")?,
+    );
+
     // Create Podman sandbox container.
     let sandbox = if !is_sandbox_disabled(&config) {
         Some(create_sandbox_container(&config).await?)
@@ -925,9 +971,11 @@ async fn run_idle(args: IdleArgs, config: Arc<NexalConfig>) -> anyhow::Result<()
     // If any flag is explicit, only start flagged channels.
     // If no flags, auto-detect from configured tokens.
     let explicit = args.telegram || args.discord || args.http;
-    let run_telegram = if explicit { args.telegram } else { config.telegram_bot_token.is_some() };
-    let run_discord = if explicit { args.discord } else { config.discord_bot_token.is_some() };
+    let run_telegram = if explicit { args.telegram } else { config.channel.telegram.bot_token.is_some() };
+    let run_discord = if explicit { args.discord } else { config.channel.discord.bot_token.is_some() };
     let run_http = args.http;
+    let run_heartbeat = args.heartbeat;
+    let run_cron = args.cron;
 
     if run_telegram {
         bot.add_channel(nexal_channel_telegram::TelegramChannel::new(
@@ -944,10 +992,21 @@ async fn run_idle(args: IdleArgs, config: Arc<NexalConfig>) -> anyhow::Result<()
             Arc::clone(&config),
         ));
     }
+    if run_heartbeat {
+        bot.add_channel(nexal_channel_heartbeat::HeartbeatChannel::new(
+            Arc::clone(&config),
+        ));
+    }
+    if run_cron {
+        bot.add_channel(nexal_channel_cron::CronChannel::new(
+            Arc::clone(&config),
+            Arc::clone(&db),
+        ));
+    }
 
-    if !run_telegram && !run_discord && !run_http {
+    if !run_telegram && !run_discord && !run_http && !run_heartbeat && !run_cron {
         anyhow::bail!(
-            "No channel configured. Set TELEGRAM_BOT_TOKEN, DISCORD_BOT_TOKEN, or use --http."
+            "No channel configured. Set TELEGRAM_BOT_TOKEN, DISCORD_BOT_TOKEN, or use --http, --heartbeat, or --cron."
         );
     }
 

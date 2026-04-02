@@ -7,7 +7,7 @@
 //!
 //! Environment variable mapping uses `__` for nesting:
 //!   NEXAL_PROVIDERS__MOONSHOT__BASE_URL=https://api.moonshot.cn/v1
-//!   NEXAL_DEBOUNCE_SECS=2.0
+//!   NEXAL_CHANNEL__HEARTBEAT__INTERVAL_MINS=15
 
 pub mod sandbox;
 
@@ -45,10 +45,105 @@ const DEFAULT_SOUL: &str = r#"You are Yina, a cheerful and cute girl.
 - Split long replies into multiple short messages
 "#;
 
+// ── Per-channel configuration structs ──
+
+/// Telegram channel configuration.
+///
+/// ```toml
+/// [channel.telegram]
+/// bot_token = "123456:ABC-DEF"
+/// allow_from = ["alice", "bob"]
+/// allow_chats = [-100123456]
+/// ```
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
+#[serde(default)]
+pub struct TelegramChannelConfig {
+    pub bot_token: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_string_or_int_vec")]
+    pub allow_from: Vec<String>,
+    #[serde(default, deserialize_with = "deserialize_string_or_int_vec")]
+    pub allow_chats: Vec<String>,
+}
+
+/// Discord channel configuration.
+///
+/// ```toml
+/// [channel.discord]
+/// bot_token = "MTIz..."
+/// allow_guilds = ["123456789"]
+/// ```
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
+#[serde(default)]
+pub struct DiscordChannelConfig {
+    pub bot_token: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_string_or_int_vec")]
+    pub allow_guilds: Vec<String>,
+}
+
+/// HTTP channel configuration.
+///
+/// ```toml
+/// [channel.http]
+/// port = 3000
+/// ```
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
+#[serde(default)]
+pub struct HttpChannelConfig {
+    pub port: Option<u16>,
+}
+
+/// Heartbeat channel configuration.
+///
+/// ```toml
+/// [channel.heartbeat]
+/// interval_mins = 30
+/// ```
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
+#[serde(default)]
+pub struct HeartbeatChannelConfig {
+    /// Interval in minutes between heartbeats (default: 30).
+    pub interval_mins: Option<u64>,
+}
+
+/// Cron channel configuration.
+///
+/// ```toml
+/// [channel.cron]
+/// tick_interval_secs = 15
+/// ```
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
+#[serde(default)]
+pub struct CronChannelConfig {
+    /// How often to check for due jobs (seconds, default: 15).
+    pub tick_interval_secs: Option<u64>,
+}
+
+/// All channel configurations grouped together.
+///
+/// ```toml
+/// [channel.telegram]
+/// bot_token = "..."
+///
+/// [channel.heartbeat]
+/// interval_mins = 15
+/// ```
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
+#[serde(default)]
+pub struct ChannelConfigs {
+    pub telegram: TelegramChannelConfig,
+    pub discord: DiscordChannelConfig,
+    pub http: HttpChannelConfig,
+    pub heartbeat: HeartbeatChannelConfig,
+    pub cron: CronChannelConfig,
+}
+
+// ── Main config ──
+
 /// Complete nexal configuration.
 ///
 /// Loaded from `~/.nexal/config.toml` + `NEXAL_*` environment variables.
 /// LLM providers are configured under `[providers.<name>]`.
+/// Channel-specific settings are under `[channel.<name>]`.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(default)]
 pub struct NexalConfig {
@@ -60,21 +155,6 @@ pub struct NexalConfig {
 
     /// Path to SOUL.md persona file
     pub soul_path: Option<PathBuf>,
-
-    /// Telegram bot token
-    pub telegram_bot_token: Option<String>,
-    /// Allowed Telegram usernames
-    #[serde(default, deserialize_with = "deserialize_string_or_int_vec")]
-    pub telegram_allow_from: Vec<String>,
-    /// Allowed Telegram chat IDs
-    #[serde(default, deserialize_with = "deserialize_string_or_int_vec")]
-    pub telegram_allow_chats: Vec<String>,
-
-    /// Discord bot token
-    pub discord_bot_token: Option<String>,
-    /// Allowed Discord guild IDs
-    #[serde(default, deserialize_with = "deserialize_string_or_int_vec")]
-    pub discord_allow_guilds: Vec<String>,
 
     /// Admin usernames
     #[serde(default, deserialize_with = "deserialize_string_or_int_vec")]
@@ -108,8 +188,9 @@ pub struct NexalConfig {
     /// Jina AI API key (for search and reader)
     pub jina_api_key: Option<String>,
 
-    /// HTTP channel listen port (default: 3000)
-    pub http_channel_port: Option<u16>,
+    /// Per-channel configurations
+    #[serde(default)]
+    pub channel: ChannelConfigs,
 
     /// LLM provider configurations
     pub providers: HashMap<String, ProviderConfig>,
@@ -117,28 +198,26 @@ pub struct NexalConfig {
     /// OpenTelemetry configuration. Omit or leave endpoint empty to disable.
     #[serde(default)]
     pub otel: OtelConfig,
+
+    // ── Backward-compat flat fields (hidden from TOML, populated from env) ──
+    // These are kept so old env vars like TELEGRAM_BOT_TOKEN still work.
+    // They are merged into channel.* in from_env() post-processing.
+    #[serde(default, skip_serializing)]
+    pub telegram_bot_token: Option<String>,
+    #[serde(default, skip_serializing)]
+    pub discord_bot_token: Option<String>,
+    #[serde(default, skip_serializing)]
+    pub http_channel_port: Option<u16>,
+    #[serde(default, skip_serializing)]
+    pub heartbeat_interval_mins: Option<u64>,
 }
 
 /// OpenTelemetry export configuration.
-///
-/// Supports any OTLP-compatible backend (Langfuse, Jaeger, Grafana Tempo, etc.).
-/// Environment variables `OTEL_EXPORTER_OTLP_ENDPOINT` and
-/// `OTEL_EXPORTER_OTLP_HEADERS` override config file values.
-///
-/// ```toml
-/// [otel]
-/// endpoint = "https://langfuse.example.com/api/public/otel"
-/// headers = { Authorization = "Basic ..." }
-/// service_name = "nexal"
-/// ```
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
 #[serde(default)]
 pub struct OtelConfig {
-    /// OTLP HTTP endpoint. If empty or absent, telemetry is disabled.
     pub endpoint: Option<String>,
-    /// HTTP headers sent with every OTLP request (e.g. for auth).
     pub headers: HashMap<String, String>,
-    /// Service name reported in traces (default: "nexal").
     pub service_name: Option<String>,
 }
 
@@ -146,21 +225,13 @@ pub struct OtelConfig {
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
 #[serde(default)]
 pub struct ProviderConfig {
-    /// Display name
     pub name: Option<String>,
-    /// API base URL (e.g. "https://api.moonshot.cn/v1")
     pub base_url: Option<String>,
-    /// Environment variable containing the API key
     pub env_key: Option<String>,
-    /// Wire protocol: "responses" or "chat"
     pub wire_api: Option<String>,
-    /// Enable thinking/reasoning mode (e.g. for Kimi)
     pub thinking_mode: bool,
-    /// Custom HTTP headers (static)
     pub http_headers: Option<HashMap<String, String>>,
-    /// Custom HTTP headers from environment variables
     pub env_http_headers: Option<HashMap<String, String>>,
-    /// Custom query parameters
     pub query_params: Option<HashMap<String, String>>,
 }
 
@@ -171,11 +242,6 @@ impl Default for NexalConfig {
             nexal_home: None,
             workspace: home.join(".nexal").join("workspace"),
             soul_path: None,
-            telegram_bot_token: None,
-            telegram_allow_from: Vec::new(),
-            telegram_allow_chats: Vec::new(),
-            discord_bot_token: None,
-            discord_allow_guilds: Vec::new(),
             admins: Vec::new(),
             debounce_secs: 1.0,
             message_delay_secs: 10.0,
@@ -189,9 +255,14 @@ impl Default for NexalConfig {
             sandbox_network: true,
             jina_api_key: None,
             skills_dir: None,
-            http_channel_port: None,
+            channel: ChannelConfigs::default(),
             providers: HashMap::new(),
             otel: OtelConfig::default(),
+            // Backward-compat flat fields
+            telegram_bot_token: None,
+            discord_bot_token: None,
+            http_channel_port: None,
+            heartbeat_interval_mins: None,
         }
     }
 }
@@ -211,13 +282,7 @@ impl NexalConfig {
             .merge(
                 Env::prefixed("NEXAL_")
                     .split("__")
-                    // Map common env vars without prefix for convenience
-                    .map(|key| {
-                        match key.as_str() {
-                            // Allow TELEGRAM_BOT_TOKEN (no NEXAL_ prefix)
-                            _ => key.into(),
-                        }
-                    }),
+                    .map(|key| key.into()),
             );
 
         // Also merge non-prefixed env vars for backward compatibility
@@ -244,7 +309,26 @@ impl NexalConfig {
                 if config.soul_path.is_none() {
                     config.soul_path = Some(config.workspace.join("agents").join("SOUL.md"));
                 }
-                // Normalize all comma-separated list fields at load time
+
+                // ── Merge backward-compat flat fields into channel.* ──
+                if config.channel.telegram.bot_token.is_none() {
+                    if let Some(ref token) = config.telegram_bot_token {
+                        config.channel.telegram.bot_token = Some(token.clone());
+                    }
+                }
+                if config.channel.discord.bot_token.is_none() {
+                    if let Some(ref token) = config.discord_bot_token {
+                        config.channel.discord.bot_token = Some(token.clone());
+                    }
+                }
+                if config.channel.http.port.is_none() {
+                    config.channel.http.port = config.http_channel_port;
+                }
+                if config.channel.heartbeat.interval_mins.is_none() {
+                    config.channel.heartbeat.interval_mins = config.heartbeat_interval_mins;
+                }
+
+                // Normalize comma-separated list fields
                 fn normalize_list(v: &[String]) -> Vec<String> {
                     v.iter()
                         .flat_map(|s| s.split(',').map(|a| a.trim().trim_matches('@').to_string()))
@@ -252,9 +336,9 @@ impl NexalConfig {
                         .collect()
                 }
                 config.admins = normalize_list(&config.admins);
-                config.telegram_allow_from = normalize_list(&config.telegram_allow_from);
-                config.telegram_allow_chats = normalize_list(&config.telegram_allow_chats);
-                config.discord_allow_guilds = normalize_list(&config.discord_allow_guilds);
+                config.channel.telegram.allow_from = normalize_list(&config.channel.telegram.allow_from);
+                config.channel.telegram.allow_chats = normalize_list(&config.channel.telegram.allow_chats);
+                config.channel.discord.allow_guilds = normalize_list(&config.channel.discord.allow_guilds);
                 config
             }
             Err(e) => {
@@ -264,21 +348,18 @@ impl NexalConfig {
         }
     }
 
-    // ── Convenience accessors (backward compatible) ──
+    // ── Convenience accessors ──
 
-    /// Workspace directory (renamed from workspace_dir)
     pub fn workspace_dir(&self) -> &PathBuf {
         &self.workspace
     }
 
-    /// Effective SOUL.md path
     pub fn soul_path(&self) -> PathBuf {
         self.soul_path
             .clone()
             .unwrap_or_else(|| self.workspace.join("agents").join("SOUL.md"))
     }
 
-    /// Sandbox backend enum
     pub fn sandbox_backend(&self) -> SandboxBackend {
         match self.sandbox.to_lowercase().as_str() {
             "none" | "off" | "disabled" => SandboxBackend::None,
@@ -286,22 +367,14 @@ impl NexalConfig {
         }
     }
 
-    /// Read SOUL.md + SOUL.override.md content.
-    ///
-    /// SOUL.md is the base persona (user-controlled, highest priority).
-    /// SOUL.override.md is self-modifiable by the agent for style adjustments.
-    /// Combined as: SOUL.md + "\n\n" + SOUL.override.md
     pub async fn load_soul(&self) -> String {
         let path = self.soul_path();
-        // Always write the built-in persona to SOUL.md.
-        // Users customize via SOUL.override.md instead.
         if let Some(parent) = path.parent() {
             let _ = tokio::fs::create_dir_all(parent).await;
         }
         let _ = tokio::fs::write(&path, DEFAULT_SOUL).await;
         let base = DEFAULT_SOUL.to_string();
 
-        // Append agent's self-modified override if it exists
         let override_path = path.with_file_name("SOUL.override.md");
         let override_content = tokio::fs::read_to_string(&override_path)
             .await
@@ -319,18 +392,18 @@ impl NexalConfig {
     }
 
     pub fn is_telegram_allowed_user(&self, username: &str) -> bool {
-        self.telegram_allow_from.is_empty()
-            || self.telegram_allow_from.iter().any(|u| u == username)
+        self.channel.telegram.allow_from.is_empty()
+            || self.channel.telegram.allow_from.iter().any(|u| u == username)
     }
 
     pub fn is_telegram_allowed_chat(&self, chat_id: &str) -> bool {
-        self.telegram_allow_chats.is_empty()
-            || self.telegram_allow_chats.iter().any(|c| c == chat_id)
+        self.channel.telegram.allow_chats.is_empty()
+            || self.channel.telegram.allow_chats.iter().any(|c| c == chat_id)
     }
 
     pub fn is_discord_allowed_guild(&self, guild_id: &str) -> bool {
-        self.discord_allow_guilds.is_empty()
-            || self.discord_allow_guilds.iter().any(|g| g == guild_id)
+        self.channel.discord.allow_guilds.is_empty()
+            || self.channel.discord.allow_guilds.iter().any(|g| g == guild_id)
     }
 }
 
@@ -416,14 +489,19 @@ mod tests {
     }
 
     #[test]
-    fn figment_loads_providers_from_toml_string() {
+    fn nested_channel_config_from_toml() {
         use figment::providers::{Format, Serialized, Toml};
 
         let toml_str = r#"
-            [providers.test]
-            base_url = "https://example.com/v1"
-            wire_api = "chat"
-            thinking_mode = true
+            [channel.telegram]
+            bot_token = "123:ABC"
+            allow_from = ["alice"]
+
+            [channel.heartbeat]
+            interval_mins = 15
+
+            [channel.http]
+            port = 8080
         "#;
 
         let config: NexalConfig = Figment::new()
@@ -432,11 +510,10 @@ mod tests {
             .extract()
             .unwrap();
 
-        assert_eq!(config.providers.len(), 1);
-        let p = &config.providers["test"];
-        assert_eq!(p.base_url.as_deref(), Some("https://example.com/v1"));
-        assert_eq!(p.wire_api.as_deref(), Some("chat"));
-        assert!(p.thinking_mode);
+        assert_eq!(config.channel.telegram.bot_token.as_deref(), Some("123:ABC"));
+        assert_eq!(config.channel.telegram.allow_from, vec!["alice"]);
+        assert_eq!(config.channel.heartbeat.interval_mins, Some(15));
+        assert_eq!(config.channel.http.port, Some(8080));
     }
 
     #[test]

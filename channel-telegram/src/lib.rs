@@ -43,7 +43,7 @@ impl Channel for TelegramChannel {
     async fn start(&self, on_message: MessageCallback) -> anyhow::Result<()> {
         let token = self
             .config
-            .telegram_bot_token
+            .channel.telegram.bot_token
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("TELEGRAM_BOT_TOKEN is not set"))?
             .clone();
@@ -185,7 +185,7 @@ impl Channel for TelegramChannel {
     }
 
     fn start_typing(&self, chat_id: &str) -> Option<TypingHandle> {
-        let token = self.config.telegram_bot_token.as_ref()?.clone();
+        let token = self.config.channel.telegram.bot_token.as_ref()?.clone();
         let chat: ChatId = ChatId(chat_id.parse().ok()?);
         let cancel = CancellationToken::new();
         let cancel_clone = cancel.clone();
@@ -208,7 +208,7 @@ impl Channel for TelegramChannel {
     async fn send(&self, chat_id: &str, text: &str) -> anyhow::Result<()> {
         let token = self
             .config
-            .telegram_bot_token
+            .channel.telegram.bot_token
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("TELEGRAM_BOT_TOKEN not set"))?;
 

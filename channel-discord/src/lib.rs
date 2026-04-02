@@ -31,7 +31,7 @@ impl Channel for DiscordChannel {
     async fn start(&self, on_message: MessageCallback) -> anyhow::Result<()> {
         let token = self
             .config
-            .discord_bot_token
+            .channel.discord.bot_token
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("DISCORD_BOT_TOKEN is not set"))?
             .clone();
@@ -65,7 +65,7 @@ impl Channel for DiscordChannel {
         // This is a best-effort fallback using the REST API directly.
         let token = self
             .config
-            .discord_bot_token
+            .channel.discord.bot_token
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("DISCORD_BOT_TOKEN not set"))?;
 

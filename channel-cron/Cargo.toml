@@ -1,0 +1,18 @@
+[package]
+name = "nexal-channel-cron"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+nexal-config = { workspace = true }
+nexal-channel-core = { workspace = true }
+nexal-state = { workspace = true }
+
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+chrono = "0.4"
+cron = "0.15"
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }

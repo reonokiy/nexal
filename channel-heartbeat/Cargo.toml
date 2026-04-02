@@ -1,0 +1,13 @@
+[package]
+name = "nexal-channel-heartbeat"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+nexal-config = { workspace = true }
+nexal-channel-core = { workspace = true }
+
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
