@@ -228,26 +228,67 @@ impl AgentActor {
         );
 
         // Drain events until turn completes
-        let (response_buf, _) = self.drain_turn().await;
-        if response_buf.trim().is_empty() {
+        let (response_buf, had_tool_call) = self.drain_turn().await;
+
+        // If the model produced text but never made any tool call, it may have
+        // forgotten to use the channel send script.  Ask it to confirm whether
+        // it intentionally chose not to reply, giving it a chance to retry.
+        if !had_tool_call && !response_buf.trim().is_empty() {
             warn!(
                 session = %self.session_key,
                 thread = %self.thread_id,
-                "turn completed with empty text response"
+                response_len = response_buf.len(),
+                "model returned text without tool calls — sending nudge"
             );
-        } else {
-            info!(
+
+            let nudge = "[system] Your previous response was plain text and was NOT \
+                          delivered to the user. In headless mode, you must use the \
+                          channel send script (exec_command) to reply. If you \
+                          intentionally have nothing to say, call exec_command with \
+                          a no-op like `echo ok`. Otherwise, send your reply now."
+                .to_string();
+
+            let retry: Result<TurnStartResponse, _> = self
+                .client
+                .request_typed(ClientRequest::TurnStart {
+                    request_id: RequestId::Integer(2),
+                    params: TurnStartParams {
+                        thread_id: self.thread_id.clone(),
+                        input: vec![UserInput::Text {
+                            text: nudge,
+                            text_elements: vec![],
+                        }],
+                        cwd: Some(std::path::PathBuf::from("/workspace")),
+                        approval_policy: Some(ApiAskForApproval::Never),
+                        sandbox_policy: Some(ApiSandboxPolicy::WorkspaceWrite {
+                            writable_roots: vec![],
+                            read_only_access: Default::default(),
+                            network_access: self.config.sandbox_network,
+                            exclude_tmpdir_env_var: false,
+                            exclude_slash_tmp: false,
+                        }),
+                        ..Default::default()
+                    },
+                })
+                .await;
+
+            match retry {
+                Ok(_) => {
+                    let _ = self.drain_turn().await;
+                }
+                Err(e) => {
+                    warn!(session = %self.session_key, "nudge turn failed: {e}");
+                }
+            }
+        } else if !had_tool_call {
+            debug!(
                 session = %self.session_key,
                 thread = %self.thread_id,
-                response_len = response_buf.len(),
-                "turn completed with text response"
+                "turn completed with no tool calls and no text"
             );
         }
 
-        // In headless mode, the model should communicate exclusively via tool
-        // calls (telegram_send.py etc.). Any plain text the model produces is
-        // not meant for the user — it's either an internal reasoning artifact
-        // or a hallucination. Don't forward it.
+        // In headless mode, any remaining plain text is not delivered.
         let chunks = vec![];
         let _ = event_tx
             .send(AgentEvent::Response {
