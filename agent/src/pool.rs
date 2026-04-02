@@ -18,6 +18,7 @@ use crate::actor::{AgentActor, AgentEvent, AgentHandle, AgentMessage};
 use crate::runner::{
     build_client, build_nexal_config_loader, start_thread,
 };
+use crate::signal::StateSignalServer;
 
 /// A pool of persistent agent sessions, one per chat.
 ///
@@ -30,6 +31,8 @@ pub struct AgentPool {
     event_rx: Mutex<mpsc::Receiver<AgentEvent>>,
     /// Pre-created environment manager (e.g. for krun).
     environment_manager: Option<Arc<nexal_exec_server::EnvironmentManager>>,
+    /// State signal server for push-based BUSY→IDLE transitions.
+    signal_server: Option<Arc<StateSignalServer>>,
 }
 
 impl AgentPool {
@@ -45,6 +48,7 @@ impl AgentPool {
             event_tx,
             event_rx: Mutex::new(event_rx),
             environment_manager: None,
+            signal_server: None,
         })
     }
 
@@ -55,6 +59,16 @@ impl AgentPool {
         Arc::get_mut(&mut self)
             .expect("with_environment_manager must be called before sharing")
             .environment_manager = Some(env_manager);
+        self
+    }
+
+    pub fn with_signal_server(
+        mut self: Arc<Self>,
+        signal_server: Arc<StateSignalServer>,
+    ) -> Arc<Self> {
+        Arc::get_mut(&mut self)
+            .expect("with_signal_server must be called before sharing")
+            .signal_server = Some(signal_server);
         self
     }
 
@@ -126,11 +140,14 @@ impl AgentPool {
         let thread_id = start_thread(&mut client, &codex_config).await?;
         info!("in-process session ready: thread={thread_id}");
 
+        let signal_rx = self.signal_server.as_ref().map(|s| s.subscribe());
+
         Ok(AgentActor::new(
             key.to_string(),
             AppServerClient::InProcess(client),
             thread_id,
             Arc::clone(&self.config),
+            signal_rx,
         ))
     }
 
@@ -186,7 +203,11 @@ impl AgentPool {
                  running non-send scripts: the user sees NONE of this. If the user expects a \
                  response, follow up with a send.\n\
                  3. **Do not send duplicate messages.** Call the send script exactly once per reply \
-                 (unless you intentionally split into multiple short messages).\n\n\
+                 (unless you intentionally split into multiple short messages).\n\
+                 4. **Every incoming message MUST end with exactly one of:** \
+                 a send action (telegram_send, reaction, etc.) OR `./scripts/no_response.sh` \
+                 if you deliberately choose not to reply. You MUST NOT finish a turn without \
+                 doing one of these — the system will keep prompting you until you do.\n\n\
                  Each incoming message includes a `[channel=... chat_id=...]` header — use those \
                  values as arguments to the skill script.\n\n\
                  Other channel capabilities (send files, edit messages, reactions, etc.) are also \

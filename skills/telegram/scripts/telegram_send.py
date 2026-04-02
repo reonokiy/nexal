@@ -21,6 +21,20 @@ except ImportError:
     HAS_MARKDOWNIFY = False
 
 PROXY_SOCK = "/workspace/agents/proxy/api.telegram.org"
+STATE_SIGNAL_SOCK = "/workspace/agents/.state"
+
+
+def _signal_idle(chat_id: str):
+    """Send BUSY→IDLE state transition signal via the state signal socket."""
+    try:
+        sig_sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        sig_sock.connect(STATE_SIGNAL_SOCK)
+        # Session key format matches what the actor uses: "telegram:<chat_id>"
+        payload = json.dumps({"session": f"telegram:{chat_id}", "state": "IDLE"})
+        sig_sock.sendall((payload + "\n").encode())
+        sig_sock.close()
+    except Exception:
+        pass  # Best-effort; actor will nudge if signal is lost
 
 
 def unescape_newlines(text: str) -> str:
@@ -108,6 +122,7 @@ def main():
 
     try:
         send_message(chat_id, args.message, reply_to, mention_username)
+        _signal_idle(chat_id)
         print(f"Message sent to {chat_id}")
     except Exception as e:
         print(f"Error: {e}")

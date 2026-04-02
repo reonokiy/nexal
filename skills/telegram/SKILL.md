@@ -116,6 +116,34 @@ print(f"Downloaded to {output_path} ({len(file_resp.content)} bytes)")
 
 Run: `uv run download.py <file_id> [output_path]`
 
+## No Response (Explicit Skip)
+
+If you receive a message and intentionally decide **not** to reply (e.g. irrelevant chatter, no action needed), you **MUST** call this script to signal your decision. Do NOT silently ignore messages — either send a reply or call `no_response.sh`.
+
+```bash
+./scripts/no_response.sh --chat-id <CHAT_ID>
+```
+
+Every incoming message **requires** exactly one of:
+1. A `telegram_send.py` call (reply to the user), OR
+2. A `telegram_edit.py` call, OR
+3. A Telegram API reaction/action call (with manual signal — see below), OR
+4. A `no_response.sh --chat-id <CHAT_ID>` call (explicit skip)
+
+If you do none of the above, the system will prompt you again.
+
+### Custom API Calls and State Signal
+
+When using the Custom API Calls pattern (e.g. `setMessageReaction`, `sendPhoto`) instead of the provided scripts, you must manually signal completion by sending to the state signal socket:
+
+```python
+import socket, json
+sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+sock.connect("/workspace/agents/.state")
+sock.sendall(json.dumps({"session": f"telegram:{chat_id}", "state": "IDLE"}).encode() + b"\n")
+sock.close()
+```
+
 ## Failure Handling
 
 - On HTTP errors, inspect API response and adjust.

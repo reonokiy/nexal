@@ -229,7 +229,20 @@ async fn maybe_start_channels(
     // corrupt the terminal UI.
     init_tracing_to_file(&config.workspace);
 
-    let pool = AgentPool::new(Arc::clone(&config));
+    // Start state signal socket for push-based BUSY→IDLE transitions.
+    let agents_dir = config.workspace.join("agents");
+    let signal_server = match nexal_agent::StateSignalServer::start(&agents_dir).await {
+        Ok(server) => Some(Arc::new(server)),
+        Err(e) => {
+            tracing::warn!("failed to start state signal server: {e}");
+            None
+        }
+    };
+
+    let mut pool = AgentPool::new(Arc::clone(&config));
+    if let Some(ref server) = signal_server {
+        pool = pool.with_signal_server(Arc::clone(server));
+    }
     let debounce_config = DebounceConfig {
         debounce_secs: config.debounce_secs,
         delay_secs: config.message_delay_secs,
@@ -877,11 +890,26 @@ async fn run_idle(args: IdleArgs, config: Arc<NexalConfig>) -> anyhow::Result<()
         }
     }
 
+    // Start the state signal socket for push-based BUSY→IDLE transitions.
+    // Tool scripts (telegram_send, no_response, etc.) connect to this socket
+    // to signal they have completed a response action.
+    let agents_dir = config.workspace.join("agents");
+    let signal_server = match nexal_agent::StateSignalServer::start(&agents_dir).await {
+        Ok(server) => Some(Arc::new(server)),
+        Err(e) => {
+            tracing::warn!("failed to start state signal server: {e}");
+            None
+        }
+    };
+
     let mut pool = AgentPool::new(Arc::clone(&config));
     if let Some(ref handle) = sandbox {
         if let Some(ref env_mgr) = handle.environment_manager {
             pool = pool.with_environment_manager(Arc::clone(env_mgr));
         }
+    }
+    if let Some(ref server) = signal_server {
+        pool = pool.with_signal_server(Arc::clone(server));
     }
     let debounce_config = DebounceConfig {
         debounce_secs: config.debounce_secs,

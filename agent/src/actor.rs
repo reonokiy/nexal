@@ -16,8 +16,10 @@ use nexal_app_server_protocol::ServerNotification;
 use nexal_app_server_protocol::TurnStartParams;
 use nexal_app_server_protocol::UserInput;
 use nexal_config::NexalConfig;
-use tokio::sync::mpsc;
+use tokio::sync::{broadcast, mpsc};
 use tracing::{debug, info, warn};
+
+use crate::signal::StateSignal;
 
 use crate::runner::reject_all_server_requests;
 
@@ -77,12 +79,25 @@ impl AgentHandle {
     }
 }
 
+/// Result of draining a single turn.
+struct DrainResult {
+    /// Accumulated plain-text output from the model.
+    text: String,
+    /// Whether any tool call (of any kind) was executed.
+    had_tool_call: bool,
+    /// Whether a "response action" was taken — i.e. a tool call that counts
+    /// as the agent having made a deliberate send-or-skip decision.
+    had_response_action: bool,
+}
+
 /// A running agent actor.
 pub(crate) struct AgentActor {
     session_key: String,
     client: AppServerClient,
     thread_id: String,
     config: Arc<NexalConfig>,
+    /// Receiver for push-based state signals from tool scripts.
+    signal_rx: Option<broadcast::Receiver<StateSignal>>,
 }
 
 impl AgentActor {
@@ -91,12 +106,14 @@ impl AgentActor {
         client: AppServerClient,
         thread_id: String,
         config: Arc<NexalConfig>,
+        signal_rx: Option<broadcast::Receiver<StateSignal>>,
     ) -> Self {
         Self {
             session_key,
             client,
             thread_id,
             config,
+            signal_rx,
         }
     }
 
@@ -228,34 +245,71 @@ impl AgentActor {
         );
 
         // Drain events until turn completes
-        let (response_buf, had_tool_call) = self.drain_turn().await;
+        let mut result = self.drain_turn().await;
 
-        // If the model produced text but never made any tool call, it may have
-        // forgotten to use the channel send script.  Ask it to confirm whether
-        // it intentionally chose not to reply, giving it a chance to retry.
-        if !had_tool_call && !response_buf.trim().is_empty() {
+        // ── Response-action state machine ──
+        // The agent is now "busy". It must transition back to "idle" by taking
+        // a response action: telegram_send, telegram_edit, a reaction API call,
+        // or the explicit no_response script.  If none of these happened, nudge
+        // the model up to MAX_NUDGES times.
+        const MAX_NUDGES: usize = 2;
+        let mut nudge_count = 0;
+
+        while !result.had_response_action && nudge_count < MAX_NUDGES {
+            nudge_count += 1;
+
+            let nudge_msg = if !result.had_tool_call && !result.text.trim().is_empty() {
+                // Model produced plain text but no tool calls at all.
+                format!(
+                    "[system] Your previous response was plain text and was NOT \
+                     delivered to the user. In headless mode, plain text is silently \
+                     discarded.\n\n\
+                     You MUST take one of these actions:\n\
+                     1. Send a reply: exec_command with telegram_send.py\n\
+                     2. Explicitly skip: exec_command with `./scripts/no_response.sh`\n\n\
+                     Do one of the above NOW. (nudge {nudge_count}/{MAX_NUDGES})"
+                )
+            } else if result.had_tool_call {
+                // Model made tool calls (e.g. reading files, thinking) but
+                // never actually sent a message or called no_response.
+                format!(
+                    "[system] You executed tool calls but did NOT send a message to \
+                     the user and did NOT call no_response.sh. The user is still \
+                     waiting.\n\n\
+                     You MUST take one of these actions:\n\
+                     1. Send a reply: exec_command with telegram_send.py\n\
+                     2. Explicitly skip: exec_command with `./scripts/no_response.sh`\n\n\
+                     Do one of the above NOW. (nudge {nudge_count}/{MAX_NUDGES})"
+                )
+            } else {
+                // No tool calls and no text — model just returned empty.
+                format!(
+                    "[system] You completed a turn without any output or action. \
+                     The user sent a message and is waiting for a response.\n\n\
+                     You MUST take one of these actions:\n\
+                     1. Send a reply: exec_command with telegram_send.py\n\
+                     2. Explicitly skip: exec_command with `./scripts/no_response.sh`\n\n\
+                     Do one of the above NOW. (nudge {nudge_count}/{MAX_NUDGES})"
+                )
+            };
+
             warn!(
                 session = %self.session_key,
                 thread = %self.thread_id,
-                response_len = response_buf.len(),
-                "model returned text without tool calls — sending nudge"
+                nudge = nudge_count,
+                had_tool_call = result.had_tool_call,
+                had_text = !result.text.trim().is_empty(),
+                "no response action taken — sending nudge"
             );
-
-            let nudge = "[system] Your previous response was plain text and was NOT \
-                          delivered to the user. In headless mode, you must use the \
-                          channel send script (exec_command) to reply. If you \
-                          intentionally have nothing to say, call exec_command with \
-                          a no-op like `echo ok`. Otherwise, send your reply now."
-                .to_string();
 
             let retry: Result<TurnStartResponse, _> = self
                 .client
                 .request_typed(ClientRequest::TurnStart {
-                    request_id: RequestId::Integer(2),
+                    request_id: RequestId::Integer(1 + nudge_count as i64),
                     params: TurnStartParams {
                         thread_id: self.thread_id.clone(),
                         input: vec![UserInput::Text {
-                            text: nudge,
+                            text: nudge_msg,
                             text_elements: vec![],
                         }],
                         cwd: Some(std::path::PathBuf::from("/workspace")),
@@ -274,17 +328,21 @@ impl AgentActor {
 
             match retry {
                 Ok(_) => {
-                    let _ = self.drain_turn().await;
+                    result = self.drain_turn().await;
                 }
                 Err(e) => {
                     warn!(session = %self.session_key, "nudge turn failed: {e}");
+                    break;
                 }
             }
-        } else if !had_tool_call {
-            debug!(
+        }
+
+        if !result.had_response_action {
+            warn!(
                 session = %self.session_key,
                 thread = %self.thread_id,
-                "turn completed with no tool calls and no text"
+                nudges = nudge_count,
+                "agent never took a response action after all nudges"
             );
         }
 
@@ -310,10 +368,10 @@ impl AgentActor {
     }
 
     /// Drain the event stream until `TurnCompleted` or `Error`.
-    /// Returns the text buffer and whether any tool call ran (success or failure).
-    async fn drain_turn(&mut self) -> (String, bool) {
+    async fn drain_turn(&mut self) -> DrainResult {
         let mut buf = String::new();
         let mut had_any_tool_call = false;
+        let mut had_response_action = false;
         let thread_id = &self.thread_id;
 
         // Timeout to avoid hanging forever if API silently fails
@@ -394,6 +452,23 @@ impl AgentActor {
                         }
                     }
                 }
+                // Push-based state signal from tool scripts via Unix socket.
+                signal = async {
+                    match self.signal_rx {
+                        Some(ref mut rx) => rx.recv().await,
+                        None => std::future::pending().await,
+                    }
+                } => {
+                    if let Ok(sig) = signal {
+                        if sig.session == self.session_key && sig.state == "IDLE" {
+                            info!(
+                                session = %self.session_key,
+                                "received IDLE signal from tool script"
+                            );
+                            had_response_action = true;
+                        }
+                    }
+                }
                 _ = &mut timeout => {
                     warn!(session = %self.session_key, "drain_turn timed out after 120s");
                     if buf.is_empty() {
@@ -404,7 +479,11 @@ impl AgentActor {
             }
         }
 
-        (buf, had_any_tool_call)
+        DrainResult {
+            text: buf,
+            had_tool_call: had_any_tool_call,
+            had_response_action,
+        }
     }
 }
 
@@ -455,6 +534,7 @@ fn render_channel_context(
     out.push_str(text);
     out
 }
+
 
 /// Compress an image to a max dimension of 768px and encode as a data URI.
 /// This keeps images small enough for LLM vision context while still readable.

@@ -4,11 +4,13 @@ pub mod db_sync;
 mod pool;
 pub mod proxy;
 mod runner;
+pub mod signal;
 pub mod skills;
 
 pub use actor::{AgentEvent, AgentHandle, AgentMessage};
 pub use bot::Bot;
 pub use pool::AgentPool;
+pub use signal::StateSignalServer;
 
 /// Split a model response into ≤4096-char chunks at blank lines,
 /// suitable for sending as separate bot messages.
