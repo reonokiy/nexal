@@ -1552,21 +1552,37 @@ fn convert_prompt_to_chat_messages(
                 call_id,
                 ..
             } => {
-                messages.push(ChatMessage {
-                    role: "assistant".to_string(),
-                    content: None,
-                    name: None,
-                    tool_calls: Some(vec![ChatToolCallMessage {
-                        id: call_id.clone(),
-                        r#type: "function".to_string(),
-                        function: ChatFunctionCall {
-                            name: name.clone(),
-                            arguments: arguments.clone(),
-                        },
-                    }]),
-                    tool_call_id: None,
-                    reasoning_content: if thinking_mode { Some(String::new()) } else { None },
-                });
+                if thinking_mode {
+                    // Thinking-mode providers (e.g. Kimi) reject standard tool_calls
+                    // in conversation history. Inline the call as assistant text so
+                    // the model can still see what tool it called previously.
+                    messages.push(ChatMessage {
+                        role: "assistant".to_string(),
+                        content: Some(serde_json::Value::String(
+                            format!("[Tool call: {name}({arguments})]")
+                        )),
+                        name: None,
+                        tool_calls: None,
+                        tool_call_id: None,
+                        reasoning_content: Some(String::new()),
+                    });
+                } else {
+                    messages.push(ChatMessage {
+                        role: "assistant".to_string(),
+                        content: None,
+                        name: None,
+                        tool_calls: Some(vec![ChatToolCallMessage {
+                            id: call_id.clone(),
+                            r#type: "function".to_string(),
+                            function: ChatFunctionCall {
+                                name: name.clone(),
+                                arguments: arguments.clone(),
+                            },
+                        }]),
+                        tool_call_id: None,
+                        reasoning_content: None,
+                    });
+                }
             }
             ResponseItem::FunctionCallOutput {
                 call_id, output, ..
@@ -1578,14 +1594,28 @@ fn convert_prompt_to_chat_messages(
                     }
                 };
                 let text = remap(text);
-                messages.push(ChatMessage {
-                    role: "tool".to_string(),
-                    content: Some(serde_json::Value::String(text)),
-                    name: None,
-                    tool_calls: None,
-                    tool_call_id: Some(call_id.clone()),
-                    reasoning_content: None,
-                });
+                if thinking_mode {
+                    // Inline tool result as assistant message for thinking-mode providers.
+                    messages.push(ChatMessage {
+                        role: "assistant".to_string(),
+                        content: Some(serde_json::Value::String(
+                            format!("[Tool result]\n{text}")
+                        )),
+                        name: None,
+                        tool_calls: None,
+                        tool_call_id: None,
+                        reasoning_content: Some(String::new()),
+                    });
+                } else {
+                    messages.push(ChatMessage {
+                        role: "tool".to_string(),
+                        content: Some(serde_json::Value::String(text)),
+                        name: None,
+                        tool_calls: None,
+                        tool_call_id: Some(call_id.clone()),
+                        reasoning_content: None,
+                    });
+                }
             }
             // Skip reasoning, local shell calls, etc. for chat completions
             _ => {}
