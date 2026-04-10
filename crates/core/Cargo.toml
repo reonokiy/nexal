@@ -5,7 +5,6 @@ name = "nexal-core"
 version.workspace = true
 
 [lib]
-doctest = false
 name = "nexal_core"
 path = "src/lib.rs"
 
@@ -111,7 +110,6 @@ url = { workspace = true }
 uuid = { workspace = true, features = ["serde", "v4", "v5"] }
 which = { workspace = true }
 wildmatch = { workspace = true }
-zip = { workspace = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 landlock = { workspace = true }

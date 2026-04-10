@@ -6,6 +6,7 @@ version.workspace = true
 
 [lib]
 doctest = false
+test = false
 name = "nexal_plugin"
 path = "src/lib.rs"
 

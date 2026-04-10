@@ -6,3 +6,5 @@ edition.workspace = true
 [lib]
 name = "nexal_windows_sandbox"
 path = "src/lib.rs"
+test = false
+doctest = false

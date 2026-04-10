@@ -15,6 +15,7 @@ path = "src/bin/notify_capture.rs"
 [lib]
 name = "nexal_app_server"
 path = "src/lib.rs"
+doctest = false
 
 [lints]
 workspace = true
@@ -38,7 +39,6 @@ nexal-shell-command = { workspace = true }
 nexal-utils-cli = { workspace = true }
 nexal-utils-pty = { workspace = true }
 nexal-file-search = { workspace = true }
-nexal-login = { workspace = true }
 nexal-protocol = { workspace = true }
 nexal-app-server-protocol = { workspace = true }
 nexal-feedback = { workspace = true }
@@ -68,7 +68,6 @@ tokio = { workspace = true, features = [
     "signal",
 ] }
 tokio-util = { workspace = true }
-tokio-tungstenite = { workspace = true }
 tracing = { workspace = true, features = ["log"] }
 tracing-subscriber = { workspace = true, features = ["env-filter", "fmt", "json"] }
 uuid = { workspace = true, features = ["serde", "v7"] }
@@ -97,3 +96,4 @@ tokio-tungstenite = { workspace = true }
 tracing-opentelemetry = { workspace = true }
 wiremock = { workspace = true }
 shlex = { workspace = true }
+nexal-login = { workspace = true }

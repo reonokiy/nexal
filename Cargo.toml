@@ -162,10 +162,6 @@ nexal-utils-sleep-inhibitor = { path = "crates/utils/sleep-inhibitor" }
 nexal-utils-stream-parser = { path = "crates/utils/stream-parser" }
 nexal-utils-string = { path = "crates/utils/string" }
 nexal-utils-template = { path = "crates/utils/template" }
-
-# ── External dependencies (merged from codex-rs + nexal-rs) ──
-age = "0.11.1"
-allocative = "0.3.3"
 ansi-to-tui = "7.0.0"
 anyhow = "1"
 arboard = { version = "3", features = ["wayland-data-control"] }
@@ -173,7 +169,6 @@ arc-swap = "1.9.0"
 assert_cmd = "2"
 assert_matches = "1.5.0"
 async-channel = "2.3.1"
-async-stream = "0.3.6"
 async-trait = "0.1.89"
 axum = { version = "0.8", default-features = false }
 base64 = "0.22.1"
@@ -182,7 +177,6 @@ bytes = "1.10.1"
 chardetng = "0.1.17"
 chrono = "0.4.43"
 clap = { version = "4", features = ["derive", "env"] }
-clap_complete = "4"
 color-eyre = "0.6.3"
 constant_time_eq = "0.3.1"
 crossbeam-channel = "0.5.15"
@@ -197,13 +191,9 @@ dotenvy = "0.15.7"
 dunce = "1.0.4"
 encoding_rs = "0.8.35"
 env-flags = "0.1.1"
-env_logger = "0.11.9"
 eventsource-stream = "0.2.3"
-fd-lock = "4.0.4"
 figment = { version = "0.10", features = ["toml", "env"] }
-flate2 = "1.1.4"
 futures = { version = "0.3", default-features = false }
-gethostname = "1.1.0"
 globset = "0.4"
 hmac = "0.12.1"
 http = "1.3.1"
@@ -227,7 +217,6 @@ log = "0.4"
 lru = "0.16.3"
 maplit = "1.0.2"
 mime_guess = "2.0.5"
-multimap = "0.10.0"
 notify = "8.2.0"
 nucleo = { git = "https://github.com/helix-editor/nucleo.git", rev = "4253de9faabb4e5c6d81d946a5e35a90f87347ee" }
 once_cell = "1.20.2"
@@ -256,8 +245,6 @@ rustls-native-certs = "0.8.3"
 rustls-pki-types = "1.14.0"
 schemars = "0.8.22"
 seccompiler = "0.5.0"
-semver = "1.0"
-sentry = "0.46.0"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_path_to_error = "0.1.20"
@@ -277,7 +264,6 @@ strum_macros = "0.28.0"
 supports-color = "3.0.2"
 syntect = "5"
 sys-locale = "0.3.2"
-tar = "0.4.45"
 tempfile = "3.23.0"
 test-log = "0.2.19"
 textwrap = "0.16.2"
@@ -311,11 +297,8 @@ walkdir = "2.5.0"
 webbrowser = "1.0"
 which = "8"
 wildmatch = "2.6.1"
-uds_windows = "1.1.0"
 v8 = "=146.4.0"
 wiremock = "0.6"
-zeroize = "1.8.2"
-zip = "2.4.2"
 zstd = "0.13"
 
 # Nexal-specific deps
@@ -336,8 +319,6 @@ unwrap_used = "deny"
 ignored = [
     "icu_provider",
     "openssl-sys",
-    "nexal-utils-readiness",
-    "nexal-utils-template",
 ]
 
 [profile.release]
