@@ -1,7 +1,7 @@
 use anyhow::Result;
 use nexal_core::ForkSnapshot;
 use nexal_core::config::Constrained;
-use nexal_execpolicy::Policy;
+use nexal_protocol::exec_policy::Policy;
 use nexal_protocol::models::DeveloperInstructions;
 use nexal_protocol::protocol::AskForApproval;
 use nexal_protocol::protocol::EventMsg;

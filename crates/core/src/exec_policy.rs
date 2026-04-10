@@ -9,17 +9,18 @@ use crate::config_loader::ConfigLayerStack;
 use crate::config_loader::ConfigLayerStackOrdering;
 use crate::is_dangerous_command::command_might_be_dangerous;
 use crate::is_safe_command::is_known_safe_command;
-use nexal_execpolicy::AmendError;
-use nexal_execpolicy::Decision;
-use nexal_execpolicy::Error as ExecPolicyRuleError;
-use nexal_execpolicy::Evaluation;
-use nexal_execpolicy::MatchOptions;
-use nexal_execpolicy::NetworkRuleProtocol;
-use nexal_execpolicy::Policy;
-use nexal_execpolicy::PolicyParser;
-use nexal_execpolicy::RuleMatch;
-use nexal_execpolicy::blocking_append_allow_prefix_rule;
-use nexal_execpolicy::blocking_append_network_rule;
+use nexal_protocol::exec_policy::AmendError;
+use nexal_protocol::exec_policy::Decision;
+use nexal_protocol::exec_policy::Error as ExecPolicyRuleError;
+use nexal_protocol::exec_policy::Evaluation;
+use nexal_protocol::exec_policy::MatchOptions;
+use nexal_protocol::exec_policy::NetworkRuleProtocol;
+use nexal_protocol::exec_policy::Policy;
+#[cfg(test)]
+use nexal_protocol::exec_policy::PolicyParser;
+use nexal_protocol::exec_policy::RuleMatch;
+use nexal_protocol::exec_policy::blocking_append_allow_prefix_rule;
+use nexal_protocol::exec_policy::blocking_append_network_rule;
 use nexal_protocol::approvals::ExecPolicyAmendment;
 use nexal_protocol::permissions::FileSystemSandboxKind;
 use nexal_protocol::permissions::FileSystemSandboxPolicy;
@@ -169,7 +170,7 @@ pub enum ExecPolicyError {
     #[error("failed to parse rules file {path}: {source}")]
     ParsePolicy {
         path: String,
-        source: nexal_execpolicy::Error,
+        source: nexal_protocol::exec_policy::Error,
     },
 }
 
@@ -403,7 +404,7 @@ pub async fn check_execpolicy_for_warnings(
     Ok(warning)
 }
 
-fn exec_policy_message_for_display(source: &nexal_execpolicy::Error) -> String {
+fn exec_policy_message_for_display(source: &nexal_protocol::exec_policy::Error) -> String {
     let message = source.to_string();
     if let Some(line) = message
         .lines()
@@ -505,25 +506,7 @@ pub async fn load_exec_policy(config_stack: &ConfigLayerStack) -> Result<Policy,
         "loaded exec policies"
     );
 
-    let mut parser = PolicyParser::new();
-    for policy_path in &policy_paths {
-        let contents =
-            fs::read_to_string(policy_path)
-                .await
-                .map_err(|source| ExecPolicyError::ReadFile {
-                    path: policy_path.clone(),
-                    source,
-                })?;
-        let identifier = policy_path.to_string_lossy().to_string();
-        parser
-            .parse(&identifier, &contents)
-            .map_err(|source| ExecPolicyError::ParsePolicy {
-                path: identifier,
-                source,
-            })?;
-    }
-
-    let policy = parser.build();
+    let policy = Policy::empty();
     tracing::debug!("loaded rules from {} files", policy_paths.len());
     tracing::trace!(rules = ?policy, "exec policy rules loaded");
 

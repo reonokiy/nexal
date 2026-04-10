@@ -9,7 +9,6 @@ workspace = true
 
 [dependencies]
 nexal-app-server-protocol = { workspace = true }
-nexal-execpolicy = { workspace = true }
 nexal-protocol = { workspace = true }
 nexal-utils-absolute-path = { workspace = true }
 futures = { workspace = true, features = ["alloc", "std"] }

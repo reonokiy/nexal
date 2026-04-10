@@ -22,7 +22,7 @@ use crate::protocol::REALTIME_CONVERSATION_OPEN_TAG;
 use crate::protocol::SandboxPolicy;
 use crate::protocol::WritableRoot;
 use crate::user_input::UserInput;
-use nexal_execpolicy::Policy;
+use crate::exec_policy::Policy;
 use nexal_git_utils::GhostCommit;
 use nexal_utils_absolute_path::AbsolutePathBuf;
 use nexal_utils_image::error::ImageProcessingError;
@@ -1529,7 +1529,7 @@ mod tests {
     use crate::protocol::AskForApproval;
     use crate::protocol::GranularApprovalConfig;
     use anyhow::Result;
-    use nexal_execpolicy::Policy;
+    use crate::exec_policy::Policy;
     use pretty_assertions::assert_eq;
     use std::path::PathBuf;
     use tempfile::tempdir;
@@ -1988,7 +1988,7 @@ mod tests {
         exec_policy
             .add_prefix_rule(
                 &["git".to_string(), "pull".to_string()],
-                nexal_execpolicy::Decision::Allow,
+                crate::exec_policy::Decision::Allow,
             )
             .expect("add rule");
         let instructions = DeveloperInstructions::from_permissions_with_network(
@@ -2373,7 +2373,7 @@ mod tests {
             exec_policy
                 .add_prefix_rule(
                     &[format!("tool-{i:03}"), "x".repeat(500)],
-                    nexal_execpolicy::Decision::Allow,
+                    crate::exec_policy::Decision::Allow,
                 )
                 .expect("add rule");
         }

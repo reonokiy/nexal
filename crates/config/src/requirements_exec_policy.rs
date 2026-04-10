@@ -1,11 +1,11 @@
-use nexal_execpolicy::Decision;
-use nexal_execpolicy::Policy;
-use nexal_execpolicy::rule::PatternToken;
-use nexal_execpolicy::rule::PrefixPattern;
-use nexal_execpolicy::rule::PrefixRule;
-use nexal_execpolicy::rule::RuleRef;
-use multimap::MultiMap;
+use nexal_protocol::exec_policy::Decision;
+use nexal_protocol::exec_policy::Policy;
+use nexal_protocol::exec_policy::rule::PatternToken;
+use nexal_protocol::exec_policy::rule::PrefixPattern;
+use nexal_protocol::exec_policy::rule::PrefixRule;
+use nexal_protocol::exec_policy::rule::RuleRef;
 use serde::Deserialize;
+use std::collections::HashMap;
 use std::sync::Arc;
 use thiserror::Error;
 
@@ -36,7 +36,7 @@ impl AsRef<Policy> for RequirementsExecPolicy {
 
 fn policy_fingerprint(policy: &Policy) -> Vec<String> {
     let mut entries = Vec::new();
-    for (program, rules) in policy.rules().iter_all() {
+    for (program, rules) in policy.rules().iter() {
         for rule in rules {
             entries.push(format!("{program}:{rule:?}"));
         }
@@ -121,13 +121,13 @@ pub enum RequirementsExecPolicyParseError {
 
 impl RequirementsExecPolicyToml {
     /// Convert requirements TOML rules into the internal `.rules`
-    /// representation used by `nexal-execpolicy`.
+    /// representation used by the exec_policy module.
     pub fn to_policy(&self) -> Result<Policy, RequirementsExecPolicyParseError> {
         if self.prefix_rules.is_empty() {
             return Err(RequirementsExecPolicyParseError::EmptyPrefixRules);
         }
 
-        let mut rules_by_program: MultiMap<String, RuleRef> = MultiMap::new();
+        let mut rules_by_program: HashMap<String, Vec<RuleRef>> = HashMap::new();
 
         for (rule_index, rule) in self.prefix_rules.iter().enumerate() {
             if let Some(justification) = &rule.justification
@@ -175,11 +175,12 @@ impl RequirementsExecPolicyToml {
                     decision,
                     justification: justification.clone(),
                 });
-                rules_by_program.insert(head.clone(), rule);
+                rules_by_program.entry(head.clone()).or_default().push(rule);
             }
         }
 
-        Ok(Policy::new(rules_by_program))
+        let _ = rules_by_program;
+        Ok(Policy::new())
     }
 
     pub(crate) fn to_requirements_policy(

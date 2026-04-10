@@ -2,7 +2,7 @@ use crate::nexal::PreviousTurnSettings;
 use crate::nexal::TurnContext;
 use crate::environment_context::EnvironmentContext;
 use crate::shell::Shell;
-use nexal_execpolicy::Policy;
+use nexal_protocol::exec_policy::Policy;
 use nexal_features::Feature;
 use nexal_protocol::config_types::Personality;
 use nexal_protocol::models::ContentItem;

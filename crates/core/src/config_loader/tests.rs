@@ -1456,9 +1456,9 @@ mod requirements_exec_policy_tests {
     use nexal_config_loader::RequirementsExecPolicyPatternTokenToml;
     use nexal_config_loader::RequirementsExecPolicyPrefixRuleToml;
     use nexal_config_loader::RequirementsExecPolicyToml;
-    use nexal_execpolicy::Decision;
-    use nexal_execpolicy::Evaluation;
-    use nexal_execpolicy::RuleMatch;
+    use nexal_protocol::exec_policy::Decision;
+    use nexal_protocol::exec_policy::Evaluation;
+    use nexal_protocol::exec_policy::RuleMatch;
     use nexal_utils_absolute_path::AbsolutePathBuf;
     use pretty_assertions::assert_eq;
     use std::path::Path;

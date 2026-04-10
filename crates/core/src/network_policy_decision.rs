@@ -1,5 +1,5 @@
-use nexal_execpolicy::Decision as ExecPolicyDecision;
-use nexal_execpolicy::NetworkRuleProtocol as ExecPolicyNetworkRuleProtocol;
+use nexal_protocol::exec_policy::Decision as ExecPolicyDecision;
+use nexal_protocol::exec_policy::NetworkRuleProtocol as ExecPolicyNetworkRuleProtocol;
 use nexal_network_proxy::BlockedRequest;
 use nexal_network_proxy::NetworkDecisionSource;
 use nexal_network_proxy::NetworkPolicyDecision;

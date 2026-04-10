@@ -1,6 +1,6 @@
 use crate::config_loader::NetworkConstraints;
 use async_trait::async_trait;
-use nexal_execpolicy::Policy;
+use nexal_protocol::exec_policy::Policy;
 use nexal_network_proxy::BlockedRequestObserver;
 use nexal_network_proxy::ConfigReloader;
 use nexal_network_proxy::ConfigState;

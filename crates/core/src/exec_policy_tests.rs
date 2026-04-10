@@ -289,7 +289,7 @@ async fn merges_requirements_exec_policy_network_rules() -> anyhow::Result<()> {
     let mut requirements_exec_policy = Policy::empty();
     requirements_exec_policy.add_network_rule(
         "blocked.example.com",
-        nexal_execpolicy::NetworkRuleProtocol::Https,
+        nexal_protocol::exec_policy::NetworkRuleProtocol::Https,
         Decision::Forbidden,
         None,
     )?;
@@ -336,7 +336,7 @@ host_executable(name = "git", paths = ["{git_path_literal}"])
     let mut requirements_exec_policy = Policy::empty();
     requirements_exec_policy.add_network_rule(
         "blocked.example.com",
-        nexal_execpolicy::NetworkRuleProtocol::Https,
+        nexal_protocol::exec_policy::NetworkRuleProtocol::Https,
         Decision::Forbidden,
         None,
     )?;

@@ -19,10 +19,10 @@ use crate::protocol::GranularApprovalConfig;
 use crate::protocol::ReadOnlyAccess;
 use crate::protocol::SandboxPolicy;
 use crate::sandboxing::SandboxPermissions;
-use nexal_execpolicy::Decision;
-use nexal_execpolicy::Evaluation;
-use nexal_execpolicy::PolicyParser;
-use nexal_execpolicy::RuleMatch;
+use nexal_protocol::exec_policy::Decision;
+use nexal_protocol::exec_policy::Evaluation;
+use nexal_protocol::exec_policy::PolicyParser;
+use nexal_protocol::exec_policy::RuleMatch;
 #[cfg(target_os = "macos")]
 use nexal_protocol::config_types::WindowsSandboxLevel;
 use nexal_protocol::models::FileSystemPermissions;

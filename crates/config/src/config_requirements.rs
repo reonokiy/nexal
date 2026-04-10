@@ -695,9 +695,9 @@ impl TryFrom<ConfigRequirementsWithSources> for ConfigRequirements {
 mod tests {
     use super::*;
     use anyhow::Result;
-    use nexal_execpolicy::Decision;
-    use nexal_execpolicy::Evaluation;
-    use nexal_execpolicy::RuleMatch;
+    use nexal_protocol::exec_policy::Decision;
+    use nexal_protocol::exec_policy::Evaluation;
+    use nexal_protocol::exec_policy::RuleMatch;
     use nexal_protocol::protocol::NetworkAccess;
     use nexal_utils_absolute_path::AbsolutePathBuf;
     use pretty_assertions::assert_eq;

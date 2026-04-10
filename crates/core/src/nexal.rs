@@ -1205,7 +1205,7 @@ impl Session {
 
     async fn start_managed_network_proxy(
         spec: &crate::config::NetworkProxySpec,
-        exec_policy: &nexal_execpolicy::Policy,
+        exec_policy: &nexal_protocol::exec_policy::Policy,
         sandbox_policy: &SandboxPolicy,
         network_policy_decider: Option<Arc<dyn nexal_network_proxy::NetworkPolicyDecider>>,
         blocked_request_observer: Option<Arc<dyn nexal_network_proxy::BlockedRequestObserver>>,
