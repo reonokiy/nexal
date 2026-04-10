@@ -347,7 +347,8 @@ ignored = [
 lto = "thin"
 split-debuginfo = "off"
 strip = "symbols"
-codegen-units = 16
+codegen-units = 1
+panic = "abort"
 
 [patch.crates-io]
 crossterm = { git = "https://github.com/nornagon/crossterm", branch = "nornagon/color-query" }

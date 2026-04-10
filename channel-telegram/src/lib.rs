@@ -280,8 +280,11 @@ async fn extract_message_content(
 
         MediaKind::Sticker(sticker) => {
             let emoji = sticker.sticker.emoji.clone().unwrap_or_default();
+            let set_name = sticker.sticker.set_name.clone().unwrap_or_default();
             let mut images = Vec::new();
-            // Download thumbnail as image
+            // Use the thumbnail (~128x128 JPEG) for model context — enough
+            // to understand the sticker without wasting tokens on a full 512x512.
+            // Fall back to the full sticker file only if no thumbnail exists.
             if let Some(thumb) = &sticker.sticker.thumbnail {
                 if let Ok(data) = download_file(bot, &thumb.file.id).await {
                     images.push(ImageAttachment {
@@ -290,8 +293,25 @@ async fn extract_message_content(
                         filename: format!("{}.jpg", thumb.file.unique_id),
                     });
                 }
+            } else if !sticker.sticker.is_animated() && !sticker.sticker.is_video() {
+                // Static sticker with no thumbnail — download the webp directly
+                if let Ok(data) = download_file(bot, &sticker.sticker.file.id).await {
+                    images.push(ImageAttachment {
+                        data,
+                        mime_type: "image/webp".to_string(),
+                        filename: format!("{}.webp", sticker.sticker.file.unique_id),
+                    });
+                }
             }
-            let text = format!("[sticker {emoji}, file_id: {}]", sticker.sticker.file.id);
+            let set_info = if set_name.is_empty() {
+                String::new()
+            } else {
+                format!(", set: {set_name}")
+            };
+            let text = format!(
+                "[sticker {emoji}, file_id: {}{set_info}]",
+                sticker.sticker.file.id
+            );
             (text, images)
         }
 

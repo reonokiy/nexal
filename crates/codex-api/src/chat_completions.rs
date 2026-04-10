@@ -79,8 +79,10 @@ impl ChatCompletionsSession {
         let _enter = gen_ai_span.enter();
 
         // Verbose data → debug events (visible in OTLP, not in default logs).
+        // Redact inline data URIs (base64 images) to keep logs readable.
         if let Ok(msgs_json) = serde_json::to_string(&messages) {
-            debug!(gen_ai.prompt.messages = %msgs_json, "prompt");
+            let redacted = redact_data_uris(&msgs_json);
+            debug!(gen_ai.prompt.messages = %redacted, "prompt");
         }
         if let Some(ref tools) = tools {
             let tool_names: Vec<&str> = tools.iter().map(|t| t.function.name.as_str()).collect();
@@ -462,6 +464,51 @@ struct ChunkUsage {
 }
 
 // ── Error Type ──────────────────────────────────────────────────────────
+
+/// Replace inline `data:` URIs with a short placeholder to keep logs readable.
+/// Matches patterns like `"data:image/jpeg;base64,/9j/4AAQ..."` and replaces
+/// the base64 payload with `<base64:N bytes>`.
+fn redact_data_uris(s: &str) -> String {
+    // Fast path: no data URIs at all.
+    if !s.contains("data:") {
+        return s.to_string();
+    }
+
+    let mut result = String::with_capacity(s.len());
+    let mut rest = s;
+
+    while let Some(start) = rest.find("data:") {
+        result.push_str(&rest[..start]);
+
+        // Find the base64 payload after the comma.
+        let after = &rest[start..];
+        if let Some(comma) = after.find(",") {
+            let header = &after[..comma]; // e.g. "data:image/jpeg;base64"
+
+            // Find the end of the base64 string (next quote or whitespace).
+            let payload_start = comma + 1;
+            let payload_end = after[payload_start..]
+                .find(|c: char| c == '"' || c == '\'' || c.is_whitespace())
+                .map(|i| payload_start + i)
+                .unwrap_or(after.len());
+
+            let payload_len = payload_end - payload_start;
+            // Estimate original byte size (base64 is ~4/3 of original).
+            let byte_size = payload_len * 3 / 4;
+
+            result.push_str(header);
+            result.push_str(&format!(",<base64:{byte_size} bytes>"));
+            rest = &rest[start + payload_end..];
+        } else {
+            // No comma found — not a real data URI, just copy it through.
+            result.push_str("data:");
+            rest = &rest[start + 5..];
+        }
+    }
+
+    result.push_str(rest);
+    result
+}
 
 /// Extract a provider name from the base URL for telemetry.
 fn extract_provider(base_url: &str) -> &str {

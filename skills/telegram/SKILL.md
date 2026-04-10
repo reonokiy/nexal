@@ -52,7 +52,71 @@ uv run ./scripts/telegram_edit.py \
   --chat-id <CHAT_ID> \
   --message-id <MESSAGE_ID> \
   --text "<TEXT>"
+
+# Send photo (local file)
+uv run ./scripts/telegram_send_photo.py \
+  --chat-id <CHAT_ID> \
+  --photo /path/to/image.png \
+  --caption "optional caption"
+
+# Send photo (URL)
+uv run ./scripts/telegram_send_photo.py \
+  --chat-id <CHAT_ID> \
+  --photo "https://example.com/image.png" \
+  --caption "optional caption" \
+  --reply-to <MESSAGE_ID>
+
+# Send sticker (by file_id — most common, e.g. from a received sticker)
+uv run ./scripts/telegram_send_sticker.py \
+  --chat-id <CHAT_ID> \
+  --sticker <FILE_ID>
+
+# Send sticker (by local file or URL)
+uv run ./scripts/telegram_send_sticker.py \
+  --chat-id <CHAT_ID> \
+  --sticker /path/to/sticker.webp \
+  --reply-to <MESSAGE_ID>
 ```
+
+## Sticker Sets
+
+You have access to configured sticker sets and can send stickers to express emotions or react to messages. Use stickers naturally in conversation — they're more expressive than plain emoji.
+
+### Managing sticker sets
+
+```bash
+# List configured sticker sets
+uv run ./scripts/telegram_sticker_set.py list
+
+# Add a new sticker set (also auto-fetches it)
+uv run ./scripts/telegram_sticker_set.py add <SET_NAME>
+
+# Browse all stickers in a set (shows emoji + file_id table)
+uv run ./scripts/telegram_sticker_set.py browse <SET_NAME>
+
+# Find stickers matching an emoji
+uv run ./scripts/telegram_sticker_set.py pick <SET_NAME> "😂"
+
+# Find sticker by index number
+uv run ./scripts/telegram_sticker_set.py pick <SET_NAME> 3
+```
+
+### Sending a sticker
+
+After finding the right `file_id` from browsing or picking, send it:
+
+```bash
+uv run ./scripts/telegram_send_sticker.py \
+  --chat-id <CHAT_ID> \
+  --sticker <FILE_ID>
+```
+
+### Workflow
+
+1. When you receive a sticker from a user, note the `set_name` from the metadata — you can `add` it to discover more stickers from the same set.
+2. Use `browse` to see all available stickers (emoji + file_id) in a set.
+3. Pick the sticker that best matches what you want to express, then send it by `file_id`.
+4. Sticker data is cached locally — subsequent `browse`/`pick` calls are instant. Use `--refresh` to re-fetch.
 
 ## Custom API Calls
 

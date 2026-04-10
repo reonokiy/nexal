@@ -167,7 +167,7 @@ pub struct NexalConfig {
     /// Active conversation window (seconds)
     pub active_window_secs: f64,
 
-    /// Sandbox backend: "podman" (default) or "none"
+    /// Sandbox backend: "podman" (default)
     pub sandbox: String,
     /// Podman container image
     pub sandbox_image: String,
@@ -361,10 +361,7 @@ impl NexalConfig {
     }
 
     pub fn sandbox_backend(&self) -> SandboxBackend {
-        match self.sandbox.to_lowercase().as_str() {
-            "none" | "off" | "disabled" => SandboxBackend::None,
-            _ => SandboxBackend::Podman,
-        }
+        SandboxBackend::Podman
     }
 
     pub async fn load_soul(&self) -> String {
@@ -410,14 +407,12 @@ impl NexalConfig {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SandboxBackend {
     Podman,
-    None,
 }
 
 impl fmt::Display for SandboxBackend {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Podman => write!(f, "podman"),
-            Self::None => write!(f, "none"),
         }
     }
 }

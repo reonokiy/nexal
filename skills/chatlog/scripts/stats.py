@@ -1,37 +1,35 @@
 #!/usr/bin/env python3
-"""Get message statistics from the nexal database."""
+"""Get message statistics via the nexal DB API."""
 
+import http.client
 import json
-import sqlite3
+import socket
 import sys
 
-DB_PATH = "/workspace/agents/nexal.db"
+API_SOCK = "/workspace/agents/proxy/nexal-api"
+
+
+def api_call(endpoint: str, params: dict | None = None) -> list | dict:
+    body = json.dumps(params or {}).encode()
+    conn = http.client.HTTPConnection("localhost")
+    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    sock.connect(API_SOCK)
+    conn.sock = sock
+    try:
+        conn.request("POST", endpoint, body=body,
+                      headers={"Content-Type": "application/json"})
+        resp = conn.getresponse()
+        result = json.loads(resp.read())
+    finally:
+        conn.close()
+    if isinstance(result, dict) and "error" in result:
+        print(json.dumps(result))
+        sys.exit(1)
+    return result
 
 
 def main() -> None:
-    try:
-        conn = sqlite3.connect(f"file:{DB_PATH}?mode=ro", uri=True)
-    except sqlite3.OperationalError:
-        print(json.dumps({"error": f"Cannot open database: {DB_PATH}"}))
-        sys.exit(1)
-
-    conn.row_factory = sqlite3.Row
-    result: dict = {}
-
-    row = conn.execute("SELECT COUNT(*) as total FROM messages").fetchone()
-    result["total_messages"] = row["total"]
-
-    rows = conn.execute(
-        "SELECT channel, role, COUNT(*) as count FROM messages GROUP BY channel, role ORDER BY channel, role"
-    ).fetchall()
-    result["messages_by_channel_role"] = [dict(r) for r in rows]
-
-    rows = conn.execute(
-        "SELECT sender, COUNT(*) as count FROM messages GROUP BY sender ORDER BY count DESC LIMIT 20"
-    ).fetchall()
-    result["top_senders"] = [dict(r) for r in rows]
-
-    conn.close()
+    result = api_call("/chatlog/stats")
     print(json.dumps(result, ensure_ascii=False, indent=2))
 
 

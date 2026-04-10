@@ -122,6 +122,10 @@ async fn run_tui(enable_telegram: bool, enable_discord: bool, enable_http: bool,
             .context("opening state db")?,
     );
 
+    // Start DB query proxy (Unix socket for read-only SQL access from container).
+    let _db_proxy_handle =
+        nexal_agent::db_proxy::start_db_proxy(&config.workspace, Arc::clone(&db)).await;
+
     // Sync TUI session events to StateDb for chatlog/toollog skills.
     let nexal_home = config
         .nexal_home
@@ -145,12 +149,7 @@ async fn run_tui(enable_telegram: bool, enable_discord: bool, enable_http: bool,
 
     // Create a persistent Podman container for this session.
     // All exec commands run inside this container.
-    // Set NEXAL_SANDBOX=none to disable (not recommended).
-    let sandbox = if !is_sandbox_disabled(&config) {
-        Some(create_sandbox_container(&config).await?)
-    } else {
-        None
-    };
+    let sandbox = create_sandbox_container(&config).await?;
 
     // Build TUI CLI with nexal defaults
     let mut tui_cli = TuiCli::parse_from(["nexal"]);
@@ -216,7 +215,8 @@ async fn run_tui(enable_telegram: bool, enable_discord: bool, enable_http: bool,
     if let Some(handle) = bot_handle {
         handle.abort();
     }
-    if let Some(mut handle) = sandbox {
+    {
+        let mut handle = sandbox;
         if let Some(ref mut child) = handle.child {
             let _ = child.kill().await;
         }
@@ -405,9 +405,6 @@ async fn register_container_proxies(
     }
 }
 
-fn is_sandbox_disabled(config: &NexalConfig) -> bool {
-    config.sandbox_backend() == nexal_config::SandboxBackend::None
-}
 
 struct SandboxHandle {
     name: String,
@@ -916,22 +913,20 @@ async fn run_idle(args: IdleArgs, config: Arc<NexalConfig>) -> anyhow::Result<()
             .context("opening state db")?,
     );
 
+    // Start DB query proxy (Unix socket for read-only SQL access from container).
+    let _db_proxy_handle =
+        nexal_agent::db_proxy::start_db_proxy(&config.workspace, Arc::clone(&db)).await;
+
     // Create Podman sandbox container.
-    let sandbox = if !is_sandbox_disabled(&config) {
-        Some(create_sandbox_container(&config).await?)
-    } else {
-        None
-    };
+    let sandbox = create_sandbox_container(&config).await?;
 
     // Register API proxies inside the container via exec-server.
     // The exec-server creates Unix sockets and forwards requests to upstream APIs,
     // injecting auth tokens. No bind mount needed.
-    if let Some(ref handle) = sandbox {
-        if let Some(ref env_mgr) = handle.environment_manager {
-            if let Ok(env) = env_mgr.current().await {
-                if let Some(client) = env.exec_server_client() {
-                    register_container_proxies(client, &config).await;
-                }
+    if let Some(ref env_mgr) = sandbox.environment_manager {
+        if let Ok(env) = env_mgr.current().await {
+            if let Some(client) = env.exec_server_client() {
+                register_container_proxies(client, &config).await;
             }
         }
     }
@@ -949,10 +944,8 @@ async fn run_idle(args: IdleArgs, config: Arc<NexalConfig>) -> anyhow::Result<()
     };
 
     let mut pool = AgentPool::new(Arc::clone(&config));
-    if let Some(ref handle) = sandbox {
-        if let Some(ref env_mgr) = handle.environment_manager {
-            pool = pool.with_environment_manager(Arc::clone(env_mgr));
-        }
+    if let Some(ref env_mgr) = sandbox.environment_manager {
+        pool = pool.with_environment_manager(Arc::clone(env_mgr));
     }
     if let Some(ref server) = signal_server {
         pool = pool.with_signal_server(Arc::clone(server));
@@ -1019,7 +1012,8 @@ async fn run_idle(args: IdleArgs, config: Arc<NexalConfig>) -> anyhow::Result<()
     };
 
     // Cleanup sandbox container
-    if let Some(mut handle) = sandbox {
+    {
+        let mut handle = sandbox;
         if let Some(ref mut child) = handle.child {
             let _ = child.kill().await;
         }

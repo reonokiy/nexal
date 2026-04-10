@@ -10,12 +10,7 @@ metadata:
 
 # Toollog Skill
 
-The nexal database at `/workspace/agents/nexal.db` stores tool call records. It is read-only from the sandbox.
-
-## Schema
-
-**tool_calls** table:
-- `id`, `channel`, `chat_id`, `tool_call_id`, `tool_name`, `arguments` (JSON), `output`, `status` (ok/error), `duration_ms`, `timestamp`
+Tool call records are queried via the DB API proxy. Read-only, structured endpoints only.
 
 ## Command Templates
 

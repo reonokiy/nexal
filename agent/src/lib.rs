@@ -1,5 +1,6 @@
 pub mod actor;
 mod bot;
+pub mod db_proxy;
 pub mod db_sync;
 mod pool;
 pub mod proxy;

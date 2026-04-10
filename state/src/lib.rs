@@ -2,7 +2,7 @@ use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::Context;
-use sqlx::Row;
+use sqlx::{Column, Row};
 use sqlx::SqlitePool;
 use sqlx::sqlite::SqliteConnectOptions;
 use tracing::info;
@@ -58,6 +58,8 @@ pub struct CronJobRecord {
 #[derive(Clone)]
 pub struct StateDb {
     pool: SqlitePool,
+    /// Separate read-only pool for untrusted queries (DB proxy).
+    ro_pool: SqlitePool,
 }
 
 impl StateDb {
@@ -82,8 +84,17 @@ impl StateDb {
             .await
             .context("running bot-state migrations")?;
 
+        // Open a separate read-only connection pool for untrusted queries.
+        let ro_opts = SqliteConnectOptions::new()
+            .filename(db_path)
+            .read_only(true);
+
+        let ro_pool = SqlitePool::connect_with(ro_opts)
+            .await
+            .context("opening bot-state sqlite (read-only)")?;
+
         info!("bot-state db opened at {}", db_path.display());
-        Ok(Self { pool })
+        Ok(Self { pool, ro_pool })
     }
 
     // ── sessions ──────────────────────────────────────────────────────────
@@ -232,6 +243,81 @@ impl StateDb {
     }
 
     // ── tool calls ────────────────────────────────────────────────────────
+
+    /// Execute a read-only SQL query and return results as JSON-compatible rows.
+    ///
+    /// Uses a separate read-only SQLite connection pool so that even if the
+    /// text-based validation is bypassed, the database engine will reject writes.
+    /// Only SELECT, WITH, PRAGMA, and EXPLAIN statements are allowed.
+    pub async fn query_readonly(
+        &self,
+        sql: &str,
+        params: &[String],
+    ) -> anyhow::Result<(Vec<String>, Vec<Vec<serde_json::Value>>)> {
+        use sqlx::Row;
+
+        // Defense-in-depth: text-based validation on top of read-only connection.
+        let stripped = sql.trim_start().to_lowercase();
+        if !stripped.starts_with("select")
+            && !stripped.starts_with("with")
+            && !stripped.starts_with("pragma")
+            && !stripped.starts_with("explain")
+        {
+            anyhow::bail!("Only SELECT / WITH / PRAGMA / EXPLAIN queries are allowed");
+        }
+
+        // Block ATTACH DATABASE — could be used to open other files.
+        if stripped.contains("attach") {
+            anyhow::bail!("ATTACH is not allowed");
+        }
+
+        let mut query = sqlx::query(sql);
+        for p in params {
+            query = query.bind(p);
+        }
+
+        // Use read-only pool — SQLite enforces read-only at the connection level.
+        let rows = query.fetch_all(&self.ro_pool).await?;
+
+        if rows.is_empty() {
+            return Ok((vec![], vec![]));
+        }
+
+        // Extract column names from first row
+        let columns: Vec<String> = rows[0]
+            .columns()
+            .iter()
+            .map(|c| c.name().to_string())
+            .collect();
+
+        // Convert rows to JSON values
+        let mut result_rows = Vec::with_capacity(rows.len());
+        for row in &rows {
+            let mut values = Vec::with_capacity(columns.len());
+            for (i, _col) in columns.iter().enumerate() {
+                // Try integer first, then float, then string
+                let val: serde_json::Value =
+                    if let Ok(v) = row.try_get::<i64, _>(i) {
+                        serde_json::Value::Number(v.into())
+                    } else if let Ok(v) = row.try_get::<f64, _>(i) {
+                        serde_json::json!(v)
+                    } else if let Ok(v) = row.try_get::<String, _>(i) {
+                        serde_json::Value::String(v)
+                    } else if let Ok(v) = row.try_get::<Option<String>, _>(i) {
+                        match v {
+                            Some(s) => serde_json::Value::String(s),
+                            None => serde_json::Value::Null,
+                        }
+                    } else {
+                        serde_json::Value::Null
+                    };
+                values.push(val);
+            }
+            result_rows.push(values);
+        }
+
+        Ok((columns, result_rows))
+    }
 
     pub async fn save_tool_call(
         &self,
