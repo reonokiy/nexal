@@ -120,8 +120,8 @@ fn should_fire(job: &nexal_state::CronJobRecord, now: DateTime<Utc>) -> bool {
         .last_run_at
         .and_then(|ms| DateTime::from_timestamp_millis(ms));
 
-    if job.schedule.starts_with("every:") {
-        let secs: u64 = job.schedule["every:".len()..].parse().unwrap_or(0);
+    if let Some(rest) = job.schedule.strip_prefix("every:") {
+        let secs: u64 = rest.parse().unwrap_or(0);
         if secs == 0 {
             return false;
         }
@@ -129,10 +129,8 @@ fn should_fire(job: &nexal_state::CronJobRecord, now: DateTime<Utc>) -> bool {
             Some(last) => (now - last).num_seconds() >= secs as i64,
             None => true,
         }
-    } else if job.schedule.starts_with("once:") {
-        let target: Option<DateTime<Utc>> = job.schedule["once:".len()..]
-            .parse()
-            .ok();
+    } else if let Some(rest) = job.schedule.strip_prefix("once:") {
+        let target: Option<DateTime<Utc>> = rest.parse().ok();
         match (target, last_run) {
             (Some(t), None) => now >= t,
             _ => false,

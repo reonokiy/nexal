@@ -83,7 +83,7 @@ impl Channel for TelegramChannel {
                     let chat_ok = ch_cfg.is_allowed_chat(&chat_id);
                     let is_channel_forward = msg.from.as_ref()
                         .and_then(|u| u.username.as_deref())
-                        .map_or(false, |u| u == "Channel_Bot" || u == "GroupAnonymousBot");
+                        .is_some_and(|u| u == "Channel_Bot" || u == "GroupAnonymousBot");
                     let user_ok = is_channel_forward
                         || ch_cfg.is_allowed_user(&username);
 
@@ -286,35 +286,25 @@ async fn extract_message_content(
         }
 
         MediaKind::Sticker(sticker) => {
-            let emoji = sticker.sticker.emoji.clone().unwrap_or_default();
-            let set_name = sticker.sticker.set_name.clone().unwrap_or_default();
-            let mut images = Vec::new();
+            let emoji = sticker.sticker.emoji.as_deref().unwrap_or_default();
+            let set_name = sticker.sticker.set_name.as_deref().unwrap_or_default();
             // Use the thumbnail (~128x128 JPEG) for model context — enough
             // to understand the sticker without wasting tokens on a full 512x512.
             // Fall back to the full sticker file only if no thumbnail exists.
-            if let Some(thumb) = &sticker.sticker.thumbnail {
-                if let Ok(data) = download_file(bot, &thumb.file.id).await {
+            let download_target = sticker_download_target(&sticker.sticker);
+            let mut images = Vec::new();
+            if let Some((file_id, unique_id, mime, ext)) = download_target {
+                if let Ok(data) = download_file(bot, file_id).await {
                     images.push(ImageAttachment {
                         data,
-                        mime_type: "image/jpeg".to_string(),
-                        filename: format!("{}.jpg", thumb.file.unique_id),
-                    });
-                }
-            } else if !sticker.sticker.is_animated() && !sticker.sticker.is_video() {
-                // Static sticker with no thumbnail — download the webp directly
-                if let Ok(data) = download_file(bot, &sticker.sticker.file.id).await {
-                    images.push(ImageAttachment {
-                        data,
-                        mime_type: "image/webp".to_string(),
-                        filename: format!("{}.webp", sticker.sticker.file.unique_id),
+                        mime_type: mime.to_string(),
+                        filename: format!("{unique_id}.{ext}"),
                     });
                 }
             }
-            let set_info = if set_name.is_empty() {
-                String::new()
-            } else {
-                format!(", set: {set_name}")
-            };
+            let set_info = (!set_name.is_empty())
+                .then(|| format!(", set: {set_name}"))
+                .unwrap_or_default();
             let text = format!(
                 "[sticker {emoji}, file_id: {}{set_info}]",
                 sticker.sticker.file.id
@@ -419,6 +409,26 @@ fn extract_sender(msg: &Message) -> (String, String) {
     (from_username.to_string(), from_id)
 }
 
+/// Choose which sticker asset to download for model context. Returns
+/// `(file_id, unique_id, mime_type, extension)` or `None` if the sticker
+/// has no suitable static asset (e.g. animated without thumbnail).
+fn sticker_download_target(
+    sticker: &teloxide::types::Sticker,
+) -> Option<(&str, &str, &'static str, &'static str)> {
+    if let Some(thumb) = &sticker.thumbnail {
+        return Some((&thumb.file.id, &thumb.file.unique_id, "image/jpeg", "jpg"));
+    }
+    if !sticker.is_animated() && !sticker.is_video() {
+        return Some((
+            &sticker.file.id,
+            &sticker.file.unique_id,
+            "image/webp",
+            "webp",
+        ));
+    }
+    None
+}
+
 /// Download a file from Telegram by file_id.
 async fn download_file(bot: &Bot, file_id: &str) -> Result<Vec<u8>, teloxide::RequestError> {
     let file = bot.get_file(file_id).await?;
@@ -435,8 +445,7 @@ async fn detect_mention(bot: &Bot, msg: &Message, text: &str) -> bool {
     if msg
         .reply_to_message()
         .and_then(|r| r.from.as_ref())
-        .map(|u| u.is_bot)
-        .unwrap_or(false)
+        .is_some_and(|u| u.is_bot)
     {
         return true;
     }
