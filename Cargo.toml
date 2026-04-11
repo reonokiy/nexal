@@ -1,16 +1,16 @@
 [workspace]
 members = [
     # ── Nexal own crates ──
-    "nexal",
-    "config",
-    "agent",
-    "channel-core",
-    "channel-telegram",
-    "channel-discord",
-    "channel-http",
-    "channel-heartbeat",
-    "channel-cron",
-    "state",
+    "crates/nexal",
+    "crates/nexal-config",
+    "crates/agent",
+    "crates/channel-core",
+    "crates/channel-telegram",
+    "crates/channel-discord",
+    "crates/channel-http",
+    "crates/channel-heartbeat",
+    "crates/channel-cron",
+    "crates/nexal-state",
 
     # ── Forked codex crates ──
     "crates/ansi-escape",
@@ -84,15 +84,15 @@ license = "Apache-2.0"
 
 [workspace.dependencies]
 # ── Internal: nexal own crates ──
-nexal-config = { path = "config" }
-nexal-agent = { path = "agent" }
-nexal-state = { path = "state" }
-nexal-channel-core = { path = "channel-core" }
-nexal-channel-telegram = { path = "channel-telegram" }
-nexal-channel-discord = { path = "channel-discord" }
-nexal-channel-http = { path = "channel-http" }
-nexal-channel-heartbeat = { path = "channel-heartbeat" }
-nexal-channel-cron = { path = "channel-cron" }
+nexal-config = { path = "crates/nexal-config" }
+nexal-agent = { path = "crates/agent" }
+nexal-state = { path = "crates/nexal-state" }
+nexal-channel-core = { path = "crates/channel-core" }
+nexal-channel-telegram = { path = "crates/channel-telegram" }
+nexal-channel-discord = { path = "crates/channel-discord" }
+nexal-channel-http = { path = "crates/channel-http" }
+nexal-channel-heartbeat = { path = "crates/channel-heartbeat" }
+nexal-channel-cron = { path = "crates/channel-cron" }
 
 # ── Internal: forked codex crates ──
 app_test_support = { path = "crates/app-server/tests/common" }
