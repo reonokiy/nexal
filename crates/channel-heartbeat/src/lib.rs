@@ -4,9 +4,12 @@
 //! interval (default 30 min), giving the agent a chance to check on
 //! pending tasks, send reminders, or surface anything important.
 
+pub mod config;
+
 use std::sync::Arc;
 use std::time::Duration;
 
+use config::HeartbeatChannelConfig;
 use nexal_channel_core::{Channel, IncomingMessage, MessageCallback};
 use nexal_config::NexalConfig;
 use tracing::info;
@@ -15,16 +18,18 @@ use tracing::info;
 const DEFAULT_INTERVAL_MINS: u64 = 30;
 
 pub struct HeartbeatChannel {
-    config: Arc<NexalConfig>,
+    ch_config: HeartbeatChannelConfig,
 }
 
 impl HeartbeatChannel {
     pub fn new(config: Arc<NexalConfig>) -> Self {
-        Self { config }
+        Self {
+            ch_config: HeartbeatChannelConfig::from_nexal_config(&config),
+        }
     }
 
     fn interval(&self) -> Duration {
-        let mins = self.config.channel.heartbeat.interval_mins.unwrap_or(DEFAULT_INTERVAL_MINS);
+        let mins = self.ch_config.interval_mins.unwrap_or(DEFAULT_INTERVAL_MINS);
         Duration::from_secs(mins * 60)
     }
 }

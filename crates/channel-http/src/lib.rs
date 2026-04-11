@@ -14,12 +14,15 @@
 //!   ```
 //! - `GET /messages?chat_id=test` — poll bot responses for a chat
 
+pub mod config;
+
 use std::collections::HashMap;
 use std::sync::Arc;
 
 use axum::extract::{Query, State};
 use axum::routing::{get, post};
 use axum::{Json, Router};
+use config::HttpChannelConfig;
 use nexal_channel_core::{Channel, IncomingMessage, MessageCallback};
 use nexal_config::NexalConfig;
 use serde::{Deserialize, Serialize};
@@ -28,7 +31,8 @@ use tracing::info;
 
 /// HTTP channel that implements the [`Channel`] trait.
 pub struct HttpChannel {
-    config: Arc<NexalConfig>,
+    ch_config: HttpChannelConfig,
+    workspace: std::path::PathBuf,
     /// Shared outbox: responses from the agent, polled via GET /messages.
     outbox: Outbox,
 }
@@ -38,7 +42,8 @@ type Outbox = Arc<Mutex<HashMap<String, Vec<String>>>>;
 impl HttpChannel {
     pub fn new(config: Arc<NexalConfig>) -> Self {
         Self {
-            config,
+            ch_config: HttpChannelConfig::from_nexal_config(&config),
+            workspace: config.workspace.clone(),
             outbox: Arc::new(Mutex::new(HashMap::new())),
         }
     }
@@ -86,7 +91,7 @@ impl Channel for HttpChannel {
     }
 
     async fn start(&self, on_message: MessageCallback) -> anyhow::Result<()> {
-        let port = self.config.channel.http.port.unwrap_or(3000);
+        let port = self.ch_config.port.unwrap_or(3000);
         let outbox = Arc::clone(&self.outbox);
 
         let state = AppState {
@@ -101,7 +106,7 @@ impl Channel for HttpChannel {
 
         // Start the response socket for skill scripts.
         let socket_outbox = Arc::clone(&outbox);
-        let workspace = self.config.workspace.clone();
+        let workspace = self.workspace.clone();
         tokio::spawn(async move {
             if let Err(e) = run_response_socket(&workspace, socket_outbox).await {
                 tracing::warn!("http response socket error: {e}");

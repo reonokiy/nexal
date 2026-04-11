@@ -9,6 +9,7 @@ nexal-channel-core = { workspace = true }
 
 anyhow = { workspace = true }
 async-trait = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
 tokio = { workspace = true }
 tracing = { workspace = true }
 

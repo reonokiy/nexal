@@ -5,7 +5,7 @@ use std::path::Path;
 ///
 /// Callers that already know the session working directory should pass it here so streamed and
 /// non-streamed rendering show the same relative path text even if the process cwd differs.
-pub(crate) fn append_markdown(
+pub fn append_markdown(
     markdown_source: &str,
     width: Option<usize>,
     cwd: Option<&Path>,

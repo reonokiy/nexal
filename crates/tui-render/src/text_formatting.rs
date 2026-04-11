@@ -2,7 +2,7 @@ use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthChar;
 use unicode_width::UnicodeWidthStr;
 
-pub(crate) fn capitalize_first(input: &str) -> String {
+pub fn capitalize_first(input: &str) -> String {
     let mut chars = input.chars();
     match chars.next() {
         Some(first) => {
@@ -16,7 +16,7 @@ pub(crate) fn capitalize_first(input: &str) -> String {
 
 /// Truncate a tool result to fit within the given height and width. If the text is valid JSON, we format it in a compact way before truncating.
 /// This is a best-effort approach that may not work perfectly for text where 1 grapheme is rendered as multiple terminal cells.
-pub(crate) fn format_and_truncate_tool_result(
+pub fn format_and_truncate_tool_result(
     text: &str,
     max_lines: usize,
     line_width: usize,
@@ -41,7 +41,7 @@ pub(crate) fn format_and_truncate_tool_result(
 /// without spaces that Ratatui can't wrap nicely. If we use the serde_json pretty format as-is,
 /// it's much too sparse and uses too many terminal rows.
 /// Relevant issue: https://github.com/ratatui/ratatui/issues/293
-pub(crate) fn format_json_compact(text: &str) -> Option<String> {
+pub fn format_json_compact(text: &str) -> Option<String> {
     let json = serde_json::from_str::<serde_json::Value>(text).ok()?;
     let json_pretty = serde_json::to_string_pretty(&json).unwrap_or_else(|_| json.to_string());
 
@@ -88,7 +88,7 @@ pub(crate) fn format_json_compact(text: &str) -> Option<String> {
 }
 
 /// Truncate `text` to `max_graphemes` graphemes. Using graphemes to avoid accidentally truncating in the middle of a multi-codepoint character.
-pub(crate) fn truncate_text(text: &str, max_graphemes: usize) -> String {
+pub fn truncate_text(text: &str, max_graphemes: usize) -> String {
     let mut graphemes = text.grapheme_indices(true);
 
     // Check if there's a grapheme at position max_graphemes (meaning there are more than max_graphemes total)
@@ -117,7 +117,7 @@ pub(crate) fn truncate_text(text: &str, max_graphemes: usize) -> String {
 /// Truncate a path-like string to the given display width, keeping leading and trailing segments
 /// where possible and inserting a single Unicode ellipsis between them. If an individual segment
 /// cannot fit, it is front-truncated with an ellipsis.
-pub(crate) fn center_truncate_path(path: &str, max_width: usize) -> String {
+pub fn center_truncate_path(path: &str, max_width: usize) -> String {
     if max_width == 0 {
         return String::new();
     }
@@ -333,7 +333,7 @@ pub(crate) fn center_truncate_path(path: &str, max_width: usize) -> String {
 /// - ["apple"] -> "apple"
 /// - ["apple", "banana"] -> "apple and banana"
 /// - ["apple", "banana", "cherry"] -> "apple, banana and cherry"
-pub(crate) fn proper_join<T: AsRef<str>>(items: &[T]) -> String {
+pub fn proper_join<T: AsRef<str>>(items: &[T]) -> String {
     match items.len() {
         0 => String::new(),
         1 => items[0].as_ref().to_string(),

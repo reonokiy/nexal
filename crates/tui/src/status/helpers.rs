@@ -1,5 +1,5 @@
-use crate::exec_command::relativize_to_home;
 use crate::text_formatting;
+use nexal_utils_path::relativize_to_home;
 use chrono::DateTime;
 use chrono::Local;
 use nexal_core::AuthManager;

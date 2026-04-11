@@ -3939,6 +3939,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "serde",
  "serde_json",
  "tokio",
  "tokio-util",
@@ -3956,6 +3957,7 @@ dependencies = [
  "nexal-channel-core",
  "nexal-config",
  "nexal-state",
+ "serde",
  "tokio",
  "tracing",
 ]
@@ -3968,6 +3970,7 @@ dependencies = [
  "async-trait",
  "nexal-channel-core",
  "nexal-config",
+ "serde",
  "serde_json",
  "serenity",
  "tracing",
@@ -3981,6 +3984,7 @@ dependencies = [
  "async-trait",
  "nexal-channel-core",
  "nexal-config",
+ "serde",
  "tokio",
  "tracing",
 ]
@@ -4009,6 +4013,7 @@ dependencies = [
  "async-trait",
  "nexal-channel-core",
  "nexal-config",
+ "serde",
  "serde_json",
  "teloxide",
  "tokio",
@@ -4067,6 +4072,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+ "toml 0.9.12+spec-1.1.0",
  "tracing",
 ]
 
@@ -4667,12 +4673,14 @@ dependencies = [
  "nexal-rollout-state",
  "nexal-shell-command",
  "nexal-terminal-detection",
+ "nexal-tui-render",
  "nexal-utils-absolute-path",
  "nexal-utils-approval-presets",
  "nexal-utils-cargo-bin",
  "nexal-utils-cli",
  "nexal-utils-elapsed",
  "nexal-utils-fuzzy-match",
+ "nexal-utils-path",
  "nexal-utils-pty",
  "nexal-utils-sandbox-summary",
  "nexal-utils-sleep-inhibitor",
@@ -4711,6 +4719,35 @@ dependencies = [
  "uuid",
  "vt100",
  "webbrowser",
+]
+
+[[package]]
+name = "nexal-tui-render"
+version = "0.1.0"
+dependencies = [
+ "crossterm",
+ "diffy",
+ "dirs",
+ "nexal-ansi-escape",
+ "nexal-git-utils",
+ "nexal-protocol",
+ "nexal-terminal-detection",
+ "nexal-utils-path",
+ "nexal-utils-string",
+ "pathdiff",
+ "pretty_assertions",
+ "pulldown-cmark",
+ "ratatui",
+ "regex-lite",
+ "serde_json",
+ "supports-color 3.0.2",
+ "syntect",
+ "textwrap",
+ "tracing",
+ "two-face",
+ "unicode-segmentation",
+ "unicode-width 0.2.1",
+ "url",
 ]
 
 [[package]]
@@ -4813,6 +4850,7 @@ dependencies = [
 name = "nexal-utils-path"
 version = "0.1.0"
 dependencies = [
+ "dirs",
  "dunce",
  "nexal-utils-absolute-path",
  "pretty_assertions",

@@ -4,9 +4,12 @@
 //! the Bot orchestrator's debounce/agent pipeline.
 //! Handles text, photos, documents, stickers, and captions.
 
+pub mod config;
+
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use config::TelegramChannelConfig;
 use nexal_channel_core::{Channel, ImageAttachment, IncomingMessage, MessageCallback, TypingHandle};
 use nexal_config::NexalConfig;
 use teloxide::net::Download;
@@ -26,11 +29,13 @@ struct PendingMediaGroup {
 /// Telegram channel that implements the [`Channel`] trait.
 pub struct TelegramChannel {
     config: Arc<NexalConfig>,
+    ch_config: TelegramChannelConfig,
 }
 
 impl TelegramChannel {
     pub fn new(config: Arc<NexalConfig>) -> Self {
-        Self { config }
+        let ch_config = TelegramChannelConfig::from_nexal_config(&config);
+        Self { config, ch_config }
     }
 }
 
@@ -42,8 +47,8 @@ impl Channel for TelegramChannel {
 
     async fn start(&self, on_message: MessageCallback) -> anyhow::Result<()> {
         let token = self
-            .config
-            .channel.telegram.bot_token
+            .ch_config
+            .bot_token
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("TELEGRAM_BOT_TOKEN is not set"))?
             .clone();
@@ -51,6 +56,7 @@ impl Channel for TelegramChannel {
         info!("starting Telegram channel");
         let bot = Bot::new(token);
         let config = Arc::clone(&self.config);
+        let ch_config = Arc::new(self.ch_config.clone());
         let on_message = Arc::new(on_message);
 
         // Buffer for accumulating media group messages before dispatching.
@@ -61,6 +67,7 @@ impl Channel for TelegramChannel {
         let handler = Update::filter_message().endpoint(
             move |the_bot: Bot, msg: Message| {
                 let config = Arc::clone(&config);
+                let ch_cfg = Arc::clone(&ch_config);
                 let on_message = Arc::clone(&on_message);
                 let media_groups = Arc::clone(&media_groups);
                 async move {
@@ -73,12 +80,12 @@ impl Channel for TelegramChannel {
 
                     // Allow if chat OR user is in the allow list.
                     // Empty list = allow all.
-                    let chat_ok = config.is_telegram_allowed_chat(&chat_id);
+                    let chat_ok = ch_cfg.is_allowed_chat(&chat_id);
                     let is_channel_forward = msg.from.as_ref()
                         .and_then(|u| u.username.as_deref())
                         .map_or(false, |u| u == "Channel_Bot" || u == "GroupAnonymousBot");
                     let user_ok = is_channel_forward
-                        || config.is_telegram_allowed_user(&username);
+                        || ch_cfg.is_allowed_user(&username);
 
                     if !chat_ok && !user_ok {
                         let _ = the_bot
@@ -185,7 +192,7 @@ impl Channel for TelegramChannel {
     }
 
     fn start_typing(&self, chat_id: &str) -> Option<TypingHandle> {
-        let token = self.config.channel.telegram.bot_token.as_ref()?.clone();
+        let token = self.ch_config.bot_token.as_ref()?.clone();
         let chat: ChatId = ChatId(chat_id.parse().ok()?);
         let cancel = CancellationToken::new();
         let cancel_clone = cancel.clone();
@@ -207,8 +214,8 @@ impl Channel for TelegramChannel {
 
     async fn send(&self, chat_id: &str, text: &str) -> anyhow::Result<()> {
         let token = self
-            .config
-            .channel.telegram.bot_token
+            .ch_config
+            .bot_token
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("TELEGRAM_BOT_TOKEN not set"))?;
 

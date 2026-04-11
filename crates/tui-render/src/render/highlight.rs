@@ -78,7 +78,7 @@ fn syntax_set() -> &'static SyntaxSet {
 ///
 /// Returns user-facing warnings for actionable configuration issues, such as
 /// unknown/invalid theme names or duplicate override persistence.
-pub(crate) fn set_theme_override(
+pub fn set_theme_override(
     name: Option<String>,
     nexal_home: Option<PathBuf>,
 ) -> Option<String> {
@@ -102,7 +102,7 @@ pub(crate) fn set_theme_override(
 
 /// Check whether a theme name resolves to a bundled theme or a custom
 /// `.tmTheme` file.  Returns a user-facing warning when it does not.
-pub(crate) fn validate_theme_name(name: Option<&str>, nexal_home: Option<&Path>) -> Option<String> {
+pub fn validate_theme_name(name: Option<&str>, nexal_home: Option<&Path>) -> Option<String> {
     let name = name?;
     let custom_theme_path_display = nexal_home
         .map(|home| custom_theme_path(name, home).display().to_string())
@@ -196,7 +196,7 @@ fn adaptive_default_embedded_theme_name() -> EmbeddedThemeName {
 
 /// Return the kebab-case name of the adaptive default syntax theme selected
 /// from terminal background lightness.
-pub(crate) fn adaptive_default_theme_name() -> &'static str {
+pub fn adaptive_default_theme_name() -> &'static str {
     adaptive_default_theme_selection().1
 }
 
@@ -238,7 +238,7 @@ fn theme_lock() -> &'static RwLock<Theme> {
 }
 
 /// Swap the active syntax theme at runtime (for live preview).
-pub(crate) fn set_syntax_theme(theme: Theme) {
+pub fn set_syntax_theme(theme: Theme) {
     let mut guard = match theme_lock().write() {
         Ok(guard) => guard,
         Err(poisoned) => poisoned.into_inner(),
@@ -247,7 +247,7 @@ pub(crate) fn set_syntax_theme(theme: Theme) {
 }
 
 /// Clone the current syntax theme (e.g. to save for cancel-restore).
-pub(crate) fn current_syntax_theme() -> Theme {
+pub fn current_syntax_theme() -> Theme {
     match theme_lock().read() {
         Ok(theme) => theme.clone(),
         Err(poisoned) => poisoned.into_inner().clone(),
@@ -265,7 +265,7 @@ pub(crate) fn current_syntax_theme() -> Theme {
 /// backgrounds, in which case the diff renderer falls back to its hardcoded
 /// palette.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub(crate) struct DiffScopeBackgroundRgbs {
+pub struct DiffScopeBackgroundRgbs {
     pub inserted: Option<(u8, u8, u8)>,
     pub deleted: Option<(u8, u8, u8)>,
 }
@@ -275,7 +275,7 @@ pub(crate) struct DiffScopeBackgroundRgbs {
 /// Prefers `markup.inserted` / `markup.deleted` (the TextMate convention used
 /// by most VS Code themes) and falls back to `diff.inserted` / `diff.deleted`
 /// (used by some older `.tmTheme` files).
-pub(crate) fn diff_scope_background_rgbs() -> DiffScopeBackgroundRgbs {
+pub fn diff_scope_background_rgbs() -> DiffScopeBackgroundRgbs {
     let theme = current_syntax_theme();
     diff_scope_background_rgbs_for_theme(&theme)
 }
@@ -303,7 +303,7 @@ fn scope_background_rgb(highlighter: &Highlighter<'_>, scope_name: &str) -> Opti
 ///
 /// This intentionally reflects persisted configuration/default selection, not
 /// transient runtime swaps applied via `set_syntax_theme`.
-pub(crate) fn configured_theme_name() -> String {
+pub fn configured_theme_name() -> String {
     // Explicit user override?
     if let Some(Some(name)) = THEME_OVERRIDE.get() {
         if parse_theme_name(name).is_some() {
@@ -320,7 +320,7 @@ pub(crate) fn configured_theme_name() -> String {
 
 /// Resolve a theme name to a `Theme` (bundled or custom). Returns `None`
 /// when the name is unknown and no matching `.tmTheme` file exists.
-pub(crate) fn resolve_theme_by_name(name: &str, nexal_home: Option<&Path>) -> Option<Theme> {
+pub fn resolve_theme_by_name(name: &str, nexal_home: Option<&Path>) -> Option<Theme> {
     let ts = two_face::theme::extra();
     // Bundled theme?
     if let Some(embedded) = parse_theme_name(name) {
@@ -337,7 +337,7 @@ pub(crate) fn resolve_theme_by_name(name: &str, nexal_home: Option<&Path>) -> Op
 
 /// A theme available in the picker, either bundled or loaded from a custom
 /// `.tmTheme` file under `{NEXAL_HOME}/themes/`.
-pub(crate) struct ThemeEntry {
+pub struct ThemeEntry {
     /// Kebab-case identifier used for config persistence and theme resolution.
     pub name: String,
     /// `true` when this entry was discovered from a `.tmTheme` file on disk
@@ -347,7 +347,7 @@ pub(crate) struct ThemeEntry {
 
 /// List all available theme names: bundled themes + custom `.tmTheme` files
 /// found in `{nexal_home}/themes/`.
-pub(crate) fn list_available_themes(nexal_home: Option<&Path>) -> Vec<ThemeEntry> {
+pub fn list_available_themes(nexal_home: Option<&Path>) -> Vec<ThemeEntry> {
     let mut entries: Vec<ThemeEntry> = BUILTIN_THEME_NAMES
         .iter()
         .map(|name| ThemeEntry {
@@ -556,7 +556,7 @@ const MAX_HIGHLIGHT_LINES: usize = 10_000;
 /// Callers that highlight content in a loop (e.g. per diff-line) should
 /// pre-check the aggregate size with this function and skip highlighting
 /// entirely when it returns `true`.
-pub(crate) fn exceeds_highlight_limits(total_bytes: usize, total_lines: usize) -> bool {
+pub fn exceeds_highlight_limits(total_bytes: usize, total_lines: usize) -> bool {
     total_bytes > MAX_HIGHLIGHT_BYTES || total_lines > MAX_HIGHLIGHT_LINES
 }
 
@@ -631,7 +631,7 @@ fn highlight_to_line_spans(code: &str, lang: &str) -> Option<Vec<Vec<Span<'stati
 ///
 /// Used by `markdown_render` for fenced code blocks and by `exec_cell` for bash
 /// command highlighting.
-pub(crate) fn highlight_code_to_lines(code: &str, lang: &str) -> Vec<Line<'static>> {
+pub fn highlight_code_to_lines(code: &str, lang: &str) -> Vec<Line<'static>> {
     if let Some(line_spans) = highlight_to_line_spans(code, lang) {
         line_spans.into_iter().map(Line::from).collect()
     } else {
@@ -648,7 +648,7 @@ pub(crate) fn highlight_code_to_lines(code: &str, lang: &str) -> Vec<Line<'stati
 }
 
 /// Backward-compatible wrapper for bash highlighting used by exec cells.
-pub(crate) fn highlight_bash_to_lines(script: &str) -> Vec<Line<'static>> {
+pub fn highlight_bash_to_lines(script: &str) -> Vec<Line<'static>> {
     highlight_code_to_lines(script, "bash")
 }
 
@@ -661,7 +661,7 @@ pub(crate) fn highlight_bash_to_lines(script: &str) -> Vec<Line<'static>> {
 /// Each inner `Vec<Span>` corresponds to one source line.  Styles are derived
 /// from the active theme but backgrounds are intentionally omitted so the
 /// terminal's own background shows through.
-pub(crate) fn highlight_code_to_styled_spans(
+pub fn highlight_code_to_styled_spans(
     code: &str,
     lang: &str,
 ) -> Option<Vec<Vec<Span<'static>>>> {

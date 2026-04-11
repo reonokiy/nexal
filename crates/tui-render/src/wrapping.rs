@@ -37,7 +37,7 @@ use crate::render::line_utils::push_owned_lines;
 /// Returns byte-ranges into `text` for each wrapped line, including
 /// trailing whitespace and a +1 sentinel byte. Used by the textarea
 /// cursor-position logic.
-pub(crate) fn wrap_ranges<'a, O>(text: &str, width_or_options: O) -> Vec<Range<usize>>
+pub fn wrap_ranges<'a, O>(text: &str, width_or_options: O) -> Vec<Range<usize>>
 where
     O: Into<Options<'a>>,
 {
@@ -72,7 +72,7 @@ where
 /// Like `wrap_ranges` but returns ranges without trailing whitespace and
 /// without the sentinel extra byte. Suitable for general wrapping where
 /// trailing spaces should not be preserved.
-pub(crate) fn wrap_ranges_trim<'a, O>(text: &str, width_or_options: O) -> Vec<Range<usize>>
+pub fn wrap_ranges_trim<'a, O>(text: &str, width_or_options: O) -> Vec<Range<usize>>
 where
     O: Into<Options<'a>>,
 {
@@ -176,7 +176,7 @@ fn map_owned_wrapped_line_to_range(
 /// Returns `true` if any whitespace-delimited token in `line` looks like a URL.
 ///
 /// Concatenates all span contents and delegates to [`text_contains_url_like`].
-pub(crate) fn line_contains_url_like(line: &Line<'_>) -> bool {
+pub fn line_contains_url_like(line: &Line<'_>) -> bool {
     let text: String = line
         .spans
         .iter()
@@ -190,7 +190,7 @@ pub(crate) fn line_contains_url_like(line: &Line<'_>) -> bool {
 ///
 /// Decorative marker tokens (for example list prefixes like `-`, `1.`, `|`,
 /// `│`) are ignored for the non-URL side of this check.
-pub(crate) fn line_has_mixed_url_and_non_url_tokens(line: &Line<'_>) -> bool {
+pub fn line_has_mixed_url_and_non_url_tokens(line: &Line<'_>) -> bool {
     let text: String = line
         .spans
         .iter()
@@ -210,7 +210,7 @@ pub(crate) fn line_has_mixed_url_and_non_url_tokens(line: &Line<'_>) -> bool {
 /// checking. Tokens that look like file paths (`src/main.rs`, `foo/bar`)
 /// are intentionally rejected — the host portion must be a valid domain
 /// name (with a recognized TLD), an IPv4 address, or `localhost`.
-pub(crate) fn text_contains_url_like(text: &str) -> bool {
+pub fn text_contains_url_like(text: &str) -> bool {
     text.split_ascii_whitespace().any(is_url_like_token)
 }
 
@@ -461,7 +461,7 @@ fn is_domain_label(label: &str) -> bool {
 /// not treated as break points), disables `break_words`, and installs a
 /// custom `WordSplitter` that returns no split points for URL tokens
 /// while still allowing character-level splitting for non-URL words.
-pub(crate) fn url_preserving_wrap_options<'a>(opts: RtOptions<'a>) -> RtOptions<'a> {
+pub fn url_preserving_wrap_options<'a>(opts: RtOptions<'a>) -> RtOptions<'a> {
     opts.word_separator(textwrap::WordSeparator::AsciiSpace)
         .word_splitter(textwrap::WordSplitter::Custom(split_non_url_word))
         .break_words(/*break_words*/ false)
@@ -487,7 +487,7 @@ fn split_non_url_word(word: &str) -> Vec<usize> {
 /// [`url_preserving_wrap_options`] — URLs stay intact while non-URL
 /// words on the same line still break normally.
 #[must_use]
-pub(crate) fn adaptive_wrap_line<'a>(line: &'a Line<'a>, base: RtOptions<'a>) -> Vec<Line<'a>> {
+pub fn adaptive_wrap_line<'a>(line: &'a Line<'a>, base: RtOptions<'a>) -> Vec<Line<'a>> {
     let selected = if line_contains_url_like(line) {
         url_preserving_wrap_options(base)
     } else {
@@ -504,7 +504,7 @@ pub(crate) fn adaptive_wrap_line<'a>(line: &'a Line<'a>, base: RtOptions<'a>) ->
 /// This is the multi-line counterpart to [`adaptive_wrap_line`] and is
 /// the primary wrapping entry point for most history-cell rendering.
 #[allow(private_bounds)]
-pub(crate) fn adaptive_wrap_lines<'a, I, L>(
+pub fn adaptive_wrap_lines<'a, I, L>(
     lines: I,
     width_or_options: RtOptions<'a>,
 ) -> Vec<Line<'static>>
@@ -600,7 +600,7 @@ impl<'a> RtOptions<'a> {
         }
     }
 
-    pub(crate) fn word_separator(self, word_separator: textwrap::WordSeparator) -> RtOptions<'a> {
+    pub fn word_separator(self, word_separator: textwrap::WordSeparator) -> RtOptions<'a> {
         RtOptions {
             word_separator,
             ..self
@@ -623,7 +623,7 @@ impl<'a> RtOptions<'a> {
 }
 
 #[must_use]
-pub(crate) fn word_wrap_line<'a, O>(line: &'a Line<'a>, width_or_options: O) -> Vec<Line<'a>>
+pub fn word_wrap_line<'a, O>(line: &'a Line<'a>, width_or_options: O) -> Vec<Line<'a>>
 where
     O: Into<RtOptions<'a>>,
 {
@@ -778,7 +778,7 @@ impl<'a> IntoLineInput<'a> for Vec<Span<'a>> {
 /// Wrap a sequence of lines, applying the initial indent only to the very first
 /// output line, and using the subsequent indent for all later wrapped pieces.
 #[allow(private_bounds)] // IntoLineInput isn't public, but it doesn't really need to be.
-pub(crate) fn word_wrap_lines<'a, I, O, L>(lines: I, width_or_options: O) -> Vec<Line<'static>>
+pub fn word_wrap_lines<'a, I, O, L>(lines: I, width_or_options: O) -> Vec<Line<'static>>
 where
     I: IntoIterator<Item = L>,
     L: IntoLineInput<'a>,
@@ -805,7 +805,7 @@ where
 }
 
 #[cfg(test)]
-pub(crate) fn word_wrap_lines_borrowed<'a, I, O>(lines: I, width_or_options: O) -> Vec<Line<'a>>
+pub fn word_wrap_lines_borrowed<'a, I, O>(lines: I, width_or_options: O) -> Vec<Line<'a>>
 where
     I: IntoIterator<Item = &'a Line<'a>>,
     O: Into<RtOptions<'a>>,

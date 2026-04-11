@@ -76,7 +76,6 @@ const LIGHT_256_GUTTER_FG_IDX: u8 = 236;
 
 use crate::color::is_light;
 use crate::color::perceptual_distance;
-use crate::exec_command::relativize_to_home;
 use crate::render::Insets;
 use crate::render::highlight::DiffScopeBackgroundRgbs;
 use crate::render::highlight::diff_scope_background_rgbs;
@@ -96,6 +95,7 @@ use nexal_git_utils::get_git_repo_root;
 use nexal_protocol::protocol::FileChange;
 use nexal_terminal_detection::TerminalName;
 use nexal_terminal_detection::terminal_info;
+use nexal_utils_path::relativize_to_home;
 
 /// Classifies a diff line for gutter sign rendering and style selection.
 ///
@@ -103,7 +103,7 @@ use nexal_terminal_detection::terminal_info;
 /// text (plus dim overlay when syntax-highlighted), and `Context` with a space
 /// and default styling.
 #[derive(Clone, Copy)]
-pub(crate) enum DiffLineType {
+pub enum DiffLineType {
     Insert,
     Delete,
     Context,
@@ -185,7 +185,7 @@ struct ResolvedDiffBackgrounds {
 /// diff backgrounds so callers rendering many lines can compute once per render
 /// pass and reuse it across all line calls.
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct DiffRenderStyleContext {
+pub struct DiffRenderStyleContext {
     theme: DiffTheme,
     color_level: DiffColorLevel,
     diff_backgrounds: ResolvedDiffBackgrounds,
@@ -211,7 +211,7 @@ fn resolve_diff_backgrounds(
 /// Call this at the top of each render frame — not per line — so the diff
 /// palette stays consistent within a frame even if the user swaps themes
 /// mid-render (theme picker live preview).
-pub(crate) fn current_diff_render_style_context() -> DiffRenderStyleContext {
+pub fn current_diff_render_style_context() -> DiffRenderStyleContext {
     let theme = diff_theme();
     let color_level = diff_color_level();
     let diff_backgrounds = resolve_diff_backgrounds(theme, color_level);
@@ -342,7 +342,7 @@ impl From<DiffSummary> for Box<dyn Renderable> {
     }
 }
 
-pub(crate) fn create_diff_summary(
+pub fn create_diff_summary(
     changes: &HashMap<PathBuf, FileChange>,
     cwd: &Path,
     wrap_cols: usize,
@@ -737,7 +737,7 @@ fn render_change(
 /// Format a path for display relative to the current working directory when
 /// possible, keeping output stable in jj/no-`.git` workspaces (e.g. image
 /// tool calls should show `example.png` instead of an absolute path).
-pub(crate) fn display_path_for(path: &Path, cwd: &Path) -> String {
+pub fn display_path_for(path: &Path, cwd: &Path) -> String {
     if path.is_relative() {
         return path.display().to_string();
     }
@@ -760,7 +760,7 @@ pub(crate) fn display_path_for(path: &Path, cwd: &Path) -> String {
     chosen.display().to_string()
 }
 
-pub(crate) fn calculate_add_remove_from_diff(diff: &str) -> (usize, usize) {
+pub fn calculate_add_remove_from_diff(diff: &str) -> (usize, usize) {
     if let Ok(patch) = diffy::Patch::from_str(diff) {
         patch
             .hunks()
@@ -783,7 +783,7 @@ pub(crate) fn calculate_add_remove_from_diff(diff: &str) -> (usize, usize) {
 /// This is the convenience entry point used by the theme picker preview and
 /// any caller that does not have syntax spans.  Delegates to the inner
 /// rendering core with `syntax_spans = None`.
-pub(crate) fn push_wrapped_diff_line_with_style_context(
+pub fn push_wrapped_diff_line_with_style_context(
     line_number: usize,
     kind: DiffLineType,
     text: &str,
@@ -811,7 +811,7 @@ pub(crate) fn push_wrapped_diff_line_with_style_context(
 /// `syntax_spans` (from [`highlight_code_to_styled_spans`]) onto the diff
 /// coloring.  Delete lines receive a `DIM` modifier so syntax colors do not
 /// overpower the removal cue.
-pub(crate) fn push_wrapped_diff_line_with_syntax_and_style_context(
+pub fn push_wrapped_diff_line_with_syntax_and_style_context(
     line_number: usize,
     kind: DiffLineType,
     text: &str,
@@ -1018,7 +1018,7 @@ fn wrap_styled_spans(spans: &[RtSpan<'static>], max_cols: usize) -> Vec<Vec<RtSp
     result
 }
 
-pub(crate) fn line_number_width(max_line_number: usize) -> usize {
+pub fn line_number_width(max_line_number: usize) -> usize {
     if max_line_number == 0 {
         1
     } else {

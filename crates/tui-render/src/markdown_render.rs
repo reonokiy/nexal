@@ -93,7 +93,7 @@ pub fn render_markdown_text(input: &str) -> Text<'static> {
 
 /// Render markdown using the current process working directory for local file-link display.
 #[cfg(test)]
-pub(crate) fn render_markdown_text_with_width(input: &str, width: Option<usize>) -> Text<'static> {
+pub fn render_markdown_text_with_width(input: &str, width: Option<usize>) -> Text<'static> {
     let cwd = std::env::current_dir().ok();
     render_markdown_text_with_width_and_cwd(input, width, cwd.as_deref())
 }
@@ -103,7 +103,7 @@ pub(crate) fn render_markdown_text_with_width(input: &str, width: Option<usize>)
 /// The `cwd` parameter controls how absolute local targets are shortened before display. Passing
 /// the session cwd keeps full renders, history cells, and streamed deltas visually aligned even
 /// when rendering happens away from the process cwd.
-pub(crate) fn render_markdown_text_with_width_and_cwd(
+pub fn render_markdown_text_with_width_and_cwd(
     input: &str,
     width: Option<usize>,
     cwd: Option<&Path>,

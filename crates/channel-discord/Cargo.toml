@@ -10,6 +10,7 @@ nexal-channel-core = { workspace = true }
 anyhow = { workspace = true }
 async-trait = { workspace = true }
 serde_json = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
 serenity = { workspace = true }
 tracing = { workspace = true }
 

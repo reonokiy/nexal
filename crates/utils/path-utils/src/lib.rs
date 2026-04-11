@@ -9,6 +9,22 @@ use std::path::Path;
 use std::path::PathBuf;
 use tempfile::NamedTempFile;
 
+/// If `path` is absolute and inside `$HOME`, return the part *after* the home
+/// directory; otherwise, return `None`. Note that if `path` is the home
+/// directory itself, this returns an empty path.
+pub fn relativize_to_home<P>(path: P) -> Option<PathBuf>
+where
+    P: AsRef<Path>,
+{
+    let path = path.as_ref();
+    if !path.is_absolute() {
+        return None;
+    }
+    let home_dir = dirs::home_dir()?;
+    let rel = path.strip_prefix(&home_dir).ok()?;
+    Some(rel.to_path_buf())
+}
+
 pub fn normalize_for_path_comparison(path: impl AsRef<Path>) -> std::io::Result<PathBuf> {
     let canonical = path.as_ref().canonicalize()?;
     Ok(normalize_for_wsl(canonical))

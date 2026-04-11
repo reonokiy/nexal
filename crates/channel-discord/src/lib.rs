@@ -3,8 +3,11 @@
 //! Implements the [`Channel`] trait, routing Discord messages through
 //! the Bot orchestrator's debounce/agent pipeline.
 
+pub mod config;
+
 use std::sync::Arc;
 
+use config::DiscordChannelConfig;
 use nexal_channel_core::{Channel, IncomingMessage, MessageCallback};
 use nexal_config::NexalConfig;
 use serenity::all::{Context, EventHandler, GatewayIntents, Message, Ready};
@@ -13,12 +16,13 @@ use tracing::{info, warn};
 
 /// Discord channel that implements the [`Channel`] trait.
 pub struct DiscordChannel {
-    config: Arc<NexalConfig>,
+    ch_config: DiscordChannelConfig,
 }
 
 impl DiscordChannel {
     pub fn new(config: Arc<NexalConfig>) -> Self {
-        Self { config }
+        let ch_config = DiscordChannelConfig::from_nexal_config(&config);
+        Self { ch_config }
     }
 }
 
@@ -30,8 +34,8 @@ impl Channel for DiscordChannel {
 
     async fn start(&self, on_message: MessageCallback) -> anyhow::Result<()> {
         let token = self
-            .config
-            .channel.discord.bot_token
+            .ch_config
+            .bot_token
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("DISCORD_BOT_TOKEN is not set"))?
             .clone();
@@ -43,7 +47,7 @@ impl Channel for DiscordChannel {
             | GatewayIntents::MESSAGE_CONTENT;
 
         let handler = DiscordHandler {
-            config: Arc::clone(&self.config),
+            ch_config: self.ch_config.clone(),
             on_message: Arc::new(on_message),
         };
 
@@ -64,8 +68,8 @@ impl Channel for DiscordChannel {
         // skill scripts (exec) rather than this method.
         // This is a best-effort fallback using the REST API directly.
         let token = self
-            .config
-            .channel.discord.bot_token
+            .ch_config
+            .bot_token
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("DISCORD_BOT_TOKEN not set"))?;
 
@@ -84,7 +88,7 @@ impl Channel for DiscordChannel {
 }
 
 struct DiscordHandler {
-    config: Arc<NexalConfig>,
+    ch_config: DiscordChannelConfig,
     on_message: Arc<MessageCallback>,
 }
 
@@ -105,7 +109,7 @@ impl EventHandler for DiscordHandler {
         let username = msg.author.name.as_str();
 
         // Access control
-        if !guild_id.is_empty() && !self.config.is_discord_allowed_guild(&guild_id) {
+        if !guild_id.is_empty() && !self.ch_config.is_allowed_guild(&guild_id) {
             warn!("rejected message from guild {guild_id}");
             return;
         }

@@ -45,98 +45,6 @@ const DEFAULT_SOUL: &str = r#"You are Yina, a cheerful and cute girl.
 - Split long replies into multiple short messages
 "#;
 
-// ── Per-channel configuration structs ──
-
-/// Telegram channel configuration.
-///
-/// ```toml
-/// [channel.telegram]
-/// bot_token = "123456:ABC-DEF"
-/// allow_from = ["alice", "bob"]
-/// allow_chats = [-100123456]
-/// ```
-#[derive(Debug, Clone, Deserialize, Serialize, Default)]
-#[serde(default)]
-pub struct TelegramChannelConfig {
-    pub bot_token: Option<String>,
-    #[serde(default, deserialize_with = "deserialize_string_or_int_vec")]
-    pub allow_from: Vec<String>,
-    #[serde(default, deserialize_with = "deserialize_string_or_int_vec")]
-    pub allow_chats: Vec<String>,
-}
-
-/// Discord channel configuration.
-///
-/// ```toml
-/// [channel.discord]
-/// bot_token = "MTIz..."
-/// allow_guilds = ["123456789"]
-/// ```
-#[derive(Debug, Clone, Deserialize, Serialize, Default)]
-#[serde(default)]
-pub struct DiscordChannelConfig {
-    pub bot_token: Option<String>,
-    #[serde(default, deserialize_with = "deserialize_string_or_int_vec")]
-    pub allow_guilds: Vec<String>,
-}
-
-/// HTTP channel configuration.
-///
-/// ```toml
-/// [channel.http]
-/// port = 3000
-/// ```
-#[derive(Debug, Clone, Deserialize, Serialize, Default)]
-#[serde(default)]
-pub struct HttpChannelConfig {
-    pub port: Option<u16>,
-}
-
-/// Heartbeat channel configuration.
-///
-/// ```toml
-/// [channel.heartbeat]
-/// interval_mins = 30
-/// ```
-#[derive(Debug, Clone, Deserialize, Serialize, Default)]
-#[serde(default)]
-pub struct HeartbeatChannelConfig {
-    /// Interval in minutes between heartbeats (default: 30).
-    pub interval_mins: Option<u64>,
-}
-
-/// Cron channel configuration.
-///
-/// ```toml
-/// [channel.cron]
-/// tick_interval_secs = 15
-/// ```
-#[derive(Debug, Clone, Deserialize, Serialize, Default)]
-#[serde(default)]
-pub struct CronChannelConfig {
-    /// How often to check for due jobs (seconds, default: 15).
-    pub tick_interval_secs: Option<u64>,
-}
-
-/// All channel configurations grouped together.
-///
-/// ```toml
-/// [channel.telegram]
-/// bot_token = "..."
-///
-/// [channel.heartbeat]
-/// interval_mins = 15
-/// ```
-#[derive(Debug, Clone, Deserialize, Serialize, Default)]
-#[serde(default)]
-pub struct ChannelConfigs {
-    pub telegram: TelegramChannelConfig,
-    pub discord: DiscordChannelConfig,
-    pub http: HttpChannelConfig,
-    pub heartbeat: HeartbeatChannelConfig,
-    pub cron: CronChannelConfig,
-}
-
 // ── Main config ──
 
 /// Complete nexal configuration.
@@ -188,9 +96,10 @@ pub struct NexalConfig {
     /// Jina AI API key (for search and reader)
     pub jina_api_key: Option<String>,
 
-    /// Per-channel configurations
+    /// Per-channel configurations (raw TOML tables keyed by channel name).
+    /// Use each channel crate's `::from_nexal_config()` to get a typed view.
     #[serde(default)]
-    pub channel: ChannelConfigs,
+    pub channel: HashMap<String, toml::Value>,
 
     /// LLM provider configurations
     pub providers: HashMap<String, ProviderConfig>,
@@ -255,7 +164,7 @@ impl Default for NexalConfig {
             sandbox_network: true,
             jina_api_key: None,
             skills_dir: None,
-            channel: ChannelConfigs::default(),
+            channel: HashMap::new(),
             providers: HashMap::new(),
             otel: OtelConfig::default(),
             // Backward-compat flat fields
@@ -310,25 +219,9 @@ impl NexalConfig {
                     config.soul_path = Some(config.workspace.join("agents").join("SOUL.md"));
                 }
 
-                // ── Merge backward-compat flat fields into channel.* ──
-                if config.channel.telegram.bot_token.is_none() {
-                    if let Some(ref token) = config.telegram_bot_token {
-                        config.channel.telegram.bot_token = Some(token.clone());
-                    }
-                }
-                if config.channel.discord.bot_token.is_none() {
-                    if let Some(ref token) = config.discord_bot_token {
-                        config.channel.discord.bot_token = Some(token.clone());
-                    }
-                }
-                if config.channel.http.port.is_none() {
-                    config.channel.http.port = config.http_channel_port;
-                }
-                if config.channel.heartbeat.interval_mins.is_none() {
-                    config.channel.heartbeat.interval_mins = config.heartbeat_interval_mins;
-                }
-
-                // Normalize comma-separated list fields
+                // Normalize comma-separated list fields (top-level only).
+                // Per-channel normalization is done inside each channel crate's
+                // `from_nexal_config()` constructor.
                 fn normalize_list(v: &[String]) -> Vec<String> {
                     v.iter()
                         .flat_map(|s| s.split(',').map(|a| a.trim().trim_matches('@').to_string()))
@@ -336,9 +229,6 @@ impl NexalConfig {
                         .collect()
                 }
                 config.admins = normalize_list(&config.admins);
-                config.channel.telegram.allow_from = normalize_list(&config.channel.telegram.allow_from);
-                config.channel.telegram.allow_chats = normalize_list(&config.channel.telegram.allow_chats);
-                config.channel.discord.allow_guilds = normalize_list(&config.channel.discord.allow_guilds);
                 config
             }
             Err(e) => {
@@ -387,21 +277,6 @@ impl NexalConfig {
     pub fn is_admin(&self, username: &str) -> bool {
         self.admins.iter().any(|a| a.eq_ignore_ascii_case(username))
     }
-
-    pub fn is_telegram_allowed_user(&self, username: &str) -> bool {
-        self.channel.telegram.allow_from.is_empty()
-            || self.channel.telegram.allow_from.iter().any(|u| u == username)
-    }
-
-    pub fn is_telegram_allowed_chat(&self, chat_id: &str) -> bool {
-        self.channel.telegram.allow_chats.is_empty()
-            || self.channel.telegram.allow_chats.iter().any(|c| c == chat_id)
-    }
-
-    pub fn is_discord_allowed_guild(&self, guild_id: &str) -> bool {
-        self.channel.discord.allow_guilds.is_empty()
-            || self.channel.discord.allow_guilds.iter().any(|g| g == guild_id)
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -417,57 +292,42 @@ impl fmt::Display for SandboxBackend {
     }
 }
 
-/// Deserialize a Vec<String> that also accepts integers (e.g. Telegram chat IDs).
-fn deserialize_string_or_int_vec<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    use serde::de;
-
-    struct StringOrIntVec;
-
-    impl<'de> de::Visitor<'de> for StringOrIntVec {
-        type Value = Vec<String>;
-
-        fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-            f.write_str("a list of strings or integers, or a comma-separated string")
-        }
-
-        fn visit_seq<A>(self, mut seq: A) -> Result<Vec<String>, A::Error>
-        where
-            A: de::SeqAccess<'de>,
-        {
-            let mut v = Vec::new();
-            while let Some(val) = seq.next_element::<serde_json::Value>()? {
-                match val {
-                    serde_json::Value::String(s) => v.push(s),
-                    serde_json::Value::Number(n) => v.push(n.to_string()),
-                    _ => v.push(val.to_string()),
-                }
-            }
-            Ok(v)
-        }
-
-        fn visit_str<E: de::Error>(self, s: &str) -> Result<Vec<String>, E> {
-            Ok(s.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect())
-        }
-
-        fn visit_i64<E: de::Error>(self, n: i64) -> Result<Vec<String>, E> {
-            Ok(vec![n.to_string()])
-        }
-
-        fn visit_u64<E: de::Error>(self, n: u64) -> Result<Vec<String>, E> {
-            Ok(vec![n.to_string()])
-        }
-    }
-
-    deserializer.deserialize_any(StringOrIntVec)
-}
-
 fn dirs_home() -> PathBuf {
     std::env::var("HOME")
         .map(PathBuf::from)
         .unwrap_or_else(|_| PathBuf::from("/tmp"))
+}
+
+/// Deserialize a `Vec<String>` that may arrive as integers or a
+/// comma-separated string (e.g. Telegram chat IDs configured as bare numbers).
+fn deserialize_string_or_int_vec<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de::{SeqAccess, Visitor};
+
+    struct StringOrIntVec;
+    impl<'de> Visitor<'de> for StringOrIntVec {
+        type Value = Vec<String>;
+        fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "a sequence of strings or integers")
+        }
+        fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Vec<String>, A::Error> {
+            let mut out = Vec::new();
+            while let Some(el) = seq.next_element::<serde_json::Value>()? {
+                match el {
+                    serde_json::Value::String(s) => out.push(s),
+                    serde_json::Value::Number(n) => out.push(n.to_string()),
+                    other => out.push(other.to_string()),
+                }
+            }
+            Ok(out)
+        }
+        fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<Vec<String>, E> {
+            Ok(vec![v.to_string()])
+        }
+    }
+    deserializer.deserialize_any(StringOrIntVec)
 }
 
 #[cfg(test)]
@@ -484,19 +344,13 @@ mod tests {
     }
 
     #[test]
-    fn nested_channel_config_from_toml() {
-        use figment::providers::{Format, Serialized, Toml};
-
+    fn channel_raw_values_round_trip() {
         let toml_str = r#"
             [channel.telegram]
             bot_token = "123:ABC"
-            allow_from = ["alice"]
 
             [channel.heartbeat]
             interval_mins = 15
-
-            [channel.http]
-            port = 8080
         "#;
 
         let config: NexalConfig = Figment::new()
@@ -505,21 +359,8 @@ mod tests {
             .extract()
             .unwrap();
 
-        assert_eq!(config.channel.telegram.bot_token.as_deref(), Some("123:ABC"));
-        assert_eq!(config.channel.telegram.allow_from, vec!["alice"]);
-        assert_eq!(config.channel.heartbeat.interval_mins, Some(15));
-        assert_eq!(config.channel.http.port, Some(8080));
-    }
-
-    #[test]
-    fn sandbox_backend_parsing() {
-        let mut cfg = NexalConfig::default();
-        assert_eq!(cfg.sandbox_backend(), SandboxBackend::Podman);
-
-        cfg.sandbox = "none".to_string();
-        assert_eq!(cfg.sandbox_backend(), SandboxBackend::None);
-
-        cfg.sandbox = "off".to_string();
-        assert_eq!(cfg.sandbox_backend(), SandboxBackend::None);
+        // Channel values are stored as raw toml::Value tables.
+        assert!(config.channel.contains_key("telegram"));
+        assert!(config.channel.contains_key("heartbeat"));
     }
 }

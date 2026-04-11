@@ -7,6 +7,8 @@ mod channel;
 mod debounce;
 mod message;
 
+pub mod serde_utils;
+
 pub use channel::{Channel, MessageCallback, TypingHandle};
 pub use debounce::{DebounceConfig, MessageHandler, SessionRunner};
 pub use message::{ImageAttachment, IncomingMessage};

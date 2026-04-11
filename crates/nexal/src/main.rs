@@ -82,8 +82,11 @@ async fn main() -> anyhow::Result<()> {
             let config = Arc::new(NexalConfig::from_env());
             init_tracing(&config.otel);
             info!("admins: {:?}", config.admins);
-            info!("telegram_allow_from: {:?}", config.channel.telegram.allow_from);
-            info!("telegram_allow_chats: {:?}", config.channel.telegram.allow_chats);
+            {
+                let tg = nexal_channel_telegram::config::TelegramChannelConfig::from_nexal_config(&config);
+                info!("telegram_allow_from: {:?}", tg.allow_from);
+                info!("telegram_allow_chats: {:?}", tg.allow_chats);
+            }
             run_idle(args, config).await
         }
         None => {
@@ -139,10 +142,12 @@ async fn run_tui(enable_telegram: bool, enable_discord: bool, enable_http: bool,
 
     // Start token proxies (Unix sockets for Telegram/Discord API access).
     // Tokens stay on the host; container connects via socket.
+    let tg_token = nexal_channel_telegram::config::TelegramChannelConfig::from_nexal_config(&config).bot_token;
+    let dc_token = nexal_channel_discord::config::DiscordChannelConfig::from_nexal_config(&config).bot_token;
     let _proxy_handles = nexal_agent::proxy::start_proxies(
         &config.workspace,
-        config.channel.telegram.bot_token.as_deref(),
-        config.channel.discord.bot_token.as_deref(),
+        tg_token.as_deref(),
+        dc_token.as_deref(),
     )
     .await;
 
@@ -238,8 +243,8 @@ async fn maybe_start_channels(
     config: Arc<NexalConfig>,
     db: Arc<StateDb>,
 ) -> anyhow::Result<Option<tokio::task::JoinHandle<()>>> {
-    let run_telegram = enable_telegram || config.channel.telegram.bot_token.is_some();
-    let run_discord = enable_discord || config.channel.discord.bot_token.is_some();
+    let run_telegram = enable_telegram || nexal_channel_telegram::config::TelegramChannelConfig::from_nexal_config(&config).bot_token.is_some();
+    let run_discord = enable_discord || nexal_channel_discord::config::DiscordChannelConfig::from_nexal_config(&config).bot_token.is_some();
     let run_http = enable_http;
     let run_heartbeat = enable_heartbeat;
     let run_cron = enable_cron;
@@ -371,7 +376,10 @@ async fn register_container_proxies(
 ) {
     use std::collections::HashMap;
 
-    if let Some(ref token) = config.channel.telegram.bot_token {
+    let tg_token = nexal_channel_telegram::config::TelegramChannelConfig::from_nexal_config(config).bot_token;
+    let dc_token = nexal_channel_discord::config::DiscordChannelConfig::from_nexal_config(config).bot_token;
+
+    if let Some(ref token) = tg_token {
         // Telegram Bot API uses the token in the URL path.
         let upstream = format!("https://api.telegram.org/bot{token}");
         let params = nexal_exec_server::ProxyRegisterParams {
@@ -385,7 +393,7 @@ async fn register_container_proxies(
         }
     }
 
-    if let Some(ref token) = config.channel.discord.bot_token {
+    if let Some(ref token) = dc_token {
         let mut headers = HashMap::new();
         headers.insert("Authorization".to_string(), format!("Bot {token}"));
         let params = nexal_exec_server::ProxyRegisterParams {
@@ -964,8 +972,8 @@ async fn run_idle(args: IdleArgs, config: Arc<NexalConfig>) -> anyhow::Result<()
     // If any flag is explicit, only start flagged channels.
     // If no flags, auto-detect from configured tokens.
     let explicit = args.telegram || args.discord || args.http;
-    let run_telegram = if explicit { args.telegram } else { config.channel.telegram.bot_token.is_some() };
-    let run_discord = if explicit { args.discord } else { config.channel.discord.bot_token.is_some() };
+    let run_telegram = if explicit { args.telegram } else { nexal_channel_telegram::config::TelegramChannelConfig::from_nexal_config(&config).bot_token.is_some() };
+    let run_discord = if explicit { args.discord } else { nexal_channel_discord::config::DiscordChannelConfig::from_nexal_config(&config).bot_token.is_some() };
     let run_http = args.http;
     let run_heartbeat = args.heartbeat;
     let run_cron = args.cron;

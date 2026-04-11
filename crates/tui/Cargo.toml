@@ -38,11 +38,13 @@ nexal-protocol = { workspace = true }
 nexal-shell-command = { workspace = true }
 nexal-rollout-state = { workspace = true }
 nexal-terminal-detection = { workspace = true }
+nexal-tui-render = { workspace = true }
 nexal-utils-approval-presets = { workspace = true }
 nexal-utils-absolute-path = { workspace = true }
 nexal-utils-cli = { workspace = true }
 nexal-utils-elapsed = { workspace = true }
 nexal-utils-fuzzy-match = { workspace = true }
+nexal-utils-path = { workspace = true }
 nexal-utils-sandbox-summary = { workspace = true }
 nexal-utils-sleep-inhibitor = { workspace = true }
 nexal-utils-string = { workspace = true }

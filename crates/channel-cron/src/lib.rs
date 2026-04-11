@@ -11,9 +11,12 @@
 //! - **Interval**: fire every N seconds (`every:300` = every 5 min)
 //! - **One-shot**: fire once at a specific time (`once:2026-04-02T18:00:00`)
 
+pub mod config;
+
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
+use config::CronChannelConfig;
 use nexal_channel_core::{Channel, IncomingMessage, MessageCallback};
 use nexal_config::NexalConfig;
 use nexal_state::StateDb;
@@ -23,17 +26,20 @@ use tracing::{debug, info, warn};
 const DEFAULT_TICK_SECS: u64 = 15;
 
 pub struct CronChannel {
-    config: Arc<NexalConfig>,
+    ch_config: CronChannelConfig,
     db: Arc<StateDb>,
 }
 
 impl CronChannel {
     pub fn new(config: Arc<NexalConfig>, db: Arc<StateDb>) -> Self {
-        Self { config, db }
+        Self {
+            ch_config: CronChannelConfig::from_nexal_config(&config),
+            db,
+        }
     }
 
     fn tick_interval(&self) -> std::time::Duration {
-        let secs = self.config.channel.cron.tick_interval_secs.unwrap_or(DEFAULT_TICK_SECS);
+        let secs = self.ch_config.tick_interval_secs.unwrap_or(DEFAULT_TICK_SECS);
         std::time::Duration::from_secs(secs)
     }
 }

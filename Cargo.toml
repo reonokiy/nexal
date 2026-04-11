@@ -49,6 +49,7 @@ members = [
     "crates/state",
     "crates/terminal-detection",
     "crates/tui",
+    "crates/tui-render",
     # Utils
     "crates/utils/absolute-path",
     "crates/utils/approval-presets",
@@ -130,6 +131,7 @@ nexal-shell-escalation = { path = "crates/shell-escalation" }
 nexal-skills = { path = "crates/skills" }
 nexal-terminal-detection = { path = "crates/terminal-detection" }
 nexal-tui = { path = "crates/tui" }
+nexal-tui-render = { path = "crates/tui-render" }
 core_test_support = { path = "crates/core/tests/common" }
 
 # Utils

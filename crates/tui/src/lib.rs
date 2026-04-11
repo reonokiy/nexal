@@ -80,11 +80,9 @@ mod cli;
 mod clipboard_paste;
 mod clipboard_text;
 mod collaboration_modes;
-mod color;
 pub mod custom_terminal;
 mod cwd_prompt;
 mod debug_config;
-mod diff_render;
 mod exec_cell;
 mod exec_command;
 mod external_editor;
@@ -94,10 +92,6 @@ mod get_git_diff;
 mod history_cell;
 pub mod insert_history;
 mod key_hint;
-mod line_truncation;
-pub mod live_wrap;
-mod markdown;
-mod markdown_render;
 mod markdown_stream;
 mod mention_codec;
 mod model_migration;
@@ -107,7 +101,6 @@ pub mod onboarding;
 mod oss_selection;
 mod pager_overlay;
 pub mod public_widgets;
-mod render;
 mod resume_picker;
 mod selection_list;
 mod session_log;
@@ -118,9 +111,22 @@ mod status;
 mod status_indicator_widget;
 mod streaming;
 mod style;
-mod terminal_palette;
 mod terminal_title;
-mod text_formatting;
+
+// Re-exports from the extracted `nexal-tui-render` crate. Internal callers
+// continue to resolve `crate::render::...`, `crate::markdown_render::...`,
+// etc. through these aliases; `pub(crate) use` makes them visible to child
+// modules via `crate::<name>`.
+pub(crate) use nexal_tui_render::color;
+pub(crate) use nexal_tui_render::diff_render;
+pub(crate) use nexal_tui_render::line_truncation;
+pub use nexal_tui_render::live_wrap;
+pub(crate) use nexal_tui_render::markdown;
+pub(crate) use nexal_tui_render::markdown_render;
+pub(crate) use nexal_tui_render::render;
+pub(crate) use nexal_tui_render::terminal_palette;
+pub(crate) use nexal_tui_render::text_formatting;
+pub(crate) use nexal_tui_render::wrapping;
 mod theme_picker;
 mod tooltips;
 mod tui;
@@ -238,8 +244,6 @@ mod voice {
         });
     }
 }
-
-mod wrapping;
 
 #[cfg(test)]
 pub mod test_backend;
