@@ -3762,8 +3762,12 @@ name = "nexal-agent"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "axum",
  "base64 0.22.1",
  "dashmap",
+ "futures",
+ "hyper 1.8.1",
+ "hyper-util",
  "image",
  "nexal-app-server-client",
  "nexal-app-server-protocol",
@@ -3782,6 +3786,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "toml 0.9.12+spec-1.1.0",
+ "tower",
  "tracing",
 ]
 
@@ -4036,12 +4041,15 @@ dependencies = [
  "anyhow",
  "async-trait",
  "axum",
+ "hyper 1.8.1",
+ "hyper-util",
  "nexal-channel-core",
  "nexal-config",
  "serde",
  "serde_json",
  "tempfile",
  "tokio",
+ "tower",
  "tracing",
 ]
 
