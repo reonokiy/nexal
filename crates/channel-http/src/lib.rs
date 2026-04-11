@@ -23,11 +23,17 @@ use axum::extract::{Query, State};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use config::HttpChannelConfig;
+use hyper::body::Incoming;
+use hyper::Request;
+use hyper_util::rt::{TokioExecutor, TokioIo};
+use hyper_util::server::conn::auto::Builder;
 use nexal_channel_core::{Channel, IncomingMessage, MessageCallback};
 use nexal_config::NexalConfig;
 use serde::{Deserialize, Serialize};
+use tokio::net::UnixListener;
 use tokio::sync::Mutex;
-use tracing::info;
+use tower::Service;
+use tracing::{debug, info};
 
 /// HTTP channel that implements the [`Channel`] trait.
 pub struct HttpChannel {
@@ -161,21 +167,19 @@ async fn handle_messages(
 /// Unix socket at `<workspace>/agents/proxy/http.channel` that skill scripts
 /// connect to in order to send responses.
 ///
-/// Accepts minimal HTTP POST with JSON body `{"chat_id":"...","text":"..."}`.
+/// Accepts HTTP POST to `/` with JSON body `{"chat_id":"...","text":"..."}`.
 /// Pushes the response into the shared outbox.
 async fn run_response_socket(
     workspace: &std::path::Path,
     outbox: Outbox,
 ) -> anyhow::Result<()> {
-    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-
     let socket_path = workspace.join("agents").join("proxy").join("http.channel");
     if let Some(parent) = socket_path.parent() {
         tokio::fs::create_dir_all(parent).await?;
     }
     let _ = tokio::fs::remove_file(&socket_path).await;
 
-    let listener = tokio::net::UnixListener::bind(&socket_path)?;
+    let listener = UnixListener::bind(&socket_path)?;
 
     #[cfg(unix)]
     {
@@ -185,76 +189,40 @@ async fn run_response_socket(
 
     info!(path = %socket_path.display(), "http response socket started");
 
+    let app: Router = Router::new()
+        .route("/", post(handle_socket_response))
+        .route("/response", post(handle_socket_response))
+        .with_state(outbox);
+
     loop {
         let (stream, _) = listener.accept().await?;
-        let outbox = Arc::clone(&outbox);
-
+        let tower_service = app.clone();
         tokio::spawn(async move {
-            let (reader, mut writer) = stream.into_split();
-            let mut reader = BufReader::new(reader);
-
-            // Read request line: POST /response HTTP/1.1
-            let mut request_line = String::new();
-            if reader.read_line(&mut request_line).await.is_err() {
-                return;
-            }
-
-            // Read headers to find Content-Length
-            let mut content_length: usize = 0;
-            loop {
-                let mut line = String::new();
-                if reader.read_line(&mut line).await.is_err() {
-                    return;
-                }
-                if line.trim().is_empty() {
-                    break;
-                }
-                if let Some(val) = line
-                    .strip_prefix("Content-Length:")
-                    .or_else(|| line.strip_prefix("content-length:"))
-                {
-                    content_length = val.trim().parse().unwrap_or(0);
-                }
-            }
-
-            // Read body
-            let mut body = vec![0u8; content_length];
-            if content_length > 0 {
-                use tokio::io::AsyncReadExt;
-                if reader.read_exact(&mut body).await.is_err() {
-                    return;
-                }
-            }
-
-            // Parse and push to outbox
-            let resp = match serde_json::from_slice::<SocketResponse>(&body) {
-                Ok(r) => r,
-                Err(e) => {
-                    let err_resp = format!(
-                        "HTTP/1.1 400 Bad Request\r\nContent-Length: {}\r\n\r\n{}",
-                        e.to_string().len(),
-                        e
-                    );
-                    let _ = writer.write_all(err_resp.as_bytes()).await;
-                    return;
-                }
-            };
-
+            let io = TokioIo::new(stream);
+            let hyper_service =
+                hyper::service::service_fn(move |req: Request<Incoming>| {
+                    tower_service.clone().call(req)
+                });
+            if let Err(e) = Builder::new(TokioExecutor::new())
+                .serve_connection(io, hyper_service)
+                .await
             {
-                let mut outbox = outbox.lock().await;
-                outbox
-                    .entry(resp.chat_id.clone())
-                    .or_default()
-                    .push(resp.text);
+                debug!("http response socket connection error: {e}");
             }
-
-            let ok_body = r#"{"ok":true}"#;
-            let ok_resp = format!(
-                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
-                ok_body.len(),
-                ok_body
-            );
-            let _ = writer.write_all(ok_resp.as_bytes()).await;
         });
     }
+}
+
+/// Handle a single `POST /` on the response socket: push the text into the
+/// per-chat outbox so `GET /messages?chat_id=...` returns it next time.
+async fn handle_socket_response(
+    State(outbox): State<Outbox>,
+    Json(resp): Json<SocketResponse>,
+) -> Json<SendResponse> {
+    let mut outbox = outbox.lock().await;
+    outbox
+        .entry(resp.chat_id)
+        .or_default()
+        .push(resp.text);
+    Json(SendResponse { ok: true })
 }

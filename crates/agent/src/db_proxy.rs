@@ -13,14 +13,25 @@
 use std::path::Path;
 use std::sync::Arc;
 
+use axum::extract::State;
+use axum::http::StatusCode;
+use axum::response::{IntoResponse, Response};
+use axum::routing::post;
+use axum::{Json, Router};
+use hyper::body::Incoming;
+use hyper::Request;
+use hyper_util::rt::{TokioExecutor, TokioIo};
+use hyper_util::server::conn::auto::Builder;
 use nexal_state::StateDb;
 use serde::Deserialize;
-use serde_json::json;
-use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+use serde_json::{json, Value};
 use tokio::net::UnixListener;
+use tower::Service;
 use tracing::{debug, error, info, warn};
 
 const MAX_LIMIT: i64 = 1000;
+
+type AppState = Arc<StateDb>;
 
 /// Start the DB API proxy on a Unix socket at `{workspace}/agents/proxy/nexal-api`.
 pub async fn start_db_proxy(
@@ -49,24 +60,43 @@ pub async fn start_db_proxy(
 
     info!(path = %sock_path.display(), "db api proxy started");
 
-    tokio::spawn(async move {
-        loop {
-            let (stream, _) = match listener.accept().await {
-                Ok(s) => s,
-                Err(e) => {
-                    warn!("db api accept error: {e}");
-                    continue;
-                }
-            };
+    let app: Router = Router::new()
+        .route("/toollog/query", post(route_toollog_query))
+        .route("/toollog/stats", post(route_toollog_stats))
+        .route("/chatlog/query", post(route_chatlog_query))
+        .route("/chatlog/stats", post(route_chatlog_stats))
+        .with_state(db);
 
-            let db = Arc::clone(&db);
-            tokio::spawn(async move {
-                if let Err(e) = handle_connection(stream, &db).await {
-                    debug!("db api connection error: {e}");
-                }
-            });
-        }
-    })
+    tokio::spawn(async move { serve_unix(listener, app).await })
+}
+
+/// Serve an axum `Router` over a `UnixListener`. Each accepted connection is
+/// driven by a hyper HTTP/1 connection handler running on its own task.
+async fn serve_unix(listener: UnixListener, app: Router) {
+    loop {
+        let (stream, _) = match listener.accept().await {
+            Ok(s) => s,
+            Err(e) => {
+                warn!("db api accept error: {e}");
+                continue;
+            }
+        };
+
+        let tower_service = app.clone();
+        tokio::spawn(async move {
+            let io = TokioIo::new(stream);
+            let hyper_service =
+                hyper::service::service_fn(move |req: Request<Incoming>| {
+                    tower_service.clone().call(req)
+                });
+            if let Err(e) = Builder::new(TokioExecutor::new())
+                .serve_connection(io, hyper_service)
+                .await
+            {
+                debug!("db api connection error: {e}");
+            }
+        });
+    }
 }
 
 // ── Request types ────────────────────────────────────────────────────────
@@ -96,82 +126,47 @@ struct ChatlogQueryParams {
     offset: Option<i64>,
 }
 
-// ── Connection handler ───────────────────────────────────────────────────
+/// Wrap a handler result into an axum response. Errors become 400s with a
+/// JSON error body — matching the old hand-rolled protocol.
+struct ApiResult(anyhow::Result<Value>);
 
-async fn handle_connection(
-    stream: tokio::net::UnixStream,
-    db: &StateDb,
-) -> anyhow::Result<()> {
-    let (reader, mut writer) = stream.into_split();
-    let mut reader = BufReader::new(reader);
-
-    // Read request line
-    let mut request_line = String::new();
-    reader.read_line(&mut request_line).await?;
-    let parts: Vec<&str> = request_line.trim().split_whitespace().collect();
-    if parts.len() < 2 {
-        return write_response(&mut writer, 400, &json!({"error": "bad request"})).await;
-    }
-    let method = parts[0];
-    let path = parts[1];
-
-    if method != "POST" {
-        return write_response(&mut writer, 405, &json!({"error": "use POST"})).await;
-    }
-
-    // Read headers
-    let mut content_length: usize = 0;
-    loop {
-        let mut line = String::new();
-        reader.read_line(&mut line).await?;
-        if line.trim().is_empty() {
-            break;
+impl IntoResponse for ApiResult {
+    fn into_response(self) -> Response {
+        match self.0 {
+            Ok(value) => (StatusCode::OK, Json(value)).into_response(),
+            Err(e) => (
+                StatusCode::BAD_REQUEST,
+                Json(json!({ "error": format!("{e}") })),
+            )
+                .into_response(),
         }
-        if let Some(val) = line
-            .strip_prefix("Content-Length:")
-            .or_else(|| line.strip_prefix("content-length:"))
-        {
-            content_length = val.trim().parse().unwrap_or(0);
-        }
-    }
-
-    // Read body
-    let mut body = vec![0u8; content_length];
-    if content_length > 0 {
-        reader.read_exact(&mut body).await?;
-    }
-
-    // Route to handler
-    let result = match path {
-        "/toollog/query" => {
-            let params: ToollogQueryParams = parse_body(&body)?;
-            handle_toollog_query(db, params).await
-        }
-        "/toollog/stats" => handle_toollog_stats(db).await,
-        "/chatlog/query" => {
-            let params: ChatlogQueryParams = parse_body(&body)?;
-            handle_chatlog_query(db, params).await
-        }
-        "/chatlog/stats" => handle_chatlog_stats(db).await,
-        _ => {
-            return write_response(&mut writer, 404, &json!({
-                "error": "unknown endpoint",
-                "endpoints": ["/toollog/query", "/toollog/stats", "/chatlog/query", "/chatlog/stats"]
-            })).await;
-        }
-    };
-
-    match result {
-        Ok(data) => write_response(&mut writer, 200, &data).await,
-        Err(e) => write_response(&mut writer, 400, &json!({"error": format!("{e}")})).await,
     }
 }
 
-fn parse_body<T: serde::de::DeserializeOwned + Default>(body: &[u8]) -> anyhow::Result<T> {
-    if body.is_empty() {
-        return Ok(T::default());
-    }
-    Ok(serde_json::from_slice(body)?)
+// ── Route handlers ───────────────────────────────────────────────────────
+
+async fn route_toollog_query(
+    State(db): State<AppState>,
+    body: Option<Json<ToollogQueryParams>>,
+) -> ApiResult {
+    let params = body.map(|Json(p)| p).unwrap_or_default();
+    ApiResult(handle_toollog_query(&db, params).await)
+}
+
+async fn route_toollog_stats(State(db): State<AppState>) -> ApiResult {
+    ApiResult(handle_toollog_stats(&db).await)
+}
+
+async fn route_chatlog_query(
+    State(db): State<AppState>,
+    body: Option<Json<ChatlogQueryParams>>,
+) -> ApiResult {
+    let params = body.map(|Json(p)| p).unwrap_or_default();
+    ApiResult(handle_chatlog_query(&db, params).await)
+}
+
+async fn route_chatlog_stats(State(db): State<AppState>) -> ApiResult {
+    ApiResult(handle_chatlog_stats(&db).await)
 }
 
 // ── Toollog handlers ─────────────────────────────────────────────────────
@@ -179,37 +174,19 @@ fn parse_body<T: serde::de::DeserializeOwned + Default>(body: &[u8]) -> anyhow::
 async fn handle_toollog_query(
     db: &StateDb,
     p: ToollogQueryParams,
-) -> anyhow::Result<serde_json::Value> {
+) -> anyhow::Result<Value> {
     let limit = p.limit.unwrap_or(50).min(MAX_LIMIT);
     let offset = p.offset.unwrap_or(0).max(0);
 
     let mut clauses: Vec<String> = Vec::new();
     let mut params: Vec<String> = Vec::new();
 
-    if let Some(ref v) = p.channel {
-        clauses.push("session_id LIKE ? || ':%'".into());
-        params.push(v.clone());
-    }
-    if let Some(ref v) = p.chat_id {
-        clauses.push("session_id LIKE '%:' || ?".into());
-        params.push(v.clone());
-    }
-    if let Some(ref v) = p.tool_name {
-        clauses.push("tool_name = ?".into());
-        params.push(v.clone());
-    }
-    if let Some(ref v) = p.status {
-        clauses.push("status = ?".into());
-        params.push(v.clone());
-    }
-    if let Some(ref v) = p.since {
-        clauses.push("timestamp >= ?".into());
-        params.push(v.clone());
-    }
-    if let Some(ref v) = p.until {
-        clauses.push("timestamp <= ?".into());
-        params.push(v.clone());
-    }
+    push_filter(&mut clauses, &mut params, "session_id LIKE ? || ':%'", p.channel.as_ref());
+    push_filter(&mut clauses, &mut params, "session_id LIKE '%:' || ?", p.chat_id.as_ref());
+    push_filter(&mut clauses, &mut params, "tool_name = ?", p.tool_name.as_ref());
+    push_filter(&mut clauses, &mut params, "status = ?", p.status.as_ref());
+    push_filter(&mut clauses, &mut params, "timestamp >= ?", p.since.as_ref());
+    push_filter(&mut clauses, &mut params, "timestamp <= ?", p.until.as_ref());
 
     let where_clause = if clauses.is_empty() {
         String::new()
@@ -223,23 +200,10 @@ async fn handle_toollog_query(
     params.push(offset.to_string());
 
     let (columns, rows) = db.query_readonly(&sql, &params).await?;
-    let results: Vec<serde_json::Value> = rows
-        .into_iter()
-        .rev()
-        .map(|row| {
-            columns
-                .iter()
-                .zip(row)
-                .map(|(k, v)| (k.clone(), v))
-                .collect::<serde_json::Map<String, serde_json::Value>>()
-                .into()
-        })
-        .collect();
-
-    Ok(json!(results))
+    Ok(json!(rows_to_dicts(&columns, rows.into_iter().rev().collect())))
 }
 
-async fn handle_toollog_stats(db: &StateDb) -> anyhow::Result<serde_json::Value> {
+async fn handle_toollog_stats(db: &StateDb) -> anyhow::Result<Value> {
     let (_, rows) = db
         .query_readonly("SELECT COUNT(*) as total FROM bot_tool_calls", &[])
         .await?;
@@ -277,41 +241,20 @@ async fn handle_toollog_stats(db: &StateDb) -> anyhow::Result<serde_json::Value>
 async fn handle_chatlog_query(
     db: &StateDb,
     p: ChatlogQueryParams,
-) -> anyhow::Result<serde_json::Value> {
+) -> anyhow::Result<Value> {
     let limit = p.limit.unwrap_or(50).min(MAX_LIMIT);
     let offset = p.offset.unwrap_or(0).max(0);
 
     let mut clauses: Vec<String> = Vec::new();
     let mut params: Vec<String> = Vec::new();
 
-    if let Some(ref v) = p.channel {
-        clauses.push("session_id LIKE ? || ':%'".into());
-        params.push(v.clone());
-    }
-    if let Some(ref v) = p.chat_id {
-        clauses.push("session_id LIKE '%:' || ?".into());
-        params.push(v.clone());
-    }
-    if let Some(ref v) = p.sender {
-        clauses.push("sender = ?".into());
-        params.push(v.clone());
-    }
-    if let Some(ref v) = p.role {
-        clauses.push("role = ?".into());
-        params.push(v.clone());
-    }
-    if let Some(ref v) = p.since {
-        clauses.push("timestamp >= ?".into());
-        params.push(v.clone());
-    }
-    if let Some(ref v) = p.until {
-        clauses.push("timestamp <= ?".into());
-        params.push(v.clone());
-    }
-    if let Some(ref v) = p.search {
-        clauses.push("text LIKE '%' || ? || '%'".into());
-        params.push(v.clone());
-    }
+    push_filter(&mut clauses, &mut params, "session_id LIKE ? || ':%'", p.channel.as_ref());
+    push_filter(&mut clauses, &mut params, "session_id LIKE '%:' || ?", p.chat_id.as_ref());
+    push_filter(&mut clauses, &mut params, "sender = ?", p.sender.as_ref());
+    push_filter(&mut clauses, &mut params, "role = ?", p.role.as_ref());
+    push_filter(&mut clauses, &mut params, "timestamp >= ?", p.since.as_ref());
+    push_filter(&mut clauses, &mut params, "timestamp <= ?", p.until.as_ref());
+    push_filter(&mut clauses, &mut params, "text LIKE '%' || ? || '%'", p.search.as_ref());
 
     let where_clause = if clauses.is_empty() {
         String::new()
@@ -325,23 +268,10 @@ async fn handle_chatlog_query(
     params.push(offset.to_string());
 
     let (columns, rows) = db.query_readonly(&sql, &params).await?;
-    let results: Vec<serde_json::Value> = rows
-        .into_iter()
-        .rev()
-        .map(|row| {
-            columns
-                .iter()
-                .zip(row)
-                .map(|(k, v)| (k.clone(), v))
-                .collect::<serde_json::Map<String, serde_json::Value>>()
-                .into()
-        })
-        .collect();
-
-    Ok(json!(results))
+    Ok(json!(rows_to_dicts(&columns, rows.into_iter().rev().collect())))
 }
 
-async fn handle_chatlog_stats(db: &StateDb) -> anyhow::Result<serde_json::Value> {
+async fn handle_chatlog_stats(db: &StateDb) -> anyhow::Result<Value> {
     let (_, rows) = db
         .query_readonly("SELECT COUNT(*) as total FROM bot_messages", &[])
         .await?;
@@ -374,37 +304,27 @@ async fn handle_chatlog_stats(db: &StateDb) -> anyhow::Result<serde_json::Value>
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
-fn rows_to_dicts(columns: &[String], rows: Vec<Vec<serde_json::Value>>) -> Vec<serde_json::Value> {
+fn push_filter(
+    clauses: &mut Vec<String>,
+    params: &mut Vec<String>,
+    clause: &str,
+    value: Option<&String>,
+) {
+    if let Some(v) = value {
+        clauses.push(clause.to_string());
+        params.push(v.clone());
+    }
+}
+
+fn rows_to_dicts(columns: &[String], rows: Vec<Vec<Value>>) -> Vec<Value> {
     rows.into_iter()
         .map(|row| {
             columns
                 .iter()
                 .zip(row)
                 .map(|(k, v)| (k.clone(), v))
-                .collect::<serde_json::Map<String, serde_json::Value>>()
+                .collect::<serde_json::Map<String, Value>>()
                 .into()
         })
         .collect()
-}
-
-async fn write_response(
-    writer: &mut tokio::net::unix::OwnedWriteHalf,
-    status: u16,
-    body: &serde_json::Value,
-) -> anyhow::Result<()> {
-    let body_bytes = serde_json::to_vec(body)?;
-    let status_text = match status {
-        200 => "OK",
-        400 => "Bad Request",
-        404 => "Not Found",
-        405 => "Method Not Allowed",
-        _ => "Error",
-    };
-    let response = format!(
-        "HTTP/1.1 {status} {status_text}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-        body_bytes.len()
-    );
-    writer.write_all(response.as_bytes()).await?;
-    writer.write_all(&body_bytes).await?;
-    Ok(())
 }
