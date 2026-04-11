@@ -1,3 +1,9 @@
+// NOTE: This file is NOT Nexal-product code. It is the upstream session engine
+// originally named `codex.rs` in codex-rs, renamed to `nexal.rs` at fork
+// commit 315e7d6 when all codex→nexal type renames were applied. The `Nexal`
+// struct here is the upstream `Codex` struct. Do not add Nexal-product logic
+// (channels, heartbeat, cron, etc.) to this file.
+
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::fmt::Debug;
