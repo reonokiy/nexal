@@ -366,6 +366,68 @@ mod tests {
         assert_eq!(cfg.sandbox_backend(), "podman");
     }
 
+    fn config_with_workspace(workspace: PathBuf) -> NexalConfig {
+        NexalConfig {
+            workspace,
+            ..NexalConfig::default()
+        }
+    }
+
+    #[tokio::test]
+    async fn load_soul_seeds_default_when_file_missing() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let cfg = config_with_workspace(tmp.path().to_path_buf());
+
+        let soul = cfg.load_soul().await;
+
+        assert!(soul.contains("Yina"), "default SOUL should be seeded");
+        let on_disk = tokio::fs::read_to_string(cfg.soul_path()).await.unwrap();
+        assert_eq!(on_disk, DEFAULT_SOUL);
+    }
+
+    #[tokio::test]
+    async fn load_soul_preserves_user_edits() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let cfg = config_with_workspace(tmp.path().to_path_buf());
+
+        // Pre-seed a user-edited SOUL.md.
+        let soul_path = cfg.soul_path();
+        tokio::fs::create_dir_all(soul_path.parent().unwrap())
+            .await
+            .unwrap();
+        let user_soul = "You are Custom, a sentient teapot.";
+        tokio::fs::write(&soul_path, user_soul).await.unwrap();
+
+        let soul = cfg.load_soul().await;
+
+        assert_eq!(soul, user_soul, "user edits must not be clobbered");
+        // File on disk also unchanged.
+        let on_disk = tokio::fs::read_to_string(&soul_path).await.unwrap();
+        assert_eq!(on_disk, user_soul);
+    }
+
+    #[tokio::test]
+    async fn load_soul_appends_override_file() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let cfg = config_with_workspace(tmp.path().to_path_buf());
+
+        // Seed an override file alongside where SOUL.md will be.
+        let soul_path = cfg.soul_path();
+        tokio::fs::create_dir_all(soul_path.parent().unwrap())
+            .await
+            .unwrap();
+        let override_path = soul_path.with_file_name("SOUL.override.md");
+        tokio::fs::write(&override_path, "# Extra rule\nBe extra nice.")
+            .await
+            .unwrap();
+
+        let soul = cfg.load_soul().await;
+
+        assert!(soul.contains("Yina"), "default SOUL base must be present");
+        assert!(soul.contains("Extra rule"), "override must be appended");
+        assert!(soul.contains("---"), "separator must be present");
+    }
+
     #[test]
     fn channel_raw_values_round_trip() {
         let toml_str = r#"

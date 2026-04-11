@@ -11,5 +11,9 @@ toml = { workspace = true }
 tokio = { workspace = true, features = ["fs"] }
 tracing = { workspace = true }
 
+[dev-dependencies]
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["fs", "macros", "rt"] }
+
 [lib]
 doctest = false
