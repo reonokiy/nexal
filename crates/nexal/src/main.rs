@@ -103,6 +103,123 @@ async fn main() -> anyhow::Result<()> {
     }
 }
 
+/// Which channels should be enabled for this run.
+#[derive(Debug, Clone, Copy, Default)]
+struct ChannelFlags {
+    telegram: bool,
+    discord: bool,
+    http: bool,
+    heartbeat: bool,
+    cron: bool,
+}
+
+impl ChannelFlags {
+    fn any_enabled(&self) -> bool {
+        self.telegram || self.discord || self.http || self.heartbeat || self.cron
+    }
+
+    fn enabled_names(&self) -> Vec<&'static str> {
+        [
+            ("telegram", self.telegram),
+            ("discord", self.discord),
+            ("http", self.http),
+            ("heartbeat", self.heartbeat),
+            ("cron", self.cron),
+        ]
+        .into_iter()
+        .filter_map(|(name, on)| on.then_some(name))
+        .collect()
+    }
+}
+
+/// Install the channel listeners selected by `flags` onto `bot`.
+fn install_channels(
+    bot: &mut Agent,
+    flags: ChannelFlags,
+    config: &Arc<NexalConfig>,
+    db: &Arc<StateDb>,
+) {
+    if flags.telegram {
+        bot.add_channel(nexal_channel_telegram::TelegramChannel::new(Arc::clone(config)));
+    }
+    if flags.discord {
+        bot.add_channel(nexal_channel_discord::DiscordChannel::new(Arc::clone(config)));
+    }
+    if flags.http {
+        bot.add_channel(nexal_channel_http::HttpChannel::new(Arc::clone(config)));
+    }
+    if flags.heartbeat {
+        bot.add_channel(nexal_channel_heartbeat::HeartbeatChannel::new(Arc::clone(config)));
+    }
+    if flags.cron {
+        bot.add_channel(nexal_channel_cron::CronChannel::new(
+            Arc::clone(config),
+            Arc::clone(db),
+        ));
+    }
+}
+
+/// Open the state database, start its read-only proxy, and return both the
+/// shared handle and the proxy's background task handle.
+async fn open_state_db(
+    config: &NexalConfig,
+) -> anyhow::Result<(Arc<StateDb>, tokio::task::JoinHandle<()>)> {
+    let db = Arc::new(
+        StateDb::open(&config.database_url())
+            .await
+            .context("opening state db")?,
+    );
+    let proxy_handle =
+        nexal_agent::db_proxy::start_db_proxy(&config.workspace, Arc::clone(&db)).await;
+    Ok((db, proxy_handle))
+}
+
+/// Cleanup a sandbox container: kill its child process (if any) and remove it.
+async fn shutdown_sandbox(mut handle: SandboxHandle) {
+    if let Some(ref mut child) = handle.child {
+        let _ = child.kill().await;
+    }
+    cleanup_sandbox_container(&handle.name).await;
+}
+
+/// Build a fully-configured `AgentPool` for the given runtime context.
+fn build_pool(
+    config: Arc<NexalConfig>,
+    environment_manager: Option<Arc<nexal_exec_server::EnvironmentManager>>,
+    signal_server: Option<Arc<nexal_agent::StateSignalServer>>,
+) -> Arc<AgentPool> {
+    let mut pool = AgentPool::new(config);
+    if let Some(env_mgr) = environment_manager {
+        pool = pool.with_environment_manager(env_mgr);
+    }
+    if let Some(server) = signal_server {
+        pool = pool.with_signal_server(server);
+    }
+    pool.into_shared()
+}
+
+/// Start the push-based state signal server, logging and returning `None` on
+/// failure (the agent still runs, just without push state transitions).
+async fn start_signal_server(
+    agents_dir: &std::path::Path,
+) -> Option<Arc<nexal_agent::StateSignalServer>> {
+    match nexal_agent::StateSignalServer::start(agents_dir).await {
+        Ok(server) => Some(Arc::new(server)),
+        Err(e) => {
+            tracing::warn!("failed to start state signal server: {e}");
+            None
+        }
+    }
+}
+
+fn debounce_config_from(config: &NexalConfig) -> DebounceConfig {
+    DebounceConfig {
+        debounce_secs: config.debounce_secs,
+        delay_secs: config.message_delay_secs,
+        active_window_secs: config.active_window_secs,
+    }
+}
+
 #[cfg(feature = "tui")]
 async fn run_tui(enable_telegram: bool, enable_discord: bool, enable_http: bool, enable_heartbeat: bool, enable_cron: bool) -> anyhow::Result<()> {
     let config = Arc::new(NexalConfig::from_env());
@@ -116,26 +233,15 @@ async fn run_tui(enable_telegram: bool, enable_discord: bool, enable_http: bool,
 
     // Unified StateDb — same as idle/bot mode.
     // chatlog/toollog skills query this database inside the container.
-    let db = Arc::new(
-        StateDb::open(&config.database_url())
-            .await
-            .context("opening state db")?,
-    );
-
-    // Start DB query proxy (Unix socket for read-only SQL access from container).
-    let _db_proxy_handle =
-        nexal_agent::db_proxy::start_db_proxy(&config.workspace, Arc::clone(&db)).await;
+    let (db, _db_proxy_handle) = open_state_db(&config).await?;
 
     // Sync TUI session events to StateDb for chatlog/toollog skills.
-    let nexal_home = config
-        .nexal_home
-        .clone()
-        .unwrap_or_else(|| {
-            std::env::var("HOME")
-                .map(std::path::PathBuf::from)
-                .unwrap_or_else(|_| std::path::PathBuf::from("/tmp"))
-                .join(".nexal")
-        });
+    let nexal_home = config.nexal_home.clone().unwrap_or_else(|| {
+        std::env::var("HOME")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|_| std::path::PathBuf::from("/tmp"))
+            .join(".nexal")
+    });
     let _sync_handle = nexal_agent::db_sync::start_sync(Arc::clone(&db), &nexal_home);
 
     // Start token proxies (Unix sockets for Telegram/Discord API access).
@@ -164,46 +270,31 @@ async fn run_tui(enable_telegram: bool, enable_discord: bool, enable_http: bool,
         .push("project_doc_fallback_filenames=[\"SOUL.md\"]".to_string());
 
     // Inject providers from figment config into TUI's core config.
-    for (name, provider) in &config.providers {
-        // name is required by core
-        let display = provider.name.as_deref().unwrap_or(name.as_str());
-        tui_cli.config_overrides.raw_overrides
-            .push(format!("model_providers.{name}.name=\"{display}\""));
-        if let Some(ref url) = provider.base_url {
-            tui_cli.config_overrides.raw_overrides
-                .push(format!("model_providers.{name}.base_url=\"{url}\""));
-        }
-        if let Some(ref key) = provider.env_key {
-            tui_cli.config_overrides.raw_overrides
-                .push(format!("model_providers.{name}.env_key=\"{key}\""));
-        }
-        if let Some(ref api) = provider.wire_api {
-            tui_cli.config_overrides.raw_overrides
-                .push(format!("model_providers.{name}.wire_api=\"{api}\""));
-        }
-        if provider.thinking_mode {
-            tui_cli.config_overrides.raw_overrides
-                .push(format!("model_providers.{name}.thinking_mode=true"));
-        }
-    }
-
-    // Auto-select the first custom provider if any are configured.
-    if let Some(provider_id) = config.providers.keys().next() {
-        tui_cli.config_overrides.raw_overrides
-            .push(format!("model_provider=\"{provider_id}\""));
+    // The headless agent path uses the same helper, so TUI and idle share
+    // one source of truth for provider → override mapping.
+    for (key, value) in nexal_agent::providers_to_cli_overrides_full(&config) {
+        tui_cli
+            .config_overrides
+            .raw_overrides
+            .push(format!("{key}={value}"));
     }
 
     // Start channel listeners alongside TUI if requested.
-    let bot_handle = maybe_start_channels(
-        enable_telegram,
-        enable_discord,
-        enable_http,
-        enable_heartbeat,
-        enable_cron,
-        Arc::clone(&config),
-        Arc::clone(&db),
-    )
-    .await?;
+    let flags = ChannelFlags {
+        telegram: enable_telegram
+            || nexal_channel_telegram::config::TelegramChannelConfig::from_nexal_config(&config)
+                .bot_token
+                .is_some(),
+        discord: enable_discord
+            || nexal_channel_discord::config::DiscordChannelConfig::from_nexal_config(&config)
+                .bot_token
+                .is_some(),
+        http: enable_http,
+        heartbeat: enable_heartbeat,
+        cron: enable_cron,
+    };
+    let bot_handle =
+        maybe_start_channels(flags, Arc::clone(&config), Arc::clone(&db)).await?;
 
     // Run TUI (blocks until exit)
     let result = nexal_tui::run_main(
@@ -217,13 +308,7 @@ async fn run_tui(enable_telegram: bool, enable_discord: bool, enable_http: bool,
     if let Some(handle) = bot_handle {
         handle.abort();
     }
-    {
-        let mut handle = sandbox;
-        if let Some(ref mut child) = handle.child {
-            let _ = child.kill().await;
-        }
-        cleanup_sandbox_container(&handle.name).await;
-    }
+    shutdown_sandbox(sandbox).await;
 
     result.map_err(|e| anyhow::anyhow!("TUI error: {e}"))?;
     Ok(())
@@ -233,21 +318,11 @@ async fn run_tui(enable_telegram: bool, enable_discord: bool, enable_http: bool,
 /// Start channel bot in the background if any channels are requested.
 /// Returns a JoinHandle that can be aborted on TUI exit.
 async fn maybe_start_channels(
-    enable_telegram: bool,
-    enable_discord: bool,
-    enable_http: bool,
-    enable_heartbeat: bool,
-    enable_cron: bool,
+    flags: ChannelFlags,
     config: Arc<NexalConfig>,
     db: Arc<StateDb>,
 ) -> anyhow::Result<Option<tokio::task::JoinHandle<()>>> {
-    let run_telegram = enable_telegram || nexal_channel_telegram::config::TelegramChannelConfig::from_nexal_config(&config).bot_token.is_some();
-    let run_discord = enable_discord || nexal_channel_discord::config::DiscordChannelConfig::from_nexal_config(&config).bot_token.is_some();
-    let run_http = enable_http;
-    let run_heartbeat = enable_heartbeat;
-    let run_cron = enable_cron;
-
-    if !run_telegram && !run_discord && !run_http && !run_heartbeat && !run_cron {
+    if !flags.any_enabled() {
         return Ok(None);
     }
 
@@ -255,65 +330,16 @@ async fn maybe_start_channels(
     // corrupt the terminal UI.
     init_tracing_to_file(&config.workspace);
 
-    // Start state signal socket for push-based BUSY→IDLE transitions.
-    let agents_dir = config.workspace.join("agents");
-    let signal_server = match nexal_agent::StateSignalServer::start(&agents_dir).await {
-        Ok(server) => Some(Arc::new(server)),
-        Err(e) => {
-            tracing::warn!("failed to start state signal server: {e}");
-            None
-        }
-    };
+    let signal_server = start_signal_server(&config.workspace.join("agents")).await;
+    let pool = build_pool(Arc::clone(&config), None, signal_server);
 
-    let mut pool = AgentPool::new(Arc::clone(&config));
-    if let Some(ref server) = signal_server {
-        pool = pool.with_signal_server(Arc::clone(server));
-    }
-    let debounce_config = DebounceConfig {
-        debounce_secs: config.debounce_secs,
-        delay_secs: config.message_delay_secs,
-        active_window_secs: config.active_window_secs,
-    };
+    let mut bot = Agent::new(Arc::clone(&pool), debounce_config_from(&config));
+    install_channels(&mut bot, flags, &config, &db);
 
-    let mut bot = Agent::new(
-        Arc::clone(&pool),
-        debounce_config,
+    info!(
+        "starting channels alongside TUI: {}",
+        flags.enabled_names().join(", ")
     );
-
-    if run_telegram {
-        bot.add_channel(nexal_channel_telegram::TelegramChannel::new(
-            Arc::clone(&config),
-        ));
-    }
-    if run_discord {
-        bot.add_channel(nexal_channel_discord::DiscordChannel::new(
-            Arc::clone(&config),
-        ));
-    }
-    if run_http {
-        bot.add_channel(nexal_channel_http::HttpChannel::new(
-            Arc::clone(&config),
-        ));
-    }
-    if run_heartbeat {
-        bot.add_channel(nexal_channel_heartbeat::HeartbeatChannel::new(
-            Arc::clone(&config),
-        ));
-    }
-    if run_cron {
-        bot.add_channel(nexal_channel_cron::CronChannel::new(
-            Arc::clone(&config),
-            Arc::clone(&db),
-        ));
-    }
-
-    let mut channels: Vec<&str> = Vec::new();
-    if run_telegram { channels.push("telegram"); }
-    if run_discord { channels.push("discord"); }
-    if run_http { channels.push("http"); }
-    if run_heartbeat { channels.push("heartbeat"); }
-    if run_cron { channels.push("cron"); }
-    info!("starting channels alongside TUI: {}", channels.join(", "));
 
     let handle = tokio::spawn(async move {
         if let Err(e) = bot.run().await {
@@ -653,30 +679,32 @@ async fn create_sandbox_container(config: &NexalConfig) -> anyhow::Result<Sandbo
     debug!(container = %name, host_url = %host_url, "discovered exec-server port mapping");
 
     // Connect via WebSocket with retry.
-    let mut client = None;
-    for attempt in 1..=20 {
-        match nexal_exec_server::ExecServerClient::connect_websocket(
-            nexal_exec_server::RemoteExecServerConnectArgs::new(
-                host_url.clone(),
-                "nexal-sandbox".to_string(),
-            ),
-        )
-        .await
-        {
-            Ok(c) => {
-                client = Some(c);
-                break;
-            }
-            Err(e) if attempt < 20 => {
-                debug!(container = %name, attempt, "WebSocket connect failed, retrying: {e}");
-                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-            }
-            Err(e) => {
-                anyhow::bail!("connect to nexal-exec-server WebSocket inside container: {e}");
+    let client = {
+        let mut client = None;
+        for attempt in 1..=20 {
+            match nexal_exec_server::ExecServerClient::connect_websocket(
+                nexal_exec_server::RemoteExecServerConnectArgs::new(
+                    host_url.clone(),
+                    "nexal-sandbox".to_string(),
+                ),
+            )
+            .await
+            {
+                Ok(c) => {
+                    client = Some(c);
+                    break;
+                }
+                Err(e) if attempt < 20 => {
+                    debug!(container = %name, attempt, "WebSocket connect failed, retrying: {e}");
+                    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                }
+                Err(e) => {
+                    anyhow::bail!("connect to nexal-exec-server WebSocket inside container: {e}");
+                }
             }
         }
-    }
-    let client = client.unwrap();
+        client.ok_or_else(|| anyhow::anyhow!("exec-server WebSocket connect exhausted retries"))?
+    };
     debug!(container = %name, "WebSocket connected");
 
     let init_resp = client.init_response().clone();
@@ -911,15 +939,7 @@ async fn run_idle(args: IdleArgs, config: Arc<NexalConfig>) -> anyhow::Result<()
     sync_skills(&config).await?;
 
     // Open state database (for cron jobs, chatlog, etc.)
-    let db = Arc::new(
-        StateDb::open(&config.database_url())
-            .await
-            .context("opening state db")?,
-    );
-
-    // Start DB query proxy (Unix socket for read-only SQL access from container).
-    let _db_proxy_handle =
-        nexal_agent::db_proxy::start_db_proxy(&config.workspace, Arc::clone(&db)).await;
+    let (db, _db_proxy_handle) = open_state_db(&config).await?;
 
     // Create Podman sandbox container.
     let sandbox = create_sandbox_container(&config).await?;
@@ -938,70 +958,41 @@ async fn run_idle(args: IdleArgs, config: Arc<NexalConfig>) -> anyhow::Result<()
     // Start the state signal socket for push-based BUSY→IDLE transitions.
     // Tool scripts (telegram_send, no_response, etc.) connect to this socket
     // to signal they have completed a response action.
-    let agents_dir = config.workspace.join("agents");
-    let signal_server = match nexal_agent::StateSignalServer::start(&agents_dir).await {
-        Ok(server) => Some(Arc::new(server)),
-        Err(e) => {
-            tracing::warn!("failed to start state signal server: {e}");
-            None
-        }
-    };
+    let signal_server = start_signal_server(&config.workspace.join("agents")).await;
 
-    let mut pool = AgentPool::new(Arc::clone(&config));
-    if let Some(ref env_mgr) = sandbox.environment_manager {
-        pool = pool.with_environment_manager(Arc::clone(env_mgr));
-    }
-    if let Some(ref server) = signal_server {
-        pool = pool.with_signal_server(Arc::clone(server));
-    }
-    let debounce_config = DebounceConfig {
-        debounce_secs: config.debounce_secs,
-        delay_secs: config.message_delay_secs,
-        active_window_secs: config.active_window_secs,
-    };
-
-    let mut bot = Agent::new(
-        Arc::clone(&pool),
-        debounce_config,
+    let pool = build_pool(
+        Arc::clone(&config),
+        sandbox.environment_manager.clone(),
+        signal_server,
     );
+
+    let mut bot = Agent::new(Arc::clone(&pool), debounce_config_from(&config));
 
     // If any flag is explicit, only start flagged channels.
     // If no flags, auto-detect from configured tokens.
     let explicit = args.telegram || args.discord || args.http;
-    let run_telegram = if explicit { args.telegram } else { nexal_channel_telegram::config::TelegramChannelConfig::from_nexal_config(&config).bot_token.is_some() };
-    let run_discord = if explicit { args.discord } else { nexal_channel_discord::config::DiscordChannelConfig::from_nexal_config(&config).bot_token.is_some() };
-    let run_http = args.http;
-    let run_heartbeat = args.heartbeat;
-    let run_cron = args.cron;
+    let flags = ChannelFlags {
+        telegram: if explicit {
+            args.telegram
+        } else {
+            nexal_channel_telegram::config::TelegramChannelConfig::from_nexal_config(&config)
+                .bot_token
+                .is_some()
+        },
+        discord: if explicit {
+            args.discord
+        } else {
+            nexal_channel_discord::config::DiscordChannelConfig::from_nexal_config(&config)
+                .bot_token
+                .is_some()
+        },
+        http: args.http,
+        heartbeat: args.heartbeat,
+        cron: args.cron,
+    };
+    install_channels(&mut bot, flags, &config, &db);
 
-    if run_telegram {
-        bot.add_channel(nexal_channel_telegram::TelegramChannel::new(
-            Arc::clone(&config),
-        ));
-    }
-    if run_discord {
-        bot.add_channel(nexal_channel_discord::DiscordChannel::new(
-            Arc::clone(&config),
-        ));
-    }
-    if run_http {
-        bot.add_channel(nexal_channel_http::HttpChannel::new(
-            Arc::clone(&config),
-        ));
-    }
-    if run_heartbeat {
-        bot.add_channel(nexal_channel_heartbeat::HeartbeatChannel::new(
-            Arc::clone(&config),
-        ));
-    }
-    if run_cron {
-        bot.add_channel(nexal_channel_cron::CronChannel::new(
-            Arc::clone(&config),
-            Arc::clone(&db),
-        ));
-    }
-
-    if !run_telegram && !run_discord && !run_http && !run_heartbeat && !run_cron {
+    if !flags.any_enabled() {
         anyhow::bail!(
             "No channel configured. Set TELEGRAM_BOT_TOKEN, DISCORD_BOT_TOKEN, or use --http, --heartbeat, or --cron."
         );
@@ -1015,14 +1006,7 @@ async fn run_idle(args: IdleArgs, config: Arc<NexalConfig>) -> anyhow::Result<()
         }
     };
 
-    // Cleanup sandbox container
-    {
-        let mut handle = sandbox;
-        if let Some(ref mut child) = handle.child {
-            let _ = child.kill().await;
-        }
-        cleanup_sandbox_container(&handle.name).await;
-    }
+    shutdown_sandbox(sandbox).await;
 
     result
 }

@@ -36,40 +36,38 @@ pub struct AgentPool {
 }
 
 impl AgentPool {
-    pub fn new(config: Arc<NexalConfig>) -> Arc<Self> {
+    pub fn new(config: Arc<NexalConfig>) -> Self {
         info!(
             "agent pool using sandbox backend: {}",
             config.sandbox_backend()
         );
         let (event_tx, event_rx) = mpsc::channel(256);
-        Arc::new(Self {
+        Self {
             config,
             sessions: Mutex::new(HashMap::new()),
             event_tx,
             event_rx: Mutex::new(event_rx),
             environment_manager: None,
             signal_server: None,
-        })
+        }
     }
 
     pub fn with_environment_manager(
-        mut self: Arc<Self>,
+        mut self,
         env_manager: Arc<nexal_exec_server::EnvironmentManager>,
-    ) -> Arc<Self> {
-        Arc::get_mut(&mut self)
-            .expect("with_environment_manager must be called before sharing")
-            .environment_manager = Some(env_manager);
+    ) -> Self {
+        self.environment_manager = Some(env_manager);
         self
     }
 
-    pub fn with_signal_server(
-        mut self: Arc<Self>,
-        signal_server: Arc<StateSignalServer>,
-    ) -> Arc<Self> {
-        Arc::get_mut(&mut self)
-            .expect("with_signal_server must be called before sharing")
-            .signal_server = Some(signal_server);
+    pub fn with_signal_server(mut self, signal_server: Arc<StateSignalServer>) -> Self {
+        self.signal_server = Some(signal_server);
         self
+    }
+
+    /// Wrap the pool in an `Arc` for sharing across tasks.
+    pub fn into_shared(self) -> Arc<Self> {
+        Arc::new(self)
     }
 
     /// Send a message to the agent for this session (non-blocking).
