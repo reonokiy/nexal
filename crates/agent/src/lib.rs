@@ -11,6 +11,7 @@ pub mod skills;
 pub use actor::{AgentEvent, AgentHandle, AgentMessage};
 pub use agent::Agent;
 pub use pool::AgentPool;
+pub use runner::providers_to_cli_overrides_full;
 pub use signal::StateSignalServer;
 
 /// Split a model response into ≤4096-char chunks at blank lines,

@@ -127,6 +127,28 @@ impl AgentActor {
         AgentHandle { tx }
     }
 
+    /// Build `TurnStartParams` with the same policy every turn uses.
+    ///
+    /// The agent always runs inside the container: cwd is fixed to the
+    /// container-side `/workspace`, approval is disabled, and the sandbox
+    /// is `WorkspaceWrite`. Only `input` varies between turns.
+    fn build_turn_params(&self, input: Vec<UserInput>) -> TurnStartParams {
+        TurnStartParams {
+            thread_id: self.thread_id.clone(),
+            input,
+            cwd: Some(std::path::PathBuf::from("/workspace")),
+            approval_policy: Some(ApiAskForApproval::Never),
+            sandbox_policy: Some(ApiSandboxPolicy::WorkspaceWrite {
+                writable_roots: vec![],
+                read_only_access: Default::default(),
+                network_access: self.config.sandbox_network,
+                exclude_tmpdir_env_var: false,
+                exclude_slash_tmp: false,
+            }),
+            ..Default::default()
+        }
+    }
+
     /// Main event loop.
     async fn run(
         mut self,
@@ -188,40 +210,22 @@ impl AgentActor {
             .await;
         write_agent_status(&self.config, "working", &truncate(&text, 40));
 
-        // Use the container-side path. The host workspace is mounted at
-        // /workspace inside the container — the agent must never see host paths.
-        let cwd = std::path::PathBuf::from("/workspace");
-
         use nexal_app_server_protocol::TurnStartResponse;
+
+        let mut input = vec![UserInput::Text {
+            text: prompt_text,
+            text_elements: vec![],
+        }];
+        for img in &images {
+            let data_url = compress_and_encode_image(&img.data, &img.mime_type);
+            input.push(UserInput::Image { url: data_url });
+        }
 
         let turn_result: Result<TurnStartResponse, _> = self
             .client
             .request_typed(ClientRequest::TurnStart {
                 request_id: RequestId::Integer(1),
-                params: TurnStartParams {
-                    thread_id: self.thread_id.clone(),
-                    input: {
-                        let mut items = vec![UserInput::Text {
-                            text: prompt_text,
-                            text_elements: vec![],
-                        }];
-                        for img in &images {
-                            let data_url = compress_and_encode_image(&img.data, &img.mime_type);
-                            items.push(UserInput::Image { url: data_url });
-                        }
-                        items
-                    },
-                    cwd: Some(cwd),
-                    approval_policy: Some(ApiAskForApproval::Never),
-                    sandbox_policy: Some(ApiSandboxPolicy::WorkspaceWrite {
-                        writable_roots: vec![],
-                        read_only_access: Default::default(),
-                        network_access: self.config.sandbox_network,
-                        exclude_tmpdir_env_var: false,
-                        exclude_slash_tmp: false,
-                    }),
-                    ..Default::default()
-                },
+                params: self.build_turn_params(input),
             })
             .await;
 
@@ -258,40 +262,27 @@ impl AgentActor {
         while !result.had_response_action && nudge_count < MAX_NUDGES {
             nudge_count += 1;
 
-            let nudge_msg = if !result.had_tool_call && !result.text.trim().is_empty() {
+            let reason = if !result.had_tool_call && !result.text.trim().is_empty() {
                 // Model produced plain text but no tool calls at all.
-                format!(
-                    "[system] Your previous response was plain text and was NOT \
-                     delivered to the user. In headless mode, plain text is silently \
-                     discarded.\n\n\
-                     You MUST take one of these actions:\n\
-                     1. Send a reply: exec_command with telegram_send.py\n\
-                     2. Explicitly skip: exec_command with `./scripts/no_response.sh`\n\n\
-                     Do one of the above NOW. (nudge {nudge_count}/{MAX_NUDGES})"
-                )
+                "Your previous response was plain text and was NOT delivered to the \
+                 user. In headless mode, plain text is silently discarded."
             } else if result.had_tool_call {
-                // Model made tool calls (e.g. reading files, thinking) but
-                // never actually sent a message or called no_response.
-                format!(
-                    "[system] You executed tool calls but did NOT send a message to \
-                     the user and did NOT call no_response.sh. The user is still \
-                     waiting.\n\n\
-                     You MUST take one of these actions:\n\
-                     1. Send a reply: exec_command with telegram_send.py\n\
-                     2. Explicitly skip: exec_command with `./scripts/no_response.sh`\n\n\
-                     Do one of the above NOW. (nudge {nudge_count}/{MAX_NUDGES})"
-                )
+                // Model made tool calls (e.g. reading files, thinking) but never
+                // actually sent a message or called no_response.
+                "You executed tool calls but did NOT send a message to the user and \
+                 did NOT call no_response.sh. The user is still waiting."
             } else {
                 // No tool calls and no text — model just returned empty.
-                format!(
-                    "[system] You completed a turn without any output or action. \
-                     The user sent a message and is waiting for a response.\n\n\
-                     You MUST take one of these actions:\n\
-                     1. Send a reply: exec_command with telegram_send.py\n\
-                     2. Explicitly skip: exec_command with `./scripts/no_response.sh`\n\n\
-                     Do one of the above NOW. (nudge {nudge_count}/{MAX_NUDGES})"
-                )
+                "You completed a turn without any output or action. The user sent a \
+                 message and is waiting for a response."
             };
+            let nudge_msg = format!(
+                "[system] {reason}\n\n\
+                 You MUST take one of these actions:\n\
+                 1. Send a reply: exec_command with telegram_send.py\n\
+                 2. Explicitly skip: exec_command with `./scripts/no_response.sh`\n\n\
+                 Do one of the above NOW. (nudge {nudge_count}/{MAX_NUDGES})"
+            );
 
             warn!(
                 session = %self.session_key,
@@ -306,23 +297,10 @@ impl AgentActor {
                 .client
                 .request_typed(ClientRequest::TurnStart {
                     request_id: RequestId::Integer(1 + nudge_count as i64),
-                    params: TurnStartParams {
-                        thread_id: self.thread_id.clone(),
-                        input: vec![UserInput::Text {
-                            text: nudge_msg,
-                            text_elements: vec![],
-                        }],
-                        cwd: Some(std::path::PathBuf::from("/workspace")),
-                        approval_policy: Some(ApiAskForApproval::Never),
-                        sandbox_policy: Some(ApiSandboxPolicy::WorkspaceWrite {
-                            writable_roots: vec![],
-                            read_only_access: Default::default(),
-                            network_access: self.config.sandbox_network,
-                            exclude_tmpdir_env_var: false,
-                            exclude_slash_tmp: false,
-                        }),
-                        ..Default::default()
-                    },
+                    params: self.build_turn_params(vec![UserInput::Text {
+                        text: nudge_msg,
+                        text_elements: vec![],
+                    }]),
                 })
                 .await;
 
@@ -499,15 +477,15 @@ fn write_agent_status(config: &NexalConfig, status: &str, activity: &str) {
     let _ = std::fs::write(state_file, content);
 }
 
-fn truncate(s: &str, max: usize) -> String {
-    if s.len() <= max {
-        s.to_string()
+/// Truncate `s` to at most `max_chars` Unicode characters, appending `...`
+/// if any were dropped.
+fn truncate(s: &str, max_chars: usize) -> String {
+    let mut chars = s.chars();
+    let prefix: String = chars.by_ref().take(max_chars).collect();
+    if chars.next().is_some() {
+        format!("{prefix}...")
     } else {
-        let end = s.char_indices()
-            .map(|(i, _)| i)
-            .find(|&i| i >= max)
-            .unwrap_or(s.len());
-        format!("{}...", &s[..end])
+        prefix
     }
 }
 

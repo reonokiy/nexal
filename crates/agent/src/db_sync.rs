@@ -73,7 +73,7 @@ async fn find_latest_session(sessions_dir: &Path) -> Option<std::path::PathBuf> 
             }
             if let Ok(meta) = file_entry.metadata().await {
                 if let Ok(modified) = meta.modified() {
-                    if latest.as_ref().map_or(true, |(_, t)| modified > *t) {
+                    if latest.as_ref().is_none_or(|(_, t)| modified > *t) {
                         latest = Some((path, modified));
                     }
                 }

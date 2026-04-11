@@ -7,6 +7,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use dashmap::DashMap;
+use futures::future::select_all;
 use nexal_channel_core::{
     Channel, DebounceConfig, IncomingMessage, MessageHandler, SessionRunner, TypingHandle,
 };
@@ -149,7 +150,7 @@ impl Agent {
         handles.push(event_handle);
 
         // Wait for any task to finish
-        let (result, _idx, remaining) = futures_select_first(handles).await;
+        let (result, _idx, remaining) = select_all(handles).await;
         for h in remaining {
             h.abort();
         }
@@ -206,27 +207,3 @@ fn make_send_handler(
     })
 }
 
-async fn futures_select_first<T>(
-    mut handles: Vec<tokio::task::JoinHandle<T>>,
-) -> (
-    Result<T, tokio::task::JoinError>,
-    usize,
-    Vec<tokio::task::JoinHandle<T>>,
-) {
-    loop {
-        for (idx, handle) in handles.iter_mut().enumerate() {
-            tokio::select! {
-                result = handle => {
-                    let remaining: Vec<_> = handles
-                        .into_iter()
-                        .enumerate()
-                        .filter_map(|(i, h)| if i != idx { Some(h) } else { None })
-                        .collect();
-                    return (result, idx, remaining);
-                }
-                else => continue,
-            }
-        }
-        tokio::task::yield_now().await;
-    }
-}

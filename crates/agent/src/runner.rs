@@ -157,11 +157,10 @@ pub fn providers_to_cli_overrides_full(nc: &NexalConfig) -> Vec<(String, toml::V
     }
 
     // Auto-select the first provider if any are configured.
-    if !nc.providers.is_empty() {
-        let provider_id = nc.providers.keys().next().unwrap().clone();
+    if let Some(provider_id) = nc.providers.keys().next() {
         overrides.push((
             "model_provider".to_string(),
-            toml::Value::String(provider_id),
+            toml::Value::String(provider_id.clone()),
         ));
     }
 
