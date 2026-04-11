@@ -379,7 +379,7 @@ impl StateDb {
                     query = query.bind(p);
                 }
                 let rows = query.fetch_all(pool).await?;
-                sqlite_rows_to_json(&rows)
+                rows_to_json(&rows)
             }
             RoPool::Postgres(pool) => {
                 let pg_sql = translate_placeholders(sql);
@@ -388,80 +388,81 @@ impl StateDb {
                     query = query.bind(p);
                 }
                 let rows = query.fetch_all(pool).await?;
-                postgres_rows_to_json(&rows)
+                rows_to_json(&rows)
             }
         }
     }
 }
 
 // ── row → JSON helpers ────────────────────────────────────────────────────────
+//
+// The per-backend `Row` types are distinct (sqlx's `Row` trait is tied to a
+// specific `Database`), so we cannot write a single generic function that
+// calls `row.try_get::<T, _>(i)` over both. Instead we abstract over "how to
+// read a cell from row at column i" via `RowJson` and let the shared
+// `rows_to_json` drive the loop.
 
-fn sqlite_rows_to_json(
-    rows: &[sqlx::sqlite::SqliteRow],
-) -> anyhow::Result<(Vec<String>, Vec<Vec<serde_json::Value>>)> {
-    if rows.is_empty() {
-        return Ok((vec![], vec![]));
+trait RowJson {
+    fn column_names(&self) -> Vec<String>;
+    fn cell(&self, i: usize) -> serde_json::Value;
+}
+
+impl RowJson for sqlx::sqlite::SqliteRow {
+    fn column_names(&self) -> Vec<String> {
+        self.columns().iter().map(|c| c.name().to_string()).collect()
     }
-    let columns: Vec<String> = rows[0].columns().iter().map(|c| c.name().to_string()).collect();
+
+    fn cell(&self, i: usize) -> serde_json::Value {
+        if let Ok(v) = self.try_get::<i64, _>(i) {
+            serde_json::Value::Number(v.into())
+        } else if let Ok(v) = self.try_get::<f64, _>(i) {
+            serde_json::json!(v)
+        } else if let Ok(v) = self.try_get::<String, _>(i) {
+            serde_json::Value::String(v)
+        } else if let Ok(v) = self.try_get::<Option<String>, _>(i) {
+            v.map(serde_json::Value::String)
+                .unwrap_or(serde_json::Value::Null)
+        } else {
+            serde_json::Value::Null
+        }
+    }
+}
+
+impl RowJson for sqlx::postgres::PgRow {
+    fn column_names(&self) -> Vec<String> {
+        self.columns().iter().map(|c| c.name().to_string()).collect()
+    }
+
+    fn cell(&self, i: usize) -> serde_json::Value {
+        if let Ok(v) = self.try_get::<i64, _>(i) {
+            serde_json::Value::Number(v.into())
+        } else if let Ok(v) = self.try_get::<i32, _>(i) {
+            serde_json::Value::Number(v.into())
+        } else if let Ok(v) = self.try_get::<f64, _>(i) {
+            serde_json::json!(v)
+        } else if let Ok(v) = self.try_get::<String, _>(i) {
+            serde_json::Value::String(v)
+        } else if let Ok(v) = self.try_get::<Option<String>, _>(i) {
+            v.map(serde_json::Value::String)
+                .unwrap_or(serde_json::Value::Null)
+        } else {
+            serde_json::Value::Null
+        }
+    }
+}
+
+fn rows_to_json<R: RowJson>(
+    rows: &[R],
+) -> anyhow::Result<(Vec<String>, Vec<Vec<serde_json::Value>>)> {
+    let Some(first) = rows.first() else {
+        return Ok((Vec::new(), Vec::new()));
+    };
+    let columns = first.column_names();
     let result_rows = rows
         .iter()
-        .map(|row| {
-            (0..columns.len())
-                .map(|i| sqlite_cell(row, i))
-                .collect()
-        })
+        .map(|row| (0..columns.len()).map(|i| row.cell(i)).collect())
         .collect();
     Ok((columns, result_rows))
-}
-
-fn sqlite_cell(row: &sqlx::sqlite::SqliteRow, i: usize) -> serde_json::Value {
-    if let Ok(v) = row.try_get::<i64, _>(i) {
-        serde_json::Value::Number(v.into())
-    } else if let Ok(v) = row.try_get::<f64, _>(i) {
-        serde_json::json!(v)
-    } else if let Ok(v) = row.try_get::<String, _>(i) {
-        serde_json::Value::String(v)
-    } else if let Ok(v) = row.try_get::<Option<String>, _>(i) {
-        v.map(serde_json::Value::String)
-            .unwrap_or(serde_json::Value::Null)
-    } else {
-        serde_json::Value::Null
-    }
-}
-
-fn postgres_rows_to_json(
-    rows: &[sqlx::postgres::PgRow],
-) -> anyhow::Result<(Vec<String>, Vec<Vec<serde_json::Value>>)> {
-    if rows.is_empty() {
-        return Ok((vec![], vec![]));
-    }
-    let columns: Vec<String> = rows[0].columns().iter().map(|c| c.name().to_string()).collect();
-    let result_rows = rows
-        .iter()
-        .map(|row| {
-            (0..columns.len())
-                .map(|i| postgres_cell(row, i))
-                .collect()
-        })
-        .collect();
-    Ok((columns, result_rows))
-}
-
-fn postgres_cell(row: &sqlx::postgres::PgRow, i: usize) -> serde_json::Value {
-    if let Ok(v) = row.try_get::<i64, _>(i) {
-        serde_json::Value::Number(v.into())
-    } else if let Ok(v) = row.try_get::<i32, _>(i) {
-        serde_json::Value::Number(v.into())
-    } else if let Ok(v) = row.try_get::<f64, _>(i) {
-        serde_json::json!(v)
-    } else if let Ok(v) = row.try_get::<String, _>(i) {
-        serde_json::Value::String(v)
-    } else if let Ok(v) = row.try_get::<Option<String>, _>(i) {
-        v.map(serde_json::Value::String)
-            .unwrap_or(serde_json::Value::Null)
-    } else {
-        serde_json::Value::Null
-    }
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
