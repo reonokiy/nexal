@@ -17,8 +17,7 @@
 pub mod sandbox;
 
 use std::collections::HashMap;
-use std::fmt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use figment::providers::{Env, Format, Serialized, Toml};
 use figment::Figment;
@@ -245,7 +244,7 @@ impl NexalConfig {
 
     // ── Convenience accessors ──
 
-    pub fn workspace_dir(&self) -> &PathBuf {
+    pub fn workspace_dir(&self) -> &Path {
         &self.workspace
     }
 
@@ -266,17 +265,28 @@ impl NexalConfig {
         })
     }
 
-    pub fn sandbox_backend(&self) -> SandboxBackend {
-        SandboxBackend::Podman
+    pub fn sandbox_backend(&self) -> &'static str {
+        "podman"
     }
 
+    /// Load the user's persona ("SOUL"). If `SOUL.md` does not yet exist it
+    /// is seeded with [`DEFAULT_SOUL`]; if the user has edited it afterwards
+    /// their edits are preserved. An optional `SOUL.override.md` alongside it
+    /// is appended after a separator.
     pub async fn load_soul(&self) -> String {
         let path = self.soul_path();
         if let Some(parent) = path.parent() {
             let _ = tokio::fs::create_dir_all(parent).await;
         }
-        let _ = tokio::fs::write(&path, DEFAULT_SOUL).await;
-        let base = DEFAULT_SOUL.to_string();
+
+        // Seed the default only when the file is missing — never clobber edits.
+        let base = match tokio::fs::read_to_string(&path).await {
+            Ok(existing) => existing,
+            Err(_) => {
+                let _ = tokio::fs::write(&path, DEFAULT_SOUL).await;
+                DEFAULT_SOUL.to_string()
+            }
+        };
 
         let override_path = path.with_file_name("SOUL.override.md");
         let override_content = tokio::fs::read_to_string(&override_path)
@@ -292,19 +302,6 @@ impl NexalConfig {
 
     pub fn is_admin(&self, username: &str) -> bool {
         self.admins.iter().any(|a| a.eq_ignore_ascii_case(username))
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SandboxBackend {
-    Podman,
-}
-
-impl fmt::Display for SandboxBackend {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Podman => write!(f, "podman"),
-        }
     }
 }
 
@@ -366,7 +363,7 @@ mod tests {
         assert_eq!(cfg.sandbox, "podman");
         assert_eq!(cfg.debounce_secs, 1.0);
         assert!(cfg.providers.is_empty());
-        assert!(cfg.sandbox_backend() == SandboxBackend::Podman);
+        assert_eq!(cfg.sandbox_backend(), "podman");
     }
 
     #[test]
