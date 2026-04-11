@@ -116,10 +116,8 @@ async fn run_tui(enable_telegram: bool, enable_discord: bool, enable_http: bool,
 
     // Unified StateDb — same as idle/bot mode.
     // chatlog/toollog skills query this database inside the container.
-    let db_path = config.workspace.join("agents").join("nexal.db");
-    let _ = tokio::fs::create_dir_all(db_path.parent().unwrap()).await;
     let db = Arc::new(
-        StateDb::open(&db_path)
+        StateDb::open(&config.database_url())
             .await
             .context("opening state db")?,
     );
@@ -913,10 +911,8 @@ async fn run_idle(args: IdleArgs, config: Arc<NexalConfig>) -> anyhow::Result<()
     sync_skills(&config).await?;
 
     // Open state database (for cron jobs, chatlog, etc.)
-    let db_path = config.workspace.join("agents").join("nexal.db");
-    let _ = tokio::fs::create_dir_all(db_path.parent().unwrap()).await;
     let db = Arc::new(
-        StateDb::open(&db_path)
+        StateDb::open(&config.database_url())
             .await
             .context("opening state db")?,
     );

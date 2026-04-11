@@ -5,11 +5,15 @@ edition.workspace = true
 
 [dependencies]
 anyhow = { workspace = true }
-serde_json = { workspace = true }
+async-trait = { workspace = true }
+sea-orm = { workspace = true }
+sea-orm-migration = { workspace = true }
+# sqlx kept as direct dep for query_readonly (needs raw column introspection
+# that SeaORM's QueryResult does not expose publicly)
 sqlx = { workspace = true }
+serde_json = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 
 [lib]
-test = false
 doctest = false

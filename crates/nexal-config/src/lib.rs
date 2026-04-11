@@ -8,6 +8,11 @@
 //! Environment variable mapping uses `__` for nesting:
 //!   NEXAL_PROVIDERS__MOONSHOT__BASE_URL=https://api.moonshot.cn/v1
 //!   NEXAL_CHANNEL__HEARTBEAT__INTERVAL_MINS=15
+//!
+//! After `NexalConfig::from_env()` returns, the value is a **frozen snapshot**
+//! of the file + env inputs. The application shares it via `Arc<NexalConfig>`
+//! and must not mutate it. Values that have computed defaults (e.g. `soul_path`,
+//! `database_url`) are derived lazily through accessor methods.
 
 pub mod sandbox;
 
@@ -49,7 +54,12 @@ const DEFAULT_SOUL: &str = r#"You are Yina, a cheerful and cute girl.
 
 /// Complete nexal configuration.
 ///
-/// Loaded from `~/.nexal/config.toml` + `NEXAL_*` environment variables.
+/// Loaded from `~/.nexal/config.toml` + `NEXAL_*` environment variables via
+/// [`NexalConfig::from_env`]. After that function returns the value is a frozen
+/// snapshot — the application holds it behind `Arc<NexalConfig>` and never
+/// mutates it. Accessor methods (e.g. [`soul_path`](Self::soul_path),
+/// [`database_url`](Self::database_url)) derive computed defaults lazily.
+///
 /// LLM providers are configured under `[providers.<name>]`.
 /// Channel-specific settings are under `[channel.<name>]`.
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -107,6 +117,15 @@ pub struct NexalConfig {
     /// OpenTelemetry configuration. Omit or leave endpoint empty to disable.
     #[serde(default)]
     pub otel: OtelConfig,
+
+    /// Database connection URL.
+    ///
+    /// Supported schemes: `sqlite://` (default) and `postgres://` /
+    /// `postgresql://`. When omitted the database is opened as SQLite inside
+    /// `<workspace>/agents/nexal.db`.
+    ///
+    /// Example: `database_url = "postgres://user:pass@localhost/nexal"`
+    pub database_url: Option<String>,
 
     // ── Backward-compat flat fields (hidden from TOML, populated from env) ──
     // These are kept so old env vars like TELEGRAM_BOT_TOKEN still work.
@@ -167,6 +186,7 @@ impl Default for NexalConfig {
             channel: HashMap::new(),
             providers: HashMap::new(),
             otel: OtelConfig::default(),
+            database_url: None,
             // Backward-compat flat fields
             telegram_bot_token: None,
             discord_bot_token: None,
@@ -177,7 +197,11 @@ impl Default for NexalConfig {
 }
 
 impl NexalConfig {
-    /// Load config from defaults → TOML → env vars.
+    /// Load config from defaults → TOML → env vars and return a frozen snapshot.
+    ///
+    /// The returned value must not be mutated after this call. Share it via
+    /// `Arc<NexalConfig>`. Computed defaults (soul path, database URL) are
+    /// resolved lazily by their respective accessor methods.
     pub fn from_env() -> Self {
         let home = dirs_home();
         let config_path = std::env::var("NEXAL_HOME")
@@ -213,29 +237,10 @@ impl NexalConfig {
                 }
             }));
 
-        match figment.extract::<NexalConfig>() {
-            Ok(mut config) => {
-                if config.soul_path.is_none() {
-                    config.soul_path = Some(config.workspace.join("agents").join("SOUL.md"));
-                }
-
-                // Normalize comma-separated list fields (top-level only).
-                // Per-channel normalization is done inside each channel crate's
-                // `from_nexal_config()` constructor.
-                fn normalize_list(v: &[String]) -> Vec<String> {
-                    v.iter()
-                        .flat_map(|s| s.split(',').map(|a| a.trim().trim_matches('@').to_string()))
-                        .filter(|a| !a.is_empty())
-                        .collect()
-                }
-                config.admins = normalize_list(&config.admins);
-                config
-            }
-            Err(e) => {
-                tracing::warn!("config load error (using defaults): {e}");
-                Self::default()
-            }
-        }
+        figment.extract::<NexalConfig>().unwrap_or_else(|e| {
+            tracing::warn!("config load error (using defaults): {e}");
+            Self::default()
+        })
     }
 
     // ── Convenience accessors ──
@@ -248,6 +253,17 @@ impl NexalConfig {
         self.soul_path
             .clone()
             .unwrap_or_else(|| self.workspace.join("agents").join("SOUL.md"))
+    }
+
+    /// Returns the database connection URL.
+    ///
+    /// If `database_url` is set in config/env it is returned verbatim.
+    /// Otherwise defaults to a SQLite file at `<workspace>/agents/nexal.db`.
+    pub fn database_url(&self) -> String {
+        self.database_url.clone().unwrap_or_else(|| {
+            let path = self.workspace.join("agents").join("nexal.db");
+            format!("sqlite://{}", path.display())
+        })
     }
 
     pub fn sandbox_backend(&self) -> SandboxBackend {
@@ -300,11 +316,21 @@ fn dirs_home() -> PathBuf {
 
 /// Deserialize a `Vec<String>` that may arrive as integers or a
 /// comma-separated string (e.g. Telegram chat IDs configured as bare numbers).
+///
+/// Also normalises each entry: splits on `,`, strips surrounding whitespace,
+/// and removes a leading `@` so that `@alice` and `alice` are treated the same.
+/// Empty entries after splitting are dropped.
 fn deserialize_string_or_int_vec<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
     use serde::de::{SeqAccess, Visitor};
+
+    fn normalize_entry(s: &str) -> impl Iterator<Item = String> + '_ {
+        s.split(',')
+            .map(|a| a.trim().trim_start_matches('@').to_string())
+            .filter(|a| !a.is_empty())
+    }
 
     struct StringOrIntVec;
     impl<'de> Visitor<'de> for StringOrIntVec {
@@ -316,15 +342,15 @@ where
             let mut out = Vec::new();
             while let Some(el) = seq.next_element::<serde_json::Value>()? {
                 match el {
-                    serde_json::Value::String(s) => out.push(s),
-                    serde_json::Value::Number(n) => out.push(n.to_string()),
-                    other => out.push(other.to_string()),
+                    serde_json::Value::String(s) => out.extend(normalize_entry(&s)),
+                    serde_json::Value::Number(n) => out.extend(normalize_entry(&n.to_string())),
+                    other => out.extend(normalize_entry(&other.to_string())),
                 }
             }
             Ok(out)
         }
         fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<Vec<String>, E> {
-            Ok(vec![v.to_string()])
+            Ok(normalize_entry(v).collect())
         }
     }
     deserializer.deserialize_any(StringOrIntVec)
