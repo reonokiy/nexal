@@ -159,6 +159,12 @@ impl Agent {
 }
 
 /// Create a handler that sends messages to the pool (non-blocking).
+///
+/// The hot path — an already-known session — performs zero `Arc` clones:
+/// the outer closure captures `pool` / `runners` / `debounce_config` by
+/// move and dispatches through the cached `SessionRunner`. Clones only
+/// happen on the slow path when a new session is being created and a new
+/// `SessionRunner` has to be built.
 fn make_send_handler(
     pool: Arc<AgentPool>,
     runners: Arc<DashMap<String, Arc<SessionRunner>>>,
@@ -166,38 +172,14 @@ fn make_send_handler(
 ) -> Box<dyn Fn(IncomingMessage) -> tokio::task::JoinHandle<()> + Send + Sync> {
     Box::new(move |msg: IncomingMessage| {
         let session_key = msg.session_key();
-        let pool = Arc::clone(&pool);
-        let runners = Arc::clone(&runners);
-        let debounce_config = debounce_config.clone();
-
-        // Get or create session runner for debouncing
         let runner = runners
             .entry(session_key.clone())
             .or_insert_with(|| {
-                let pool_for_handler = Arc::clone(&pool);
-                let handler: MessageHandler = Arc::new(move |merged_msg: IncomingMessage| {
-                    let pool = Arc::clone(&pool_for_handler);
-                    tokio::spawn(async move {
-                        let key = merged_msg.session_key();
-                        if let Err(e) = pool
-                            .send(
-                                &key,
-                                AgentMessage::UserInput {
-                                    text: merged_msg.text,
-                                    sender: merged_msg.sender,
-                                    channel: merged_msg.channel,
-                                    chat_id: merged_msg.chat_id,
-                                    metadata: merged_msg.metadata,
-                                    images: merged_msg.images,
-                                },
-                            )
-                            .await
-                        {
-                            error!(session = %key, "failed to send to agent: {e}");
-                        }
-                    })
-                });
-                Arc::new(SessionRunner::new(session_key.clone(), debounce_config, handler))
+                new_session_runner(
+                    session_key.clone(),
+                    debounce_config.clone(),
+                    Arc::clone(&pool),
+                )
             })
             .clone();
 
@@ -205,5 +187,38 @@ fn make_send_handler(
             runner.process_message(msg).await;
         })
     })
+}
+
+/// Build a `SessionRunner` whose inner handler forwards merged messages
+/// into `pool`. The handler owns its own `Arc<AgentPool>` so the runner
+/// can outlive any specific call-site.
+fn new_session_runner(
+    session_id: String,
+    config: DebounceConfig,
+    pool: Arc<AgentPool>,
+) -> Arc<SessionRunner> {
+    let handler: MessageHandler = Arc::new(move |merged: IncomingMessage| {
+        let pool = Arc::clone(&pool);
+        tokio::spawn(async move {
+            let key = merged.session_key();
+            if let Err(e) = pool
+                .send(
+                    &key,
+                    AgentMessage::UserInput {
+                        text: merged.text,
+                        sender: merged.sender,
+                        channel: merged.channel,
+                        chat_id: merged.chat_id,
+                        metadata: merged.metadata,
+                        images: merged.images,
+                    },
+                )
+                .await
+            {
+                error!(session = %key, "failed to send to agent: {e}");
+            }
+        })
+    });
+    Arc::new(SessionRunner::new(session_id, config, handler))
 }
 
