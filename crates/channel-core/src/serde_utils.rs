@@ -1,7 +1,8 @@
 //! Shared serde helpers for channel config deserialization.
 
-/// Deserialize a `Vec<String>` that also accepts integers (e.g. Telegram chat IDs)
-/// and comma-separated strings (for env-var compat).
+/// Deserialize a `Vec<String>` that accepts strings, integers (e.g. Telegram
+/// chat IDs), or comma-separated strings (for env-var compat). Each entry is
+/// trimmed and has a leading `@` stripped; empty entries are dropped.
 ///
 /// Used by `TelegramChannelConfig` (allow_from, allow_chats) and
 /// `DiscordChannelConfig` (allow_guilds).
@@ -10,6 +11,12 @@ where
     D: serde::Deserializer<'de>,
 {
     use serde::de;
+
+    fn normalize(raw: &str) -> impl Iterator<Item = String> + '_ {
+        raw.split(',')
+            .map(|s| s.trim().trim_start_matches('@').to_string())
+            .filter(|s| !s.is_empty())
+    }
 
     struct StringOrIntVec;
 
@@ -24,30 +31,27 @@ where
         where
             A: de::SeqAccess<'de>,
         {
-            let mut v = Vec::new();
+            let mut out = Vec::new();
             while let Some(val) = seq.next_element::<serde_json::Value>()? {
                 match val {
-                    serde_json::Value::String(s) => v.push(s),
-                    serde_json::Value::Number(n) => v.push(n.to_string()),
-                    _ => v.push(val.to_string()),
+                    serde_json::Value::String(s) => out.extend(normalize(&s)),
+                    serde_json::Value::Number(n) => out.extend(normalize(&n.to_string())),
+                    other => out.extend(normalize(&other.to_string())),
                 }
             }
-            Ok(v)
+            Ok(out)
         }
 
         fn visit_str<E: de::Error>(self, s: &str) -> Result<Vec<String>, E> {
-            Ok(s.split(',')
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty())
-                .collect())
+            Ok(normalize(s).collect())
         }
 
         fn visit_i64<E: de::Error>(self, n: i64) -> Result<Vec<String>, E> {
-            Ok(vec![n.to_string()])
+            Ok(normalize(&n.to_string()).collect())
         }
 
         fn visit_u64<E: de::Error>(self, n: u64) -> Result<Vec<String>, E> {
-            Ok(vec![n.to_string()])
+            Ok(normalize(&n.to_string()).collect())
         }
     }
 

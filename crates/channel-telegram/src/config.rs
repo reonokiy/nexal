@@ -26,7 +26,8 @@ impl TelegramChannelConfig {
     /// Extract the Telegram config from the top-level `NexalConfig`.
     ///
     /// Falls back to `TELEGRAM_BOT_TOKEN` env-var compat via the stored flat
-    /// field `nexal_config.telegram_bot_token`.
+    /// field `nexal_config.telegram_bot_token`. The `allow_from` / `allow_chats`
+    /// lists are already normalized by the custom deserializer.
     pub fn from_nexal_config(cfg: &NexalConfig) -> Self {
         let mut this: Self = cfg
             .channel
@@ -41,20 +42,6 @@ impl TelegramChannelConfig {
                 this.bot_token = Some(token.clone());
             }
         }
-
-        // Normalize comma-separated list fields.
-        fn normalize(v: Vec<String>) -> Vec<String> {
-            v.into_iter()
-                .flat_map(|s| {
-                    s.split(',')
-                        .map(|a| a.trim().trim_matches('@').to_string())
-                        .collect::<Vec<_>>()
-                })
-                .filter(|a| !a.is_empty())
-                .collect()
-        }
-        this.allow_from = normalize(this.allow_from);
-        this.allow_chats = normalize(this.allow_chats);
 
         this
     }

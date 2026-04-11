@@ -20,7 +20,8 @@ pub struct DiscordChannelConfig {
 }
 
 impl DiscordChannelConfig {
-    /// Extract the Discord config from the top-level `NexalConfig`.
+    /// Extract the Discord config from the top-level `NexalConfig`. The
+    /// `allow_guilds` list is already normalized by the custom deserializer.
     pub fn from_nexal_config(cfg: &NexalConfig) -> Self {
         let mut this: Self = cfg
             .channel
@@ -34,19 +35,6 @@ impl DiscordChannelConfig {
                 this.bot_token = Some(token.clone());
             }
         }
-
-        // Normalize comma-separated list fields.
-        fn normalize(v: Vec<String>) -> Vec<String> {
-            v.into_iter()
-                .flat_map(|s| {
-                    s.split(',')
-                        .map(|a| a.trim().trim_matches('@').to_string())
-                        .collect::<Vec<_>>()
-                })
-                .filter(|a| !a.is_empty())
-                .collect()
-        }
-        this.allow_guilds = normalize(this.allow_guilds);
 
         this
     }
