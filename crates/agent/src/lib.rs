@@ -1,5 +1,5 @@
 pub mod actor;
-mod bot;
+mod agent;
 pub mod db_proxy;
 pub mod db_sync;
 mod pool;
@@ -9,12 +9,12 @@ pub mod signal;
 pub mod skills;
 
 pub use actor::{AgentEvent, AgentHandle, AgentMessage};
-pub use bot::Bot;
+pub use agent::Agent;
 pub use pool::AgentPool;
 pub use signal::StateSignalServer;
 
 /// Split a model response into ≤4096-char chunks at blank lines,
-/// suitable for sending as separate bot messages.
+/// suitable for sending as separate agent messages.
 pub fn split_response(text: String) -> Vec<String> {
     if text.is_empty() {
         return vec!["(no response)".to_string()];

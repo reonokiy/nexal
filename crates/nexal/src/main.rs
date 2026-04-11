@@ -3,7 +3,7 @@ use std::sync::Arc;
 use anyhow::Context;
 use clap::Parser;
 use clap::Subcommand;
-use nexal_agent::{AgentPool, Bot};
+use nexal_agent::{Agent, AgentPool};
 use nexal_channel_core::DebounceConfig;
 use nexal_config::NexalConfig;
 #[cfg(feature = "tui")]
@@ -272,7 +272,7 @@ async fn maybe_start_channels(
         active_window_secs: config.active_window_secs,
     };
 
-    let mut bot = Bot::new(
+    let mut bot = Agent::new(
         Arc::clone(&pool),
         debounce_config,
     );
@@ -956,7 +956,7 @@ async fn run_idle(args: IdleArgs, config: Arc<NexalConfig>) -> anyhow::Result<()
         active_window_secs: config.active_window_secs,
     };
 
-    let mut bot = Bot::new(
+    let mut bot = Agent::new(
         Arc::clone(&pool),
         debounce_config,
     );

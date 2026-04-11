@@ -1,4 +1,4 @@
-//! Bot orchestrator — ties channels, debouncing, and the agent pool together.
+//! Agent orchestrator — ties channels, debouncing, and the agent pool together.
 //!
 //! Messages flow: Channel → SessionRunner → AgentPool.send() (non-blocking)
 //! Responses flow: AgentPool event stream → Channel.send()
@@ -17,14 +17,14 @@ use crate::actor::{AgentEvent, AgentMessage};
 use crate::AgentPool;
 
 /// Orchestrates channels + agent pool, one per nexal instance.
-pub struct Bot {
+pub struct Agent {
     pool: Arc<AgentPool>,
     channels: Vec<Arc<dyn Channel>>,
     runners: Arc<DashMap<String, Arc<SessionRunner>>>,
     debounce_config: DebounceConfig,
 }
 
-impl Bot {
+impl Agent {
     pub fn new(
         pool: Arc<AgentPool>,
         debounce_config: DebounceConfig,
@@ -48,7 +48,7 @@ impl Bot {
         }
 
         info!(
-            "starting bot with {} channel(s): {}",
+            "starting agent with {} channel(s): {}",
             self.channels.len(),
             self.channels
                 .iter()
@@ -153,7 +153,7 @@ impl Bot {
         for h in remaining {
             h.abort();
         }
-        result.map_err(|e| anyhow::anyhow!("bot task failed: {e}"))
+        result.map_err(|e| anyhow::anyhow!("agent task failed: {e}"))
     }
 }
 
