@@ -49,39 +49,48 @@ pub fn start_sync(db: Arc<StateDb>, nexal_home: &Path) -> tokio::task::JoinHandl
 }
 
 /// Find the most recently modified .jsonl file in the sessions directory.
+///
+/// Sessions are organized as `sessions/<date>/<name>.jsonl`. We look one
+/// level deep into each date subdirectory and return the newest jsonl file
+/// across all of them.
 async fn find_latest_session(sessions_dir: &Path) -> Option<std::path::PathBuf> {
+    let mut date_dirs = tokio::fs::read_dir(sessions_dir).await.ok()?;
     let mut latest: Option<(std::path::PathBuf, std::time::SystemTime)> = None;
-
-    // Sessions are organized as sessions/<date>/<name>.jsonl
-    let mut date_dirs = match tokio::fs::read_dir(sessions_dir).await {
-        Ok(d) => d,
-        Err(_) => return None,
-    };
 
     while let Ok(Some(date_entry)) = date_dirs.next_entry().await {
         if !date_entry.path().is_dir() {
             continue;
         }
-        let mut files = match tokio::fs::read_dir(date_entry.path()).await {
-            Ok(f) => f,
-            Err(_) => continue,
+        let Some((path, mtime)) = latest_jsonl_in(&date_entry.path()).await else {
+            continue;
         };
-        while let Ok(Some(file_entry)) = files.next_entry().await {
-            let path = file_entry.path();
-            if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
-                continue;
-            }
-            if let Ok(meta) = file_entry.metadata().await {
-                if let Ok(modified) = meta.modified() {
-                    if latest.as_ref().is_none_or(|(_, t)| modified > *t) {
-                        latest = Some((path, modified));
-                    }
-                }
-            }
+        if latest.as_ref().is_none_or(|(_, t)| mtime > *t) {
+            latest = Some((path, mtime));
         }
     }
 
     latest.map(|(p, _)| p)
+}
+
+/// Return the most recently modified `.jsonl` in `dir` alongside its mtime.
+/// Returns `None` if the directory cannot be read or contains no jsonl files.
+async fn latest_jsonl_in(
+    dir: &Path,
+) -> Option<(std::path::PathBuf, std::time::SystemTime)> {
+    let mut entries = tokio::fs::read_dir(dir).await.ok()?;
+    let mut latest: Option<(std::path::PathBuf, std::time::SystemTime)> = None;
+    while let Ok(Some(entry)) = entries.next_entry().await {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
+            continue;
+        }
+        let Ok(meta) = entry.metadata().await else { continue };
+        let Ok(mtime) = meta.modified() else { continue };
+        if latest.as_ref().is_none_or(|(_, t)| mtime > *t) {
+            latest = Some((path, mtime));
+        }
+    }
+    latest
 }
 
 /// Parse JSONL lines and write messages/tool calls to StateDb.
