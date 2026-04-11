@@ -77,24 +77,43 @@ async fn scan_dir(dir: &Path, container_dir: &str, skills: &mut HashMap<String, 
         return;
     };
     while let Ok(Some(entry)) = entries.next_entry().await {
-        let name = entry.file_name().to_string_lossy().to_string();
-        if !entry.path().is_dir() {
-            continue;
+        if let Some((name, skill)) = read_skill(&entry, container_dir).await {
+            debug!(
+                skill = %name,
+                source = %container_dir,
+                always_load = skill.always_load,
+                admin_only = skill.admin_only,
+                "loaded skill"
+            );
+            skills.insert(name, skill);
         }
-        let skill_md = entry.path().join("SKILL.md");
-        let Ok(raw) = tokio::fs::read_to_string(&skill_md).await else {
-            continue;
-        };
-        let fm = parse_frontmatter(&raw);
-        let content = strip_frontmatter(&raw)
-            .replace("./scripts/", &format!("{container_dir}/{name}/scripts/"));
-        debug!(skill = %name, source = %container_dir, always_load = fm.metadata.always_load, admin_only = fm.metadata.admin_only, "loaded skill");
-        skills.insert(name, SkillEntry {
+    }
+}
+
+/// Read one skill directory: `<entry>/SKILL.md` with its YAML frontmatter.
+/// Returns `None` if the entry is not a directory, has no `SKILL.md`, or
+/// any read fails — the outer scan loop just skips it.
+async fn read_skill(
+    entry: &tokio::fs::DirEntry,
+    container_dir: &str,
+) -> Option<(String, SkillEntry)> {
+    let path = entry.path();
+    if !path.is_dir() {
+        return None;
+    }
+    let name = entry.file_name().to_string_lossy().into_owned();
+    let raw = tokio::fs::read_to_string(path.join("SKILL.md")).await.ok()?;
+    let fm = parse_frontmatter(&raw);
+    let content = strip_frontmatter(&raw)
+        .replace("./scripts/", &format!("{container_dir}/{name}/scripts/"));
+    Some((
+        name,
+        SkillEntry {
             content,
             always_load: fm.metadata.always_load,
             admin_only: fm.metadata.admin_only,
-        });
-    }
+        },
+    ))
 }
 
 /// Parsed SKILL.md frontmatter.
