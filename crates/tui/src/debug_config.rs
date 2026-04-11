@@ -177,9 +177,6 @@ fn render_debug_config_lines(stack: &ConfigLayerStack) -> Vec<Line<'static>> {
 fn render_non_file_layer_details(layer: &ConfigLayerEntry) -> Vec<Line<'static>> {
     match &layer.name {
         ConfigLayerSource::SessionFlags => render_session_flag_details(&layer.config),
-        ConfigLayerSource::Mdm { .. } | ConfigLayerSource::LegacyManagedConfigTomlFromMdm => {
-            render_mdm_layer_details(layer)
-        }
         ConfigLayerSource::System { .. }
         | ConfigLayerSource::User { .. }
         | ConfigLayerSource::Project { .. }
@@ -199,24 +196,6 @@ fn render_session_flag_details(config: &TomlValue) -> Vec<Line<'static>> {
         .into_iter()
         .map(|(key, value)| format!("     - {key} = {value}").into())
         .collect()
-}
-
-fn render_mdm_layer_details(layer: &ConfigLayerEntry) -> Vec<Line<'static>> {
-    let value = layer
-        .raw_toml()
-        .map(ToString::to_string)
-        .unwrap_or_else(|| format_toml_value(&layer.config));
-    if value.is_empty() {
-        return vec!["     MDM value: <empty>".dim().into()];
-    }
-
-    if value.contains('\n') {
-        let mut lines = vec!["     MDM value:".into()];
-        lines.extend(value.lines().map(|line| format!("       {line}").into()));
-        lines
-    } else {
-        vec![format!("     MDM value: {value}").into()]
-    }
 }
 
 fn flatten_toml_key_values(
@@ -283,9 +262,6 @@ fn normalize_allowed_web_search_modes(
 
 fn format_config_layer_source(source: &ConfigLayerSource) -> String {
     match source {
-        ConfigLayerSource::Mdm { domain, key } => {
-            format!("MDM ({domain}:{key})")
-        }
         ConfigLayerSource::System { file } => {
             format!("system ({})", file.as_path().display())
         }
@@ -301,9 +277,6 @@ fn format_config_layer_source(source: &ConfigLayerSource) -> String {
         ConfigLayerSource::SessionFlags => "session-flags".to_string(),
         ConfigLayerSource::LegacyManagedConfigTomlFromFile { file } => {
             format!("legacy managed_config.toml ({})", file.as_path().display())
-        }
-        ConfigLayerSource::LegacyManagedConfigTomlFromMdm => {
-            "legacy managed_config.toml (MDM)".to_string()
         }
     }
 }
@@ -436,16 +409,8 @@ mod tests {
 
     #[test]
     fn debug_config_output_lists_all_layers_including_disabled() {
-        let system_file = if cfg!(windows) {
-            absolute_path("C:\\etc\\nexal\\config.toml")
-        } else {
-            absolute_path("/etc/nexal/config.toml")
-        };
-        let project_folder = if cfg!(windows) {
-            absolute_path("C:\\repo\\.nexal")
-        } else {
-            absolute_path("/repo/.nexal")
-        };
+        let system_file = absolute_path("/etc/nexal/config.toml");
+        let project_folder = absolute_path("/repo/.nexal");
 
         let layers = vec![
             ConfigLayerEntry::new(
@@ -477,11 +442,7 @@ mod tests {
 
     #[test]
     fn debug_config_output_lists_requirement_sources() {
-        let requirements_file = if cfg!(windows) {
-            absolute_path("C:\\ProgramData\\Nexal\\requirements.toml")
-        } else {
-            absolute_path("/etc/nexal/requirements.toml")
-        };
+        let requirements_file = absolute_path("/etc/nexal/requirements.toml");
 
         let requirements = ConfigRequirements {
             approval_policy: ConstrainedWithSource::new(
@@ -544,11 +505,7 @@ mod tests {
             network: None,
         };
 
-        let user_file = if cfg!(windows) {
-            absolute_path("C:\\users\\alice\\.nexal\\config.toml")
-        } else {
-            absolute_path("/home/alice/.nexal/config.toml")
-        };
+        let user_file = absolute_path("/home/alice/.nexal/config.toml");
         let stack = ConfigLayerStack::new(
             vec![ConfigLayerEntry::new(
                 ConfigLayerSource::User { file: user_file },

@@ -8,7 +8,6 @@ use crate::protocol::SandboxPolicy;
 use crate::util::resolve_path;
 use nexal_apply_patch::ApplyPatchAction;
 use nexal_apply_patch::ApplyPatchFileChange;
-use nexal_protocol::config_types::WindowsSandboxLevel;
 use nexal_sandboxing::SandboxType;
 use nexal_sandboxing::get_platform_sandbox;
 
@@ -30,7 +29,6 @@ pub fn assess_patch_safety(
     sandbox_policy: &SandboxPolicy,
     file_system_sandbox_policy: &FileSystemSandboxPolicy,
     cwd: &Path,
-    windows_sandbox_level: WindowsSandboxLevel,
 ) -> SafetyCheck {
     if action.is_empty() {
         return SafetyCheck::Reject {
@@ -77,7 +75,7 @@ pub fn assess_patch_safety(
             // Only auto‑approve when we can actually enforce a sandbox. Otherwise
             // fall back to asking the user because the patch may touch arbitrary
             // paths outside the project.
-            match get_platform_sandbox(windows_sandbox_level != WindowsSandboxLevel::Disabled) {
+            match get_platform_sandbox() {
                 Some(sandbox_type) => SafetyCheck::AutoApprove {
                     sandbox_type,
                     user_explicitly_approved: false,

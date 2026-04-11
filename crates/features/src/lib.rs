@@ -112,10 +112,6 @@ pub enum Feature {
     UseLegacyLandlock,
     /// Allow the model to request approval and propose exec rules.
     RequestRule,
-    /// Enable Windows sandbox (restricted token) on Windows.
-    WindowsSandbox,
-    /// Use the elevated Windows sandbox pipeline (setup + runner).
-    WindowsSandboxElevated,
     /// Legacy remote models flag kept for backward compatibility.
     RemoteModels,
     /// Experimental shell snapshotting.
@@ -658,18 +654,6 @@ pub const FEATURES: &[FeatureSpec] = &[
         default_enabled: false,
     },
     FeatureSpec {
-        id: Feature::WindowsSandbox,
-        key: "experimental_windows_sandbox",
-        stage: Stage::Removed,
-        default_enabled: false,
-    },
-    FeatureSpec {
-        id: Feature::WindowsSandboxElevated,
-        key: "elevated_windows_sandbox",
-        stage: Stage::Removed,
-        default_enabled: false,
-    },
-    FeatureSpec {
         id: Feature::RemoteModels,
         key: "remote_models",
         stage: Stage::Removed,
@@ -814,18 +798,10 @@ pub const FEATURES: &[FeatureSpec] = &[
     FeatureSpec {
         id: Feature::PreventIdleSleep,
         key: "prevent_idle_sleep",
-        stage: if cfg!(any(
-            target_os = "macos",
-            target_os = "linux",
-            target_os = "windows"
-        )) {
-            Stage::Experimental {
-                name: "Prevent sleep while running",
-                menu_description: "Keep your computer awake while Nexal is running a thread.",
-                announcement: "NEW: Prevent sleep while running is now available in /experimental.",
-            }
-        } else {
-            Stage::UnderDevelopment
+        stage: Stage::Experimental {
+            name: "Prevent sleep while running",
+            menu_description: "Keep your computer awake while Nexal is running a thread.",
+            announcement: "NEW: Prevent sleep while running is now available in /experimental.",
         },
         default_enabled: false,
     },

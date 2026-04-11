@@ -39,9 +39,7 @@ use crate::config::Config;
 use crate::config::types::HistoryPersistence;
 
 use nexal_protocol::ThreadId;
-#[cfg(unix)]
 use std::os::unix::fs::OpenOptionsExt;
-#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 
 /// Filename that stores the message history inside `~/.nexal`.
@@ -119,7 +117,6 @@ pub async fn append_entry(text: &str, conversation_id: &ThreadId, config: &Confi
     // Open the history file for read/write access (append-only on Unix).
     let mut options = OpenOptions::new();
     options.read(true).write(true).create(true);
-    #[cfg(unix)]
     {
         options.append(true);
         options.mode(0o600);
@@ -278,9 +275,8 @@ pub fn lookup(log_id: u64, offset: usize, config: &Config) -> Option<HistoryEntr
     lookup_history_entry(&path, log_id, offset)
 }
 
-/// On Unix systems, ensure the file permissions are `0o600` (rw-------). If the
+/// Ensure the file permissions are `0o600` (rw-------). If the
 /// permissions cannot be changed the error is propagated to the caller.
-#[cfg(unix)]
 async fn ensure_owner_only_permissions(file: &File) -> Result<()> {
     let metadata = file.metadata()?;
     let current_mode = metadata.permissions().mode() & 0o777;
@@ -291,12 +287,6 @@ async fn ensure_owner_only_permissions(file: &File) -> Result<()> {
         let file_clone = file.try_clone()?;
         tokio::task::spawn_blocking(move || file_clone.set_permissions(perms_clone)).await??;
     }
-    Ok(())
-}
-
-#[cfg(windows)]
-// On Windows, simply succeed.
-async fn ensure_owner_only_permissions(_file: &File) -> Result<()> {
     Ok(())
 }
 
@@ -398,21 +388,9 @@ fn lookup_history_entry(path: &Path, log_id: u64, offset: usize) -> Option<Histo
     None
 }
 
-#[cfg(unix)]
 fn history_log_id(metadata: &std::fs::Metadata) -> Option<u64> {
     use std::os::unix::fs::MetadataExt;
     Some(metadata.ino())
-}
-
-#[cfg(windows)]
-fn history_log_id(metadata: &std::fs::Metadata) -> Option<u64> {
-    use std::os::windows::fs::MetadataExt;
-    Some(metadata.creation_time())
-}
-
-#[cfg(not(any(unix, windows)))]
-fn history_log_id(_metadata: &std::fs::Metadata) -> Option<u64> {
-    None
 }
 
 

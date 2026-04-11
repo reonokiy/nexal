@@ -1041,7 +1041,6 @@ impl JsReplManager {
             &turn.file_system_sandbox_policy,
             turn.network_sandbox_policy,
             SandboxablePreference::Auto,
-            turn.windows_sandbox_level,
             has_managed_network_requirements,
         );
         let command = SandboxCommand {
@@ -1068,15 +1067,8 @@ impl JsReplManager {
                 enforce_managed_network: has_managed_network_requirements,
                 network: None,
                 sandbox_policy_cwd: &turn.cwd,
-                #[cfg(target_os = "macos")]
-                macos_seatbelt_profile_extensions: None,
                 nexal_linux_sandbox_exe: turn.nexal_linux_sandbox_exe.as_ref(),
                 use_legacy_landlock: turn.features.use_legacy_landlock(),
-                windows_sandbox_level: turn.windows_sandbox_level,
-                windows_sandbox_private_desktop: turn
-                    .config
-                    .permissions
-                    .windows_sandbox_private_desktop,
             })
             .map(|request| {
                 crate::sandboxing::ExecRequest::from_sandbox_exec_request(request, options)

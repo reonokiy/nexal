@@ -65,18 +65,6 @@ impl ApplyPatchRuntime {
         }
     }
 
-    #[cfg(target_os = "windows")]
-    fn build_sandbox_command(
-        req: &ApplyPatchRequest,
-        nexal_home: &std::path::Path,
-    ) -> Result<SandboxCommand, ToolError> {
-        Ok(Self::build_sandbox_command_with_program(
-            req,
-            nexal_windows_sandbox::resolve_current_exe_for_launch(nexal_home, "nexal.exe"),
-        ))
-    }
-
-    #[cfg(not(target_os = "windows"))]
     fn build_sandbox_command(
         req: &ApplyPatchRequest,
         nexal_self_exe: Option<&PathBuf>,

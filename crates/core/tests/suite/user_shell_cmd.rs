@@ -196,10 +196,7 @@ async fn user_shell_command_does_not_replace_active_turn() -> anyhow::Result<()>
     })
     .await;
 
-    #[cfg(windows)]
-    let user_shell_command = "Write-Output user-shell".to_string();
-    #[cfg(not(windows))]
-    let user_shell_command = "printf user-shell".to_string();
+        let user_shell_command = "printf user-shell".to_string();
     fixture
         .nexal
         .submit(Op::RunUserShellCommand {
@@ -261,10 +258,7 @@ async fn user_shell_command_history_is_persisted_and_shared_with_model() -> anyh
     });
     let test = builder.build(&server).await?;
 
-    #[cfg(windows)]
-    let command = r#"$val = $env:NEXAL_SANDBOX; if ([string]::IsNullOrEmpty($val)) { $val = 'not-set' } ; [System.Console]::Write($val)"#.to_string();
-    #[cfg(not(windows))]
-    let command = r#"sh -c "printf '%s' \"${NEXAL_SANDBOX:-not-set}\"""#.to_string();
+        let command = r#"sh -c "printf '%s' \"${NEXAL_SANDBOX:-not-set}\"""#.to_string();
 
     test.nexal
         .submit(Op::RunUserShellCommand {
@@ -340,10 +334,7 @@ async fn user_shell_command_does_not_set_network_sandbox_env_var() -> anyhow::Re
     });
     let test = builder.build(&server).await?;
 
-    #[cfg(windows)]
-    let command = r#"$val = $env:NEXAL_SANDBOX_NETWORK_DISABLED; if ([string]::IsNullOrEmpty($val)) { $val = 'not-set' } ; [System.Console]::Write($val)"#.to_string();
-    #[cfg(not(windows))]
-    let command =
+        let command =
         r#"sh -c "printf '%s' \"${NEXAL_SANDBOX_NETWORK_DISABLED:-not-set}\"""#.to_string();
 
     test.nexal
@@ -362,7 +353,7 @@ async fn user_shell_command_does_not_set_network_sandbox_env_var() -> anyhow::Re
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-#[cfg(not(target_os = "windows"))] // TODO: unignore on windows
+
 async fn user_shell_command_output_is_truncated_in_history() -> anyhow::Result<()> {
     let server = responses::start_mock_server().await;
     let builder = core_test_support::test_nexal::test_nexal();
@@ -373,10 +364,7 @@ async fn user_shell_command_output_is_truncated_in_history() -> anyhow::Result<(
         .build(&server)
         .await?;
 
-    #[cfg(windows)]
-    let command = r#"for ($i=1; $i -le 400; $i++) { Write-Output $i }"#.to_string();
-    #[cfg(not(windows))]
-    let command = "seq 1 400".to_string();
+        let command = "seq 1 400".to_string();
 
     test.nexal
         .submit(Op::RunUserShellCommand {

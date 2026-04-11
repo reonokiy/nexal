@@ -82,18 +82,6 @@ impl Command for SetWindowTitle {
         // Most terminals also accept BEL for compatibility, but ST is the canonical form.
         write!(f, "\x1b]0;{}\x1b\\", self.0)
     }
-
-    #[cfg(windows)]
-    fn execute_winapi(&self) -> io::Result<()> {
-        Err(std::io::Error::other(
-            "tried to execute SetWindowTitle using WinAPI; use ANSI instead",
-        ))
-    }
-
-    #[cfg(windows)]
-    fn is_ansi_code_supported(&self) -> bool {
-        true
-    }
 }
 
 /// Normalizes untrusted title text into a single bounded display line.

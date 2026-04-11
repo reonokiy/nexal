@@ -21,8 +21,6 @@ use rama_tls_rustls::client::TlsConnectorDataBuilder;
 use rama_tls_rustls::client::TlsConnectorLayer;
 use tracing::warn;
 
-#[cfg(target_os = "macos")]
-use rama_unix::client::UnixConnector;
 
 #[derive(Clone, Default)]
 struct ProxyConfig {
@@ -110,15 +108,6 @@ impl UpstreamClient {
         Self::new(ProxyConfig::from_env())
     }
 
-    #[cfg(target_os = "macos")]
-    pub(crate) fn unix_socket(path: &str) -> Self {
-        let connector = build_unix_connector(path);
-        Self {
-            connector,
-            proxy_config: ProxyConfig::default(),
-        }
-    }
-
     fn new(proxy_config: ProxyConfig) -> Self {
         let connector = build_http_connector();
         Self {
@@ -176,15 +165,3 @@ fn build_http_connector() -> BoxService<
     connector.boxed()
 }
 
-#[cfg(target_os = "macos")]
-fn build_unix_connector(
-    path: &str,
-) -> BoxService<
-    Request<Body>,
-    EstablishedClientConnection<HttpClientService<Body>, Request<Body>>,
-    BoxError,
-> {
-    let transport = UnixConnector::fixed(path);
-    let connector = HttpConnector::new(transport);
-    connector.boxed()
-}

@@ -199,9 +199,7 @@ fn config_path_for_layer(layer: &ConfigLayerEntry, config_toml_file: &str) -> Op
             Some(dot_nexal_folder.as_path().join(config_toml_file))
         }
         ConfigLayerSource::LegacyManagedConfigTomlFromFile { file } => Some(file.to_path_buf()),
-        ConfigLayerSource::Mdm { .. }
-        | ConfigLayerSource::SessionFlags
-        | ConfigLayerSource::LegacyManagedConfigTomlFromMdm => None,
+        ConfigLayerSource::SessionFlags => None,
     }
 }
 

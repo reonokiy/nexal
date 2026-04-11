@@ -19,9 +19,6 @@ use crate::render::renderable::Renderable;
 use nexal_features::Features;
 use nexal_protocol::ThreadId;
 use nexal_protocol::mcp::RequestId;
-use nexal_protocol::models::MacOsAutomationPermission;
-use nexal_protocol::models::MacOsContactsPermission;
-use nexal_protocol::models::MacOsPreferencesPermission;
 use nexal_protocol::models::PermissionProfile;
 use nexal_protocol::protocol::ElicitationAction;
 use nexal_protocol::protocol::FileChange;
@@ -777,48 +774,6 @@ pub(crate) fn format_additional_permissions_rule(
             parts.push(format!("write {writes}"));
         }
     }
-    if let Some(macos) = additional_permissions.macos.as_ref() {
-        if !matches!(
-            macos.macos_preferences,
-            MacOsPreferencesPermission::ReadOnly
-        ) {
-            let value = match macos.macos_preferences {
-                MacOsPreferencesPermission::ReadOnly => "readonly",
-                MacOsPreferencesPermission::ReadWrite => "readwrite",
-                MacOsPreferencesPermission::None => "none",
-            };
-            parts.push(format!("macOS preferences {value}"));
-        }
-        match &macos.macos_automation {
-            MacOsAutomationPermission::All => {
-                parts.push("macOS automation all".to_string());
-            }
-            MacOsAutomationPermission::BundleIds(bundle_ids) => {
-                if !bundle_ids.is_empty() {
-                    parts.push(format!("macOS automation {}", bundle_ids.join(", ")));
-                }
-            }
-            MacOsAutomationPermission::None => {}
-        }
-        if macos.macos_accessibility {
-            parts.push("macOS accessibility".to_string());
-        }
-        if macos.macos_calendar {
-            parts.push("macOS calendar".to_string());
-        }
-        if macos.macos_reminders {
-            parts.push("macOS reminders".to_string());
-        }
-        if !matches!(macos.macos_contacts, MacOsContactsPermission::None) {
-            let value = match macos.macos_contacts {
-                MacOsContactsPermission::None => "none",
-                MacOsContactsPermission::ReadOnly => "readonly",
-                MacOsContactsPermission::ReadWrite => "readwrite",
-            };
-            parts.push(format!("macOS contacts {value}"));
-        }
-    }
-
     if parts.is_empty() {
         None
     } else {
@@ -906,9 +861,6 @@ mod tests {
     use super::*;
     use crate::app_event::AppEvent;
     use nexal_protocol::models::FileSystemPermissions;
-    use nexal_protocol::models::MacOsAutomationPermission;
-    use nexal_protocol::models::MacOsPreferencesPermission;
-    use nexal_protocol::models::MacOsSeatbeltProfileExtensions;
     use nexal_protocol::models::NetworkPermissions;
     use nexal_protocol::protocol::ExecPolicyAmendment;
     use nexal_protocol::protocol::NetworkApprovalProtocol;
@@ -1401,42 +1353,6 @@ mod tests {
         assert_snapshot!(
             "approval_overlay_permissions_prompt",
             normalize_snapshot_paths(render_overlay_lines(&view, 120))
-        );
-    }
-
-    #[test]
-    fn additional_permissions_macos_prompt_snapshot() {
-        let (tx, _rx) = unbounded_channel::<AppEvent>();
-        let tx = AppEventSender::new(tx);
-        let exec_request = ApprovalRequest::Exec {
-            thread_id: ThreadId::new(),
-            thread_label: None,
-            id: "test".into(),
-            command: vec!["osascript".into(), "-e".into(), "tell application".into()],
-            reason: Some("need macOS automation".into()),
-            available_decisions: vec![ReviewDecision::Approved, ReviewDecision::Abort],
-            network_approval_context: None,
-            additional_permissions: Some(PermissionProfile {
-                macos: Some(MacOsSeatbeltProfileExtensions {
-                    macos_preferences: MacOsPreferencesPermission::ReadWrite,
-                    macos_automation: MacOsAutomationPermission::BundleIds(vec![
-                        "com.apple.Calendar".to_string(),
-                        "com.apple.Notes".to_string(),
-                    ]),
-                    macos_launch_services: false,
-                    macos_accessibility: true,
-                    macos_calendar: true,
-                    macos_reminders: true,
-                    macos_contacts: MacOsContactsPermission::None,
-                }),
-                ..Default::default()
-            }),
-        };
-
-        let view = ApprovalOverlay::new(exec_request, tx, Features::with_defaults());
-        assert_snapshot!(
-            "approval_overlay_additional_permissions_macos_prompt",
-            render_overlay_lines(&view, 120)
         );
     }
 

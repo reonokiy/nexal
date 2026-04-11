@@ -10,10 +10,9 @@ path = "src/lib.rs"
 doctest = false
 
 [features]
-default = ["voice-input"]
+default = []
 # Enable vt100-based tests (emulator) when running with `--features vt100-tests`.
 vt100-tests = []
-voice-input = ["dep:cpal", "dep:hound"]
 
 [lints]
 workspace = true
@@ -100,27 +99,9 @@ url = { workspace = true }
 webbrowser = { workspace = true }
 uuid = { workspace = true }
 
-nexal-windows-sandbox = { workspace = true }
 tokio-util = { workspace = true, features = ["time"] }
 
-[target.'cfg(not(target_os = "linux"))'.dependencies]
-cpal = { version = "0.15", optional = true }
-hound = { version = "3.5", optional = true }
-
-[target.'cfg(unix)'.dependencies]
 libc = { workspace = true }
-
-[target.'cfg(windows)'.dependencies]
-which = { workspace = true }
-windows-sys = { version = "0.52", features = [
-    "Win32_Foundation",
-    "Win32_System_Console",
-] }
-winsplit = "0.1"
-
-# Clipboard support via `arboard` is not available on Android/Termux.
-# Only include it for non-Android targets so the crate builds on Android.
-[target.'cfg(not(target_os = "android"))'.dependencies]
 arboard = { workspace = true }
 
 

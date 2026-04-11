@@ -14,7 +14,6 @@ use nexal_config_loader::default_project_root_markers;
 use nexal_config_loader::merge_toml_values;
 use nexal_config_loader::project_root_markers_from_config;
 use nexal_protocol::models::FileSystemPermissions;
-use nexal_protocol::models::MacOsSeatbeltProfileExtensions;
 use nexal_protocol::models::NetworkPermissions;
 use nexal_protocol::models::PermissionProfile;
 use nexal_protocol::protocol::Product;
@@ -78,8 +77,6 @@ struct SkillPermissionProfile {
     network: Option<SkillNetworkPermissions>,
     #[serde(default)]
     file_system: Option<FileSystemPermissions>,
-    #[serde(default)]
-    macos: Option<MacOsSeatbeltProfileExtensions>,
 }
 
 #[derive(Debug, Default, Deserialize, PartialEq, Eq)]
@@ -293,10 +290,8 @@ fn skill_roots_from_layer_stack_inner(
                     scope: SkillScope::Admin,
                 });
             }
-            ConfigLayerSource::Mdm { .. }
-            | ConfigLayerSource::SessionFlags
-            | ConfigLayerSource::LegacyManagedConfigTomlFromFile { .. }
-            | ConfigLayerSource::LegacyManagedConfigTomlFromMdm => {}
+            ConfigLayerSource::SessionFlags
+            | ConfigLayerSource::LegacyManagedConfigTomlFromFile { .. } => {}
         }
     }
 
@@ -690,7 +685,6 @@ fn normalize_permissions(
         file_system: permissions
             .file_system
             .filter(|file_system| !file_system.is_empty()),
-        macos: permissions.macos,
     };
 
     (

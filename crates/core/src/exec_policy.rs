@@ -73,15 +73,6 @@ static BANNED_PREFIX_SUGGESTIONS: &[&[&str]] = &[
     &["/bin/zsh", "-lc"],
     &["/bin/bash"],
     &["/bin/bash", "-lc"],
-    &["pwsh"],
-    &["pwsh", "-Command"],
-    &["pwsh", "-c"],
-    &["powershell"],
-    &["powershell", "-Command"],
-    &["powershell", "-c"],
-    &["powershell.exe"],
-    &["powershell.exe", "-Command"],
-    &["powershell.exe", "-c"],
     &["env"],
     &["sudo"],
     &["node"],
@@ -530,10 +521,7 @@ pub(crate) fn render_decision_for_unmatched_command(
         return Decision::Allow;
     }
 
-    // On Windows, ReadOnly sandbox is not a real sandbox, so special-case it
-    // here.
-    let environment_lacks_sandbox_protections =
-        cfg!(windows) && matches!(sandbox_policy, SandboxPolicy::ReadOnly { .. });
+    let environment_lacks_sandbox_protections = false;
 
     // If the command is flagged as dangerous or we have no sandbox protection,
     // we should never allow it to run without approval.

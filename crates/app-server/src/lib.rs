@@ -133,21 +133,13 @@ enum ShutdownAction {
 }
 
 async fn shutdown_signal() -> IoResult<()> {
-    #[cfg(unix)]
-    {
-        use tokio::signal::unix::SignalKind;
-        use tokio::signal::unix::signal;
+    use tokio::signal::unix::SignalKind;
+    use tokio::signal::unix::signal;
 
-        let mut term = signal(SignalKind::terminate())?;
-        tokio::select! {
-            ctrl_c_result = tokio::signal::ctrl_c() => ctrl_c_result,
-            _ = term.recv() => Ok(()),
-        }
-    }
-
-    #[cfg(not(unix))]
-    {
-        tokio::signal::ctrl_c().await
+    let mut term = signal(SignalKind::terminate())?;
+    tokio::select! {
+        ctrl_c_result = tokio::signal::ctrl_c() => ctrl_c_result,
+        _ = term.recv() => Ok(()),
     }
 }
 

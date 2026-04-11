@@ -33,10 +33,6 @@ use nexal_protocol::mcp::Tool as McpTool;
 use nexal_protocol::memory_citation::MemoryCitation as CoreMemoryCitation;
 use nexal_protocol::memory_citation::MemoryCitationEntry as CoreMemoryCitationEntry;
 use nexal_protocol::models::FileSystemPermissions as CoreFileSystemPermissions;
-use nexal_protocol::models::MacOsAutomationPermission as CoreMacOsAutomationPermission;
-use nexal_protocol::models::MacOsContactsPermission as CoreMacOsContactsPermission;
-use nexal_protocol::models::MacOsPreferencesPermission as CoreMacOsPreferencesPermission;
-use nexal_protocol::models::MacOsSeatbeltProfileExtensions as CoreMacOsSeatbeltProfileExtensions;
 use nexal_protocol::models::MessagePhase;
 use nexal_protocol::models::NetworkPermissions as CoreNetworkPermissions;
 use nexal_protocol::models::PermissionProfile as CorePermissionProfile;
@@ -472,14 +468,6 @@ impl From<CoreHookRunSummary> for HookRunSummary {
 #[ts(tag = "type")]
 #[ts(export_to = "v2/")]
 pub enum ConfigLayerSource {
-    /// Managed preferences layer delivered by MDM (macOS only).
-    #[serde(rename_all = "camelCase")]
-    #[ts(rename_all = "camelCase")]
-    Mdm {
-        domain: String,
-        key: String,
-    },
-
     /// Managed config layer from a file (usually `managed_config.toml`).
     #[serde(rename_all = "camelCase")]
     #[ts(rename_all = "camelCase")]
@@ -522,7 +510,6 @@ pub enum ConfigLayerSource {
         file: AbsolutePathBuf,
     },
 
-    LegacyManagedConfigTomlFromMdm,
 }
 
 impl ConfigLayerSource {
@@ -530,13 +517,11 @@ impl ConfigLayerSource {
     /// from a layer with a lower precedence.
     pub fn precedence(&self) -> i16 {
         match self {
-            ConfigLayerSource::Mdm { .. } => 0,
             ConfigLayerSource::System { .. } => 10,
             ConfigLayerSource::User { .. } => 20,
             ConfigLayerSource::Project { .. } => 25,
             ConfigLayerSource::SessionFlags => 30,
             ConfigLayerSource::LegacyManagedConfigTomlFromFile { .. } => 40,
-            ConfigLayerSource::LegacyManagedConfigTomlFromMdm => 50,
         }
     }
 }
@@ -1087,47 +1072,6 @@ impl From<AdditionalFileSystemPermissions> for CoreFileSystemPermissions {
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export_to = "v2/")]
-pub struct AdditionalMacOsPermissions {
-    pub preferences: CoreMacOsPreferencesPermission,
-    pub automations: CoreMacOsAutomationPermission,
-    pub launch_services: bool,
-    pub accessibility: bool,
-    pub calendar: bool,
-    pub reminders: bool,
-    pub contacts: CoreMacOsContactsPermission,
-}
-
-impl From<CoreMacOsSeatbeltProfileExtensions> for AdditionalMacOsPermissions {
-    fn from(value: CoreMacOsSeatbeltProfileExtensions) -> Self {
-        Self {
-            preferences: value.macos_preferences,
-            automations: value.macos_automation,
-            launch_services: value.macos_launch_services,
-            accessibility: value.macos_accessibility,
-            calendar: value.macos_calendar,
-            reminders: value.macos_reminders,
-            contacts: value.macos_contacts,
-        }
-    }
-}
-
-impl From<AdditionalMacOsPermissions> for CoreMacOsSeatbeltProfileExtensions {
-    fn from(value: AdditionalMacOsPermissions) -> Self {
-        Self {
-            macos_preferences: value.preferences,
-            macos_automation: value.automations,
-            macos_launch_services: value.launch_services,
-            macos_accessibility: value.accessibility,
-            macos_calendar: value.calendar,
-            macos_reminders: value.reminders,
-            macos_contacts: value.contacts,
-        }
-    }
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export_to = "v2/")]
 pub struct AdditionalNetworkPermissions {
     pub enabled: Option<bool>,
 }
@@ -1181,7 +1125,6 @@ impl From<RequestPermissionProfile> for CoreRequestPermissionProfile {
 pub struct AdditionalPermissionProfile {
     pub network: Option<AdditionalNetworkPermissions>,
     pub file_system: Option<AdditionalFileSystemPermissions>,
-    pub macos: Option<AdditionalMacOsPermissions>,
 }
 
 impl From<CorePermissionProfile> for AdditionalPermissionProfile {
@@ -1189,7 +1132,6 @@ impl From<CorePermissionProfile> for AdditionalPermissionProfile {
         Self {
             network: value.network.map(AdditionalNetworkPermissions::from),
             file_system: value.file_system.map(AdditionalFileSystemPermissions::from),
-            macos: value.macos.map(AdditionalMacOsPermissions::from),
         }
     }
 }
@@ -1199,7 +1141,6 @@ impl From<AdditionalPermissionProfile> for CorePermissionProfile {
         Self {
             network: value.network.map(CoreNetworkPermissions::from),
             file_system: value.file_system.map(CoreFileSystemPermissions::from),
-            macos: value.macos.map(CoreMacOsSeatbeltProfileExtensions::from),
         }
     }
 }
@@ -1221,7 +1162,6 @@ impl From<GrantedPermissionProfile> for CorePermissionProfile {
         Self {
             network: value.network.map(CoreNetworkPermissions::from),
             file_system: value.file_system.map(CoreFileSystemPermissions::from),
-            macos: None,
         }
     }
 }
@@ -5118,47 +5058,6 @@ pub struct McpServerStatusUpdatedNotification {
     pub error: Option<String>,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export_to = "v2/")]
-pub struct WindowsWorldWritableWarningNotification {
-    pub sample_paths: Vec<String>,
-    pub extra_count: usize,
-    pub failed_scan: bool,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, JsonSchema, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export_to = "v2/")]
-pub enum WindowsSandboxSetupMode {
-    Elevated,
-    Unelevated,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export_to = "v2/")]
-pub struct WindowsSandboxSetupStartParams {
-    pub mode: WindowsSandboxSetupMode,
-    #[ts(optional = nullable)]
-    pub cwd: Option<AbsolutePathBuf>,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export_to = "v2/")]
-pub struct WindowsSandboxSetupStartResponse {
-    pub started: bool,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export_to = "v2/")]
-pub struct WindowsSandboxSetupCompletedNotification {
-    pub mode: WindowsSandboxSetupMode,
-    pub success: bool,
-    pub error: Option<String>,
-}
 
 /// Deprecated: Use `ContextCompaction` item type instead.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
@@ -6069,7 +5968,6 @@ mod tests {
                     "read": ["relative/path"],
                     "write": null
                 },
-                "macos": null
             },
             "skillMetadata": null,
             "proposedExecpolicyAmendment": null,
@@ -6081,92 +5979,6 @@ mod tests {
             err.to_string()
                 .contains("AbsolutePathBuf deserialized without a base path"),
             "unexpected error: {err}"
-        );
-    }
-
-    #[test]
-    fn command_execution_request_approval_accepts_macos_automation_bundle_ids_object() {
-        let params = serde_json::from_value::<CommandExecutionRequestApprovalParams>(json!({
-            "threadId": "thr_123",
-            "turnId": "turn_123",
-            "itemId": "call_123",
-            "command": "cat file",
-            "cwd": "/tmp",
-            "commandActions": null,
-            "reason": null,
-            "networkApprovalContext": null,
-            "additionalPermissions": {
-                "network": null,
-                "fileSystem": null,
-                "macos": {
-                    "preferences": "read_only",
-                    "automations": {
-                        "bundle_ids": ["com.apple.Notes"]
-                    },
-                    "launchServices": false,
-                    "accessibility": false,
-                    "calendar": false,
-                    "reminders": false,
-                    "contacts": "read_only"
-                }
-            },
-            "skillMetadata": null,
-            "proposedExecpolicyAmendment": null,
-            "proposedNetworkPolicyAmendments": null,
-            "availableDecisions": null
-        }))
-        .expect("bundle_ids object should deserialize");
-
-        assert_eq!(
-            params
-                .additional_permissions
-                .and_then(|permissions| permissions.macos)
-                .map(|macos| (macos.automations, macos.launch_services, macos.contacts)),
-            Some((
-                CoreMacOsAutomationPermission::BundleIds(vec!["com.apple.Notes".to_string(),]),
-                false,
-                CoreMacOsContactsPermission::ReadOnly,
-            ))
-        );
-    }
-
-    #[test]
-    fn command_execution_request_approval_accepts_macos_reminders_permission() {
-        let params = serde_json::from_value::<CommandExecutionRequestApprovalParams>(json!({
-            "threadId": "thr_123",
-            "turnId": "turn_123",
-            "itemId": "call_123",
-            "command": "cat file",
-            "cwd": "/tmp",
-            "commandActions": null,
-            "reason": null,
-            "networkApprovalContext": null,
-            "additionalPermissions": {
-                "network": null,
-                "fileSystem": null,
-                "macos": {
-                    "preferences": "read_only",
-                    "automations": "none",
-                    "launchServices": false,
-                    "accessibility": false,
-                    "calendar": false,
-                    "reminders": true,
-                    "contacts": "none"
-                }
-            },
-            "skillMetadata": null,
-            "proposedExecpolicyAmendment": null,
-            "proposedNetworkPolicyAmendments": null,
-            "availableDecisions": null
-        }))
-        .expect("reminders permission should deserialize");
-
-        assert_eq!(
-            params
-                .additional_permissions
-                .and_then(|permissions| permissions.macos)
-                .map(|macos| macos.reminders),
-            Some(true)
         );
     }
 
@@ -6268,54 +6080,15 @@ mod tests {
     }
 
     #[test]
-    fn permissions_request_approval_rejects_macos_permissions() {
-        let err = serde_json::from_value::<PermissionsRequestApprovalParams>(json!({
-            "threadId": "thr_123",
-            "turnId": "turn_123",
-            "itemId": "call_123",
-            "reason": "Select a workspace root",
-            "permissions": {
-                "network": null,
-                "fileSystem": null,
-                "macos": {
-                    "preferences": "read_only",
-                    "automations": "none",
-                    "launchServices": false,
-                    "accessibility": false,
-                    "calendar": false,
-                    "reminders": false,
-                    "contacts": "none",
-                },
-            },
-        }))
-        .expect_err("permissions request should reject macos permissions");
-
-        assert!(
-            err.to_string().contains("unknown field `macos`"),
-            "unexpected error: {err}"
-        );
-    }
-
-    #[test]
-    fn permissions_request_approval_response_uses_granted_permission_profile_without_macos() {
-        let read_only_path = if cfg!(windows) {
-            r"C:\tmp\read-only"
-        } else {
-            "/tmp/read-only"
-        };
-        let read_write_path = if cfg!(windows) {
-            r"C:\tmp\read-write"
-        } else {
-            "/tmp/read-write"
-        };
+    fn permissions_request_approval_response_uses_granted_permission_profile() {
         let response = serde_json::from_value::<PermissionsRequestApprovalResponse>(json!({
             "permissions": {
                 "network": {
                     "enabled": true,
                 },
                 "fileSystem": {
-                    "read": [read_only_path],
-                    "write": [read_write_path],
+                    "read": ["/tmp/read-only"],
+                    "write": ["/tmp/read-write"],
                 },
             },
         }))
@@ -6329,34 +6102,14 @@ mod tests {
                 }),
                 file_system: Some(AdditionalFileSystemPermissions {
                     read: Some(vec![
-                        AbsolutePathBuf::try_from(PathBuf::from(read_only_path))
+                        AbsolutePathBuf::try_from(PathBuf::from("/tmp/read-only"))
                             .expect("path must be absolute"),
                     ]),
                     write: Some(vec![
-                        AbsolutePathBuf::try_from(PathBuf::from(read_write_path))
+                        AbsolutePathBuf::try_from(PathBuf::from("/tmp/read-write"))
                             .expect("path must be absolute"),
                     ]),
                 }),
-            }
-        );
-
-        assert_eq!(
-            CorePermissionProfile::from(response.permissions),
-            CorePermissionProfile {
-                network: Some(CoreNetworkPermissions {
-                    enabled: Some(true),
-                }),
-                file_system: Some(CoreFileSystemPermissions {
-                    read: Some(vec![
-                        AbsolutePathBuf::try_from(PathBuf::from(read_only_path))
-                            .expect("path must be absolute"),
-                    ]),
-                    write: Some(vec![
-                        AbsolutePathBuf::try_from(PathBuf::from(read_write_path))
-                            .expect("path must be absolute"),
-                    ]),
-                }),
-                macos: None,
             }
         );
     }

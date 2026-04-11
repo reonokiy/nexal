@@ -1,6 +1,4 @@
 mod layer_io;
-#[cfg(target_os = "macos")]
-mod macos;
 
 
 use crate::config::ConfigToml;
@@ -18,8 +16,6 @@ use dunce::canonicalize as normalize_path;
 use serde::Deserialize;
 use std::io;
 use std::path::Path;
-#[cfg(windows)]
-use std::path::PathBuf;
 use toml::Value as TomlValue;
 
 pub use nexal_config_loader::AppRequirementToml;
@@ -63,9 +59,6 @@ pub(crate) use nexal_config_loader::version_for_toml;
 /// Note that /etc/nexal/ is treated as a "config folder," so subfolders such
 /// as skills/ and rules/ will also be honored.
 pub const SYSTEM_CONFIG_TOML_FILE_UNIX: &str = "/etc/nexal/config.toml";
-
-#[cfg(windows)]
-const DEFAULT_PROGRAM_DATA_DIR_WINDOWS: &str = r"C:\ProgramData";
 
 pub(crate) async fn first_layer_config_error(layers: &ConfigLayerStack) -> Option<ConfigError> {
     nexal_config_loader::first_layer_config_error::<ConfigToml>(layers, CONFIG_TOML_FILE).await
@@ -122,15 +115,6 @@ pub async fn load_config_layers_state(
         config_requirements_toml
             .merge_unset_fields(RequirementSource::CloudRequirements, requirements);
     }
-
-    #[cfg(target_os = "macos")]
-    macos::load_managed_admin_requirements_toml(
-        &mut config_requirements_toml,
-        overrides
-            .macos_managed_config_requirements_base64
-            .as_deref(),
-    )
-    .await?;
 
     // Honor the system requirements.toml location.
     let requirements_toml_file = system_requirements_toml_file()?;
@@ -263,7 +247,6 @@ pub async fn load_config_layers_state(
     // per-turn basis in the TUI and VS Code.
     let LoadedConfigLayers {
         managed_config,
-        managed_config_from_mdm,
     } = loaded_config_layers;
     if let Some(config) = managed_config {
         let managed_parent = config.file.as_path().parent().ok_or_else(|| {
@@ -282,21 +265,6 @@ pub async fn load_config_layers_state(
             managed_config,
         ));
     }
-    if let Some(config) = managed_config_from_mdm {
-        // As a general rule, config from MDM should _not_ include relative
-        // paths, starting with `./`, but a path starting with `~/` _is_ a
-        // supported use case. Because resolve_relative_paths_in_config_toml()
-        // relies on AbsolutePathBufGuard to resolve `~/`, we must supply a
-        // value for base_dir, so nexal_home is as good a value as any.
-        let managed_config =
-            resolve_relative_paths_in_config_toml(config.managed_config, nexal_home)?;
-        layers.push(ConfigLayerEntry::new_with_raw_toml(
-            ConfigLayerSource::LegacyManagedConfigTomlFromMdm,
-            managed_config,
-            config.raw_toml,
-        ));
-    }
-
     ConfigLayerStack::new(
         layers,
         config_requirements_toml.clone().try_into()?,
@@ -392,97 +360,12 @@ async fn load_requirements_toml(
     Ok(())
 }
 
-#[cfg(unix)]
 fn system_requirements_toml_file() -> io::Result<AbsolutePathBuf> {
     AbsolutePathBuf::from_absolute_path(Path::new("/etc/nexal/requirements.toml"))
 }
 
-#[cfg(windows)]
-fn system_requirements_toml_file() -> io::Result<AbsolutePathBuf> {
-    windows_system_requirements_toml_file()
-}
-
-#[cfg(unix)]
 fn system_config_toml_file() -> io::Result<AbsolutePathBuf> {
     AbsolutePathBuf::from_absolute_path(Path::new(SYSTEM_CONFIG_TOML_FILE_UNIX))
-}
-
-#[cfg(windows)]
-fn system_config_toml_file() -> io::Result<AbsolutePathBuf> {
-    windows_system_config_toml_file()
-}
-
-#[cfg(windows)]
-fn windows_nexal_system_dir() -> PathBuf {
-    let program_data = windows_program_data_dir_from_known_folder().unwrap_or_else(|err| {
-        tracing::warn!(
-            error = %err,
-            "Failed to resolve ProgramData known folder; using default path"
-        );
-        PathBuf::from(DEFAULT_PROGRAM_DATA_DIR_WINDOWS)
-    });
-    program_data.join("Nexal").join("Nexal")
-}
-
-#[cfg(windows)]
-fn windows_system_requirements_toml_file() -> io::Result<AbsolutePathBuf> {
-    let requirements_toml_file = windows_nexal_system_dir().join("requirements.toml");
-    AbsolutePathBuf::try_from(requirements_toml_file)
-}
-
-#[cfg(windows)]
-fn windows_system_config_toml_file() -> io::Result<AbsolutePathBuf> {
-    let config_toml_file = windows_nexal_system_dir().join("config.toml");
-    AbsolutePathBuf::try_from(config_toml_file)
-}
-
-#[cfg(windows)]
-fn windows_program_data_dir_from_known_folder() -> io::Result<PathBuf> {
-    use std::ffi::OsString;
-    use std::os::windows::ffi::OsStringExt;
-    use windows_sys::Win32::System::Com::CoTaskMemFree;
-    use windows_sys::Win32::UI::Shell::FOLDERID_ProgramData;
-    use windows_sys::Win32::UI::Shell::KF_FLAG_DEFAULT;
-    use windows_sys::Win32::UI::Shell::SHGetKnownFolderPath;
-
-    let mut path_ptr = std::ptr::null_mut::<u16>();
-    let known_folder_flags = u32::try_from(KF_FLAG_DEFAULT).map_err(|_| {
-        io::Error::other(format!(
-            "KF_FLAG_DEFAULT did not fit in u32: {KF_FLAG_DEFAULT}"
-        ))
-    })?;
-    // Known folder IDs reference:
-    // https://learn.microsoft.com/en-us/windows/win32/shell/knownfolderid
-    // SAFETY: SHGetKnownFolderPath initializes path_ptr with a CoTaskMem-allocated,
-    // null-terminated UTF-16 string on success.
-    let hr = unsafe {
-        SHGetKnownFolderPath(&FOLDERID_ProgramData, known_folder_flags, 0, &mut path_ptr)
-    };
-    if hr != 0 {
-        return Err(io::Error::other(format!(
-            "SHGetKnownFolderPath(FOLDERID_ProgramData) failed with HRESULT {hr:#010x}"
-        )));
-    }
-    if path_ptr.is_null() {
-        return Err(io::Error::other(
-            "SHGetKnownFolderPath(FOLDERID_ProgramData) returned a null pointer",
-        ));
-    }
-
-    // SAFETY: path_ptr is a valid null-terminated UTF-16 string allocated by
-    // SHGetKnownFolderPath and must be freed with CoTaskMemFree.
-    let path = unsafe {
-        let mut len = 0usize;
-        while *path_ptr.add(len) != 0 {
-            len += 1;
-        }
-        let wide = std::slice::from_raw_parts(path_ptr, len);
-        let path = PathBuf::from(OsString::from_wide(wide));
-        CoTaskMemFree(path_ptr.cast());
-        path
-    };
-
-    Ok(path)
 }
 
 async fn load_requirements_from_legacy_scheme(
@@ -494,23 +377,14 @@ async fn load_requirements_from_legacy_scheme(
     // precedence.
     let LoadedConfigLayers {
         managed_config,
-        managed_config_from_mdm,
     } = loaded_config_layers;
 
-    for (source, config) in managed_config_from_mdm
-        .map(|config| {
-            (
-                RequirementSource::LegacyManagedConfigTomlFromMdm,
-                config.managed_config,
-            )
-        })
-        .into_iter()
-        .chain(managed_config.map(|c| {
-            (
-                RequirementSource::LegacyManagedConfigTomlFromFile { file: c.file },
-                c.managed_config,
-            )
-        }))
+    for (source, config) in managed_config.map(|c| {
+        (
+            RequirementSource::LegacyManagedConfigTomlFromFile { file: c.file },
+            c.managed_config,
+        )
+    })
     {
         let legacy_config: LegacyManagedConfigToml =
             config.try_into().map_err(|err: toml::de::Error| {
@@ -894,8 +768,6 @@ impl From<LegacyManagedConfigToml> for ConfigRequirementsToml {
 #[cfg(test)]
 mod unit_tests {
     use super::*;
-    #[cfg(windows)]
-    use std::path::Path;
     use tempfile::tempdir;
 
     #[test]
@@ -953,47 +825,5 @@ foo = "xyzzy"
         );
     }
 
-    #[cfg(windows)]
-    #[test]
-    fn windows_system_requirements_toml_file_uses_expected_suffix() {
-        let expected = windows_program_data_dir_from_known_folder()
-            .unwrap_or_else(|_| PathBuf::from(DEFAULT_PROGRAM_DATA_DIR_WINDOWS))
-            .join("Nexal")
-            .join("Nexal")
-            .join("requirements.toml");
-        assert_eq!(
-            windows_system_requirements_toml_file()
-                .expect("requirements.toml path")
-                .as_path(),
-            expected.as_path()
-        );
-        assert!(
-            windows_system_requirements_toml_file()
-                .expect("requirements.toml path")
-                .as_path()
-                .ends_with(Path::new("Nexal").join("Nexal").join("requirements.toml"))
-        );
-    }
 
-    #[cfg(windows)]
-    #[test]
-    fn windows_system_config_toml_file_uses_expected_suffix() {
-        let expected = windows_program_data_dir_from_known_folder()
-            .unwrap_or_else(|_| PathBuf::from(DEFAULT_PROGRAM_DATA_DIR_WINDOWS))
-            .join("Nexal")
-            .join("Nexal")
-            .join("config.toml");
-        assert_eq!(
-            windows_system_config_toml_file()
-                .expect("config.toml path")
-                .as_path(),
-            expected.as_path()
-        );
-        assert!(
-            windows_system_config_toml_file()
-                .expect("config.toml path")
-                .as_path()
-                .ends_with(Path::new("Nexal").join("Nexal").join("config.toml"))
-        );
-    }
 }

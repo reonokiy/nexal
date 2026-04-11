@@ -1,9 +1,5 @@
 use nexal_core::AuthManager;
 use nexal_core::config::Config;
-#[cfg(target_os = "windows")]
-use nexal_core::windows_sandbox::WindowsSandboxLevelExt;
-#[cfg(target_os = "windows")]
-use nexal_protocol::config_types::WindowsSandboxLevel;
 use crossterm::event::KeyCode;
 use crossterm::event::KeyEvent;
 use crossterm::event::KeyEventKind;
@@ -101,10 +97,6 @@ impl OnboardingScreen {
                 forced_login_method,
             }))
         }
-        #[cfg(target_os = "windows")]
-        let show_windows_create_sandbox_hint =
-            WindowsSandboxLevel::from_config(&config) == WindowsSandboxLevel::Disabled;
-        #[cfg(not(target_os = "windows"))]
         let show_windows_create_sandbox_hint = false;
         let highlighted = TrustDirectorySelection::Trust;
         if show_trust_screen {

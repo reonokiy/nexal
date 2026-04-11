@@ -2,8 +2,6 @@ use crate::app_backtrack::BacktrackState;
 use crate::app_event::AppEvent;
 use crate::app_event::ExitMode;
 use crate::app_event::RealtimeAudioDeviceKind;
-#[cfg(target_os = "windows")]
-use crate::app_event::WindowsSandboxEnableMode;
 use crate::app_event_sender::AppEventSender;
 use crate::bottom_pane::ApprovalRequest;
 use crate::bottom_pane::McpServerElicitationFormRequest;
@@ -71,15 +69,11 @@ use nexal_core::models_manager::collaboration_mode_presets::CollaborationModesCo
 use nexal_core::models_manager::manager::RefreshStrategy;
 #[cfg(test)]
 use nexal_core::models_manager::model_presets::HIDE_GPT5_1_MIGRATION_PROMPT_CONFIG;
-#[cfg(target_os = "windows")]
-use nexal_core::windows_sandbox::WindowsSandboxLevelExt;
 use nexal_exec_server::EnvironmentManager;
 use nexal_features::Feature;
 use nexal_protocol::telemetry_types::SessionTelemetry;
 use nexal_protocol::ThreadId;
 use nexal_protocol::config_types::Personality;
-#[cfg(target_os = "windows")]
-use nexal_protocol::config_types::WindowsSandboxLevel;
 use nexal_protocol::items::TurnItem;
 use nexal_protocol::openai_models::ModelAvailabilityNux;
 use nexal_protocol::openai_models::ModelPreset;
@@ -187,6 +181,13 @@ impl AppExitInfo {
             thread_name: None,
             update_action: None,
             exit_reason: ExitReason::Fatal(message.into()),
+        }
+    }
+
+    pub fn exit_code(&self) -> i32 {
+        match &self.exit_reason {
+            ExitReason::UserRequested => 0,
+            ExitReason::Fatal(_) => 1,
         }
     }
 }
@@ -834,8 +835,6 @@ pub(crate) struct App {
     /// so shutdown events from other threads still take the normal failover path.
     pending_shutdown_exit_thread_id: Option<ThreadId>,
 
-    windows_sandbox: WindowsSandboxState,
-
     thread_event_channels: HashMap<ThreadId, ThreadEventChannel>,
     thread_event_listener_tasks: HashMap<ThreadId, JoinHandle<()>>,
     agent_navigation: AgentNavigationState,
@@ -844,13 +843,6 @@ pub(crate) struct App {
     primary_thread_id: Option<ThreadId>,
     primary_session_configured: Option<SessionConfiguredEvent>,
     pending_primary_events: VecDeque<Event>,
-}
-
-#[derive(Default)]
-struct WindowsSandboxState {
-    setup_started_at: Option<Instant>,
-    // One-shot suppression of the next world-writable scan after user confirmation.
-    skip_world_writable_scan_once: bool,
 }
 
 fn normalize_harness_overrides_for_cwd(
@@ -1023,12 +1015,6 @@ impl App {
                 vec![key.to_string()]
             }
         };
-        let windows_sandbox_changed = updates.iter().any(|(feature, _)| {
-            matches!(
-                feature,
-                Feature::WindowsSandbox | Feature::WindowsSandboxElevated
-            )
-        });
         let mut approval_policy_override = None;
         let mut approvals_reviewer_override = None;
         let mut sandbox_policy_override = None;
@@ -1204,7 +1190,6 @@ impl App {
                 approval_policy: approval_policy_override,
                 approvals_reviewer: approvals_reviewer_override,
                 sandbox_policy: sandbox_policy_override,
-                windows_sandbox_level: None,
                 model: None,
                 effort: None,
                 summary: None,
@@ -1218,27 +1203,6 @@ impl App {
             if submitted && let Some(op) = replay_state_op.as_ref() {
                 self.note_active_thread_outbound_op(op).await;
                 self.refresh_pending_thread_approvals().await;
-            }
-        }
-
-        if windows_sandbox_changed {
-            #[cfg(target_os = "windows")]
-            {
-                let windows_sandbox_level = WindowsSandboxLevel::from_config(&self.config);
-                self.app_event_tx
-                    .send(AppEvent::NexalOp(Op::OverrideTurnContext {
-                        cwd: None,
-                        approval_policy: None,
-                        approvals_reviewer: None,
-                        sandbox_policy: None,
-                        windows_sandbox_level: Some(windows_sandbox_level),
-                        model: None,
-                        effort: None,
-                        summary: None,
-                        service_tier: None,
-                        collaboration_mode: None,
-                        personality: None,
-                    }));
             }
         }
 
@@ -2211,7 +2175,6 @@ impl App {
         initial_images: Vec<PathBuf>,
         session_selection: SessionSelection,
         is_first_run: bool,
-        should_prompt_windows_sandbox_nux_at_startup: bool,
     ) -> Result<AppExitInfo> {
         use tokio_stream::StreamExt;
         let (app_event_tx, mut app_event_rx) = unbounded_channel();
@@ -2396,9 +2359,6 @@ impl App {
             }
         };
 
-        chat_widget
-            .maybe_prompt_windows_sandbox_enable(should_prompt_windows_sandbox_nux_at_startup);
-
         let file_search = FileSearchManager::new(config.cwd.to_path_buf(), app_event_tx.clone());
         #[cfg(not(debug_assertions))]
         let upgrade_version = crate::updates::get_upgrade_version(&config);
@@ -2432,7 +2392,6 @@ impl App {
             pending_update_action: None,
             suppress_shutdown_complete: false,
             pending_shutdown_exit_thread_id: None,
-            windows_sandbox: WindowsSandboxState::default(),
             thread_event_channels: HashMap::new(),
             thread_event_listener_tasks: HashMap::new(),
             agent_navigation: AgentNavigationState::default(),
@@ -2442,37 +2401,6 @@ impl App {
             primary_session_configured: None,
             pending_primary_events: VecDeque::new(),
         };
-
-        // On startup, if Agent mode (workspace-write) or ReadOnly is active, warn about world-writable dirs on Windows.
-        #[cfg(target_os = "windows")]
-        {
-            let should_check = WindowsSandboxLevel::from_config(&app.config)
-                != WindowsSandboxLevel::Disabled
-                && matches!(
-                    app.config.permissions.sandbox_policy.get(),
-                    nexal_protocol::protocol::SandboxPolicy::WorkspaceWrite { .. }
-                        | nexal_protocol::protocol::SandboxPolicy::ReadOnly { .. }
-                )
-                && !app
-                    .config
-                    .notices
-                    .hide_world_writable_warning
-                    .unwrap_or(false);
-            if should_check {
-                let cwd = app.config.cwd.clone();
-                let env_map: std::collections::HashMap<String, String> = std::env::vars().collect();
-                let tx = app.app_event_tx.clone();
-                let logs_base_dir = app.config.nexal_home.clone();
-                let sandbox_policy = app.config.permissions.sandbox_policy.get().clone();
-                Self::spawn_world_writable_scan(
-                    cwd.to_path_buf(),
-                    env_map,
-                    logs_base_dir,
-                    sandbox_policy,
-                    tx,
-                );
-            }
-        }
 
         let tui_events = tui.event_stream();
         tokio::pin!(tui_events);
@@ -3116,320 +3044,6 @@ impl App {
                     self.launch_external_editor(tui).await;
                 }
             }
-            AppEvent::OpenWindowsSandboxEnablePrompt { preset } => {
-                self.chat_widget.open_windows_sandbox_enable_prompt(preset);
-            }
-            AppEvent::OpenWindowsSandboxFallbackPrompt { preset } => {
-                self.session_telemetry.counter(
-                    "nexal.windows_sandbox.fallback_prompt_shown",
-                    /*inc*/ 1,
-                    &[],
-                );
-                self.chat_widget.clear_windows_sandbox_setup_status();
-                if let Some(started_at) = self.windows_sandbox.setup_started_at.take() {
-                    self.session_telemetry.record_duration(
-                        "nexal.windows_sandbox.elevated_setup_duration_ms",
-                        started_at.elapsed(),
-                        &[("result", "failure")],
-                    );
-                }
-                self.chat_widget
-                    .open_windows_sandbox_fallback_prompt(preset);
-            }
-            AppEvent::BeginWindowsSandboxElevatedSetup { preset } => {
-                #[cfg(target_os = "windows")]
-                {
-                    let policy = preset.sandbox.clone();
-                    let policy_cwd = self.config.cwd.clone();
-                    let command_cwd = policy_cwd.clone();
-                    let env_map: std::collections::HashMap<String, String> =
-                        std::env::vars().collect();
-                    let nexal_home = self.config.nexal_home.clone();
-                    let tx = self.app_event_tx.clone();
-
-                    // If the elevated setup already ran on this machine, don't prompt for
-                    // elevation again - just flip the config to use the elevated path.
-                    if nexal_core::windows_sandbox::sandbox_setup_is_complete(nexal_home.as_path())
-                    {
-                        tx.send(AppEvent::EnableWindowsSandboxForAgentMode {
-                            preset,
-                            mode: WindowsSandboxEnableMode::Elevated,
-                        });
-                        return Ok(AppRunControl::Continue);
-                    }
-
-                    self.chat_widget.show_windows_sandbox_setup_status();
-                    self.windows_sandbox.setup_started_at = Some(Instant::now());
-                    let session_telemetry = self.session_telemetry.clone();
-                    tokio::task::spawn_blocking(move || {
-                        let result = nexal_core::windows_sandbox::run_elevated_setup(
-                            &policy,
-                            policy_cwd.as_path(),
-                            command_cwd.as_path(),
-                            &env_map,
-                            nexal_home.as_path(),
-                        );
-                        let event = match result {
-                            Ok(()) => {
-                                session_telemetry.counter(
-                                    "nexal.windows_sandbox.elevated_setup_success",
-                                    /*inc*/ 1,
-                                    &[],
-                                );
-                                AppEvent::EnableWindowsSandboxForAgentMode {
-                                    preset: preset.clone(),
-                                    mode: WindowsSandboxEnableMode::Elevated,
-                                }
-                            }
-                            Err(err) => {
-                                let mut code_tag: Option<String> = None;
-                                let mut message_tag: Option<String> = None;
-                                if let Some((code, message)) =
-                                    nexal_core::windows_sandbox::elevated_setup_failure_details(
-                                        &err,
-                                    )
-                                {
-                                    code_tag = Some(code);
-                                    message_tag = Some(message);
-                                }
-                                let mut tags: Vec<(&str, &str)> = Vec::new();
-                                if let Some(code) = code_tag.as_deref() {
-                                    tags.push(("code", code));
-                                }
-                                if let Some(message) = message_tag.as_deref() {
-                                    tags.push(("message", message));
-                                }
-                                session_telemetry.counter(
-                                    nexal_core::windows_sandbox::elevated_setup_failure_metric_name(
-                                        &err,
-                                    ),
-                                    /*inc*/ 1,
-                                    &tags,
-                                );
-                                tracing::error!(
-                                    error = %err,
-                                    "failed to run elevated Windows sandbox setup"
-                                );
-                                AppEvent::OpenWindowsSandboxFallbackPrompt { preset }
-                            }
-                        };
-                        tx.send(event);
-                    });
-                }
-                #[cfg(not(target_os = "windows"))]
-                {
-                    let _ = preset;
-                }
-            }
-            AppEvent::BeginWindowsSandboxLegacySetup { preset } => {
-                #[cfg(target_os = "windows")]
-                {
-                    let policy = preset.sandbox.clone();
-                    let policy_cwd = self.config.cwd.clone();
-                    let command_cwd = policy_cwd.clone();
-                    let env_map: std::collections::HashMap<String, String> =
-                        std::env::vars().collect();
-                    let nexal_home = self.config.nexal_home.clone();
-                    let tx = self.app_event_tx.clone();
-                    let session_telemetry = self.session_telemetry.clone();
-
-                    self.chat_widget.show_windows_sandbox_setup_status();
-                    tokio::task::spawn_blocking(move || {
-                        if let Err(err) = nexal_core::windows_sandbox::run_legacy_setup_preflight(
-                            &policy,
-                            policy_cwd.as_path(),
-                            command_cwd.as_path(),
-                            &env_map,
-                            nexal_home.as_path(),
-                        ) {
-                            session_telemetry.counter(
-                                "nexal.windows_sandbox.legacy_setup_preflight_failed",
-                                /*inc*/ 1,
-                                &[],
-                            );
-                            tracing::warn!(
-                                error = %err,
-                                "failed to preflight non-admin Windows sandbox setup"
-                            );
-                        }
-                        tx.send(AppEvent::EnableWindowsSandboxForAgentMode {
-                            preset,
-                            mode: WindowsSandboxEnableMode::Legacy,
-                        });
-                    });
-                }
-                #[cfg(not(target_os = "windows"))]
-                {
-                    let _ = preset;
-                }
-            }
-            AppEvent::BeginWindowsSandboxGrantReadRoot { path } => {
-                #[cfg(target_os = "windows")]
-                {
-                    self.chat_widget
-                        .add_to_history(history_cell::new_info_event(
-                            format!("Granting sandbox read access to {path} ..."),
-                            /*hint*/ None,
-                        ));
-
-                    let policy = self.config.permissions.sandbox_policy.get().clone();
-                    let policy_cwd = self.config.cwd.clone();
-                    let command_cwd = self.config.cwd.clone();
-                    let env_map: std::collections::HashMap<String, String> =
-                        std::env::vars().collect();
-                    let nexal_home = self.config.nexal_home.clone();
-                    let tx = self.app_event_tx.clone();
-
-                    tokio::task::spawn_blocking(move || {
-                        let requested_path = PathBuf::from(path);
-                        let event = match nexal_core::windows_sandbox_read_grants::grant_read_root_non_elevated(
-                            &policy,
-                            policy_cwd.as_path(),
-                            command_cwd.as_path(),
-                            &env_map,
-                            nexal_home.as_path(),
-                            requested_path.as_path(),
-                        ) {
-                            Ok(canonical_path) => AppEvent::WindowsSandboxGrantReadRootCompleted {
-                                path: canonical_path,
-                                error: None,
-                            },
-                            Err(err) => AppEvent::WindowsSandboxGrantReadRootCompleted {
-                                path: requested_path,
-                                error: Some(err.to_string()),
-                            },
-                        };
-                        tx.send(event);
-                    });
-                }
-                #[cfg(not(target_os = "windows"))]
-                {
-                    let _ = path;
-                }
-            }
-            AppEvent::WindowsSandboxGrantReadRootCompleted { path, error } => match error {
-                Some(err) => {
-                    self.chat_widget
-                        .add_to_history(history_cell::new_error_event(format!("Error: {err}")));
-                }
-                None => {
-                    self.chat_widget
-                        .add_to_history(history_cell::new_info_event(
-                            format!("Sandbox read access granted for {}", path.display()),
-                            /*hint*/ None,
-                        ));
-                }
-            },
-            AppEvent::EnableWindowsSandboxForAgentMode { preset, mode } => {
-                #[cfg(target_os = "windows")]
-                {
-                    self.chat_widget.clear_windows_sandbox_setup_status();
-                    if let Some(started_at) = self.windows_sandbox.setup_started_at.take() {
-                        self.session_telemetry.record_duration(
-                            "nexal.windows_sandbox.elevated_setup_duration_ms",
-                            started_at.elapsed(),
-                            &[("result", "success")],
-                        );
-                    }
-                    let profile = self.active_profile.as_deref();
-                    let elevated_enabled = matches!(mode, WindowsSandboxEnableMode::Elevated);
-                    let builder = ConfigEditsBuilder::new(&self.config.nexal_home)
-                        .with_profile(profile)
-                        .set_windows_sandbox_mode(if elevated_enabled {
-                            "elevated"
-                        } else {
-                            "unelevated"
-                        })
-                        .clear_legacy_windows_sandbox_keys();
-                    match builder.apply().await {
-                        Ok(()) => {
-                            if elevated_enabled {
-                                self.config.set_windows_sandbox_enabled(/*value*/ false);
-                                self.config
-                                    .set_windows_elevated_sandbox_enabled(/*value*/ true);
-                            } else {
-                                self.config.set_windows_sandbox_enabled(/*value*/ true);
-                                self.config
-                                    .set_windows_elevated_sandbox_enabled(/*value*/ false);
-                            }
-                            self.chat_widget.set_windows_sandbox_mode(
-                                self.config.permissions.windows_sandbox_mode,
-                            );
-                            let windows_sandbox_level =
-                                WindowsSandboxLevel::from_config(&self.config);
-                            if let Some((sample_paths, extra_count, failed_scan)) =
-                                self.chat_widget.world_writable_warning_details()
-                            {
-                                self.app_event_tx.send(AppEvent::NexalOp(
-                                    Op::OverrideTurnContext {
-                                        cwd: None,
-                                        approval_policy: None,
-                                        approvals_reviewer: None,
-                                        sandbox_policy: None,
-                                        windows_sandbox_level: Some(windows_sandbox_level),
-                                        model: None,
-                                        effort: None,
-                                        summary: None,
-                                        service_tier: None,
-                                        collaboration_mode: None,
-                                        personality: None,
-                                    },
-                                ));
-                                self.app_event_tx.send(
-                                    AppEvent::OpenWorldWritableWarningConfirmation {
-                                        preset: Some(preset.clone()),
-                                        sample_paths,
-                                        extra_count,
-                                        failed_scan,
-                                    },
-                                );
-                            } else {
-                                self.app_event_tx.send(AppEvent::NexalOp(
-                                    Op::OverrideTurnContext {
-                                        cwd: None,
-                                        approval_policy: Some(preset.approval),
-                                        approvals_reviewer: Some(self.config.approvals_reviewer),
-                                        sandbox_policy: Some(preset.sandbox.clone()),
-                                        windows_sandbox_level: Some(windows_sandbox_level),
-                                        model: None,
-                                        effort: None,
-                                        summary: None,
-                                        service_tier: None,
-                                        collaboration_mode: None,
-                                        personality: None,
-                                    },
-                                ));
-                                self.app_event_tx
-                                    .send(AppEvent::UpdateAskForApprovalPolicy(preset.approval));
-                                self.app_event_tx
-                                    .send(AppEvent::UpdateSandboxPolicy(preset.sandbox.clone()));
-                                let _ = mode;
-                                self.chat_widget.add_plain_history_lines(vec![
-                                    Line::from(vec!["• ".dim(), "Sandbox ready".into()]),
-                                    Line::from(vec![
-                                        "  ".into(),
-                                        "Nexal can now safely edit files and execute commands in your computer"
-                                            .dark_gray(),
-                                    ]),
-                                ]);
-                            }
-                        }
-                        Err(err) => {
-                            tracing::error!(
-                                error = %err,
-                                "failed to enable Windows sandbox feature"
-                            );
-                            self.chat_widget.add_error_message(format!(
-                                "Failed to enable the Windows sandbox feature: {err}"
-                            ));
-                        }
-                    }
-                }
-                #[cfg(not(target_os = "windows"))]
-                {
-                    let _ = (preset, mode);
-                }
-            }
             AppEvent::PersistModelSelection { model, effort } => {
                 let profile = self.active_profile.as_deref();
                 match ConfigEditsBuilder::new(&self.config.nexal_home)
@@ -3634,12 +3248,6 @@ impl App {
                     .set_approval_policy(self.config.permissions.approval_policy.value());
             }
             AppEvent::UpdateSandboxPolicy(policy) => {
-                #[cfg(target_os = "windows")]
-                let policy_is_workspace_write_or_ro = matches!(
-                    &policy,
-                    nexal_protocol::protocol::SandboxPolicy::WorkspaceWrite { .. }
-                        | nexal_protocol::protocol::SandboxPolicy::ReadOnly { .. }
-                );
                 let policy_for_chat = policy.clone();
 
                 let mut config = self.config.clone();
@@ -3660,36 +3268,6 @@ impl App {
                 }
                 self.runtime_sandbox_policy_override =
                     Some(self.config.permissions.sandbox_policy.get().clone());
-
-                // If sandbox policy becomes workspace-write or read-only, run the Windows world-writable scan.
-                #[cfg(target_os = "windows")]
-                {
-                    // One-shot suppression if the user just confirmed continue.
-                    if self.windows_sandbox.skip_world_writable_scan_once {
-                        self.windows_sandbox.skip_world_writable_scan_once = false;
-                        return Ok(AppRunControl::Continue);
-                    }
-
-                    let should_check = WindowsSandboxLevel::from_config(&self.config)
-                        != WindowsSandboxLevel::Disabled
-                        && policy_is_workspace_write_or_ro
-                        && !self.chat_widget.world_writable_warning_hidden();
-                    if should_check {
-                        let cwd = self.config.cwd.clone();
-                        let env_map: std::collections::HashMap<String, String> =
-                            std::env::vars().collect();
-                        let tx = self.app_event_tx.clone();
-                        let logs_base_dir = self.config.nexal_home.clone();
-                        let sandbox_policy = self.config.permissions.sandbox_policy.get().clone();
-                        Self::spawn_world_writable_scan(
-                            cwd.to_path_buf(),
-                            env_map,
-                            logs_base_dir,
-                            sandbox_policy,
-                            tx,
-                        );
-                    }
-                }
             }
             AppEvent::UpdateApprovalsReviewer(policy) => {
                 self.config.approvals_reviewer = policy;
@@ -3723,9 +3301,6 @@ impl App {
             }
             AppEvent::UpdateFeatureFlags { updates } => {
                 self.update_feature_flags(updates).await;
-            }
-            AppEvent::SkipNextWorldWritableScan => {
-                self.windows_sandbox.skip_world_writable_scan_once = true;
             }
             AppEvent::UpdateFullAccessWarningAcknowledged(ack) => {
                 self.chat_widget.set_full_access_warning_acknowledged(ack);
@@ -4531,33 +4106,6 @@ impl App {
         self.chat_widget.refresh_status_surfaces();
     }
 
-    #[cfg(target_os = "windows")]
-    fn spawn_world_writable_scan(
-        cwd: PathBuf,
-        env_map: std::collections::HashMap<String, String>,
-        logs_base_dir: PathBuf,
-        sandbox_policy: nexal_protocol::protocol::SandboxPolicy,
-        tx: AppEventSender,
-    ) {
-        tokio::task::spawn_blocking(move || {
-            let result = nexal_windows_sandbox::apply_world_writable_scan_and_denies(
-                &logs_base_dir,
-                &cwd,
-                &env_map,
-                &sandbox_policy,
-                Some(logs_base_dir.as_path()),
-            );
-            if result.is_err() {
-                // Scan failed: warn without examples.
-                tx.send(AppEvent::OpenWorldWritableWarningConfirmation {
-                    preset: None,
-                    sample_paths: Vec::new(),
-                    extra_count: 0usize,
-                    failed_scan: true,
-                });
-            }
-        });
-    }
 }
 
 impl Drop for App {
@@ -5921,7 +5469,6 @@ mod tests {
                 approval_policy: Some(guardian_approvals.approval_policy),
                 approvals_reviewer: Some(guardian_approvals.approvals_reviewer),
                 sandbox_policy: Some(guardian_approvals.sandbox_policy.clone()),
-                windows_sandbox_level: None,
                 model: None,
                 effort: None,
                 summary: None,
@@ -6012,7 +5559,6 @@ mod tests {
                 approval_policy: None,
                 approvals_reviewer: Some(ApprovalsReviewer::User),
                 sandbox_policy: None,
-                windows_sandbox_level: None,
                 model: None,
                 effort: None,
                 summary: None,
@@ -6091,7 +5637,6 @@ mod tests {
                 approval_policy: Some(guardian_approvals.approval_policy),
                 approvals_reviewer: Some(guardian_approvals.approvals_reviewer),
                 sandbox_policy: Some(guardian_approvals.sandbox_policy.clone()),
-                windows_sandbox_level: None,
                 model: None,
                 effort: None,
                 summary: None,
@@ -6148,7 +5693,6 @@ mod tests {
                 approval_policy: None,
                 approvals_reviewer: Some(ApprovalsReviewer::User),
                 sandbox_policy: None,
-                windows_sandbox_level: None,
                 model: None,
                 effort: None,
                 summary: None,
@@ -6207,7 +5751,6 @@ mod tests {
                 approval_policy: Some(guardian_approvals.approval_policy),
                 approvals_reviewer: Some(guardian_approvals.approvals_reviewer),
                 sandbox_policy: Some(guardian_approvals.sandbox_policy.clone()),
-                windows_sandbox_level: None,
                 model: None,
                 effort: None,
                 summary: None,
@@ -6294,7 +5837,6 @@ guardian_approval = true
                 approval_policy: None,
                 approvals_reviewer: Some(ApprovalsReviewer::User),
                 sandbox_policy: None,
-                windows_sandbox_level: None,
                 model: None,
                 effort: None,
                 summary: None,
@@ -6872,7 +6414,6 @@ guardian_approval = true
             pending_update_action: None,
             suppress_shutdown_complete: false,
             pending_shutdown_exit_thread_id: None,
-            windows_sandbox: WindowsSandboxState::default(),
             thread_event_channels: HashMap::new(),
             thread_event_listener_tasks: HashMap::new(),
             agent_navigation: AgentNavigationState::default(),

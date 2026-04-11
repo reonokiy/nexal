@@ -326,31 +326,17 @@ enum ClientState {
     },
 }
 
-#[cfg(unix)]
 const PROCESS_GROUP_TERM_GRACE_PERIOD: Duration = Duration::from_secs(2);
 
-#[cfg(unix)]
 struct ProcessGroupGuard {
     process_group_id: u32,
 }
 
-#[cfg(not(unix))]
-struct ProcessGroupGuard;
-
 impl ProcessGroupGuard {
     fn new(process_group_id: u32) -> Self {
-        #[cfg(unix)]
-        {
             Self { process_group_id }
-        }
-        #[cfg(not(unix))]
-        {
-            let _ = process_group_id;
-            Self
-        }
     }
 
-    #[cfg(unix)]
     fn maybe_terminate_process_group(&self) {
         let process_group_id = self.process_group_id;
         let should_escalate =
@@ -373,15 +359,11 @@ impl ProcessGroupGuard {
         }
     }
 
-    #[cfg(not(unix))]
-    fn maybe_terminate_process_group(&self) {}
 }
 
 impl Drop for ProcessGroupGuard {
     fn drop(&mut self) {
-        if cfg!(unix) {
-            self.maybe_terminate_process_group();
-        }
+        self.maybe_terminate_process_group();
     }
 }
 
@@ -874,7 +856,6 @@ impl RmcpClient {
                     .env_clear()
                     .envs(envs)
                     .args(args);
-                #[cfg(unix)]
                 command.process_group(0);
                 if let Some(cwd) = cwd {
                     command.current_dir(cwd);

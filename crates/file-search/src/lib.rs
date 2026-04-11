@@ -236,7 +236,6 @@ pub async fn run_main<T: Reporter>(
         Some(pattern) => pattern,
         None => {
             reporter.warn_no_search_pattern(&search_directory);
-            #[cfg(unix)]
             Command::new("ls")
                 .arg("-al")
                 .current_dir(search_directory)
@@ -244,16 +243,6 @@ pub async fn run_main<T: Reporter>(
                 .stderr(std::process::Stdio::inherit())
                 .status()
                 .await?;
-            #[cfg(windows)]
-            {
-                Command::new("cmd")
-                    .arg("/c")
-                    .arg(search_directory)
-                    .stdout(std::process::Stdio::inherit())
-                    .stderr(std::process::Stdio::inherit())
-                    .status()
-                    .await?;
-            }
             return Ok(());
         }
     };

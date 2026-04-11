@@ -72,8 +72,6 @@ members = [
     "crates/utils/string",
     "crates/utils/template",
 
-    # Stubs
-    "crates/stubs/windows-sandbox",
 ]
 resolver = "2"
 
@@ -132,7 +130,6 @@ nexal-shell-escalation = { path = "crates/shell-escalation" }
 nexal-skills = { path = "crates/skills" }
 nexal-terminal-detection = { path = "crates/terminal-detection" }
 nexal-tui = { path = "crates/tui" }
-nexal-windows-sandbox = { path = "crates/stubs/windows-sandbox" }
 core_test_support = { path = "crates/core/tests/common" }
 
 # Utils

@@ -1467,11 +1467,7 @@ mod tests {
 
     #[test]
     fn display_path_prefers_cwd_without_git_repo() {
-        let cwd = if cfg!(windows) {
-            PathBuf::from(r"C:\workspace\nexal")
-        } else {
-            PathBuf::from("/workspace/nexal")
-        };
+        let cwd = PathBuf::from("/workspace/nexal");
         let path = cwd.join("tui").join("example.png");
 
         let rendered = display_path_for(&path, &cwd);

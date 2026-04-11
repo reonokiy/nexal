@@ -98,7 +98,6 @@ mod stream_events_utils;
 pub mod test_support;
 mod text_encoding;
 mod unified_exec;
-pub mod windows_sandbox;
 pub use client::X_RESPONSESAPI_INCLUDE_TIMING_METRICS_HEADER;
 pub use model_provider_info::DEFAULT_LMSTUDIO_PORT;
 pub use model_provider_info::DEFAULT_OLLAMA_PORT;
@@ -113,7 +112,6 @@ pub mod review_format;
 pub mod review_prompts;
 mod thread_manager;
 pub mod web_search;
-pub mod windows_sandbox_read_grants;
 pub use thread_manager::ForkSnapshot;
 pub use thread_manager::NewThread;
 pub use thread_manager::ThreadManager;
@@ -130,7 +128,6 @@ pub mod default_client {
 pub mod project_doc;
 mod rollout;
 pub(crate) mod safety;
-pub mod seatbelt;
 mod session_rollout_init_error;
 pub mod shell;
 #[allow(dead_code)]

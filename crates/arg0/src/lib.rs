@@ -305,26 +305,9 @@ fn prepend_path_entry_for_nexal_aliases() -> std::io::Result<Arg0PathEntryGuard>
             symlink(&exe, &link)?;
         }
 
-        #[cfg(windows)]
-        {
-            let batch_script = path.join(format!("{filename}.bat"));
-            std::fs::write(
-                &batch_script,
-                format!(
-                    r#"@echo off
-"{}" {NEXAL_CORE_APPLY_PATCH_ARG1} %*
-"#,
-                    exe.display()
-                ),
-            )?;
-        }
     }
 
-    #[cfg(unix)]
     const PATH_SEPARATOR: &str = ":";
-
-    #[cfg(windows)]
-    const PATH_SEPARATOR: &str = ";";
 
     let updated_path_env_var = match std::env::var_os("PATH") {
         Some(existing_path) => {
@@ -355,14 +338,7 @@ fn prepend_path_entry_for_nexal_aliases() -> std::io::Result<Arg0PathEntryGuard>
             }
         },
         main_execve_wrapper_exe: {
-            #[cfg(unix)]
-            {
-                Some(path.join(EXECVE_WRAPPER_ARG0))
-            }
-            #[cfg(not(unix))]
-            {
-                None
-            }
+            Some(path.join(EXECVE_WRAPPER_ARG0))
         },
     };
 

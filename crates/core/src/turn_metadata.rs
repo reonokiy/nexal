@@ -12,7 +12,6 @@ use nexal_git_utils::get_git_remote_urls_assume_git_repo;
 use nexal_git_utils::get_git_repo_root;
 use nexal_git_utils::get_has_changes;
 use nexal_git_utils::get_head_commit_hash;
-use nexal_protocol::config_types::WindowsSandboxLevel;
 use nexal_protocol::protocol::SandboxPolicy;
 
 #[derive(Clone, Debug, Default)]
@@ -142,10 +141,9 @@ impl TurnMetadataState {
         turn_id: String,
         cwd: PathBuf,
         sandbox_policy: &SandboxPolicy,
-        windows_sandbox_level: WindowsSandboxLevel,
     ) -> Self {
         let repo_root = get_git_repo_root(&cwd).map(|root| root.to_string_lossy().into_owned());
-        let sandbox = Some(sandbox_tag(sandbox_policy, windows_sandbox_level).to_string());
+        let sandbox = Some(sandbox_tag(sandbox_policy).to_string());
         let base_metadata = build_turn_metadata_bag(
             Some(session_id),
             Some(turn_id),

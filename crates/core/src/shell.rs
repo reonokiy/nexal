@@ -61,7 +61,6 @@ impl Shell {
     }
 }
 
-#[cfg(unix)]
 fn get_user_shell_path() -> Option<PathBuf> {
     let uid = unsafe { libc::getuid() };
     use std::ffi::CStr;
@@ -115,11 +114,6 @@ fn get_user_shell_path() -> Option<PathBuf> {
         }
         buffer.resize(new_len, 0);
     }
-}
-
-#[cfg(not(unix))]
-fn get_user_shell_path() -> Option<PathBuf> {
-    None
 }
 
 fn file_exists(path: &PathBuf) -> Option<PathBuf> {
@@ -204,16 +198,9 @@ fn get_cmd_shell(path: Option<&PathBuf>) -> Option<Shell> {
 }
 
 fn ultimate_fallback_shell() -> Shell {
-    if cfg!(windows) {
-        Shell {
-            shell_type: ShellType::Cmd,
-            shell_path: PathBuf::from("cmd.exe"),
-        }
-    } else {
-        Shell {
-            shell_type: ShellType::Sh,
-            shell_path: PathBuf::from("/bin/sh"),
-        }
+    Shell {
+        shell_type: ShellType::Sh,
+        shell_path: PathBuf::from("/bin/sh"),
     }
 }
 
@@ -238,25 +225,15 @@ pub fn default_user_shell() -> Shell {
 }
 
 fn default_user_shell_from_path(user_shell_path: Option<PathBuf>) -> Shell {
-    if cfg!(windows) {
-        get_shell(ShellType::PowerShell, None).unwrap_or(ultimate_fallback_shell())
-    } else {
-        let user_default_shell = user_shell_path
-            .and_then(|shell| detect_shell_type(&shell))
-            .and_then(|shell_type| get_shell(shell_type, None));
+    let user_default_shell = user_shell_path
+        .and_then(|shell| detect_shell_type(&shell))
+        .and_then(|shell_type| get_shell(shell_type, None));
 
-        let shell_with_fallback = if cfg!(target_os = "macos") {
-            user_default_shell
-                .or_else(|| get_shell(ShellType::Zsh, None))
-                .or_else(|| get_shell(ShellType::Bash, None))
-        } else {
-            user_default_shell
-                .or_else(|| get_shell(ShellType::Bash, None))
-                .or_else(|| get_shell(ShellType::Zsh, None))
-        };
+    let shell_with_fallback = user_default_shell
+        .or_else(|| get_shell(ShellType::Bash, None))
+        .or_else(|| get_shell(ShellType::Zsh, None));
 
-        shell_with_fallback.unwrap_or(ultimate_fallback_shell())
-    }
+    shell_with_fallback.unwrap_or(ultimate_fallback_shell())
 }
 
 #[cfg(test)]
@@ -296,11 +273,7 @@ mod detect_shell_type_tests {
             Some(ShellType::PowerShell)
         );
         assert_eq!(
-            detect_shell_type(&PathBuf::from(if cfg!(windows) {
-                "C:\\windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
-            } else {
-                "/usr/local/bin/pwsh"
-            })),
+            detect_shell_type(&PathBuf::from("/usr/local/bin/pwsh")),
             Some(ShellType::PowerShell)
         );
         assert_eq!(

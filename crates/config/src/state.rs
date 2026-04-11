@@ -17,8 +17,7 @@ use toml::Value as TomlValue;
 #[derive(Debug, Default, Clone)]
 pub struct LoaderOverrides {
     pub managed_config_path: Option<PathBuf>,
-    //TODO(gt): Add a macos_ prefix to this field and remove the target_os check.
-    #[cfg(target_os = "macos")]
+    //TODO(gt): Add a macos_ prefix to this field.
     pub managed_preferences_base64: Option<String>,
     pub macos_managed_config_requirements_base64: Option<String>,
 }
@@ -97,13 +96,11 @@ impl ConfigLayerEntry {
     // Get the `.nexal/` folder associated with this config layer, if any.
     pub fn config_folder(&self) -> Option<AbsolutePathBuf> {
         match &self.name {
-            ConfigLayerSource::Mdm { .. } => None,
             ConfigLayerSource::System { file } => file.parent(),
             ConfigLayerSource::User { file } => file.parent(),
             ConfigLayerSource::Project { dot_nexal_folder } => Some(dot_nexal_folder.clone()),
             ConfigLayerSource::SessionFlags => None,
             ConfigLayerSource::LegacyManagedConfigTomlFromFile { .. } => None,
-            ConfigLayerSource::LegacyManagedConfigTomlFromMdm => None,
         }
     }
 }

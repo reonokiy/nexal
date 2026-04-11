@@ -13,46 +13,13 @@
 use std::collections::HashMap;
 use std::ffi::OsString;
 
-/// Resolves a program to its executable path on Unix systems.
+/// Resolves a program to its executable path.
 ///
 /// Unix systems handle PATH resolution and script execution natively through
 /// the kernel's shebang (`#!`) mechanism, so this function simply returns
 /// the program name unchanged.
-#[cfg(unix)]
 pub fn resolve(program: OsString, _env: &HashMap<OsString, OsString>) -> std::io::Result<OsString> {
     Ok(program)
-}
-
-/// Resolves a program to its executable path on Windows systems.
-///
-/// Windows requires explicit file extensions for script execution. This function
-/// uses the `which` crate to search the `PATH` environment variable and find
-/// the full path to the executable, including necessary script extensions
-/// (`.cmd`, `.bat`, etc.) defined in `PATHEXT`.
-///
-/// This enables tools like `npx`, `pnpm`, and `yarn` to work correctly on Windows
-/// without requiring users to specify full paths or extensions in their configuration.
-#[cfg(windows)]
-pub fn resolve(program: OsString, env: &HashMap<OsString, OsString>) -> std::io::Result<OsString> {
-    // Get current directory for relative path resolution
-    let cwd = std::env::current_dir()
-        .map_err(|e| std::io::Error::other(format!("Failed to get current directory: {e}")))?;
-
-    // Extract PATH from environment for search locations
-    let search_path = env.get(std::ffi::OsStr::new("PATH"));
-
-    // Attempt resolution via which crate
-    match which::which_in(&program, search_path, &cwd) {
-        Ok(resolved) => {
-            tracing::debug!("Resolved {program:?} to {resolved:?}");
-            Ok(resolved.into_os_string())
-        }
-        Err(e) => {
-            tracing::debug!("Failed to resolve {program:?}: {e}. Using original path");
-            // Fallback to original program - let Command::new() handle the error
-            Ok(program)
-        }
-    }
 }
 
 #[cfg(test)]
@@ -65,8 +32,7 @@ mod tests {
     use tempfile::TempDir;
     use tokio::process::Command;
 
-    /// Unix: Verifies the OS handles script execution without file extensions.
-    #[cfg(unix)]
+    /// Verifies the OS handles script execution without file extensions.
     #[tokio::test]
     async fn test_unix_executes_script_without_extension() -> Result<()> {
         let env = TestExecutableEnv::new()?;
@@ -78,50 +44,14 @@ mod tests {
         Ok(())
     }
 
-    /// Windows: Verifies scripts fail to execute without the proper extension.
-    #[cfg(windows)]
-    #[tokio::test]
-    async fn test_windows_fails_without_extension() -> Result<()> {
-        let env = TestExecutableEnv::new()?;
-        let mut cmd = Command::new(&env.program_name);
-        cmd.envs(&env.mcp_env);
-
-        let output = cmd.output().await;
-        assert!(
-            output.is_err(),
-            "Windows requires .cmd/.bat extension for direct execution"
-        );
-        Ok(())
-    }
-
-    /// Windows: Verifies scripts with an explicit extension execute correctly.
-    #[cfg(windows)]
-    #[tokio::test]
-    async fn test_windows_succeeds_with_extension() -> Result<()> {
-        let env = TestExecutableEnv::new()?;
-        // Append the `.cmd` extension to the program name
-        let program_with_ext = format!("{}.cmd", env.program_name);
-        let mut cmd = Command::new(&program_with_ext);
-        cmd.envs(&env.mcp_env);
-
-        let output = cmd.output().await;
-        assert!(
-            output.is_ok(),
-            "Windows should execute scripts when the extension is provided"
-        );
-        Ok(())
-    }
-
-    /// Verifies program resolution enables successful execution on all platforms.
+    /// Verifies program resolution enables successful execution.
     #[tokio::test]
     async fn test_resolved_program_executes_successfully() -> Result<()> {
         let env = TestExecutableEnv::new()?;
         let program = OsString::from(&env.program_name);
 
-        // Apply platform-specific resolution
         let resolved = resolve(program, &env.mcp_env)?;
 
-        // Verify resolved path executes successfully
         let mut cmd = Command::new(resolved);
         cmd.envs(&env.mcp_env);
         let output = cmd.output().await;
@@ -154,9 +84,6 @@ mod tests {
             let mut extra_env = HashMap::new();
             extra_env.insert(OsString::from("PATH"), Self::build_path_env_var(dir_path));
 
-            #[cfg(windows)]
-            extra_env.insert(OsString::from("PATHEXT"), Self::ensure_cmd_extension());
-
             let mcp_env = create_env_for_mcp_server(Some(extra_env), &[]);
 
             Ok(Self {
@@ -166,25 +93,14 @@ mod tests {
             })
         }
 
-        /// Creates a simple, platform-specific executable script.
+        /// Creates a simple executable script.
         fn create_executable(dir: &Path) -> Result<()> {
-            #[cfg(windows)]
-            {
-                let file = dir.join(format!("{}.cmd", Self::TEST_PROGRAM));
-                fs::write(&file, "@echo off\nexit 0")?;
-            }
-
-            #[cfg(unix)]
-            {
-                let file = dir.join(Self::TEST_PROGRAM);
-                fs::write(&file, "#!/bin/sh\nexit 0")?;
-                Self::set_executable(&file)?;
-            }
-
+            let file = dir.join(Self::TEST_PROGRAM);
+            fs::write(&file, "#!/bin/sh\nexit 0")?;
+            Self::set_executable(&file)?;
             Ok(())
         }
 
-        #[cfg(unix)]
         fn set_executable(path: &Path) -> Result<()> {
             use std::os::unix::fs::PermissionsExt;
             let mut perms = fs::metadata(path)?.permissions();
@@ -197,28 +113,10 @@ mod tests {
         fn build_path_env_var(dir: &Path) -> OsString {
             let mut path = OsString::from(dir.as_os_str());
             if let Some(current) = std::env::var_os("PATH") {
-                let sep = if cfg!(windows) { ";" } else { ":" };
-                path.push(sep);
+                path.push(":");
                 path.push(current);
             }
             path
-        }
-
-        /// Ensures `.CMD` is in the `PATHEXT` variable on Windows for script discovery.
-        #[cfg(windows)]
-        fn ensure_cmd_extension() -> OsString {
-            let current = std::env::var_os("PATHEXT").unwrap_or_default();
-            if current
-                .to_string_lossy()
-                .to_ascii_uppercase()
-                .contains(".CMD")
-            {
-                current
-            } else {
-                let mut path_ext = OsString::from(".CMD;");
-                path_ext.push(current);
-                path_ext
-            }
         }
     }
 }

@@ -367,13 +367,6 @@ fn apply_proxy_env_overrides(
         set_env_keys(env, FTP_PROXY_ENV_KEYS, &http_proxy_url);
     }
 
-    #[cfg(target_os = "macos")]
-    if socks_enabled {
-        // Preserve existing SSH wrappers (for example: Secretive/Teleport setups)
-        // and only provide a SOCKS ProxyCommand fallback when one is not present.
-        env.entry("GIT_SSH_COMMAND".to_string())
-            .or_insert_with(|| format!("ssh -o ProxyCommand='nc -X 5 -x {socks_addr} %h %p'"));
-    }
 }
 
 impl NetworkProxy {
@@ -728,12 +721,6 @@ mod tests {
         );
         assert_eq!(env.get(ALLOW_LOCAL_BINDING_ENV_KEY), Some(&"0".to_string()));
         assert_eq!(env.get("ELECTRON_GET_USE_PROXY"), Some(&"true".to_string()));
-        #[cfg(target_os = "macos")]
-        assert_eq!(
-            env.get("GIT_SSH_COMMAND"),
-            Some(&"ssh -o ProxyCommand='nc -X 5 -x 127.0.0.1:8081 %h %p'".to_string())
-        );
-        #[cfg(not(target_os = "macos"))]
         assert_eq!(env.get("GIT_SSH_COMMAND"), None);
     }
 
@@ -786,34 +773,6 @@ mod tests {
             env.get("ALL_PROXY"),
             Some(&"socks5h://127.0.0.1:8081".to_string())
         );
-        #[cfg(target_os = "macos")]
-        assert_eq!(
-            env.get("GIT_SSH_COMMAND"),
-            Some(&"ssh -o ProxyCommand='nc -X 5 -x 127.0.0.1:8081 %h %p'".to_string())
-        );
-        #[cfg(not(target_os = "macos"))]
         assert_eq!(env.get("GIT_SSH_COMMAND"), None);
-    }
-
-    #[cfg(target_os = "macos")]
-    #[test]
-    fn apply_proxy_env_overrides_preserves_existing_git_ssh_command() {
-        let mut env = HashMap::new();
-        env.insert(
-            "GIT_SSH_COMMAND".to_string(),
-            "ssh -o ProxyCommand='tsh proxy ssh --cluster=dev %r@%h:%p'".to_string(),
-        );
-        apply_proxy_env_overrides(
-            &mut env,
-            SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 3128),
-            SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 8081),
-            true,
-            false,
-        );
-
-        assert_eq!(
-            env.get("GIT_SSH_COMMAND"),
-            Some(&"ssh -o ProxyCommand='tsh proxy ssh --cluster=dev %r@%h:%p'".to_string())
-        );
     }
 }

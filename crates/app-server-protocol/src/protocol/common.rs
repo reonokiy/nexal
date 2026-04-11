@@ -414,11 +414,6 @@ client_request_definitions! {
         response: v2::ListMcpServerStatusResponse,
     },
 
-    WindowsSandboxSetupStart => "windowsSandbox/setupStart" {
-        params: v2::WindowsSandboxSetupStartParams,
-        response: v2::WindowsSandboxSetupStartResponse,
-    },
-
     LoginAccount => "account/login/start" {
         params: v2::LoginAccountParams,
         inspect_params: true,
@@ -920,10 +915,6 @@ server_notification_definitions! {
     ThreadRealtimeError => "thread/realtime/error" (v2::ThreadRealtimeErrorNotification),
     #[experimental("thread/realtime/closed")]
     ThreadRealtimeClosed => "thread/realtime/closed" (v2::ThreadRealtimeClosedNotification),
-
-    /// Notifies the user of world-writable directories on Windows, which cannot be protected by the sandbox.
-    WindowsWorldWritableWarning => "windows/worldWritableWarning" (v2::WindowsWorldWritableWarningNotification),
-    WindowsSandboxSetupCompleted => "windowsSandbox/setupCompleted" (v2::WindowsSandboxSetupCompletedNotification),
 
     #[serde(rename = "account/login/completed")]
     #[ts(rename = "account/login/completed")]

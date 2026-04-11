@@ -30,11 +30,9 @@ use nexal_core::format_exec_policy_error_with_source;
 use nexal_core::path_utils;
 use nexal_core::read_session_meta_line;
 use nexal_core::state_db::get_state_db;
-use nexal_core::windows_sandbox::WindowsSandboxLevelExt;
 use nexal_protocol::ThreadId;
 use nexal_protocol::config_types::AltScreenMode;
 use nexal_protocol::config_types::SandboxMode;
-use nexal_protocol::config_types::WindowsSandboxLevel;
 use nexal_protocol::protocol::AskForApproval;
 use nexal_protocol::protocol::RolloutItem;
 use nexal_protocol::protocol::RolloutLine;
@@ -894,9 +892,6 @@ async fn run_ratatui_app(
     set_default_client_residency_requirement(config.enforce_residency.value());
     let active_profile = config.active_profile.clone();
     let should_show_trust_screen = should_show_trust_screen(&config);
-    let should_prompt_windows_sandbox_nux_at_startup = cfg!(target_os = "windows")
-        && trust_decision_was_made
-        && WindowsSandboxLevel::from_config(&config) == WindowsSandboxLevel::Disabled;
 
     let Cli {
         prompt,
@@ -922,7 +917,6 @@ async fn run_ratatui_app(
         images,
         session_selection,
         should_show_trust_screen, // Proxy to: is it a first run in this directory?
-        should_prompt_windows_sandbox_nux_at_startup,
     )
     .await;
 
@@ -1232,17 +1226,10 @@ mod tests {
         config.set_windows_sandbox_enabled(/*value*/ true);
 
         let should_show = should_show_trust_screen(&config);
-        if cfg!(target_os = "windows") {
-            assert!(
-                should_show,
-                "Windows trust prompt should be shown on native Windows with sandbox enabled"
-            );
-        } else {
-            assert!(
-                should_show,
-                "Non-Windows should still show trust prompt when project is untrusted"
-            );
-        }
+        assert!(
+            should_show,
+            "trust prompt should be shown when project is untrusted"
+        );
         Ok(())
     }
     #[tokio::test]

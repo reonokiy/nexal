@@ -86,11 +86,9 @@ mod compact;
 mod compact_remote;
 mod compact_resume_fork;
 mod deprecation_notice;
-mod exec;
 mod exec_policy;
 mod fork_thread;
 mod hierarchical_agents;
-#[cfg(not(target_os = "windows"))]
 mod hooks;
 mod items;
 mod json_result;
@@ -114,10 +112,7 @@ mod quota_exceeded;
 mod remote_env;
 mod remote_models;
 mod request_compression;
-#[cfg(not(target_os = "windows"))]
 mod request_permissions;
-#[cfg(not(target_os = "windows"))]
-mod request_permissions_tool;
 mod request_user_input;
 mod resume;
 mod resume_warning;
@@ -126,7 +121,6 @@ mod rmcp_client;
 mod rollout_list_find;
 mod safety_check_downgrade;
 mod search_tool;
-mod seatbelt;
 mod shell_command;
 mod shell_serialization;
 mod shell_snapshot;

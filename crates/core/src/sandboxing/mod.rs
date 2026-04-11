@@ -11,13 +11,9 @@ use crate::exec::ExecCapturePolicy;
 use crate::exec::ExecExpiration;
 use crate::exec::ExecToolCallOutput;
 use crate::exec::StdoutStream;
-use crate::exec::WindowsRestrictedTokenFilesystemOverlay;
 use crate::exec::execute_exec_request;
-#[cfg(target_os = "macos")]
-use crate::spawn::NEXAL_SANDBOX_ENV_VAR;
 use crate::spawn::NEXAL_SANDBOX_NETWORK_DISABLED_ENV_VAR;
 use nexal_network_proxy::NetworkProxy;
-use nexal_protocol::config_types::WindowsSandboxLevel;
 pub use nexal_protocol::models::SandboxPermissions;
 use nexal_protocol::permissions::FileSystemSandboxPolicy;
 use nexal_protocol::permissions::NetworkSandboxPolicy;
@@ -42,13 +38,9 @@ pub struct ExecRequest {
     pub expiration: ExecExpiration,
     pub capture_policy: ExecCapturePolicy,
     pub sandbox: SandboxType,
-    pub windows_sandbox_level: WindowsSandboxLevel,
-    pub windows_sandbox_private_desktop: bool,
     pub sandbox_policy: SandboxPolicy,
     pub file_system_sandbox_policy: FileSystemSandboxPolicy,
     pub network_sandbox_policy: NetworkSandboxPolicy,
-    pub(crate) windows_restricted_token_filesystem_overlay:
-        Option<WindowsRestrictedTokenFilesystemOverlay>,
     pub arg0: Option<String>,
 }
 
@@ -62,8 +54,6 @@ impl ExecRequest {
         expiration: ExecExpiration,
         capture_policy: ExecCapturePolicy,
         sandbox: SandboxType,
-        windows_sandbox_level: WindowsSandboxLevel,
-        windows_sandbox_private_desktop: bool,
         sandbox_policy: SandboxPolicy,
         file_system_sandbox_policy: FileSystemSandboxPolicy,
         network_sandbox_policy: NetworkSandboxPolicy,
@@ -77,12 +67,9 @@ impl ExecRequest {
             expiration,
             capture_policy,
             sandbox,
-            windows_sandbox_level,
-            windows_sandbox_private_desktop,
             sandbox_policy,
             file_system_sandbox_policy,
             network_sandbox_policy,
-            windows_restricted_token_filesystem_overlay: None,
             arg0,
         }
     }
@@ -97,8 +84,6 @@ impl ExecRequest {
             mut env,
             network,
             sandbox,
-            windows_sandbox_level,
-            windows_sandbox_private_desktop,
             sandbox_policy,
             file_system_sandbox_policy,
             network_sandbox_policy,
@@ -114,10 +99,6 @@ impl ExecRequest {
                 "1".to_string(),
             );
         }
-        #[cfg(target_os = "macos")]
-        if sandbox == SandboxType::MacosSeatbelt {
-            env.insert(NEXAL_SANDBOX_ENV_VAR.to_string(), "seatbelt".to_string());
-        }
         Self {
             command,
             cwd,
@@ -126,12 +107,9 @@ impl ExecRequest {
             expiration,
             capture_policy,
             sandbox,
-            windows_sandbox_level,
-            windows_sandbox_private_desktop,
             sandbox_policy,
             file_system_sandbox_policy,
             network_sandbox_policy,
-            windows_restricted_token_filesystem_overlay: None,
             arg0,
         }
     }

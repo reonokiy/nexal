@@ -77,7 +77,6 @@ use nexal_app_server_protocol::TurnCompletedNotification;
 use nexal_app_server_protocol::TurnInterruptParams;
 use nexal_app_server_protocol::TurnStartParams;
 use nexal_app_server_protocol::TurnSteerParams;
-use nexal_app_server_protocol::WindowsSandboxSetupStartParams;
 use nexal_core::default_client::NEXAL_INTERNAL_ORIGINATOR_OVERRIDE_ENV_VAR;
 use tokio::process::Command;
 
@@ -709,14 +708,6 @@ impl McpProcess {
     ) -> anyhow::Result<i64> {
         let params = Some(serde_json::to_value(params)?);
         self.send_request("review/start", params).await
-    }
-
-    pub async fn send_windows_sandbox_setup_start_request(
-        &mut self,
-        params: WindowsSandboxSetupStartParams,
-    ) -> anyhow::Result<i64> {
-        let params = Some(serde_json::to_value(params)?);
-        self.send_request("windowsSandbox/setupStart", params).await
     }
 
     pub async fn send_config_read_request(

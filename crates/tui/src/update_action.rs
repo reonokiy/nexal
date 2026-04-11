@@ -34,7 +34,7 @@ pub(crate) fn get_update_action() -> Option<UpdateAction> {
     let managed_by_bun = std::env::var_os("NEXAL_MANAGED_BY_BUN").is_some();
 
     detect_update_action(
-        cfg!(target_os = "macos"),
+        false,
         &exe,
         managed_by_npm,
         managed_by_bun,

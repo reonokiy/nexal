@@ -216,7 +216,6 @@ impl ToolRegistry {
                 "sandbox",
                 sandbox_tag(
                     &invocation.turn.sandbox_policy,
-                    invocation.turn.windows_sandbox_level,
                 ),
             ),
             (
@@ -595,7 +594,7 @@ async fn dispatch_after_tool_use_hook(
                     success: dispatch.success,
                     duration_ms: u64::try_from(dispatch.duration.as_millis()).unwrap_or(u64::MAX),
                     mutating: dispatch.mutating,
-                    sandbox: sandbox_tag(&turn.sandbox_policy, turn.windows_sandbox_level)
+                    sandbox: sandbox_tag(&turn.sandbox_policy)
                         .to_string(),
                     sandbox_policy: sandbox_policy_tag(&turn.sandbox_policy).to_string(),
                     output_preview: dispatch.output_preview.clone(),

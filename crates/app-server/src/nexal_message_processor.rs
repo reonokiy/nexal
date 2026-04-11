@@ -157,10 +157,6 @@ use nexal_app_server_protocol::TurnStatus;
 use nexal_app_server_protocol::TurnSteerParams;
 use nexal_app_server_protocol::TurnSteerResponse;
 use nexal_app_server_protocol::UserInput as V2UserInput;
-use nexal_app_server_protocol::WindowsSandboxSetupCompletedNotification;
-use nexal_app_server_protocol::WindowsSandboxSetupMode;
-use nexal_app_server_protocol::WindowsSandboxSetupStartParams;
-use nexal_app_server_protocol::WindowsSandboxSetupStartResponse;
 use nexal_app_server_protocol::build_turns_from_rollout_items;
 use nexal_arg0::Arg0DispatchPaths;
 use nexal_core::connectors;
@@ -211,9 +207,6 @@ use nexal_core::sandboxing::SandboxPermissions;
 use nexal_core::state_db::StateDbHandle;
 use nexal_core::state_db::get_state_db;
 use nexal_core::state_db::reconcile_rollout;
-use nexal_core::windows_sandbox::WindowsSandboxLevelExt;
-use nexal_core::windows_sandbox::WindowsSandboxSetupMode as CoreWindowsSandboxSetupMode;
-use nexal_core::windows_sandbox::WindowsSandboxSetupRequest;
 use nexal_features::FEATURES;
 use nexal_features::Feature;
 use nexal_features::Stage;
@@ -222,7 +215,6 @@ use nexal_protocol::ThreadId;
 use nexal_protocol::config_types::CollaborationMode;
 use nexal_protocol::config_types::ForcedLoginMethod;
 use nexal_protocol::config_types::Personality;
-use nexal_protocol::config_types::WindowsSandboxLevel;
 use nexal_protocol::dynamic_tools::DynamicToolSpec as CoreDynamicToolSpec;
 use nexal_protocol::items::TurnItem;
 use nexal_protocol::models::ResponseItem;
@@ -768,10 +760,6 @@ impl NexalMessageProcessor {
                 self.list_mcp_server_status(to_connection_request_id(request_id), params)
                     .await;
             }
-            ClientRequest::WindowsSandboxSetupStart { request_id, params } => {
-                self.windows_sandbox_setup_start(to_connection_request_id(request_id), params)
-                    .await;
-            }
             ClientRequest::LoginAccount { request_id, params } => {
                 self.login_v2(to_connection_request_id(request_id), params)
                     .await;
@@ -1199,7 +1187,6 @@ impl NexalMessageProcessor {
             },
             None => None,
         };
-        let windows_sandbox_level = WindowsSandboxLevel::from_config(&self.config);
         let output_bytes_cap = if disable_output_cap {
             None
         } else {
@@ -1229,11 +1216,6 @@ impl NexalMessageProcessor {
                 .as_ref()
                 .map(nexal_core::config::StartedNetworkProxy::proxy),
             sandbox_permissions: SandboxPermissions::UseDefault,
-            windows_sandbox_level,
-            windows_sandbox_private_desktop: self
-                .config
-                .permissions
-                .windows_sandbox_private_desktop,
             justification: None,
             arg0: None,
         };
@@ -3516,23 +3498,7 @@ impl NexalMessageProcessor {
             read_history_cwd_from_state_db(&self.config, source_thread_id, rollout_path.as_path())
                 .await;
 
-        // Persist Windows sandbox mode.
-        let mut cli_overrides = cli_overrides.unwrap_or_default();
-        if cfg!(windows) {
-            match WindowsSandboxLevel::from_config(&self.config) {
-                WindowsSandboxLevel::Elevated => {
-                    cli_overrides
-                        .insert("windows.sandbox".to_string(), serde_json::json!("elevated"));
-                }
-                WindowsSandboxLevel::RestrictedToken => {
-                    cli_overrides.insert(
-                        "windows.sandbox".to_string(),
-                        serde_json::json!("unelevated"),
-                    );
-                }
-                WindowsSandboxLevel::Disabled => {}
-            }
-        }
+        let cli_overrides = cli_overrides.unwrap_or_default();
         let request_overrides = if cli_overrides.is_empty() {
             None
         } else {
@@ -5207,7 +5173,6 @@ impl NexalMessageProcessor {
                             .approvals_reviewer
                             .map(nexal_app_server_protocol::ApprovalsReviewer::to_core),
                         sandbox_policy: params.sandbox_policy.map(|p| p.to_core()),
-                        windows_sandbox_level: None,
                         model: params.model,
                         effort: params.effort.map(Some),
                         summary: params.summary,
@@ -6190,80 +6155,6 @@ impl NexalMessageProcessor {
         self.outgoing
             .send_response(request_id, FuzzyFileSearchSessionStopResponse {})
             .await;
-    }
-
-
-    async fn windows_sandbox_setup_start(
-        &mut self,
-        request_id: ConnectionRequestId,
-        params: WindowsSandboxSetupStartParams,
-    ) {
-        self.outgoing
-            .send_response(
-                request_id.clone(),
-                WindowsSandboxSetupStartResponse { started: true },
-            )
-            .await;
-
-        let mode = match params.mode {
-            WindowsSandboxSetupMode::Elevated => CoreWindowsSandboxSetupMode::Elevated,
-            WindowsSandboxSetupMode::Unelevated => CoreWindowsSandboxSetupMode::Unelevated,
-        };
-        let config = Arc::clone(&self.config);
-        let cloud_requirements = self.current_cloud_requirements();
-        let command_cwd = params
-            .cwd
-            .map(PathBuf::from)
-            .unwrap_or_else(|| config.cwd.to_path_buf());
-        let cli_overrides = self.current_cli_overrides();
-        let runtime_feature_enablement = self.current_runtime_feature_enablement();
-        let outgoing = Arc::clone(&self.outgoing);
-        let connection_id = request_id.connection_id;
-
-        tokio::spawn(async move {
-            let derived_config = derive_config_for_cwd(
-                &cli_overrides,
-                /*request_overrides*/ None,
-                ConfigOverrides {
-                    cwd: Some(command_cwd.clone()),
-                    ..Default::default()
-                },
-                Some(command_cwd.clone()),
-                &cloud_requirements,
-                &config.nexal_home,
-                &runtime_feature_enablement,
-            )
-            .await;
-            let setup_result = match derived_config {
-                Ok(config) => {
-                    let setup_request = WindowsSandboxSetupRequest {
-                        mode,
-                        policy: config.permissions.sandbox_policy.get().clone(),
-                        policy_cwd: config.cwd.to_path_buf(),
-                        command_cwd,
-                        env_map: std::env::vars().collect(),
-                        nexal_home: config.nexal_home.clone(),
-                        active_profile: config.active_profile.clone(),
-                    };
-                    nexal_core::windows_sandbox::run_windows_sandbox_setup(setup_request).await
-                }
-                Err(err) => Err(err.into()),
-            };
-            let notification = WindowsSandboxSetupCompletedNotification {
-                mode: match mode {
-                    CoreWindowsSandboxSetupMode::Elevated => WindowsSandboxSetupMode::Elevated,
-                    CoreWindowsSandboxSetupMode::Unelevated => WindowsSandboxSetupMode::Unelevated,
-                },
-                success: setup_result.is_ok(),
-                error: setup_result.err().map(|err| err.to_string()),
-            };
-            outgoing
-                .send_server_notification_to_connections(
-                    &[connection_id],
-                    ServerNotification::WindowsSandboxSetupCompleted(notification),
-                )
-                .await;
-        });
     }
 
     async fn resolve_rollout_path(&self, conversation_id: ThreadId) -> Option<PathBuf> {

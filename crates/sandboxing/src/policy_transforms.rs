@@ -1,7 +1,4 @@
-use crate::macos_permissions::intersect_macos_seatbelt_profile_extensions;
-use crate::macos_permissions::merge_macos_seatbelt_profile_extensions;
 use nexal_protocol::models::FileSystemPermissions;
-use nexal_protocol::models::MacOsSeatbeltProfileExtensions;
 use nexal_protocol::models::NetworkPermissions;
 use nexal_protocol::models::PermissionProfile;
 use nexal_protocol::permissions::FileSystemAccessMode;
@@ -20,28 +17,15 @@ use std::collections::HashSet;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EffectiveSandboxPermissions {
     pub sandbox_policy: SandboxPolicy,
-    pub macos_seatbelt_profile_extensions: Option<MacOsSeatbeltProfileExtensions>,
 }
 
 impl EffectiveSandboxPermissions {
     pub fn new(
         sandbox_policy: &SandboxPolicy,
-        macos_seatbelt_profile_extensions: Option<&MacOsSeatbeltProfileExtensions>,
         additional_permissions: Option<&PermissionProfile>,
     ) -> Self {
-        let Some(additional_permissions) = additional_permissions else {
-            return Self {
-                sandbox_policy: sandbox_policy.clone(),
-                macos_seatbelt_profile_extensions: macos_seatbelt_profile_extensions.cloned(),
-            };
-        };
-
         Self {
-            sandbox_policy: effective_sandbox_policy(sandbox_policy, Some(additional_permissions)),
-            macos_seatbelt_profile_extensions: merge_macos_seatbelt_profile_extensions(
-                macos_seatbelt_profile_extensions,
-                additional_permissions.macos.as_ref(),
-            ),
+            sandbox_policy: effective_sandbox_policy(sandbox_policy, additional_permissions),
         }
     }
 }
@@ -64,12 +48,9 @@ pub fn normalize_additional_permissions(
             FileSystemPermissions { read, write }
         })
         .filter(|file_system| !file_system.is_empty());
-    let macos = additional_permissions.macos;
-
     Ok(PermissionProfile {
         network,
         file_system,
-        macos,
     })
 }
 
@@ -110,15 +91,9 @@ pub fn merge_permission_profiles(
                 (None, Some(permissions)) => Some(permissions.clone()),
                 (None, None) => None,
             };
-            let macos = merge_macos_seatbelt_profile_extensions(
-                base.macos.as_ref(),
-                permissions.macos.as_ref(),
-            );
-
             Some(PermissionProfile {
                 network,
                 file_system,
-                macos,
             })
             .filter(|permissions| !permissions.is_empty())
         }
@@ -171,12 +146,9 @@ pub fn intersect_permission_profiles(
         _ => None,
     };
 
-    let macos = intersect_macos_seatbelt_profile_extensions(requested.macos, granted.macos);
-
     PermissionProfile {
         network,
         file_system,
-        macos,
     }
 }
 

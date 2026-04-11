@@ -16,14 +16,8 @@ use core_test_support::test_nexal::test_nexal;
 use serde_json::json;
 use test_case::test_case;
 
-#[cfg(windows)]
-const DEFAULT_SHELL_TIMEOUT_MS: i64 = 7_000;
-#[cfg(not(windows))]
 const DEFAULT_SHELL_TIMEOUT_MS: i64 = 2_000;
 
-#[cfg(windows)]
-const MEDIUM_TIMEOUT: Duration = Duration::from_secs(10);
-#[cfg(not(windows))]
 const MEDIUM_TIMEOUT: Duration = Duration::from_secs(5);
 
 fn shell_responses_with_timeout(

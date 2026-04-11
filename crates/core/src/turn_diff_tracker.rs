@@ -168,14 +168,6 @@ impl TurnDiffTracker {
                 return Some(cur);
             }
 
-            // On Windows, avoid walking above the drive or UNC share root.
-            #[cfg(windows)]
-            {
-                if is_windows_drive_or_unc_root(&cur) {
-                    return None;
-                }
-            }
-
             if let Some(parent) = cur.parent() {
                 cur = parent.to_path_buf();
             } else {
@@ -382,7 +374,6 @@ fn git_blob_sha1_hex_bytes(data: &[u8]) -> Output<sha1::Sha1> {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum FileMode {
     Regular,
-    #[cfg(unix)]
     Executable,
     Symlink,
 }
@@ -391,7 +382,6 @@ impl FileMode {
     fn as_str(self) -> &'static str {
         match self {
             FileMode::Regular => "100644",
-            #[cfg(unix)]
             FileMode::Executable => "100755",
             FileMode::Symlink => "120000",
         }
@@ -404,7 +394,6 @@ impl std::fmt::Display for FileMode {
     }
 }
 
-#[cfg(unix)]
 fn file_mode_for_path(path: &Path) -> Option<FileMode> {
     use std::os::unix::fs::PermissionsExt;
     let meta = fs::symlink_metadata(path).ok()?;
@@ -419,12 +408,6 @@ fn file_mode_for_path(path: &Path) -> Option<FileMode> {
     } else {
         FileMode::Regular
     })
-}
-
-#[cfg(not(unix))]
-fn file_mode_for_path(_path: &Path) -> Option<FileMode> {
-    // Default to non-executable on non-unix.
-    Some(FileMode::Regular)
 }
 
 fn blob_bytes(path: &Path, mode: FileMode) -> Option<Vec<u8>> {
@@ -442,26 +425,10 @@ fn blob_bytes(path: &Path, mode: FileMode) -> Option<Vec<u8>> {
     }
 }
 
-#[cfg(unix)]
 fn symlink_blob_bytes(path: &Path) -> Option<Vec<u8>> {
     use std::os::unix::ffi::OsStrExt;
     let target = std::fs::read_link(path).ok()?;
     Some(target.as_os_str().as_bytes().to_vec())
-}
-
-#[cfg(not(unix))]
-fn symlink_blob_bytes(_path: &Path) -> Option<Vec<u8>> {
-    None
-}
-
-#[cfg(windows)]
-fn is_windows_drive_or_unc_root(p: &std::path::Path) -> bool {
-    use std::path::Component;
-    let mut comps = p.components();
-    matches!(
-        (comps.next(), comps.next(), comps.next()),
-        (Some(Component::Prefix(_)), Some(Component::RootDir), None)
-    )
 }
 
 

@@ -953,24 +953,6 @@ impl ConfigEditsBuilder {
         self
     }
 
-    pub fn set_windows_sandbox_mode(mut self, mode: &str) -> Self {
-        let segments = if let Some(profile) = self.profile.as_ref() {
-            vec![
-                "profiles".to_string(),
-                profile.clone(),
-                "windows".to_string(),
-                "sandbox".to_string(),
-            ]
-        } else {
-            vec!["windows".to_string(), "sandbox".to_string()]
-        };
-        self.edits.push(ConfigEdit::SetPath {
-            segments,
-            value: value(mode),
-        });
-        self
-    }
-
     pub fn set_realtime_microphone(mut self, microphone: Option<&str>) -> Self {
         let segments = vec!["audio".to_string(), "microphone".to_string()];
         match microphone {
@@ -991,26 +973,6 @@ impl ConfigEditsBuilder {
                 value: value(speaker),
             }),
             None => self.edits.push(ConfigEdit::ClearPath { segments }),
-        }
-        self
-    }
-
-    pub fn clear_legacy_windows_sandbox_keys(mut self) -> Self {
-        for key in [
-            "experimental_windows_sandbox",
-            "elevated_windows_sandbox",
-            "enable_experimental_windows_sandbox",
-        ] {
-            let mut segments = vec!["features".to_string(), key.to_string()];
-            if let Some(profile) = self.profile.as_ref() {
-                segments = vec![
-                    "profiles".to_string(),
-                    profile.clone(),
-                    "features".to_string(),
-                    key.to_string(),
-                ];
-            }
-            self.edits.push(ConfigEdit::ClearPath { segments });
         }
         self
     }

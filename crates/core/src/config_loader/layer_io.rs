@@ -1,8 +1,4 @@
 use super::LoaderOverrides;
-#[cfg(target_os = "macos")]
-use super::macos::ManagedAdminConfigLayer;
-#[cfg(target_os = "macos")]
-use super::macos::load_managed_admin_config_layer;
 use nexal_config_loader::config_error_from_toml;
 use nexal_config_loader::io_error_from_config_error;
 use nexal_utils_absolute_path::AbsolutePathBuf;
@@ -12,7 +8,6 @@ use std::path::PathBuf;
 use tokio::fs;
 use toml::Value as TomlValue;
 
-#[cfg(unix)]
 const NEXAL_MANAGED_CONFIG_SYSTEM_PATH: &str = "/etc/nexal/managed_config.toml";
 
 #[derive(Debug, Clone)]
@@ -22,31 +17,15 @@ pub(super) struct MangedConfigFromFile {
 }
 
 #[derive(Debug, Clone)]
-pub(super) struct ManagedConfigFromMdm {
-    pub managed_config: TomlValue,
-    pub raw_toml: String,
-}
-
-#[derive(Debug, Clone)]
 pub(super) struct LoadedConfigLayers {
     /// If present, data read from a file such as `/etc/nexal/managed_config.toml`.
     pub managed_config: Option<MangedConfigFromFile>,
-    /// If present, data read from managed preferences (macOS only).
-    pub managed_config_from_mdm: Option<ManagedConfigFromMdm>,
 }
 
 pub(super) async fn load_config_layers_internal(
     nexal_home: &Path,
     overrides: LoaderOverrides,
 ) -> io::Result<LoadedConfigLayers> {
-    #[cfg(target_os = "macos")]
-    let LoaderOverrides {
-        managed_config_path,
-        managed_preferences_base64,
-        ..
-    } = overrides;
-
-    #[cfg(not(target_os = "macos"))]
     let LoaderOverrides {
         managed_config_path,
         ..
@@ -64,28 +43,9 @@ pub(super) async fn load_config_layers_internal(
                 file: managed_config_path.clone(),
             });
 
-    #[cfg(target_os = "macos")]
-    let managed_preferences =
-        load_managed_admin_config_layer(managed_preferences_base64.as_deref())
-            .await?
-            .map(map_managed_admin_layer);
-
-    #[cfg(not(target_os = "macos"))]
-    let managed_preferences = None;
-
     Ok(LoadedConfigLayers {
         managed_config,
-        managed_config_from_mdm: managed_preferences,
     })
-}
-
-#[cfg(target_os = "macos")]
-fn map_managed_admin_layer(layer: ManagedAdminConfigLayer) -> ManagedConfigFromMdm {
-    let ManagedAdminConfigLayer { config, raw_toml } = layer;
-    ManagedConfigFromMdm {
-        managed_config: config,
-        raw_toml,
-    }
 }
 
 pub(super) async fn read_config_from_path(
@@ -121,15 +81,6 @@ pub(super) async fn read_config_from_path(
 }
 
 /// Return the default managed config path.
-pub(super) fn managed_config_default_path(nexal_home: &Path) -> PathBuf {
-    #[cfg(unix)]
-    {
-        let _ = nexal_home;
-        PathBuf::from(NEXAL_MANAGED_CONFIG_SYSTEM_PATH)
-    }
-
-    #[cfg(not(unix))]
-    {
-        nexal_home.join("managed_config.toml")
-    }
+pub(super) fn managed_config_default_path(_nexal_home: &Path) -> PathBuf {
+    PathBuf::from(NEXAL_MANAGED_CONFIG_SYSTEM_PATH)
 }

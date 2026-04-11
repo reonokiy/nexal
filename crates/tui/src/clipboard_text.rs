@@ -100,16 +100,7 @@ fn copy_via_osc52(text: &str) -> Result<(), String> {
     tty.write_all(sequence.as_bytes()).map_err(|e| {
         format!("clipboard unavailable: failed to write OSC 52 escape sequence: {e}")
     })?;
-    #[cfg(unix)]
     tty.flush().map_err(|e| {
-        format!("clipboard unavailable: failed to flush OSC 52 escape sequence: {e}")
-    })?;
-    #[cfg(windows)]
-    stdout().write_all(sequence.as_bytes()).map_err(|e| {
-        format!("clipboard unavailable: failed to write OSC 52 escape sequence: {e}")
-    })?;
-    #[cfg(windows)]
-    stdout().flush().map_err(|e| {
         format!("clipboard unavailable: failed to flush OSC 52 escape sequence: {e}")
     })?;
     Ok(())

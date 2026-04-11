@@ -22,7 +22,6 @@ use crate::config::types::ToolSuggestConfig;
 use crate::config::types::ToolSuggestDiscoverable;
 use crate::config::types::Tui;
 use crate::config::types::UriBasedFileOpener;
-use crate::config::types::WindowsSandboxModeToml;
 use crate::config::types::WindowsToml;
 use crate::config_loader::CloudRequirementsLoader;
 use crate::config_loader::ConfigLayerStack;
@@ -52,9 +51,7 @@ use crate::protocol::ReadOnlyAccess;
 use crate::protocol::SandboxPolicy;
 use crate::unified_exec::DEFAULT_MAX_BACKGROUND_TERMINAL_TIMEOUT_MS;
 use crate::unified_exec::MIN_EMPTY_YIELD_TIME_MS;
-use crate::windows_sandbox::WindowsSandboxLevelExt;
-use crate::windows_sandbox::resolve_windows_sandbox_mode;
-use crate::windows_sandbox::resolve_windows_sandbox_private_desktop;
+
 use nexal_app_server_protocol::Tools;
 use nexal_app_server_protocol::UserSavedConfig;
 use nexal_features::Feature;
@@ -74,8 +71,6 @@ use nexal_protocol::config_types::Verbosity;
 use nexal_protocol::config_types::WebSearchConfig;
 use nexal_protocol::config_types::WebSearchMode;
 use nexal_protocol::config_types::WebSearchToolConfig;
-use nexal_protocol::config_types::WindowsSandboxLevel;
-use nexal_protocol::models::MacOsSeatbeltProfileExtensions;
 use nexal_protocol::openai_models::ModelsResponse;
 use nexal_protocol::openai_models::ReasoningEffort;
 use nexal_protocol::permissions::FileSystemSandboxPolicy;
@@ -220,14 +215,6 @@ pub struct Permissions {
     pub allow_login_shell: bool,
     /// Policy used to build process environments for shell/unified exec.
     pub shell_environment_policy: ShellEnvironmentPolicy,
-    /// Effective Windows sandbox mode derived from `[windows].sandbox` or
-    /// legacy feature keys.
-    pub windows_sandbox_mode: Option<WindowsSandboxModeToml>,
-    /// Whether the final Windows sandboxed child should run on a private desktop.
-    pub windows_sandbox_private_desktop: bool,
-    /// Optional macOS seatbelt extension profile used to extend default
-    /// seatbelt permissions when running under seatbelt.
-    pub macos_seatbelt_profile_extensions: Option<MacOsSeatbeltProfileExtensions>,
 }
 
 /// Application configuration loaded from disk and merged with overrides.
@@ -1630,7 +1617,6 @@ impl ConfigToml {
         &self,
         sandbox_mode_override: Option<SandboxMode>,
         profile_sandbox_mode: Option<SandboxMode>,
-        windows_sandbox_level: WindowsSandboxLevel,
         resolved_cwd: &Path,
         sandbox_policy_constraint: Option<&Constrained<SandboxPolicy>>,
     ) -> SandboxPolicy {
@@ -1646,14 +1632,7 @@ impl ConfigToml {
                 // default to read-only.
                 self.get_active_project(resolved_cwd).and_then(|p| {
                     if p.is_trusted() || p.is_untrusted() {
-                        if cfg!(target_os = "windows")
-                            && windows_sandbox_level
-                                == nexal_protocol::config_types::WindowsSandboxLevel::Disabled
-                        {
-                            Some(SandboxMode::ReadOnly)
-                        } else {
-                            Some(SandboxMode::WorkspaceWrite)
-                        }
+                        Some(SandboxMode::WorkspaceWrite)
                     } else {
                         None
                     }
@@ -1679,19 +1658,6 @@ impl ConfigToml {
             },
             SandboxMode::DangerFullAccess => SandboxPolicy::DangerFullAccess,
         };
-        let downgrade_workspace_write_if_unsupported = |policy: &mut SandboxPolicy| {
-            if cfg!(target_os = "windows")
-                // If the experimental Windows sandbox is enabled, do not force a downgrade.
-                && windows_sandbox_level
-                    == nexal_protocol::config_types::WindowsSandboxLevel::Disabled
-                && matches!(&*policy, SandboxPolicy::WorkspaceWrite { .. })
-            {
-                *policy = SandboxPolicy::new_read_only_policy();
-            }
-        };
-        if matches!(resolved_sandbox_mode, SandboxMode::WorkspaceWrite) {
-            downgrade_workspace_write_if_unsupported(&mut sandbox_policy);
-        }
         if !sandbox_mode_was_explicit
             && let Some(constraint) = sandbox_policy_constraint
             && let Err(err) = constraint.can_set(&sandbox_policy)
@@ -1701,7 +1667,6 @@ impl ConfigToml {
                 "default sandbox policy is disallowed by requirements; falling back to required default"
             );
             sandbox_policy = constraint.get().clone();
-            downgrade_workspace_write_if_unsupported(&mut sandbox_policy);
         }
         sandbox_policy
     }
@@ -2069,9 +2034,6 @@ impl Config {
             feature_overrides,
         );
         let features = ManagedFeatures::from_configured(configured_features, feature_requirements)?;
-        let windows_sandbox_mode = resolve_windows_sandbox_mode(&cfg, &config_profile);
-        let windows_sandbox_private_desktop =
-            resolve_windows_sandbox_private_desktop(&cfg, &config_profile);
         let resolved_cwd = AbsolutePathBuf::try_from(normalize_for_native_workdir({
             use std::env;
 
@@ -2120,11 +2082,6 @@ impl Config {
             ));
         }
 
-        let windows_sandbox_level = match windows_sandbox_mode {
-            Some(WindowsSandboxModeToml::Elevated) => WindowsSandboxLevel::Elevated,
-            Some(WindowsSandboxModeToml::Unelevated) => WindowsSandboxLevel::RestrictedToken,
-            None => WindowsSandboxLevel::from_features(&features),
-        };
         let memories_root = memory_root(&nexal_home);
         std::fs::create_dir_all(&memories_root)?;
         let memories_root = AbsolutePathBuf::from_absolute_path(&memories_root)?;
@@ -2189,7 +2146,6 @@ impl Config {
             let mut sandbox_policy = cfg.derive_sandbox_policy(
                 sandbox_mode,
                 config_profile.sandbox_mode,
-                windows_sandbox_level,
                 resolved_cwd.as_path(),
                 Some(&constrained_sandbox_policy),
             );
@@ -2541,9 +2497,6 @@ impl Config {
                 network,
                 allow_login_shell,
                 shell_environment_policy,
-                windows_sandbox_mode,
-                windows_sandbox_private_desktop,
-                macos_seatbelt_profile_extensions: None,
             },
             approvals_reviewer,
             enforce_residency: enforce_residency.value,
@@ -2737,32 +2690,6 @@ impl Config {
         } else {
             Ok(Some(s))
         }
-    }
-
-    pub fn set_windows_sandbox_enabled(&mut self, value: bool) {
-        self.permissions.windows_sandbox_mode = if value {
-            Some(WindowsSandboxModeToml::Unelevated)
-        } else if matches!(
-            self.permissions.windows_sandbox_mode,
-            Some(WindowsSandboxModeToml::Unelevated)
-        ) {
-            None
-        } else {
-            self.permissions.windows_sandbox_mode
-        };
-    }
-
-    pub fn set_windows_elevated_sandbox_enabled(&mut self, value: bool) {
-        self.permissions.windows_sandbox_mode = if value {
-            Some(WindowsSandboxModeToml::Elevated)
-        } else if matches!(
-            self.permissions.windows_sandbox_mode,
-            Some(WindowsSandboxModeToml::Elevated)
-        ) {
-            None
-        } else {
-            self.permissions.windows_sandbox_mode
-        };
     }
 
     pub fn managed_network_requirements_enabled(&self) -> bool {

@@ -38,12 +38,6 @@ pub fn set_parent_death_signal(parent_pid: libc::pid_t) -> io::Result<()> {
     Ok(())
 }
 
-#[cfg(not(target_os = "linux"))]
-/// No-op on non-Linux platforms.
-pub fn set_parent_death_signal(_parent_pid: i32) -> io::Result<()> {
-    Ok(())
-}
-
 #[cfg(unix)]
 /// Detach from the controlling TTY by starting a new session.
 pub fn detach_from_tty() -> io::Result<()> {
@@ -58,12 +52,6 @@ pub fn detach_from_tty() -> io::Result<()> {
     Ok(())
 }
 
-#[cfg(not(unix))]
-/// No-op on non-Unix platforms.
-pub fn detach_from_tty() -> io::Result<()> {
-    Ok(())
-}
-
 #[cfg(unix)]
 /// Put the calling process into its own process group.
 ///
@@ -75,12 +63,6 @@ pub fn set_process_group() -> io::Result<()> {
     } else {
         Ok(())
     }
-}
-
-#[cfg(not(unix))]
-/// No-op on non-Unix platforms.
-pub fn set_process_group() -> io::Result<()> {
-    Ok(())
 }
 
 #[cfg(unix)]
@@ -111,12 +93,6 @@ pub fn kill_process_group_by_pid(pid: u32) -> io::Result<()> {
     Ok(())
 }
 
-#[cfg(not(unix))]
-/// No-op on non-Unix platforms.
-pub fn kill_process_group_by_pid(_pid: u32) -> io::Result<()> {
-    Ok(())
-}
-
 #[cfg(unix)]
 /// Send SIGTERM to a specific process group ID (best-effort).
 ///
@@ -138,12 +114,6 @@ pub fn terminate_process_group(process_group_id: u32) -> io::Result<bool> {
     Ok(true)
 }
 
-#[cfg(not(unix))]
-/// No-op on non-Unix platforms.
-pub fn terminate_process_group(_process_group_id: u32) -> io::Result<bool> {
-    Ok(false)
-}
-
 #[cfg(unix)]
 /// Kill a specific process group ID (best-effort).
 pub fn kill_process_group(process_group_id: u32) -> io::Result<()> {
@@ -161,12 +131,6 @@ pub fn kill_process_group(process_group_id: u32) -> io::Result<()> {
     Ok(())
 }
 
-#[cfg(not(unix))]
-/// No-op on non-Unix platforms.
-pub fn kill_process_group(_process_group_id: u32) -> io::Result<()> {
-    Ok(())
-}
-
 #[cfg(unix)]
 /// Kill the process group for a tokio child (best-effort).
 pub fn kill_child_process_group(child: &mut Child) -> io::Result<()> {
@@ -177,8 +141,3 @@ pub fn kill_child_process_group(child: &mut Child) -> io::Result<()> {
     Ok(())
 }
 
-#[cfg(not(unix))]
-/// No-op on non-Unix platforms.
-pub fn kill_child_process_group(_child: &mut Child) -> io::Result<()> {
-    Ok(())
-}

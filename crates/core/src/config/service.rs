@@ -650,9 +650,6 @@ fn value_at_path<'a>(root: &'a TomlValue, segments: &[String]) -> Option<&'a Tom
 
 fn override_message(layer: &ConfigLayerSource) -> String {
     match layer {
-        ConfigLayerSource::Mdm { domain, key: _ } => {
-            format!("Overridden by managed policy (MDM): {domain}")
-        }
         ConfigLayerSource::System { file } => {
             format!("Overridden by managed config (system): {}", file.display())
         }
@@ -669,9 +666,6 @@ fn override_message(layer: &ConfigLayerSource) -> String {
                 "Overridden by legacy managed_config.toml: {}",
                 file.display()
             )
-        }
-        ConfigLayerSource::LegacyManagedConfigTomlFromMdm => {
-            "Overridden by legacy managed configuration from MDM".to_string()
         }
     }
 }

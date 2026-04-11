@@ -6,8 +6,8 @@ use rand::Rng;
 const ANNOUNCEMENT_TIP_URL: &str =
     "https://raw.githubusercontent.com/openai/nexal/main/announcement_tip.toml";
 
-const IS_MACOS: bool = cfg!(target_os = "macos");
-const IS_WINDOWS: bool = cfg!(target_os = "windows");
+const IS_MACOS: bool = false;
+const IS_WINDOWS: bool = false;
 
 const PAID_TOOLTIP: &str = "";
 const PAID_TOOLTIP_WINDOWS: &str = "";

@@ -5,14 +5,7 @@ use crate::policy_transforms::EffectiveSandboxPermissions;
 use crate::policy_transforms::effective_file_system_sandbox_policy;
 use crate::policy_transforms::effective_network_sandbox_policy;
 use crate::policy_transforms::should_require_platform_sandbox;
-#[cfg(target_os = "macos")]
-use crate::seatbelt::MACOS_PATH_TO_SEATBELT_EXECUTABLE;
-#[cfg(target_os = "macos")]
-use crate::seatbelt::create_seatbelt_command_args_for_policies_with_extensions;
 use nexal_network_proxy::NetworkProxy;
-use nexal_protocol::config_types::WindowsSandboxLevel;
-#[cfg(target_os = "macos")]
-use nexal_protocol::models::MacOsSeatbeltProfileExtensions;
 use nexal_protocol::models::PermissionProfile;
 use nexal_protocol::permissions::FileSystemSandboxPolicy;
 use nexal_protocol::permissions::NetworkSandboxPolicy;
@@ -24,9 +17,7 @@ use std::path::PathBuf;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SandboxType {
     None,
-    MacosSeatbelt,
     LinuxSeccomp,
-    WindowsRestrictedToken,
     /// Run commands inside a Podman container.
     Podman,
 }
@@ -35,9 +26,7 @@ impl SandboxType {
     pub fn as_metric_tag(self) -> &'static str {
         match self {
             SandboxType::None => "none",
-            SandboxType::MacosSeatbelt => "seatbelt",
             SandboxType::LinuxSeccomp => "seccomp",
-            SandboxType::WindowsRestrictedToken => "windows_sandbox",
             SandboxType::Podman => "podman",
         }
     }
@@ -50,7 +39,7 @@ pub enum SandboxablePreference {
     Forbid,
 }
 
-pub fn get_platform_sandbox(_windows_sandbox_enabled: bool) -> Option<SandboxType> {
+pub fn get_platform_sandbox() -> Option<SandboxType> {
     if nexal_config::sandbox::SandboxState::is_active() {
         Some(SandboxType::Podman)
     } else {
@@ -74,8 +63,6 @@ pub struct SandboxExecRequest {
     pub env: HashMap<String, String>,
     pub network: Option<NetworkProxy>,
     pub sandbox: SandboxType,
-    pub windows_sandbox_level: WindowsSandboxLevel,
-    pub windows_sandbox_private_desktop: bool,
     pub sandbox_policy: SandboxPolicy,
     pub file_system_sandbox_policy: FileSystemSandboxPolicy,
     pub network_sandbox_policy: NetworkSandboxPolicy,
@@ -96,19 +83,13 @@ pub struct SandboxTransformRequest<'a> {
     // to make shared ownership explicit across runtime/sandbox plumbing.
     pub network: Option<&'a NetworkProxy>,
     pub sandbox_policy_cwd: &'a Path,
-    #[cfg(target_os = "macos")]
-    pub macos_seatbelt_profile_extensions: Option<&'a MacOsSeatbeltProfileExtensions>,
     pub nexal_linux_sandbox_exe: Option<&'a PathBuf>,
     pub use_legacy_landlock: bool,
-    pub windows_sandbox_level: WindowsSandboxLevel,
-    pub windows_sandbox_private_desktop: bool,
 }
 
 #[derive(Debug)]
 pub enum SandboxTransformError {
     MissingLinuxSandboxExecutable,
-    #[cfg(not(target_os = "macos"))]
-    SeatbeltUnavailable,
 }
 
 impl std::fmt::Display for SandboxTransformError {
@@ -117,8 +98,6 @@ impl std::fmt::Display for SandboxTransformError {
             Self::MissingLinuxSandboxExecutable => {
                 write!(f, "missing nexal-linux-sandbox executable path")
             }
-            #[cfg(not(target_os = "macos"))]
-            Self::SeatbeltUnavailable => write!(f, "seatbelt sandbox is only available on macOS"),
         }
     }
 }
@@ -138,7 +117,6 @@ impl SandboxManager {
         file_system_policy: &FileSystemSandboxPolicy,
         network_policy: NetworkSandboxPolicy,
         pref: SandboxablePreference,
-        windows_sandbox_level: WindowsSandboxLevel,
         has_managed_network_requirements: bool,
     ) -> SandboxType {
         // When NEXAL_SANDBOX=podman is explicitly set, always use Podman
@@ -150,8 +128,7 @@ impl SandboxManager {
         match pref {
             SandboxablePreference::Forbid => SandboxType::None,
             SandboxablePreference::Require => {
-                get_platform_sandbox(windows_sandbox_level != WindowsSandboxLevel::Disabled)
-                    .unwrap_or(SandboxType::None)
+                get_platform_sandbox().unwrap_or(SandboxType::None)
             }
             SandboxablePreference::Auto => {
                 if should_require_platform_sandbox(
@@ -159,8 +136,7 @@ impl SandboxManager {
                     network_policy,
                     has_managed_network_requirements,
                 ) {
-                    get_platform_sandbox(windows_sandbox_level != WindowsSandboxLevel::Disabled)
-                        .unwrap_or(SandboxType::None)
+                    get_platform_sandbox().unwrap_or(SandboxType::None)
                 } else {
                     SandboxType::None
                 }
@@ -181,25 +157,14 @@ impl SandboxManager {
             enforce_managed_network,
             network,
             sandbox_policy_cwd,
-            #[cfg(target_os = "macos")]
-            macos_seatbelt_profile_extensions,
             nexal_linux_sandbox_exe,
             use_legacy_landlock,
-            windows_sandbox_level,
-            windows_sandbox_private_desktop,
         } = request;
-        #[cfg(not(target_os = "macos"))]
-        let macos_seatbelt_profile_extensions = None;
         let additional_permissions = command.additional_permissions.take();
         let EffectiveSandboxPermissions {
             sandbox_policy: effective_policy,
-            #[cfg(target_os = "macos")]
-                macos_seatbelt_profile_extensions: effective_macos_seatbelt_profile_extensions,
-            #[cfg(not(target_os = "macos"))]
-                macos_seatbelt_profile_extensions: _,
         } = EffectiveSandboxPermissions::new(
             policy,
-            macos_seatbelt_profile_extensions,
             additional_permissions.as_ref(),
         );
         let effective_file_system_policy = effective_file_system_sandbox_policy(
@@ -214,24 +179,6 @@ impl SandboxManager {
 
         let (argv, arg0_override) = match sandbox {
             SandboxType::None => (argv, None),
-            #[cfg(target_os = "macos")]
-            SandboxType::MacosSeatbelt => {
-                let mut args = create_seatbelt_command_args_for_policies_with_extensions(
-                    argv.clone(),
-                    &effective_file_system_policy,
-                    effective_network_policy,
-                    sandbox_policy_cwd,
-                    enforce_managed_network,
-                    network,
-                    effective_macos_seatbelt_profile_extensions.as_ref(),
-                );
-                let mut full_command = Vec::with_capacity(1 + args.len());
-                full_command.push(MACOS_PATH_TO_SEATBELT_EXECUTABLE.to_string());
-                full_command.append(&mut args);
-                (full_command, None)
-            }
-            #[cfg(not(target_os = "macos"))]
-            SandboxType::MacosSeatbelt => return Err(SandboxTransformError::SeatbeltUnavailable),
             SandboxType::LinuxSeccomp => {
                 let exe = nexal_linux_sandbox_exe
                     .ok_or(SandboxTransformError::MissingLinuxSandboxExecutable)?;
@@ -254,10 +201,6 @@ impl SandboxManager {
                     Some(linux_sandbox_arg0_override(exe.as_path())),
                 )
             }
-            #[cfg(target_os = "windows")]
-            SandboxType::WindowsRestrictedToken => (argv, None),
-            #[cfg(not(target_os = "windows"))]
-            SandboxType::WindowsRestrictedToken => (argv, None),
             SandboxType::Podman => {
                 // Use a persistent container via `podman exec`.
                 // The container must be pre-created and its name stored in
@@ -326,8 +269,6 @@ impl SandboxManager {
             env: command.env,
             network: network.cloned(),
             sandbox,
-            windows_sandbox_level,
-            windows_sandbox_private_desktop,
             sandbox_policy: effective_policy,
             file_system_sandbox_policy: effective_file_system_policy,
             network_sandbox_policy: effective_network_policy,

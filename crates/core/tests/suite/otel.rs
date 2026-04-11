@@ -943,7 +943,6 @@ async fn handle_response_item_records_tool_result_for_local_shell_missing_ids() 
     });
 }
 
-#[cfg(target_os = "macos")]
 #[tokio::test]
 #[traced_test]
 async fn handle_response_item_records_tool_result_for_local_shell_call() {

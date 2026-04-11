@@ -9,7 +9,6 @@ use nexal_core::exec::ExecParams;
 use nexal_core::exec::process_exec_tool_call;
 use nexal_core::exec_env::create_env;
 use nexal_core::sandboxing::SandboxPermissions;
-use nexal_protocol::config_types::WindowsSandboxLevel;
 use nexal_protocol::permissions::FileSystemAccessMode;
 use nexal_protocol::permissions::FileSystemPath;
 use nexal_protocol::permissions::FileSystemSandboxEntry;
@@ -121,8 +120,6 @@ async fn run_cmd_result_with_policies(
         env: create_env_from_core_vars(),
         network: None,
         sandbox_permissions: SandboxPermissions::UseDefault,
-        windows_sandbox_level: WindowsSandboxLevel::Disabled,
-        windows_sandbox_private_desktop: false,
         justification: None,
         arg0: None,
     };
@@ -381,8 +378,6 @@ async fn assert_network_blocked(cmd: &[&str]) {
         env: create_env_from_core_vars(),
         network: None,
         sandbox_permissions: SandboxPermissions::UseDefault,
-        windows_sandbox_level: WindowsSandboxLevel::Disabled,
-        windows_sandbox_private_desktop: false,
         justification: None,
         arg0: None,
     };
