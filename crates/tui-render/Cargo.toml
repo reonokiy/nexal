@@ -21,6 +21,8 @@ nexal-utils-path = { workspace = true }
 nexal-utils-string = { workspace = true }
 
 crossterm = { workspace = true }
+strum = { workspace = true }
+strum_macros = { workspace = true }
 diffy = { workspace = true }
 dirs = { workspace = true }
 pathdiff = { workspace = true }

@@ -14,11 +14,16 @@
 
 pub mod color;
 pub mod diff_render;
+pub mod key_hint;
 pub mod line_truncation;
 pub mod live_wrap;
 pub mod markdown;
 pub mod markdown_render;
 pub mod render;
+pub mod shimmer;
+pub mod slash_command;
+pub mod style;
 pub mod terminal_palette;
 pub mod text_formatting;
+pub mod ui_consts;
 pub mod wrapping;

@@ -14,13 +14,13 @@ const CTRL_PREFIX: &str = "ctrl + ";
 const SHIFT_PREFIX: &str = "shift + ";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) struct KeyBinding {
+pub struct KeyBinding {
     key: KeyCode,
     modifiers: KeyModifiers,
 }
 
 impl KeyBinding {
-    pub(crate) const fn new(key: KeyCode, modifiers: KeyModifiers) -> Self {
+    pub const fn new(key: KeyCode, modifiers: KeyModifiers) -> Self {
         Self { key, modifiers }
     }
 
@@ -31,23 +31,23 @@ impl KeyBinding {
     }
 }
 
-pub(crate) const fn plain(key: KeyCode) -> KeyBinding {
+pub const fn plain(key: KeyCode) -> KeyBinding {
     KeyBinding::new(key, KeyModifiers::NONE)
 }
 
-pub(crate) const fn alt(key: KeyCode) -> KeyBinding {
+pub const fn alt(key: KeyCode) -> KeyBinding {
     KeyBinding::new(key, KeyModifiers::ALT)
 }
 
-pub(crate) const fn shift(key: KeyCode) -> KeyBinding {
+pub const fn shift(key: KeyCode) -> KeyBinding {
     KeyBinding::new(key, KeyModifiers::SHIFT)
 }
 
-pub(crate) const fn ctrl(key: KeyCode) -> KeyBinding {
+pub const fn ctrl(key: KeyCode) -> KeyBinding {
     KeyBinding::new(key, KeyModifiers::CONTROL)
 }
 
-pub(crate) const fn ctrl_alt(key: KeyCode) -> KeyBinding {
+pub const fn ctrl_alt(key: KeyCode) -> KeyBinding {
     KeyBinding::new(key, KeyModifiers::CONTROL.union(KeyModifiers::ALT))
 }
 
@@ -93,11 +93,11 @@ fn key_hint_style() -> Style {
     Style::default().dim()
 }
 
-pub(crate) fn has_ctrl_or_alt(mods: KeyModifiers) -> bool {
+pub fn has_ctrl_or_alt(mods: KeyModifiers) -> bool {
     (mods.contains(KeyModifiers::CONTROL) || mods.contains(KeyModifiers::ALT)) && !is_altgr(mods)
 }
 
 #[inline]
-pub(crate) fn is_altgr(_mods: KeyModifiers) -> bool {
+pub fn is_altgr(_mods: KeyModifiers) -> bool {
     false
 }
