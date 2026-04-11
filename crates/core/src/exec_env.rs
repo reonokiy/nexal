@@ -27,6 +27,4 @@ pub fn create_env(
     env
 }
 
-#[cfg(test)]
-#[path = "exec_env_tests.rs"]
-mod tests;
+

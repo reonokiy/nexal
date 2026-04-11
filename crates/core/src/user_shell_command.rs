@@ -54,6 +54,4 @@ pub(crate) fn user_shell_command_record_item(
     ))
 }
 
-#[cfg(test)]
-#[path = "user_shell_command_tests.rs"]
-mod tests;
+

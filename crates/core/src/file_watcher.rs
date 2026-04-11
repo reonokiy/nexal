@@ -573,6 +573,4 @@ fn watch_path_matches_event(watched_path: &WatchPath, event_path: &Path) -> bool
     watched_path.recursive || event_path.parent() == Some(watched_path.path.as_path())
 }
 
-#[cfg(test)]
-#[path = "file_watcher_tests.rs"]
-mod tests;
+

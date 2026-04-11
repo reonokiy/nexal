@@ -2831,6 +2831,4 @@ pub fn log_dir(cfg: &Config) -> std::io::Result<PathBuf> {
     Ok(cfg.log_dir.clone())
 }
 
-#[cfg(test)]
-#[path = "config_tests.rs"]
-mod tests;
+

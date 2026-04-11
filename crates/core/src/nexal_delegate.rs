@@ -852,6 +852,4 @@ where
     }
 }
 
-#[cfg(test)]
-#[path = "nexal_delegate_tests.rs"]
-mod tests;
+

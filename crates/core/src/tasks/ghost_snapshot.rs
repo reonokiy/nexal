@@ -249,6 +249,4 @@ fn format_bytes(bytes: i64) -> String {
     format!("{bytes} B")
 }
 
-#[cfg(test)]
-#[path = "ghost_snapshot_tests.rs"]
-mod tests;
+

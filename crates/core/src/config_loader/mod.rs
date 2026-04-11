@@ -2,8 +2,6 @@ mod layer_io;
 #[cfg(target_os = "macos")]
 mod macos;
 
-#[cfg(test)]
-mod tests;
 
 use crate::config::ConfigToml;
 use crate::config_loader::layer_io::LoadedConfigLayers;

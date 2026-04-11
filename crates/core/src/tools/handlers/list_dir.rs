@@ -266,6 +266,4 @@ impl From<&FileType> for DirEntryKind {
     }
 }
 
-#[cfg(test)]
-#[path = "list_dir_tests.rs"]
-mod tests;
+

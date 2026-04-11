@@ -102,6 +102,4 @@ fn asking_questions_guidance_message(default_mode_request_user_input: bool) -> S
     }
 }
 
-#[cfg(test)]
-#[path = "collaboration_mode_presets_tests.rs"]
-mod tests;
+

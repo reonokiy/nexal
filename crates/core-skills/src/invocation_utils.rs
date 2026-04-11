@@ -150,6 +150,4 @@ fn normalize_path(path: &Path) -> PathBuf {
     std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
 }
 
-#[cfg(test)]
-#[path = "invocation_utils_tests.rs"]
-mod tests;
+

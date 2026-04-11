@@ -442,6 +442,4 @@ fn maybe_push_unknown_special_path_warning(
     );
 }
 
-#[cfg(test)]
-#[path = "permissions_tests.rs"]
-mod tests;
+

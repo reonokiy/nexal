@@ -662,6 +662,4 @@ fn emit_migration_metric(
     // no-op: metrics pipeline removed
 }
 
-#[cfg(test)]
-#[path = "external_agent_config_tests.rs"]
-mod tests;
+

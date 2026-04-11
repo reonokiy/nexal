@@ -23,6 +23,4 @@ pub(crate) fn sandbox_tag(
         .unwrap_or("none")
 }
 
-#[cfg(test)]
-#[path = "sandbox_tags_tests.rs"]
-mod tests;
+

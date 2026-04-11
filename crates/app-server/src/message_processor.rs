@@ -64,7 +64,6 @@ use nexal_core::default_client::set_default_originator;
 use nexal_core::models_manager::collaboration_mode_presets::CollaborationModesConfig;
 use nexal_exec_server::EnvironmentManager;
 use nexal_features::Feature;
-use nexal_feedback::NexalFeedback;
 use nexal_protocol::ThreadId;
 use nexal_protocol::protocol::SessionSource;
 use nexal_protocol::protocol::W3cTraceContext;
@@ -106,7 +105,6 @@ pub(crate) struct MessageProcessorArgs {
     pub(crate) cli_overrides: Vec<(String, TomlValue)>,
     pub(crate) loader_overrides: LoaderOverrides,
     pub(crate) cloud_requirements: CloudRequirementsLoader,
-    pub(crate) feedback: NexalFeedback,
     pub(crate) log_db: Option<LogDbLayer>,
     pub(crate) config_warnings: Vec<ConfigWarningNotification>,
     pub(crate) session_source: SessionSource,
@@ -125,7 +123,6 @@ impl MessageProcessor {
             cli_overrides,
             loader_overrides,
             cloud_requirements,
-            feedback,
             log_db,
             config_warnings,
             session_source,
@@ -159,7 +156,6 @@ impl MessageProcessor {
             cli_overrides: cli_overrides.clone(),
             runtime_feature_enablement: runtime_feature_enablement.clone(),
             cloud_requirements: cloud_requirements.clone(),
-            feedback,
             log_db,
         });
         let config_api = ConfigApi::new(
@@ -992,5 +988,4 @@ impl MessageProcessor {
     }
 }
 
-#[cfg(test)]
-mod tracing_tests;
+

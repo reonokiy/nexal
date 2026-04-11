@@ -43,7 +43,6 @@ use nexal_arg0::Arg0DispatchPaths;
 use nexal_core::config::Config;
 use nexal_core::config_loader::CloudRequirementsLoader;
 use nexal_core::config_loader::LoaderOverrides;
-use nexal_feedback::NexalFeedback;
 use nexal_protocol::protocol::SessionSource;
 use serde::de::DeserializeOwned;
 use tokio::sync::mpsc;
@@ -266,8 +265,6 @@ pub struct InProcessClientStartArgs {
     pub loader_overrides: LoaderOverrides,
     /// Preloaded cloud requirements provider.
     pub cloud_requirements: CloudRequirementsLoader,
-    /// Feedback sink used by app-server/core telemetry and logs.
-    pub feedback: NexalFeedback,
     /// Startup warnings emitted after initialize succeeds.
     pub config_warnings: Vec<ConfigWarningNotification>,
     /// Session source recorded in app-server thread metadata.
@@ -319,7 +316,6 @@ impl InProcessClientStartArgs {
             cli_overrides: self.cli_overrides,
             loader_overrides: self.loader_overrides,
             cloud_requirements: self.cloud_requirements,
-            feedback: self.feedback,
             config_warnings: self.config_warnings,
             session_source: self.session_source,
             enable_nexal_api_key_env: self.enable_nexal_api_key_env,
@@ -896,7 +892,6 @@ mod tests {
             cli_overrides: Vec::new(),
             loader_overrides: LoaderOverrides::default(),
             cloud_requirements: CloudRequirementsLoader::default(),
-            feedback: NexalFeedback::new(),
             config_warnings: Vec::new(),
             session_source,
             enable_nexal_api_key_env: false,
@@ -1894,7 +1889,6 @@ mod tests {
             cli_overrides: Vec::new(),
             loader_overrides: LoaderOverrides::default(),
             cloud_requirements: CloudRequirementsLoader::default(),
-            feedback: NexalFeedback::new(),
             config_warnings: Vec::new(),
             session_source: SessionSource::Exec,
             enable_nexal_api_key_env: false,

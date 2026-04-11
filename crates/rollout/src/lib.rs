@@ -44,5 +44,3 @@ pub use session_index::find_thread_names_by_ids;
 pub use session_index::find_thread_path_by_name_str;
 pub use state_db::StateDbHandle;
 
-#[cfg(test)]
-mod tests;

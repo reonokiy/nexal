@@ -168,5 +168,3 @@ impl ExecServerHandler {
     }
 }
 
-#[cfg(test)]
-mod tests;

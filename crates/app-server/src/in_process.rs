@@ -78,7 +78,6 @@ use nexal_core::config::Config;
 use nexal_core::config_loader::CloudRequirementsLoader;
 use nexal_core::config_loader::LoaderOverrides;
 use nexal_exec_server::EnvironmentManager;
-use nexal_feedback::NexalFeedback;
 use nexal_protocol::protocol::SessionSource;
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
@@ -113,8 +112,6 @@ pub struct InProcessStartArgs {
     pub loader_overrides: LoaderOverrides,
     /// Preloaded cloud requirements provider.
     pub cloud_requirements: CloudRequirementsLoader,
-    /// Feedback sink used by app-server/core telemetry and logs.
-    pub feedback: NexalFeedback,
     /// Startup warnings emitted after initialize succeeds.
     pub config_warnings: Vec<ConfigWarningNotification>,
     /// Session source stamped into thread/session metadata.
@@ -391,8 +388,7 @@ fn start_uninitialized(args: InProcessStartArgs) -> InProcessClientHandle {
                 cli_overrides: args.cli_overrides,
                 loader_overrides: args.loader_overrides,
                 cloud_requirements: args.cloud_requirements,
-                feedback: args.feedback,
-                log_db: None,
+                    log_db: None,
                 config_warnings: args.config_warnings,
                 session_source: args.session_source,
                 enable_nexal_api_key_env: args.enable_nexal_api_key_env,
@@ -716,7 +712,6 @@ mod tests {
             cli_overrides: Vec::new(),
             loader_overrides: LoaderOverrides::default(),
             cloud_requirements: CloudRequirementsLoader::default(),
-            feedback: NexalFeedback::new(),
             config_warnings: Vec::new(),
             session_source,
             enable_nexal_api_key_env: false,

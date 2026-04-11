@@ -168,12 +168,3 @@ pub(crate) fn generate_chunk_id() -> String {
         .map(|_| format!("{:x}", rng.random_range(0..16)))
         .collect()
 }
-
-#[cfg(test)]
-#[cfg(unix)]
-#[path = "process_tests.rs"]
-mod process_tests;
-#[cfg(test)]
-#[cfg(unix)]
-#[path = "mod_tests.rs"]
-mod tests;

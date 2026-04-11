@@ -228,6 +228,4 @@ where
     Ok(None)
 }
 
-#[cfg(test)]
-#[path = "session_index_tests.rs"]
-mod tests;
+

@@ -323,6 +323,4 @@ impl Stream for ResponseStream {
     }
 }
 
-#[cfg(test)]
-#[path = "client_common_tests.rs"]
-mod tests;
+

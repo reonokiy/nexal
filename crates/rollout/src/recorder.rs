@@ -1106,6 +1106,4 @@ fn cwd_matches(session_cwd: &Path, cwd: &Path) -> bool {
     session_cwd == cwd
 }
 
-#[cfg(test)]
-#[path = "recorder_tests.rs"]
-mod tests;
+

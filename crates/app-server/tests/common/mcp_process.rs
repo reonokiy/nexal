@@ -24,7 +24,6 @@ use nexal_app_server_protocol::ConfigBatchWriteParams;
 use nexal_app_server_protocol::ConfigReadParams;
 use nexal_app_server_protocol::ConfigValueWriteParams;
 use nexal_app_server_protocol::ExperimentalFeatureListParams;
-use nexal_app_server_protocol::FeedbackUploadParams;
 use nexal_app_server_protocol::FsCopyParams;
 use nexal_app_server_protocol::FsCreateDirectoryParams;
 use nexal_app_server_protocol::FsGetMetadataParams;
@@ -312,14 +311,6 @@ impl McpProcess {
         self.send_request("account/login/start", params).await
     }
 
-    /// Send a `feedback/upload` JSON-RPC request.
-    pub async fn send_feedback_upload_request(
-        &mut self,
-        params: FeedbackUploadParams,
-    ) -> anyhow::Result<i64> {
-        let params = Some(serde_json::to_value(params)?);
-        self.send_request("feedback/upload", params).await
-    }
 
     /// Send a `thread/start` JSON-RPC request.
     pub async fn send_thread_start_request(

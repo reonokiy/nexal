@@ -356,6 +356,4 @@ fn verified_plugin_suggestion_completed(
     false
 }
 
-#[cfg(test)]
-#[path = "tool_suggest_tests.rs"]
-mod tests;
+

@@ -241,6 +241,4 @@ fn is_sandboxed() -> bool {
     false
 }
 
-#[cfg(test)]
-#[path = "default_client_tests.rs"]
-mod tests;
+

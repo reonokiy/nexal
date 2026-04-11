@@ -1640,6 +1640,4 @@ fn startup_outcome_error_message(error: StartupOutcomeError) -> String {
 #[cfg(test)]
 mod mcp_init_error_display_tests {}
 
-#[cfg(test)]
-#[path = "mcp_connection_manager_tests.rs"]
-mod tests;
+

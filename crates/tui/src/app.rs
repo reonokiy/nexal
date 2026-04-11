@@ -6,7 +6,6 @@ use crate::app_event::RealtimeAudioDeviceKind;
 use crate::app_event::WindowsSandboxEnableMode;
 use crate::app_event_sender::AppEventSender;
 use crate::bottom_pane::ApprovalRequest;
-use crate::bottom_pane::FeedbackAudience;
 use crate::bottom_pane::McpServerElicitationFormRequest;
 use crate::bottom_pane::SelectionItem;
 use crate::bottom_pane::SelectionViewParams;
@@ -270,7 +269,6 @@ async fn start_plugin_request_client(
     cli_kv_overrides: Vec<(String, TomlValue)>,
     loader_overrides: LoaderOverrides,
     cloud_requirements: CloudRequirementsLoader,
-    feedback: nexal_feedback::NexalFeedback,
 ) -> Result<InProcessAppServerClient> {
     InProcessAppServerClient::start(InProcessClientStartArgs {
         arg0_paths,
@@ -279,7 +277,6 @@ async fn start_plugin_request_client(
         cli_overrides: cli_kv_overrides,
         loader_overrides,
         cloud_requirements,
-        feedback,
         session_source: SessionSource::Cli,
         enable_nexal_api_key_env: false,
         client_name: "nexal-tui".to_string(),
@@ -299,7 +296,6 @@ async fn request_plugins_list(
     cli_kv_overrides: Vec<(String, TomlValue)>,
     loader_overrides: LoaderOverrides,
     cloud_requirements: CloudRequirementsLoader,
-    feedback: nexal_feedback::NexalFeedback,
     cwd: PathBuf,
 ) -> Result<PluginListResponse> {
     let client = start_plugin_request_client(
@@ -308,7 +304,6 @@ async fn request_plugins_list(
         cli_kv_overrides,
         loader_overrides,
         cloud_requirements,
-        feedback,
     )
     .await?;
     let request_handle = client.request_handle();
@@ -336,7 +331,6 @@ async fn request_plugin_detail(
     cli_kv_overrides: Vec<(String, TomlValue)>,
     loader_overrides: LoaderOverrides,
     cloud_requirements: CloudRequirementsLoader,
-    feedback: nexal_feedback::NexalFeedback,
     params: PluginReadParams,
 ) -> Result<PluginReadResponse> {
     let client = start_plugin_request_client(
@@ -345,7 +339,6 @@ async fn request_plugin_detail(
         cli_kv_overrides,
         loader_overrides,
         cloud_requirements,
-        feedback,
     )
     .await?;
     let request_handle = client.request_handle();
@@ -366,7 +359,6 @@ async fn request_plugin_install(
     cli_kv_overrides: Vec<(String, TomlValue)>,
     loader_overrides: LoaderOverrides,
     cloud_requirements: CloudRequirementsLoader,
-    feedback: nexal_feedback::NexalFeedback,
     params: PluginInstallParams,
 ) -> Result<PluginInstallResponse> {
     let client = start_plugin_request_client(
@@ -375,7 +367,6 @@ async fn request_plugin_install(
         cli_kv_overrides,
         loader_overrides,
         cloud_requirements,
-        feedback,
     )
     .await?;
     let request_handle = client.request_handle();
@@ -396,7 +387,6 @@ async fn request_plugin_uninstall(
     cli_kv_overrides: Vec<(String, TomlValue)>,
     loader_overrides: LoaderOverrides,
     cloud_requirements: CloudRequirementsLoader,
-    feedback: nexal_feedback::NexalFeedback,
     plugin_id: String,
 ) -> Result<PluginUninstallResponse> {
     let client = start_plugin_request_client(
@@ -405,7 +395,6 @@ async fn request_plugin_uninstall(
         cli_kv_overrides,
         loader_overrides,
         cloud_requirements,
-        feedback,
     )
     .await?;
     let request_handle = client.request_handle();
@@ -826,8 +815,6 @@ pub(crate) struct App {
     /// This is used after a confirmed thread rollback to ensure scrollback reflects the trimmed
     /// transcript cells.
     pub(crate) backtrack_render_pending: bool,
-    pub(crate) feedback: nexal_feedback::NexalFeedback,
-    feedback_audience: FeedbackAudience,
     /// Set when the user confirms an update; propagated on exit.
     pub(crate) pending_update_action: Option<UpdateAction>,
 
@@ -898,9 +885,7 @@ impl App {
             enhanced_keys_supported: self.enhanced_keys_supported,
             auth_manager: self.auth_manager.clone(),
             models_manager: self.server.get_models_manager(),
-            feedback: self.feedback.clone(),
             is_first_run: false,
-            feedback_audience: self.feedback_audience,
             model: Some(self.chat_widget.current_model().to_string()),
             startup_tooltip_override: None,
             status_line_invalid_items_warned: self.status_line_invalid_items_warned.clone(),
@@ -1282,7 +1267,6 @@ impl App {
         let cli_kv_overrides = self.cli_kv_overrides.clone();
         let loader_overrides = self.loader_overrides.clone();
         let cloud_requirements = self.cloud_requirements.clone();
-        let feedback = self.feedback.clone();
         let app_event_tx = self.app_event_tx.clone();
         tokio::spawn(async move {
             let cwd_for_event = cwd.clone();
@@ -1292,7 +1276,6 @@ impl App {
                 cli_kv_overrides,
                 loader_overrides,
                 cloud_requirements,
-                feedback,
                 cwd,
             )
             .await
@@ -1310,7 +1293,6 @@ impl App {
         let cli_kv_overrides = self.cli_kv_overrides.clone();
         let loader_overrides = self.loader_overrides.clone();
         let cloud_requirements = self.cloud_requirements.clone();
-        let feedback = self.feedback.clone();
         let app_event_tx = self.app_event_tx.clone();
         tokio::spawn(async move {
             let cwd_for_event = cwd.clone();
@@ -1320,7 +1302,6 @@ impl App {
                 cli_kv_overrides,
                 loader_overrides,
                 cloud_requirements,
-                feedback,
                 params,
             )
             .await
@@ -1344,7 +1325,6 @@ impl App {
         let cli_kv_overrides = self.cli_kv_overrides.clone();
         let loader_overrides = self.loader_overrides.clone();
         let cloud_requirements = self.cloud_requirements.clone();
-        let feedback = self.feedback.clone();
         let app_event_tx = self.app_event_tx.clone();
         tokio::spawn(async move {
             let cwd_for_event = cwd.clone();
@@ -1356,7 +1336,6 @@ impl App {
                 cli_kv_overrides,
                 loader_overrides,
                 cloud_requirements,
-                feedback,
                 PluginInstallParams {
                     marketplace_path,
                     plugin_name,
@@ -1386,7 +1365,6 @@ impl App {
         let cli_kv_overrides = self.cli_kv_overrides.clone();
         let loader_overrides = self.loader_overrides.clone();
         let cloud_requirements = self.cloud_requirements.clone();
-        let feedback = self.feedback.clone();
         let app_event_tx = self.app_event_tx.clone();
         tokio::spawn(async move {
             let cwd_for_event = cwd.clone();
@@ -1397,7 +1375,6 @@ impl App {
                 cli_kv_overrides,
                 loader_overrides,
                 cloud_requirements,
-                feedback,
                 plugin_id,
             )
             .await
@@ -2097,9 +2074,7 @@ impl App {
             enhanced_keys_supported: self.enhanced_keys_supported,
             auth_manager: self.auth_manager.clone(),
             models_manager: self.server.get_models_manager(),
-            feedback: self.feedback.clone(),
             is_first_run: false,
-            feedback_audience: self.feedback_audience,
             model: Some(model),
             startup_tooltip_override: None,
             status_line_invalid_items_warned: self.status_line_invalid_items_warned.clone(),
@@ -2235,7 +2210,6 @@ impl App {
         initial_prompt: Option<String>,
         initial_images: Vec<PathBuf>,
         session_selection: SessionSelection,
-        feedback: nexal_feedback::NexalFeedback,
         is_first_run: bool,
         should_prompt_windows_sandbox_nux_at_startup: bool,
     ) -> Result<AppExitInfo> {
@@ -2285,7 +2259,6 @@ impl App {
         }
         let auth = auth_manager.auth().await;
         let auth_ref = auth.as_ref();
-        let feedback_audience = FeedbackAudience::External;
         let auth_mode = auth_ref
             .map(NexalAuth::auth_mode)
             .map(nexal_core::telemetry_auth_mode);
@@ -2333,9 +2306,7 @@ impl App {
                     enhanced_keys_supported,
                     auth_manager: auth_manager.clone(),
                     models_manager: thread_manager.get_models_manager(),
-                    feedback: feedback.clone(),
                     is_first_run,
-                    feedback_audience,
                     model: Some(model.clone()),
                     startup_tooltip_override,
                     status_line_invalid_items_warned: status_line_invalid_items_warned.clone(),
@@ -2371,9 +2342,7 @@ impl App {
                     enhanced_keys_supported,
                     auth_manager: auth_manager.clone(),
                     models_manager: thread_manager.get_models_manager(),
-                    feedback: feedback.clone(),
                     is_first_run,
-                    feedback_audience,
                     model: config.model.clone(),
                     startup_tooltip_override: None,
                     status_line_invalid_items_warned: status_line_invalid_items_warned.clone(),
@@ -2415,9 +2384,7 @@ impl App {
                     enhanced_keys_supported,
                     auth_manager: auth_manager.clone(),
                     models_manager: thread_manager.get_models_manager(),
-                    feedback: feedback.clone(),
                     is_first_run,
-                    feedback_audience,
                     model: config.model.clone(),
                     startup_tooltip_override: None,
                     status_line_invalid_items_warned: status_line_invalid_items_warned.clone(),
@@ -2462,8 +2429,6 @@ impl App {
             terminal_title_invalid_items_warned: terminal_title_invalid_items_warned.clone(),
             backtrack: BacktrackState::default(),
             backtrack_render_pending: false,
-            feedback: feedback.clone(),
-            feedback_audience,
             pending_update_action: None,
             suppress_shutdown_complete: false,
             pending_shutdown_exit_thread_id: None,
@@ -3145,15 +3110,6 @@ impl App {
                     extra_count,
                     failed_scan,
                 );
-            }
-            AppEvent::OpenFeedbackNote {
-                category,
-                include_logs,
-            } => {
-                self.chat_widget.open_feedback_note(category, include_logs);
-            }
-            AppEvent::OpenFeedbackConsent { category } => {
-                self.chat_widget.open_feedback_consent(category);
             }
             AppEvent::LaunchExternalEditor => {
                 if self.chat_widget.external_editor_state() == ExternalEditorState::Active {
@@ -6913,8 +6869,6 @@ guardian_approval = true
             terminal_title_invalid_items_warned: Arc::new(AtomicBool::new(false)),
             backtrack: BacktrackState::default(),
             backtrack_render_pending: false,
-            feedback: nexal_feedback::NexalFeedback::new(),
-            feedback_audience: FeedbackAudience::External,
             pending_update_action: None,
             suppress_shutdown_complete: false,
             pending_shutdown_exit_thread_id: None,
@@ -6976,8 +6930,6 @@ guardian_approval = true
                 terminal_title_invalid_items_warned: Arc::new(AtomicBool::new(false)),
                 backtrack: BacktrackState::default(),
                 backtrack_render_pending: false,
-                feedback: nexal_feedback::NexalFeedback::new(),
-                feedback_audience: FeedbackAudience::External,
                 pending_update_action: None,
                 suppress_shutdown_complete: false,
                 pending_shutdown_exit_thread_id: None,

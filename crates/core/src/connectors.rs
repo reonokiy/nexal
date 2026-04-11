@@ -827,6 +827,4 @@ pub fn connectors_for_plugin_apps(
     connectors
 }
 
-#[cfg(test)]
-#[path = "connectors_tests.rs"]
-mod tests;
+

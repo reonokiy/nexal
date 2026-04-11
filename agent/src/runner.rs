@@ -22,7 +22,6 @@ use nexal_core::config::Config;
 use nexal_core::config::ConfigBuilder;
 use nexal_core::config::ConfigOverrides;
 use nexal_core::config::find_nexal_home;
-use nexal_feedback::NexalFeedback;
 use nexal_protocol::config_types::SandboxMode as CoreSandboxMode;
 use nexal_protocol::protocol::AskForApproval as CoreAskForApproval;
 use nexal_protocol::protocol::SessionSource;
@@ -41,7 +40,6 @@ pub(crate) async fn build_client(
         cli_overrides,
         loader_overrides: LoaderOverrides::default(),
         cloud_requirements: CloudRequirementsLoader::default(),
-        feedback: NexalFeedback::new(),
         config_warnings: vec![],
         session_source: SessionSource::Custom("nexal".to_string()),
         enable_nexal_api_key_env: true,

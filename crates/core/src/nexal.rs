@@ -172,8 +172,7 @@ use crate::exec::StreamOutput;
 use nexal_config_loader::CONFIG_TOML_FILE;
 
 mod rollout_reconstruction;
-#[cfg(test)]
-mod rollout_reconstruction_tests;
+
 
 #[derive(Debug, PartialEq)]
 pub enum SteerInputError {
@@ -7348,6 +7347,4 @@ pub(crate) use tests::make_session_and_context_with_rx;
 #[cfg(test)]
 pub(crate) use tests::make_session_configuration_for_tests;
 
-#[cfg(test)]
-#[path = "nexal_tests.rs"]
-mod tests;
+

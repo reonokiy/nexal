@@ -4,10 +4,6 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
-[[bin]]
-name = "nexal-tui"
-path = "src/main.rs"
-
 [lib]
 name = "nexal_tui"
 path = "src/lib.rs"
@@ -36,7 +32,6 @@ nexal-client = { workspace = true }
 nexal-core = { workspace = true }
 nexal-exec-server = { workspace = true }
 nexal-features = { workspace = true }
-nexal-feedback = { workspace = true }
 nexal-file-search = { workspace = true }
 nexal-git-utils = { workspace = true }
 nexal-login = { workspace = true }
@@ -44,7 +39,6 @@ nexal-protocol = { workspace = true }
 nexal-shell-command = { workspace = true }
 nexal-rollout-state = { workspace = true }
 nexal-terminal-detection = { workspace = true }
-nexal-tui-app-server = { workspace = true }
 nexal-utils-approval-presets = { workspace = true }
 nexal-utils-absolute-path = { workspace = true }
 nexal-utils-cli = { workspace = true }

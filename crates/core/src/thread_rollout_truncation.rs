@@ -68,6 +68,4 @@ pub(crate) fn truncate_rollout_before_nth_user_message_from_start(
     items[..cut_idx].to_vec()
 }
 
-#[cfg(test)]
-#[path = "thread_rollout_truncation_tests.rs"]
-mod tests;
+

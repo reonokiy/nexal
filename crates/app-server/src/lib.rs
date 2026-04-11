@@ -40,7 +40,6 @@ use nexal_core::check_execpolicy_for_warnings;
 use nexal_core::config_loader::ConfigLoadError;
 use nexal_core::config_loader::TextRange as CoreTextRange;
 use nexal_exec_server::EnvironmentManager;
-use nexal_feedback::NexalFeedback;
 use nexal_protocol::protocol::SessionSource;
 use nexal_rollout_state::log_db;
 use tokio::sync::mpsc;
@@ -452,7 +451,6 @@ pub async fn run_main_with_transport(
         });
     }
 
-    let feedback = NexalFeedback::new();
 
     // Install a simple subscriber so `tracing` output is visible. Users can
     // control the log level with `RUST_LOG` and switch to JSON logs with
@@ -471,8 +469,6 @@ pub async fn run_main_with_transport(
             .boxed(),
     };
 
-    let feedback_layer = feedback.logger_layer();
-    let feedback_metadata_layer = feedback.metadata_layer();
     let log_db = nexal_rollout_state::StateRuntime::init(
         config.sqlite_home.clone(),
         config.model_provider_id.clone(),
@@ -485,8 +481,6 @@ pub async fn run_main_with_transport(
         .map(|layer| layer.with_filter(Targets::new().with_default(Level::TRACE)));
     let _ = tracing_subscriber::registry()
         .with(stderr_fmt)
-        .with(feedback_layer)
-        .with(feedback_metadata_layer)
         .with(log_db_layer)
         .try_init();
     for warning in &config_warnings {
@@ -588,7 +582,6 @@ pub async fn run_main_with_transport(
             cli_overrides,
             loader_overrides,
             cloud_requirements: cloud_requirements.clone(),
-            feedback: feedback.clone(),
             log_db,
             config_warnings,
             session_source,

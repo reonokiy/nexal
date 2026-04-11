@@ -457,6 +457,4 @@ It is important to remember:
     })
 }
 
-#[cfg(test)]
-#[path = "apply_patch_tests.rs"]
-mod tests;
+

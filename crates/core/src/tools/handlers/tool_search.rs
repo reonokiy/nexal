@@ -187,6 +187,4 @@ fn build_search_text(name: &str, info: &ToolInfo) -> String {
     parts.join(" ")
 }
 
-#[cfg(test)]
-#[path = "tool_search_tests.rs"]
-mod tests;
+

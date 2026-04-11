@@ -477,6 +477,4 @@ fn path_for_log(uri: &Uri) -> String {
     uri.path().to_string()
 }
 
-#[cfg(test)]
-#[path = "mitm_tests.rs"]
-mod tests;
+

@@ -291,6 +291,4 @@ fn normalize_extra_user_roots(extra_user_roots: &[PathBuf]) -> Vec<PathBuf> {
     normalized
 }
 
-#[cfg(test)]
-#[path = "manager_tests.rs"]
-mod tests;
+

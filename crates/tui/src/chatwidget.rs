@@ -248,7 +248,6 @@ use crate::bottom_pane::ColumnWidthMode;
 use crate::bottom_pane::DOUBLE_PRESS_QUIT_SHORTCUT_ENABLED;
 use crate::bottom_pane::ExperimentalFeatureItem;
 use crate::bottom_pane::ExperimentalFeaturesView;
-use crate::bottom_pane::FeedbackAudience;
 use crate::bottom_pane::InputResult;
 use crate::bottom_pane::LocalImageAttachment;
 use crate::bottom_pane::McpServerElicitationFormRequest;
@@ -503,9 +502,7 @@ pub(crate) struct ChatWidgetInit {
     pub(crate) enhanced_keys_supported: bool,
     pub(crate) auth_manager: Arc<AuthManager>,
     pub(crate) models_manager: Arc<ModelsManager>,
-    pub(crate) feedback: nexal_feedback::NexalFeedback,
     pub(crate) is_first_run: bool,
-    pub(crate) feedback_audience: FeedbackAudience,
     pub(crate) model: Option<String>,
     pub(crate) startup_tooltip_override: Option<String>,
     // Shared latch so we only warn once about invalid status-line item IDs.
@@ -834,9 +831,6 @@ pub(crate) struct ChatWidget {
     // Runtime metrics accumulated across delta snapshots for the active turn.
     turn_runtime_metrics: RuntimeMetricsSummary,
     last_rendered_width: std::cell::Cell<Option<usize>>,
-    // Feedback sink for /feedback
-    feedback: nexal_feedback::NexalFeedback,
-    feedback_audience: FeedbackAudience,
     // Current session rollout path (if known)
     current_rollout_path: Option<PathBuf>,
     // Current working directory (if known)
@@ -1549,53 +1543,9 @@ impl ChatWidget {
         self.bottom_pane.set_skills(skills);
     }
 
-    pub(crate) fn open_feedback_note(
-        &mut self,
-        category: crate::app_event::FeedbackCategory,
-        include_logs: bool,
-    ) {
-        let snapshot = self.feedback.snapshot(self.thread_id);
-        self.show_feedback_note(category, include_logs, snapshot);
-    }
-
-    fn show_feedback_note(
-        &mut self,
-        category: crate::app_event::FeedbackCategory,
-        include_logs: bool,
-        snapshot: nexal_feedback::FeedbackSnapshot,
-    ) {
-        let rollout = if include_logs {
-            self.current_rollout_path.clone()
-        } else {
-            None
-        };
-        let view = crate::bottom_pane::FeedbackNoteView::new(
-            category,
-            snapshot,
-            rollout,
-            self.app_event_tx.clone(),
-            include_logs,
-            self.feedback_audience,
-        );
-        self.bottom_pane.show_view(Box::new(view));
-        self.request_redraw();
-    }
-
     pub(crate) fn open_app_link_view(&mut self, params: crate::bottom_pane::AppLinkViewParams) {
         let view = crate::bottom_pane::AppLinkView::new(params, self.app_event_tx.clone());
         self.bottom_pane.show_view(Box::new(view));
-        self.request_redraw();
-    }
-
-    pub(crate) fn open_feedback_consent(&mut self, category: crate::app_event::FeedbackCategory) {
-        let snapshot = self.feedback.snapshot(self.thread_id);
-        let params = crate::bottom_pane::feedback_upload_consent_params(
-            self.app_event_tx.clone(),
-            category,
-            self.current_rollout_path.clone(),
-            snapshot.feedback_diagnostics(),
-        );
-        self.bottom_pane.show_selection_view(params);
         self.request_redraw();
     }
 
@@ -2287,7 +2237,7 @@ impl ChatWidget {
                 ));
             } else {
                 self.add_to_history(history_cell::new_error_event(
-                    "Conversation interrupted - tell the model what to do differently. Something went wrong? Hit `/feedback` to report the issue.".to_owned(),
+                    "Conversation interrupted - tell the model what to do differently.".to_owned(),
                 ));
             }
         }
@@ -3657,9 +3607,7 @@ impl ChatWidget {
             enhanced_keys_supported,
             auth_manager,
             models_manager,
-            feedback,
             is_first_run,
-            feedback_audience,
             model,
             startup_tooltip_override,
             status_line_invalid_items_warned,
@@ -3789,8 +3737,6 @@ impl ChatWidget {
             last_separator_elapsed_secs: None,
             turn_runtime_metrics: RuntimeMetricsSummary::default(),
             last_rendered_width: std::cell::Cell::new(None),
-            feedback,
-            feedback_audience,
             current_rollout_path: None,
             current_cwd,
             session_network_proxy: None,
@@ -3862,9 +3808,7 @@ impl ChatWidget {
             enhanced_keys_supported,
             auth_manager,
             models_manager,
-            feedback,
             is_first_run,
-            feedback_audience,
             model,
             startup_tooltip_override,
             status_line_invalid_items_warned,
@@ -3993,8 +3937,6 @@ impl ChatWidget {
             last_separator_elapsed_secs: None,
             turn_runtime_metrics: RuntimeMetricsSummary::default(),
             last_rendered_width: std::cell::Cell::new(None),
-            feedback,
-            feedback_audience,
             current_rollout_path: None,
             current_cwd,
             session_network_proxy: None,
@@ -4058,9 +4000,7 @@ impl ChatWidget {
             enhanced_keys_supported,
             auth_manager,
             models_manager,
-            feedback,
             is_first_run: _,
-            feedback_audience,
             model,
             startup_tooltip_override: _,
             status_line_invalid_items_warned,
@@ -4189,8 +4129,6 @@ impl ChatWidget {
             last_separator_elapsed_secs: None,
             turn_runtime_metrics: RuntimeMetricsSummary::default(),
             last_rendered_width: std::cell::Cell::new(None),
-            feedback,
-            feedback_audience,
             current_rollout_path: None,
             current_cwd,
             session_network_proxy: None,
@@ -4497,19 +4435,6 @@ impl ChatWidget {
             return;
         }
         match cmd {
-            SlashCommand::Feedback => {
-                if !self.config.feedback_enabled {
-                    let params = crate::bottom_pane::feedback_disabled_params();
-                    self.bottom_pane.show_selection_view(params);
-                    self.request_redraw();
-                    return;
-                }
-                // Step 1: pick a category (UI built in feedback_view)
-                let params =
-                    crate::bottom_pane::feedback_selection_params(self.app_event_tx.clone());
-                self.bottom_pane.show_selection_view(params);
-                self.request_redraw();
-            }
             SlashCommand::New => {
                 self.app_event_tx.send(AppEvent::NewSession);
             }
@@ -9660,6 +9585,3 @@ pub(crate) fn show_review_commit_picker_with_entries(
         ..Default::default()
     });
 }
-
-#[cfg(test)]
-pub(crate) mod tests;

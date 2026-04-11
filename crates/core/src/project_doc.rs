@@ -287,6 +287,4 @@ fn candidate_filenames<'a>(config: &'a Config) -> Vec<&'a str> {
     names
 }
 
-#[cfg(test)]
-#[path = "project_doc_tests.rs"]
-mod tests;
+

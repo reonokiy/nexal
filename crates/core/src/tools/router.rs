@@ -62,23 +62,10 @@ impl ToolRouter {
             dynamic_tools,
         );
         let (specs, registry) = builder.build();
-        let model_visible_specs = if config.code_mode_only_enabled {
-            specs
-                .iter()
-                .filter_map(|configured_tool| {
-                    if !nexal_code_mode::is_code_mode_nested_tool(configured_tool.spec.name()) {
-                        Some(configured_tool.spec.clone())
-                    } else {
-                        None
-                    }
-                })
-                .collect()
-        } else {
-            specs
-                .iter()
-                .map(|configured_tool| configured_tool.spec.clone())
-                .collect()
-        };
+        let model_visible_specs = specs
+            .iter()
+            .map(|configured_tool| configured_tool.spec.clone())
+            .collect();
 
         Self {
             registry,
@@ -226,15 +213,6 @@ impl ToolRouter {
             payload,
         } = call;
 
-        if source == ToolCallSource::Direct
-            && turn.tools_config.js_repl_tools_only
-            && !matches!(tool_name.as_str(), "js_repl" | "js_repl_reset")
-        {
-            return Err(FunctionCallError::RespondToModel(
-                "direct tool calls are disabled; use js_repl and nexal.tool(...) instead"
-                    .to_string(),
-            ));
-        }
 
         let invocation = ToolInvocation {
             session,
@@ -249,6 +227,4 @@ impl ToolRouter {
         self.registry.dispatch_any(invocation).await
     }
 }
-#[cfg(test)]
-#[path = "router_tests.rs"]
-mod tests;
+

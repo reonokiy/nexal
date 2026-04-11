@@ -440,10 +440,6 @@ client_request_definitions! {
         response: v2::GetAccountRateLimitsResponse,
     },
 
-    FeedbackUpload => "feedback/upload" {
-        params: v2::FeedbackUploadParams,
-        response: v2::FeedbackUploadResponse,
-    },
 
     /// Execute a standalone command (argv vector) under the server's sandbox.
     OneOffCommandExec => "command/exec" {

@@ -10,7 +10,6 @@ use nexal_config::NexalConfig;
 use nexal_arg0::Arg0DispatchPaths;
 #[cfg(feature = "tui")]
 use nexal_config_loader::LoaderOverrides;
-#[cfg(feature = "tui")]
 use nexal_state::StateDb;
 #[cfg(feature = "tui")]
 use nexal_tui::Cli as TuiCli;
@@ -320,6 +319,29 @@ async fn maybe_start_channels(
     });
 
     Ok(Some(handle))
+}
+
+/// Initialize tracing to a log file (for TUI mode, so logs don't corrupt the terminal).
+#[cfg(feature = "tui")]
+fn init_tracing_to_file(workspace_dir: &std::path::Path) {
+    let log_dir = workspace_dir.join("agents").join("logs");
+    let _ = std::fs::create_dir_all(&log_dir);
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(log_dir.join("channels.log"))
+        .ok();
+    if let Some(file) = file {
+        tracing_subscriber::fmt()
+            .with_writer(std::sync::Mutex::new(file))
+            .with_env_filter(
+                tracing_subscriber::EnvFilter::try_from_default_env()
+                    .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("nexal=info,warn")),
+            )
+            .with_ansi(false)
+            .try_init()
+            .ok();
+    }
 }
 
 /// Generate a short random ID (8 lowercase alphanumeric chars).
@@ -874,28 +896,6 @@ where
     Some((tracing_opentelemetry::layer().with_tracer(tracer), endpoint))
 }
 
-/// Initialize tracing to a log file (for TUI mode, so logs don't corrupt the terminal).
-#[cfg(feature = "tui")]
-fn init_tracing_to_file(workspace_dir: &std::path::Path) {
-    let log_dir = workspace_dir.join("agents").join("logs");
-    let _ = std::fs::create_dir_all(&log_dir);
-    let file = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(log_dir.join("channels.log"))
-        .ok();
-    if let Some(file) = file {
-        tracing_subscriber::fmt()
-            .with_writer(std::sync::Mutex::new(file))
-            .with_env_filter(
-                tracing_subscriber::EnvFilter::try_from_default_env()
-                    .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("nexal=info,warn")),
-            )
-            .with_ansi(false)
-            .try_init()
-            .ok();
-    }
-}
 
 async fn run_idle(args: IdleArgs, config: Arc<NexalConfig>) -> anyhow::Result<()> {
     tokio::fs::create_dir_all(&config.workspace)

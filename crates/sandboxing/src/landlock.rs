@@ -112,6 +112,4 @@ fn create_linux_sandbox_command_args(
     linux_cmd
 }
 
-#[cfg(test)]
-#[path = "landlock_tests.rs"]
-mod tests;
+

@@ -470,18 +470,12 @@ pub async fn run_main(
         )
         .with_filter(env_filter());
 
-    let feedback = nexal_feedback::NexalFeedback::new();
-    let feedback_layer = feedback.logger_layer();
-    let feedback_metadata_layer = feedback.metadata_layer();
-
     let log_db_layer = nexal_core::state_db::get_state_db(&config)
         .await
         .map(|db| log_db::start(db).with_filter(env_filter()));
 
     let _ = tracing_subscriber::registry()
         .with(file_layer)
-        .with(feedback_layer)
-        .with(feedback_metadata_layer)
         .with(log_db_layer)
         .try_init();
 
@@ -493,7 +487,6 @@ pub async fn run_main(
         cli_kv_overrides,
         loader_overrides,
         cloud_requirements,
-        feedback,
     )
     .await
     .map_err(|err| std::io::Error::other(err.to_string()))
@@ -508,7 +501,6 @@ async fn run_ratatui_app(
     cli_kv_overrides: Vec<(String, toml::Value)>,
     loader_overrides: LoaderOverrides,
     mut cloud_requirements: CloudRequirementsLoader,
-    feedback: nexal_feedback::NexalFeedback,
 ) -> color_eyre::Result<AppExitInfo> {
     color_eyre::install()?;
 
@@ -929,7 +921,6 @@ async fn run_ratatui_app(
         prompt,
         images,
         session_selection,
-        feedback,
         should_show_trust_screen, // Proxy to: is it a first run in this directory?
         should_prompt_windows_sandbox_nux_at_startup,
     )

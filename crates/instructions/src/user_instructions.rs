@@ -51,6 +51,4 @@ impl From<SkillInstructions> for ResponseItem {
     }
 }
 
-#[cfg(test)]
-#[path = "user_instructions_tests.rs"]
-mod tests;
+

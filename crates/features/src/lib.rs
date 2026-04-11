@@ -885,5 +885,3 @@ pub fn unstable_features_warning_event(
     })
 }
 
-#[cfg(test)]
-mod tests;

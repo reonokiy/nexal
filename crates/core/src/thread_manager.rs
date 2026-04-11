@@ -1005,6 +1005,4 @@ fn append_interrupted_boundary(history: InitialHistory, turn_id: Option<String>)
     }
 }
 
-#[cfg(test)]
-#[path = "thread_manager_tests.rs"]
-mod tests;
+

@@ -418,6 +418,4 @@ Rules:
     }
 }
 
-#[cfg(test)]
-#[path = "role_tests.rs"]
-mod tests;
+

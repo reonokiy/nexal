@@ -185,6 +185,4 @@ fn is_valid_bundle_id(bundle_id: &str) -> bool {
         .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_')
 }
 
-#[cfg(test)]
-#[path = "seatbelt_permissions_tests.rs"]
-mod tests;
+

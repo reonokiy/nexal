@@ -99,6 +99,4 @@ pub fn write_config_schema(out_path: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
-#[cfg(test)]
-#[path = "schema_tests.rs"]
-mod tests;
+

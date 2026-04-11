@@ -29,7 +29,6 @@ members = [
     "crates/core-skills",
     "crates/exec-server",
     "crates/features",
-    "crates/feedback",
     "crates/file-search",
     "crates/git-utils",
     "crates/hooks",
@@ -50,8 +49,6 @@ members = [
     "crates/state",
     "crates/terminal-detection",
     "crates/tui",
-    "crates/tui_app_server",
-
     # Utils
     "crates/utils/absolute-path",
     "crates/utils/approval-presets",
@@ -115,7 +112,6 @@ nexal-core-skills = { path = "crates/core-skills" }
 nexal-exec-server = { path = "crates/exec-server" }
 nexal-experimental-api-macros = { path = "crates/codex-experimental-api-macros" }
 nexal-features = { path = "crates/features" }
-nexal-feedback = { path = "crates/feedback" }
 nexal-file-search = { path = "crates/file-search" }
 nexal-git-utils = { path = "crates/git-utils" }
 nexal-hooks = { path = "crates/hooks" }
@@ -136,7 +132,6 @@ nexal-shell-escalation = { path = "crates/shell-escalation" }
 nexal-skills = { path = "crates/skills" }
 nexal-terminal-detection = { path = "crates/terminal-detection" }
 nexal-tui = { path = "crates/tui" }
-nexal-tui-app-server = { path = "crates/tui_app_server" }
 nexal-windows-sandbox = { path = "crates/stubs/windows-sandbox" }
 core_test_support = { path = "crates/core/tests/common" }
 

@@ -1522,6 +1522,4 @@ async fn notify_mcp_tool_call_skip(
     Err(message)
 }
 
-#[cfg(test)]
-#[path = "mcp_tool_call_tests.rs"]
-mod tests;
+

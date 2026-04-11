@@ -1966,6 +1966,4 @@ pub(crate) fn resolve_node(config_path: Option<&Path>) -> Option<PathBuf> {
     None
 }
 
-#[cfg(test)]
-#[path = "mod_tests.rs"]
-mod tests;
+

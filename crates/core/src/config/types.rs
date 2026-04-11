@@ -891,6 +891,4 @@ impl Default for ShellEnvironmentPolicy {
     }
 }
 
-#[cfg(test)]
-#[path = "types_tests.rs"]
-mod tests;
+

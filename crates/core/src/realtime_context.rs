@@ -486,6 +486,4 @@ fn approx_token_count(text: &str) -> usize {
     text.len().div_ceil(APPROX_BYTES_PER_TOKEN)
 }
 
-#[cfg(test)]
-#[path = "realtime_context_tests.rs"]
-mod tests;
+

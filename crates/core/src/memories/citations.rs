@@ -84,6 +84,4 @@ fn extract_ids_block(text: &str) -> Option<&str> {
         .or_else(|| extract_block(text, "<thread_ids>", "</thread_ids>"))
 }
 
-#[cfg(test)]
-#[path = "citations_tests.rs"]
-mod tests;
+

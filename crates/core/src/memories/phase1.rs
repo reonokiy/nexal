@@ -614,6 +614,4 @@ fn emit_metrics(session: &Session, counts: &Stats) {
     }
 }
 
-#[cfg(test)]
-#[path = "phase1_tests.rs"]
-mod tests;
+

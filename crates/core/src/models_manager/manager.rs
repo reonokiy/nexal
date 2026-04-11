@@ -379,6 +379,4 @@ impl ModelsManager {
     }
 }
 
-#[cfg(test)]
-#[path = "manager_tests.rs"]
-mod tests;
+

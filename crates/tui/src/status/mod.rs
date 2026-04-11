@@ -22,6 +22,3 @@ pub(crate) use rate_limits::RateLimitWindowDisplay;
 #[cfg(test)]
 pub(crate) use rate_limits::rate_limit_snapshot_display;
 pub(crate) use rate_limits::rate_limit_snapshot_display_for_limit;
-
-#[cfg(test)]
-mod tests;

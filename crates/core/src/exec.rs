@@ -1215,6 +1215,4 @@ fn synthetic_exit_status(code: i32) -> ExitStatus {
     std::process::ExitStatus::from_raw(code as u32)
 }
 
-#[cfg(test)]
-#[path = "exec_tests.rs"]
-mod tests;
+

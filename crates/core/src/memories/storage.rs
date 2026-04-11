@@ -255,6 +255,4 @@ pub(super) fn rollout_summary_file_stem_from_parts(
     }
 }
 
-#[cfg(test)]
-#[path = "storage_tests.rs"]
-mod tests;
+

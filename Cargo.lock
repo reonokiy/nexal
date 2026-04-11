@@ -3877,7 +3877,6 @@ dependencies = [
  "nexal-config-loader",
  "nexal-core",
  "nexal-exec-server",
- "nexal-feedback",
  "nexal-protocol",
  "nexal-state",
  "reqwest 0.12.28",
@@ -3951,7 +3950,6 @@ dependencies = [
  "nexal-core",
  "nexal-exec-server",
  "nexal-features",
- "nexal-feedback",
  "nexal-file-search",
  "nexal-git-utils",
  "nexal-login",
@@ -3999,7 +3997,6 @@ dependencies = [
  "nexal-arg0",
  "nexal-core",
  "nexal-exec-server",
- "nexal-feedback",
  "nexal-protocol",
  "pretty_assertions",
  "serde",
@@ -4427,17 +4424,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "nexal-feedback"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "nexal-protocol",
- "pretty_assertions",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
 name = "nexal-file-search"
 version = "0.1.0"
 dependencies = [
@@ -4823,97 +4809,6 @@ dependencies = [
  "nexal-core",
  "nexal-exec-server",
  "nexal-features",
- "nexal-feedback",
- "nexal-file-search",
- "nexal-git-utils",
- "nexal-login",
- "nexal-protocol",
- "nexal-rollout-state",
- "nexal-shell-command",
- "nexal-terminal-detection",
- "nexal-tui-app-server",
- "nexal-utils-absolute-path",
- "nexal-utils-approval-presets",
- "nexal-utils-cargo-bin",
- "nexal-utils-cli",
- "nexal-utils-elapsed",
- "nexal-utils-fuzzy-match",
- "nexal-utils-pty",
- "nexal-utils-sandbox-summary",
- "nexal-utils-sleep-inhibitor",
- "nexal-utils-string",
- "nexal-windows-sandbox",
- "pathdiff",
- "pretty_assertions",
- "pulldown-cmark",
- "rand 0.9.2",
- "ratatui",
- "ratatui-macros",
- "regex-lite",
- "reqwest 0.12.28",
- "rmcp",
- "serde",
- "serde_json",
- "serial_test",
- "shlex",
- "strum 0.27.2",
- "strum_macros 0.28.0",
- "supports-color 3.0.2",
- "syntect",
- "tempfile",
- "textwrap",
- "thiserror 2.0.18",
- "tokio",
- "tokio-stream",
- "tokio-util",
- "toml 0.9.12+spec-1.1.0",
- "tracing",
- "tracing-appender",
- "tracing-subscriber",
- "two-face",
- "unicode-segmentation",
- "unicode-width 0.2.1",
- "url",
- "uuid",
- "vt100",
- "webbrowser",
- "which 8.0.2",
- "windows-sys 0.52.0",
- "winsplit",
-]
-
-[[package]]
-name = "nexal-tui-app-server"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "arboard",
- "assert_matches",
- "base64 0.22.1",
- "chrono",
- "clap",
- "color-eyre",
- "cpal",
- "crossterm",
- "derive_more 2.1.1",
- "diffy",
- "dirs",
- "dunce",
- "hound",
- "image",
- "insta",
- "itertools 0.14.0",
- "lazy_static",
- "libc",
- "nexal-ansi-escape",
- "nexal-app-server-client",
- "nexal-app-server-protocol",
- "nexal-arg0",
- "nexal-client",
- "nexal-config",
- "nexal-core",
- "nexal-features",
- "nexal-feedback",
  "nexal-file-search",
  "nexal-git-utils",
  "nexal-login",
@@ -9904,9 +9799,9 @@ dependencies = [
 
 [[package]]
 name = "wayland-backend"
-version = "0.3.14"
+version = "0.3.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aa75f400b7f719bcd68b3f47cd939ba654cedeef690f486db71331eec4c6a406"
+checksum = "2857dd20b54e916ec7253b3d6b4d5c4d7d4ca2c33c2e11c6c76a99bd8744755d"
 dependencies = [
  "cc",
  "downcast-rs",
@@ -9917,9 +9812,9 @@ dependencies = [
 
 [[package]]
 name = "wayland-client"
-version = "0.31.13"
+version = "0.31.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ab51d9f7c071abeee76007e2b742499e535148035bb835f97aaed1338cf516c3"
+checksum = "645c7c96bb74690c3189b5c9cb4ca1627062bb23693a4fad9d8c3de958260144"
 dependencies = [
  "bitflags 2.11.0",
  "rustix 1.1.4",
@@ -9929,9 +9824,9 @@ dependencies = [
 
 [[package]]
 name = "wayland-protocols"
-version = "0.32.11"
+version = "0.32.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b23b5df31ceff1328f06ac607591d5ba360cf58f90c8fad4ac8d3a55a3c4aec7"
+checksum = "563a85523cade2429938e790815fd7319062103b9f4a2dc806e9b53b95982d8f"
 dependencies = [
  "bitflags 2.11.0",
  "wayland-backend",
@@ -9941,9 +9836,9 @@ dependencies = [
 
 [[package]]
 name = "wayland-protocols-wlr"
-version = "0.3.11"
+version = "0.3.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "78248e4cc0eff8163370ba5c158630dcae1f3497a586b826eca2ef5f348d6235"
+checksum = "eb04e52f7836d7c7976c78ca0250d61e33873c34156a2a1fc9474828ec268234"
 dependencies = [
  "bitflags 2.11.0",
  "wayland-backend",
@@ -9954,9 +9849,9 @@ dependencies = [
 
 [[package]]
 name = "wayland-scanner"
-version = "0.31.9"
+version = "0.31.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c86287151a309799b821ca709b7345a048a2956af05957c89cb824ab919fa4e3"
+checksum = "9c324a910fd86ebdc364a3e61ec1f11737d3b1d6c273c0239ee8ff4bc0d24b4a"
 dependencies = [
  "proc-macro2",
  "quick-xml 0.39.2",
@@ -9965,9 +9860,9 @@ dependencies = [
 
 [[package]]
 name = "wayland-sys"
-version = "0.31.10"
+version = "0.31.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "374f6b70e8e0d6bf9461a32988fd553b59ff630964924dad6e4a4eb6bd538d17"
+checksum = "d8eab23fefc9e41f8e841df4a9c707e8a8c4ed26e944ef69297184de2785e3be"
 dependencies = [
  "pkg-config",
 ]

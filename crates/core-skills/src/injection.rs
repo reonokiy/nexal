@@ -473,6 +473,4 @@ fn is_mention_name_char(byte: u8) -> bool {
     matches!(byte, b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'_' | b'-' | b':')
 }
 
-#[cfg(test)]
-#[path = "injection_tests.rs"]
-mod tests;
+

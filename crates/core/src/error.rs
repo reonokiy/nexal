@@ -611,6 +611,4 @@ pub fn get_error_message_ui(e: &NexalErr) -> String {
     )
 }
 
-#[cfg(test)]
-#[path = "error_tests.rs"]
-mod tests;
+

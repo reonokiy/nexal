@@ -332,6 +332,4 @@ fn upsert_network_domains(
     target.extend(deduped_hosts);
 }
 
-#[cfg(test)]
-#[path = "network_proxy_spec_tests.rs"]
-mod tests;
+

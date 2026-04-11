@@ -41,7 +41,6 @@ nexal-utils-pty = { workspace = true }
 nexal-file-search = { workspace = true }
 nexal-protocol = { workspace = true }
 nexal-app-server-protocol = { workspace = true }
-nexal-feedback = { workspace = true }
 nexal-rmcp-client = { workspace = true }
 nexal-sandboxing = { workspace = true }
 nexal-rollout-state = { workspace = true }

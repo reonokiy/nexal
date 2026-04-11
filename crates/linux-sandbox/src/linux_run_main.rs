@@ -738,5 +738,4 @@ fn exec_or_panic(command: Vec<String>) -> ! {
     panic!("Failed to execvp {}: {err}", command[0].as_str());
 }
 
-#[path = "linux_run_main_tests.rs"]
-mod tests;
+

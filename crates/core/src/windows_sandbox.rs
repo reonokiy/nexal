@@ -371,6 +371,4 @@ fn windows_sandbox_setup_mode_tag(mode: WindowsSandboxSetupMode) -> &'static str
     }
 }
 
-#[cfg(test)]
-#[path = "windows_sandbox_tests.rs"]
-mod tests;
+

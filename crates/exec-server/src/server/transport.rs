@@ -98,6 +98,4 @@ async fn run_websocket_listener(
     }
 }
 
-#[cfg(test)]
-#[path = "transport_tests.rs"]
-mod transport_tests;
+

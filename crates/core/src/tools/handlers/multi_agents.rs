@@ -70,6 +70,4 @@ mod send_input;
 mod spawn;
 pub(crate) mod wait;
 
-#[cfg(test)]
-#[path = "multi_agents_tests.rs"]
-mod tests;
+

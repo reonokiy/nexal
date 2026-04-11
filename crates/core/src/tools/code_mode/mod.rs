@@ -284,7 +284,7 @@ fn enabled_tool_from_spec(spec: ToolSpec) -> Option<nexal_code_mode::ToolDefinit
 }
 
 async fn build_nested_router(exec: &ExecContext) -> ToolRouter {
-    let nested_tools_config = exec.turn.tools_config.for_code_mode_nested_tools();
+    let nested_tools_config = exec.turn.tools_config.clone();
     let mcp_tools = exec
         .session
         .services

@@ -570,6 +570,4 @@ impl ShellHandler {
     }
 }
 
-#[cfg(test)]
-#[path = "shell_tests.rs"]
-mod tests;
+

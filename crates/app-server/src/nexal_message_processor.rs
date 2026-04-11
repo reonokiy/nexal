@@ -46,8 +46,6 @@ use nexal_app_server_protocol::ExperimentalFeature as ApiExperimentalFeature;
 use nexal_app_server_protocol::ExperimentalFeatureListParams;
 use nexal_app_server_protocol::ExperimentalFeatureListResponse;
 use nexal_app_server_protocol::ExperimentalFeatureStage as ApiExperimentalFeatureStage;
-use nexal_app_server_protocol::FeedbackUploadParams;
-use nexal_app_server_protocol::FeedbackUploadResponse;
 use nexal_app_server_protocol::FuzzyFileSearchParams;
 use nexal_app_server_protocol::FuzzyFileSearchResponse;
 use nexal_app_server_protocol::FuzzyFileSearchSessionStartParams;
@@ -219,7 +217,6 @@ use nexal_core::windows_sandbox::WindowsSandboxSetupRequest;
 use nexal_features::FEATURES;
 use nexal_features::Feature;
 use nexal_features::Stage;
-use nexal_feedback::NexalFeedback;
 use nexal_git_utils::git_diff_to_remote;
 use nexal_protocol::ThreadId;
 use nexal_protocol::config_types::CollaborationMode;
@@ -337,7 +334,6 @@ pub(crate) struct NexalMessageProcessor {
     pending_fuzzy_searches: Arc<Mutex<HashMap<String, Arc<AtomicBool>>>>,
     fuzzy_search_sessions: Arc<Mutex<HashMap<String, FuzzyFileSearchSession>>>,
     background_tasks: TaskTracker,
-    feedback: NexalFeedback,
     log_db: Option<LogDbLayer>,
 }
 
@@ -375,7 +371,6 @@ pub(crate) struct NexalMessageProcessorArgs {
     pub(crate) cli_overrides: Arc<RwLock<Vec<(String, TomlValue)>>>,
     pub(crate) runtime_feature_enablement: Arc<RwLock<BTreeMap<String, bool>>>,
     pub(crate) cloud_requirements: Arc<RwLock<CloudRequirementsLoader>>,
-    pub(crate) feedback: NexalFeedback,
     pub(crate) log_db: Option<LogDbLayer>,
 }
 
@@ -426,7 +421,6 @@ impl NexalMessageProcessor {
             cli_overrides,
             runtime_feature_enablement,
             cloud_requirements,
-            feedback,
             log_db,
         } = args;
         Self {
@@ -445,7 +439,6 @@ impl NexalMessageProcessor {
             pending_fuzzy_searches: Arc::new(Mutex::new(HashMap::new())),
             fuzzy_search_sessions: Arc::new(Mutex::new(HashMap::new())),
             background_tasks: TaskTracker::new(),
-            feedback,
             log_db,
         }
     }
@@ -866,10 +859,6 @@ impl NexalMessageProcessor {
                 params: _,
             } => {
                 self.get_account_rate_limits(to_connection_request_id(request_id))
-                    .await;
-            }
-            ClientRequest::FeedbackUpload { request_id, params } => {
-                self.upload_feedback(to_connection_request_id(request_id), params)
                     .await;
             }
         }
@@ -6203,123 +6192,6 @@ impl NexalMessageProcessor {
             .await;
     }
 
-    async fn upload_feedback(&self, request_id: ConnectionRequestId, params: FeedbackUploadParams) {
-        if !self.config.feedback_enabled {
-            let error = JSONRPCErrorError {
-                code: INVALID_REQUEST_ERROR_CODE,
-                message: "sending feedback is disabled by configuration".to_string(),
-                data: None,
-            };
-            self.outgoing.send_error(request_id, error).await;
-            return;
-        }
-
-        let FeedbackUploadParams {
-            classification,
-            reason,
-            thread_id,
-            include_logs,
-            extra_log_files,
-        } = params;
-
-        let conversation_id = match thread_id.as_deref() {
-            Some(thread_id) => match ThreadId::from_string(thread_id) {
-                Ok(conversation_id) => Some(conversation_id),
-                Err(err) => {
-                    let error = JSONRPCErrorError {
-                        code: INVALID_REQUEST_ERROR_CODE,
-                        message: format!("invalid thread id: {err}"),
-                        data: None,
-                    };
-                    self.outgoing.send_error(request_id, error).await;
-                    return;
-                }
-            },
-            None => None,
-        };
-
-        let snapshot = self.feedback.snapshot(conversation_id);
-        let thread_id = snapshot.thread_id.clone();
-        let sqlite_feedback_logs = if include_logs {
-            if let Some(log_db) = self.log_db.as_ref() {
-                log_db.flush().await;
-            }
-            let state_db_ctx = get_state_db(&self.config).await;
-            match (state_db_ctx.as_ref(), conversation_id) {
-                (Some(state_db_ctx), Some(conversation_id)) => {
-                    let thread_id_text = conversation_id.to_string();
-                    match state_db_ctx.query_feedback_logs(&thread_id_text).await {
-                        Ok(logs) if logs.is_empty() => None,
-                        Ok(logs) => Some(logs),
-                        Err(err) => {
-                            warn!(
-                                "failed to query feedback logs from sqlite for thread_id={thread_id_text}: {err}"
-                            );
-                            None
-                        }
-                    }
-                }
-                _ => None,
-            }
-        } else {
-            None
-        };
-
-        let validated_rollout_path = if include_logs {
-            match conversation_id {
-                Some(conv_id) => self.resolve_rollout_path(conv_id).await,
-                None => None,
-            }
-        } else {
-            None
-        };
-        let mut attachment_paths = validated_rollout_path.into_iter().collect::<Vec<_>>();
-        if let Some(extra_log_files) = extra_log_files {
-            attachment_paths.extend(extra_log_files);
-        }
-
-        let session_source = self.thread_manager.session_source();
-
-        let upload_result = tokio::task::spawn_blocking(move || {
-            snapshot.upload_feedback(
-                &classification,
-                reason.as_deref(),
-                include_logs,
-                &attachment_paths,
-                Some(session_source),
-                sqlite_feedback_logs,
-            )
-        })
-        .await;
-
-        let upload_result = match upload_result {
-            Ok(result) => result,
-            Err(join_err) => {
-                let error = JSONRPCErrorError {
-                    code: INTERNAL_ERROR_CODE,
-                    message: format!("failed to upload feedback: {join_err}"),
-                    data: None,
-                };
-                self.outgoing.send_error(request_id, error).await;
-                return;
-            }
-        };
-
-        match upload_result {
-            Ok(()) => {
-                let response = FeedbackUploadResponse { thread_id };
-                self.outgoing.send_response(request_id, response).await;
-            }
-            Err(err) => {
-                let error = JSONRPCErrorError {
-                    code: INTERNAL_ERROR_CODE,
-                    message: format!("failed to upload feedback: {err}"),
-                    data: None,
-                };
-                self.outgoing.send_error(request_id, error).await;
-            }
-        }
-    }
 
     async fn windows_sandbox_setup_start(
         &mut self,

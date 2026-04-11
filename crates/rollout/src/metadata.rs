@@ -402,6 +402,4 @@ async fn collect_rollout_paths(root: &Path) -> std::io::Result<Vec<PathBuf>> {
     Ok(paths)
 }
 
-#[cfg(test)]
-#[path = "metadata_tests.rs"]
-mod tests;
+

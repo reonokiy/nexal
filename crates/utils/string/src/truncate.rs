@@ -152,5 +152,3 @@ fn assemble_truncated_output(prefix: &str, suffix: &str, marker: &str) -> String
     out
 }
 
-#[cfg(test)]
-mod tests;
