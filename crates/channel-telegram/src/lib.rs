@@ -211,34 +211,6 @@ impl Channel for TelegramChannel {
 
         Some(TypingHandle::new(cancel))
     }
-
-    async fn send(&self, chat_id: &str, text: &str) -> anyhow::Result<()> {
-        let token = self
-            .ch_config
-            .bot_token
-            .as_ref()
-            .ok_or_else(|| anyhow::anyhow!("TELEGRAM_BOT_TOKEN not set"))?;
-
-        let bot = Bot::new(token);
-        let chat: ChatId = ChatId(
-            chat_id
-                .parse()
-                .map_err(|_| anyhow::anyhow!("invalid chat_id: {chat_id}"))?,
-        );
-
-        let send_result = bot
-            .send_message(chat, text)
-            .parse_mode(teloxide::types::ParseMode::MarkdownV2)
-            .await;
-
-        if send_result.is_err() {
-            bot.send_message(chat, text)
-                .await
-                .map_err(|e| anyhow::anyhow!("telegram send failed: {e}"))?;
-        }
-
-        Ok(())
-    }
 }
 
 

@@ -61,30 +61,6 @@ impl Channel for DiscordChannel {
             .await
             .map_err(|e| anyhow::anyhow!("Discord client error: {e}"))
     }
-
-    async fn send(&self, chat_id: &str, text: &str) -> anyhow::Result<()> {
-        // Note: Discord send requires an active client context.
-        // For the Bot orchestrator, responses are sent by the agent via
-        // skill scripts (exec) rather than this method.
-        // This is a best-effort fallback using the REST API directly.
-        let token = self
-            .ch_config
-            .bot_token
-            .as_ref()
-            .ok_or_else(|| anyhow::anyhow!("DISCORD_BOT_TOKEN not set"))?;
-
-        let http = serenity::http::Http::new(token);
-        let channel_id: u64 = chat_id
-            .parse()
-            .map_err(|_| anyhow::anyhow!("invalid channel_id: {chat_id}"))?;
-
-        serenity::all::ChannelId::new(channel_id)
-            .say(&http, text)
-            .await
-            .map_err(|e| anyhow::anyhow!("discord send failed: {e}"))?;
-
-        Ok(())
-    }
 }
 
 struct DiscordHandler {

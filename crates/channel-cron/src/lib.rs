@@ -108,10 +108,6 @@ impl Channel for CronChannel {
             }
         }
     }
-
-    async fn send(&self, _chat_id: &str, _text: &str) -> anyhow::Result<()> {
-        Ok(())
-    }
 }
 
 /// Check if a job should fire right now.

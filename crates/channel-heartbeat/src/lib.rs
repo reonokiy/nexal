@@ -68,9 +68,4 @@ impl Channel for HeartbeatChannel {
             on_message(msg);
         }
     }
-
-    async fn send(&self, _chat_id: &str, _text: &str) -> anyhow::Result<()> {
-        // Heartbeat responses go through channel skill scripts, not here.
-        Ok(())
-    }
 }

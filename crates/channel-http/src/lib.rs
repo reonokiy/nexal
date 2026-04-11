@@ -127,16 +127,6 @@ impl Channel for HttpChannel {
 
         Ok(())
     }
-
-    async fn send(&self, chat_id: &str, text: &str) -> anyhow::Result<()> {
-        let mut outbox = self.outbox.lock().await;
-        outbox
-            .entry(chat_id.to_string())
-            .or_default()
-            .push(text.to_string());
-        info!("http send to {chat_id}: {text}");
-        Ok(())
-    }
 }
 
 async fn handle_send(

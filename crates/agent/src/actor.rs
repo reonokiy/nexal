@@ -42,20 +42,20 @@ pub enum AgentMessage {
 }
 
 /// Response events emitted by an agent actor.
+///
+/// Note: there is no `Response { text }` variant because the agent **never**
+/// replies through this event stream — every channel's reply path runs
+/// inside the sandbox container as a skill script that POSTs to a host-side
+/// Unix-socket proxy. The bot event consumer only watches these events to
+/// drive UI side effects (typing indicators, error logging).
 #[derive(Debug, Clone)]
 pub enum AgentEvent {
-    /// Agent produced text response (split into chunks).
-    Response {
-        session_key: String,
-        chunks: Vec<String>,
-        thread_id: String,
-    },
     /// Agent encountered an error.
     Error {
         session_key: String,
         message: String,
     },
-    /// Agent status changed (for dashboard).
+    /// Agent status changed (for dashboard + typing indicators).
     StatusChange {
         session_key: String,
         status: String,
@@ -324,17 +324,9 @@ impl AgentActor {
             );
         }
 
-        // In headless mode, any remaining plain text is not delivered.
-        let chunks = vec![];
-        let _ = event_tx
-            .send(AgentEvent::Response {
-                session_key: self.session_key.clone(),
-                chunks,
-                thread_id: self.thread_id.clone(),
-            })
-            .await;
-
-        // Signal: idle
+        // Agent replies always flow through in-container skill scripts,
+        // never through this event stream. All we need to emit is the
+        // idle transition so the UI can drop the typing indicator.
         let _ = event_tx
             .send(AgentEvent::StatusChange {
                 session_key: self.session_key.clone(),

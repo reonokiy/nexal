@@ -1,7 +1,10 @@
 //! Agent orchestrator — ties channels, debouncing, and the agent pool together.
 //!
-//! Messages flow: Channel → SessionRunner → AgentPool.send() (non-blocking)
-//! Responses flow: AgentPool event stream → Channel.send()
+//! Input:  Channel → SessionRunner (debounce) → AgentPool.send()
+//! Output: agent skill scripts run *inside* the sandbox container and POST
+//!         to a host-side Unix-socket proxy. Replies never flow back through
+//!         this orchestrator; the agent event stream is only used to drive
+//!         UI side effects (typing indicators, status, error logging).
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -82,10 +85,10 @@ impl Agent {
             handles.push(handle);
         }
 
-        // Event consumer — agent sends messages via skill scripts (telegram_send.py etc.)
-        // through the Unix socket proxy. No automatic channel.send() here.
+        // Event consumer — drives UI side effects only (typing indicators,
+        // error logging). Agent replies flow out through skill scripts
+        // inside the sandbox container, not through this stream.
         let pool = Arc::clone(&self.pool);
-        // Build a channel lookup by name so we can call start_typing.
         let channels_by_name: Arc<HashMap<String, Arc<dyn Channel>>> = Arc::new(
             self.channels
                 .iter()
@@ -97,28 +100,6 @@ impl Agent {
         let event_handle = tokio::spawn(async move {
             while let Some(event) = pool.recv_event().await {
                 match event {
-                    AgentEvent::Response { session_key, chunks, .. } => {
-                        tracing::debug!(session = %session_key, "agent turn completed");
-                        typing_handles.lock().await.remove(&session_key);
-
-                        // If the model produced a text response (headless mode fallback),
-                        // auto-send it to the user via the channel. This happens when the
-                        // model gives up on tool calls and writes a text summary.
-                        if !chunks.is_empty() {
-                            if let Some((channel_name, chat_id)) = session_key.split_once(':') {
-                                if let Some(channel) = channels_by_name.get(channel_name) {
-                                    for chunk in &chunks {
-                                        if let Err(e) = channel.send(chat_id, chunk).await {
-                                            tracing::warn!(
-                                                session = %session_key,
-                                                "failed to send fallback text: {e}"
-                                            );
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
                     AgentEvent::Error { session_key, message } => {
                         tracing::error!(session = %session_key, "agent error: {message}");
                         typing_handles.lock().await.remove(&session_key);
@@ -130,18 +111,22 @@ impl Agent {
                             activity = %activity,
                             "agent status changed"
                         );
-                        if status == "working" {
-                            // Start typing indicator
-                            if let Some((channel_name, chat_id)) = session_key.split_once(':') {
-                                if let Some(channel) = channels_by_name.get(channel_name) {
-                                    if let Some(handle) = channel.start_typing(chat_id) {
-                                        typing_handles.lock().await.insert(session_key.clone(), handle);
-                                    }
+                        match status.as_str() {
+                            "working" => {
+                                if let Some(handle) = start_typing_for_session(
+                                    &channels_by_name,
+                                    &session_key,
+                                ) {
+                                    typing_handles
+                                        .lock()
+                                        .await
+                                        .insert(session_key.clone(), handle);
                                 }
                             }
-                        } else if status == "idle" {
-                            // Stop typing indicator
-                            typing_handles.lock().await.remove(&session_key);
+                            "idle" => {
+                                typing_handles.lock().await.remove(&session_key);
+                            }
+                            _ => {}
                         }
                     }
                 }
@@ -156,6 +141,17 @@ impl Agent {
         }
         result.map_err(|e| anyhow::anyhow!("agent task failed: {e}"))
     }
+}
+
+/// Look up the channel that owns `session_key` and ask it for a typing
+/// handle. Returns `None` if the session key is malformed, the channel is
+/// not registered, or the channel does not support typing indicators.
+fn start_typing_for_session(
+    channels_by_name: &HashMap<String, Arc<dyn Channel>>,
+    session_key: &str,
+) -> Option<TypingHandle> {
+    let (channel_name, chat_id) = session_key.split_once(':')?;
+    channels_by_name.get(channel_name)?.start_typing(chat_id)
 }
 
 /// Create a handler that sends messages to the pool (non-blocking).
