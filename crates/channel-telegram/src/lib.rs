@@ -139,6 +139,9 @@ impl Channel for TelegramChannel {
                     if let Some(group_id) = msg.media_group_id() {
                         let group_id = group_id.to_string();
                         let mut groups = media_groups.lock().await;
+                        // Prune stale entries from timers that panicked or were
+                        // aborted (normal completion removes its own entry).
+                        groups.retain(|_, v| !v.timer.is_finished());
                         if let Some(pending) = groups.get_mut(&group_id) {
                             // Add to existing group.
                             pending.messages.push((full_text, images, msg));

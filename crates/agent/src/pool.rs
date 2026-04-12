@@ -107,15 +107,25 @@ impl AgentPool {
 
         // Only the first caller initialises the cell; any concurrent caller
         // for the same key waits here without holding any lock.
-        cell.get_or_try_init(|| async {
-            // Always use in-process client — the agent core runs on the host,
-            // only exec commands go to the Podman container (via NEXAL_SANDBOX).
-            info!("creating new agent session for {key}");
-            let actor = self.create_inprocess_actor(key, msg).await?;
-            Ok::<AgentHandle, anyhow::Error>(actor.spawn(self.event_tx.clone()))
-        })
-        .await
-        .map(AgentHandle::clone)
+        let result = cell
+            .get_or_try_init(|| async {
+                // Always use in-process client — the agent core runs on the host,
+                // only exec commands go to the Podman container (via NEXAL_SANDBOX).
+                info!("creating new agent session for {key}");
+                let actor = self.create_inprocess_actor(key, msg).await?;
+                Ok::<AgentHandle, anyhow::Error>(actor.spawn(self.event_tx.clone()))
+            })
+            .await;
+
+        if result.is_err() {
+            // Remove the empty OnceCell so the next caller gets a fresh attempt
+            // rather than letting failed cells accumulate in the map.
+            // Use remove_if with pointer equality so we don't evict a replacement
+            // cell that a concurrent caller may have already inserted.
+            self.sessions.remove_if(key, |_, v| Arc::ptr_eq(v, &cell));
+        }
+
+        result.map(AgentHandle::clone)
     }
 
     async fn create_inprocess_actor(
