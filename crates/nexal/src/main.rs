@@ -244,20 +244,12 @@ async fn run_tui(enable_telegram: bool, enable_discord: bool, enable_http: bool,
     });
     let _sync_handle = nexal_agent::db_sync::start_sync(Arc::clone(&db), &nexal_home);
 
-    // Start token proxies (Unix sockets for Telegram/Discord API access).
-    // Tokens stay on the host; container connects via socket.
-    let tg_token = nexal_channel_telegram::config::TelegramChannelConfig::from_nexal_config(&config).bot_token;
-    let dc_token = nexal_channel_discord::config::DiscordChannelConfig::from_nexal_config(&config).bot_token;
-    let _proxy_handles = nexal_agent::proxy::start_proxies(
-        &config.workspace,
-        tg_token.as_deref(),
-        dc_token.as_deref(),
-    )
-    .await;
-
     // Create a persistent Podman container for this session.
-    // All exec commands run inside this container.
+    // All exec commands run inside this container. API proxy sockets are
+    // registered via exec-server so tokens stay on the host while the
+    // container-side skill scripts talk to a local Unix socket.
     let sandbox = create_sandbox_container(&config).await?;
+    register_sandbox_proxies(&sandbox, &config).await;
 
     // Build TUI CLI with nexal defaults
     let mut tui_cli = TuiCli::parse_from(["nexal"]);
@@ -392,12 +384,28 @@ fn short_id() -> String {
     id
 }
 
-/// Podman sandbox is enabled by default. Disable via config: sandbox = "none"
-/// Register API proxy sockets inside the container via exec-server.
-async fn register_container_proxies(
-    client: &nexal_exec_server::ExecServerClient,
-    config: &NexalConfig,
-) {
+/// Register all configured API proxy sockets inside the sandbox container
+/// via exec-server. The exec-server creates Unix sockets at
+/// `/workspace/agents/proxy/<host>` inside the container, forwards incoming
+/// requests to the real upstream API, and injects auth tokens that never
+/// leave the host. No bind mounts, no host-side proxy process.
+///
+/// This is the single unified proxy startup path — both `run_tui` and
+/// `run_idle` call it right after `create_sandbox_container`. Channels
+/// inside the container POST to the sockets via skill scripts.
+async fn register_sandbox_proxies(sandbox: &SandboxHandle, config: &NexalConfig) {
+    let Some(env_mgr) = sandbox.environment_manager.as_ref() else {
+        return;
+    };
+    let Ok(env) = env_mgr.current().await else {
+        tracing::warn!("exec-server environment unavailable; skipping proxy registration");
+        return;
+    };
+    let Some(client) = env.exec_server_client() else {
+        tracing::warn!("no exec-server client on environment; skipping proxy registration");
+        return;
+    };
+
     use std::collections::HashMap;
 
     let tg_token = nexal_channel_telegram::config::TelegramChannelConfig::from_nexal_config(config).bot_token;
@@ -943,17 +951,7 @@ async fn run_idle(args: IdleArgs, config: Arc<NexalConfig>) -> anyhow::Result<()
 
     // Create Podman sandbox container.
     let sandbox = create_sandbox_container(&config).await?;
-
-    // Register API proxies inside the container via exec-server.
-    // The exec-server creates Unix sockets and forwards requests to upstream APIs,
-    // injecting auth tokens. No bind mount needed.
-    if let Some(ref env_mgr) = sandbox.environment_manager {
-        if let Ok(env) = env_mgr.current().await {
-            if let Some(client) = env.exec_server_client() {
-                register_container_proxies(client, &config).await;
-            }
-        }
-    }
+    register_sandbox_proxies(&sandbox, &config).await;
 
     // Start the state signal socket for push-based BUSY→IDLE transitions.
     // Tool scripts (telegram_send, no_response, etc.) connect to this socket

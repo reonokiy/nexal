@@ -3,7 +3,6 @@ mod agent;
 pub mod db_proxy;
 pub mod db_sync;
 mod pool;
-pub mod proxy;
 mod runner;
 pub mod signal;
 pub mod skills;

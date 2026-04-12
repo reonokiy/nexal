@@ -37,10 +37,7 @@ pub struct AgentPool {
 
 impl AgentPool {
     pub fn new(config: Arc<NexalConfig>) -> Self {
-        info!(
-            "agent pool using sandbox backend: {}",
-            config.sandbox_backend()
-        );
+        info!("agent pool created");
         let (event_tx, event_rx) = mpsc::channel(256);
         Self {
             config,

@@ -84,8 +84,9 @@ pub struct NexalConfig {
     /// Active conversation window (seconds)
     pub active_window_secs: f64,
 
-    /// Sandbox backend: "podman" (default)
-    pub sandbox: String,
+    // ── Sandbox container settings ──
+    // Nexal always runs in a Podman container; there is no pluggable
+    // backend. These fields configure the single container.
     /// Podman container image
     pub sandbox_image: String,
     /// OCI runtime override (e.g. crun, kata)
@@ -173,7 +174,6 @@ impl Default for NexalConfig {
             debounce_secs: 1.0,
             message_delay_secs: 10.0,
             active_window_secs: 60.0,
-            sandbox: "podman".to_string(),
             sandbox_image: "ghcr.io/reonokiy/nexal-sandbox:python3.13-debian13".to_string(),
             sandbox_runtime: None,
             sandbox_memory: "512m".to_string(),
@@ -263,10 +263,6 @@ impl NexalConfig {
             let path = self.workspace.join("agents").join("nexal.db");
             format!("sqlite://{}", path.display())
         })
-    }
-
-    pub fn sandbox_backend(&self) -> &'static str {
-        "podman"
     }
 
     /// Load the user's persona ("SOUL"). If `SOUL.md` does not yet exist it
@@ -360,10 +356,9 @@ mod tests {
     #[test]
     fn default_config_has_sane_values() {
         let cfg = NexalConfig::default();
-        assert_eq!(cfg.sandbox, "podman");
+        assert_eq!(cfg.sandbox_image, "ghcr.io/reonokiy/nexal-sandbox:python3.13-debian13");
         assert_eq!(cfg.debounce_secs, 1.0);
         assert!(cfg.providers.is_empty());
-        assert_eq!(cfg.sandbox_backend(), "podman");
     }
 
     fn config_with_workspace(workspace: PathBuf) -> NexalConfig {
