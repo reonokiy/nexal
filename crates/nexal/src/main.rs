@@ -369,21 +369,12 @@ fn init_tracing_to_file(workspace_dir: &std::path::Path) {
 
 /// Generate a short random ID (8 lowercase alphanumeric chars).
 pub(crate) fn short_id() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let seed = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos() as u64
-        ^ std::process::id() as u64;
-    let mut n = seed;
+    use rand::Rng;
     let alphabet = b"0123456789abcdefghijklmnopqrstuvwxyz";
-    let mut id = String::with_capacity(8);
-    for _ in 0..8 {
-        id.push(alphabet[(n % 36) as usize] as char);
-        n /= 36;
-        n ^= n.wrapping_mul(6364136223846793005);
-    }
-    id
+    let mut rng = rand::rng();
+    (0..8)
+        .map(|_| alphabet[rng.random_range(0..36)] as char)
+        .collect()
 }
 
 /// Register all configured API proxy sockets inside the sandbox container

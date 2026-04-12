@@ -574,7 +574,10 @@ fn write_agent_status(config: &NexalConfig, status: &str, activity: &str) {
     } else {
         format!("{status}: {activity}")
     };
-    let _ = std::fs::write(state_file, content);
+    // Fire-and-forget on the blocking threadpool so the tokio worker is not stalled.
+    tokio::task::spawn_blocking(move || {
+        let _ = std::fs::write(state_file, content);
+    });
 }
 
 /// Truncate `s` to at most `max_chars` Unicode characters, appending `...`

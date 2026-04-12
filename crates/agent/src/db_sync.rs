@@ -63,7 +63,10 @@ pub fn start_sync(db: Arc<StateDb>, nexal_home: &Path) -> tokio::task::JoinHandl
             if let Ok(new_content) = std::str::from_utf8(&new_bytes) {
                 sync_jsonl_to_db(&db, new_content).await;
             }
-            last_offset = size;
+            // Advance by the number of bytes actually read, not the pre-read
+            // file size, to avoid re-processing bytes written between the
+            // metadata() call and read_to_end().
+            last_offset += new_bytes.len() as u64;
         }
     })
 }
