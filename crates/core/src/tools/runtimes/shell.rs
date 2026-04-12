@@ -223,16 +223,8 @@ impl ToolRuntime<ShellRequest, ExecToolCallOutput> for ShellRuntime {
     ) -> Result<ExecToolCallOutput, ToolError> {
         // When running in Podman container, pass raw command — no host shell wrapping.
         // The sandbox transform will wrap with `podman exec ... bash -c "cmd"`.
-        let command = if nexal_config::sandbox::SandboxState::is_active() {
-            req.command.clone()
-        } else {
-            let session_shell = ctx.session.user_shell();
-            if matches!(session_shell.shell_type, ShellType::PowerShell) {
-                prefix_powershell_script_with_utf8(&req.command)
-            } else {
-                req.command.clone()
-            }
-        };
+        // Podman mode: pass raw command, no host shell wrapping.
+        let command = req.command.clone();
 
         if self.backend == ShellRuntimeBackend::ShellCommandZshFork {
             match zsh_fork_backend::maybe_run_shell_command(req, attempt, ctx, &command).await? {

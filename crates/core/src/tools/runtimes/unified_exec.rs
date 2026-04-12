@@ -203,17 +203,8 @@ impl<'a> ToolRuntime<UnifiedExecRequest, UnifiedExecProcess> for UnifiedExecRunt
     ) -> Result<UnifiedExecProcess, ToolError> {
         let base_command = &req.command;
 
-        let command = if nexal_config::sandbox::SandboxState::is_active() {
-            // Podman mode: pass raw command, no host shell wrapping.
-            base_command.clone()
-        } else {
-            let session_shell = ctx.session.user_shell();
-            if matches!(session_shell.shell_type, ShellType::PowerShell) {
-                prefix_powershell_script_with_utf8(base_command)
-            } else {
-                base_command.clone()
-            }
-        };
+        // Podman mode: pass raw command, no host shell wrapping.
+        let command = base_command.clone();
 
         let mut env = req.env.clone();
         if let Some(network) = req.network.as_ref() {

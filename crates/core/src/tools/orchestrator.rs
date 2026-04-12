@@ -180,11 +180,7 @@ impl ToolOrchestrator {
             .is_some();
         let initial_sandbox = match tool.sandbox_mode_for_first_attempt(req) {
             SandboxOverride::BypassSandboxFirstAttempt => {
-                if nexal_config::sandbox::SandboxState::is_active() {
-                    SandboxType::Podman
-                } else {
-                    SandboxType::None
-                }
+                SandboxType::Podman
             }
             SandboxOverride::NoOverride => self.sandbox.select_initial(
                 &turn_ctx.file_system_sandbox_policy,
@@ -322,11 +318,7 @@ impl ToolOrchestrator {
                     }
                 }
 
-                let escalated_sandbox = if nexal_config::sandbox::SandboxState::is_active() {
-                    SandboxType::Podman
-                } else {
-                    SandboxType::None
-                };
+                let escalated_sandbox = SandboxType::Podman;
                 let escalated_attempt = SandboxAttempt {
                     sandbox: escalated_sandbox,
                     policy: &turn_ctx.sandbox_policy,

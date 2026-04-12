@@ -455,15 +455,12 @@ impl ChatWidget {
             }
             StatusLineItem::CurrentDir => {
                 let cwd_path = self.status_line_cwd();
-                let dir = if let Some(container) = nexal_config::sandbox::SandboxState::container_name() {
-                    let state_file = cwd_path.join("agents").join(".sandbox_cwd");
-                    let sandbox_cwd = std::fs::read_to_string(state_file)
-                        .map(|s| s.trim().to_string())
-                        .unwrap_or_else(|_| "/workspace".to_string());
-                    format!("{container}:{sandbox_cwd}")
-                } else {
-                    format_directory_display(cwd_path, /*max_width*/ None)
-                };
+                let container = nexal_config::sandbox::SandboxState::container_name();
+                let state_file = cwd_path.join("agents").join(".sandbox_cwd");
+                let sandbox_cwd = std::fs::read_to_string(state_file)
+                    .map(|s| s.trim().to_string())
+                    .unwrap_or_else(|_| "/workspace".to_string());
+                let dir = format!("{container}:{sandbox_cwd}");
 
                 let status_file = cwd_path.join("agents").join(".agent_status");
                 let agent_status = std::fs::read_to_string(status_file)

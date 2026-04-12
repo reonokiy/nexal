@@ -75,22 +75,9 @@ pub fn assess_patch_safety(
             // Only auto‑approve when we can actually enforce a sandbox. Otherwise
             // fall back to asking the user because the patch may touch arbitrary
             // paths outside the project.
-            match get_platform_sandbox() {
-                Some(sandbox_type) => SafetyCheck::AutoApprove {
-                    sandbox_type,
-                    user_explicitly_approved: false,
-                },
-                None => {
-                    if rejects_sandbox_approval {
-                        SafetyCheck::Reject {
-                            reason:
-                                "writing outside of the project; rejected by user approval settings"
-                                    .to_string(),
-                        }
-                    } else {
-                        SafetyCheck::AskUser
-                    }
-                }
+            SafetyCheck::AutoApprove {
+                sandbox_type: get_platform_sandbox(),
+                user_explicitly_approved: false,
             }
         }
     } else if rejects_sandbox_approval {

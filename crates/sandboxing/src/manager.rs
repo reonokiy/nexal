@@ -39,12 +39,8 @@ pub enum SandboxablePreference {
     Forbid,
 }
 
-pub fn get_platform_sandbox() -> Option<SandboxType> {
-    if nexal_config::sandbox::SandboxState::is_active() {
-        Some(SandboxType::Podman)
-    } else {
-        None
-    }
+pub fn get_platform_sandbox() -> SandboxType {
+    SandboxType::Podman
 }
 
 #[derive(Debug)]
@@ -119,29 +115,9 @@ impl SandboxManager {
         pref: SandboxablePreference,
         has_managed_network_requirements: bool,
     ) -> SandboxType {
-        // When NEXAL_SANDBOX=podman is explicitly set, always use Podman
-        // regardless of policy (the container IS the sandbox).
-        if nexal_config::sandbox::SandboxState::is_active() {
-            return SandboxType::Podman;
-        }
-
-        match pref {
-            SandboxablePreference::Forbid => SandboxType::None,
-            SandboxablePreference::Require => {
-                get_platform_sandbox().unwrap_or(SandboxType::None)
-            }
-            SandboxablePreference::Auto => {
-                if should_require_platform_sandbox(
-                    file_system_policy,
-                    network_policy,
-                    has_managed_network_requirements,
-                ) {
-                    get_platform_sandbox().unwrap_or(SandboxType::None)
-                } else {
-                    SandboxType::None
-                }
-            }
-        }
+        // The container IS the sandbox — tool preferences don't change this.
+        let _ = (file_system_policy, network_policy, pref, has_managed_network_requirements);
+        SandboxType::Podman
     }
 
     pub fn transform(
@@ -202,11 +178,11 @@ impl SandboxManager {
                 )
             }
             SandboxType::Podman => {
-                // Use a persistent container via `podman exec`.
-                // The container must be pre-created and its name stored in
-                // NEXAL_SANDBOX_CONTAINER.  If the env var is missing, fall
-                // back to an ephemeral `podman run --rm`.
-                if let Some(container) = nexal_config::sandbox::SandboxState::container_name() {
+                // Use the persistent container via `podman exec`. The
+                // container is pre-created by create_sandbox_container()
+                // and its name is stored in SandboxState.
+                {
+                    let container = nexal_config::sandbox::SandboxState::container_name();
                     let container_cwd = map_host_to_container_cwd(&command.cwd);
 
                     // Extract the actual command to run.
@@ -231,33 +207,6 @@ impl SandboxManager {
                         cmd = %raw_cmd,
                         "podman exec sandbox"
                     );
-                    (podman_argv, None)
-                } else {
-                    // Fallback: ephemeral container per command
-                    let image = std::env::var("SANDBOX_IMAGE")
-                        .unwrap_or_else(|_| "ghcr.io/reonokiy/nexal-sandbox:python3.13-debian13".to_string());
-                    let workspace_dir = command.cwd.to_string_lossy().to_string();
-                    let network = if !effective_network_policy.is_enabled() {
-                        "none"
-                    } else {
-                        "pasta"
-                    };
-                    let mut podman_argv = vec![
-                        "podman".to_string(),
-                        "run".to_string(),
-                        "--rm".to_string(),
-                        "--userns=keep-id".to_string(),
-                        "--security-opt".to_string(),
-                        "no-new-privileges".to_string(),
-                        "--cap-drop=ALL".to_string(),
-                        format!("--network={network}"),
-                        "-v".to_string(),
-                        format!("{workspace_dir}:/workspace"),
-                        "-w".to_string(),
-                        "/workspace".to_string(),
-                        image,
-                    ];
-                    podman_argv.extend(argv);
                     (podman_argv, None)
                 }
             }

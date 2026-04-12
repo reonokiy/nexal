@@ -1343,28 +1343,19 @@ impl HistoryCell for SessionHeaderHistoryCell {
             spans
         };
 
-        let (sandbox_spans, cwd_spans) =
-            if let Some(container) = nexal_config::sandbox::SandboxState::container_name() {
-                let cwd_state = self.directory.join("agents").join(".sandbox_cwd");
-                let sandbox_cwd = std::fs::read_to_string(cwd_state)
-                    .map(|s| s.trim().to_string())
-                    .unwrap_or_else(|_| "/workspace".to_string());
-                let sandbox_label = format!("{:<LABEL_WIDTH$}", "sandbox:");
-                let cwd_label = format!("{:<LABEL_WIDTH$}", "cwd:");
-                (
-                    vec![Span::from(format!("{sandbox_label} ")).dim(), Span::from(container)],
-                    vec![Span::from(format!("{cwd_label} ")).dim(), Span::from(sandbox_cwd)],
-                )
-            } else {
-                let dir_label = format!("{:<LABEL_WIDTH$}", "cwd:");
-                let dir_prefix_width = UnicodeWidthStr::width(dir_label.as_str()) + 1;
-                let dir_max_width = inner_width.saturating_sub(dir_prefix_width);
-                let dir = self.format_directory(Some(dir_max_width));
-                (
-                    Vec::new(),
-                    vec![Span::from(format!("{dir_label} ")).dim(), Span::from(dir)],
-                )
-            };
+        let (sandbox_spans, cwd_spans) = {
+            let container = nexal_config::sandbox::SandboxState::container_name();
+            let cwd_state = self.directory.join("agents").join(".sandbox_cwd");
+            let sandbox_cwd = std::fs::read_to_string(cwd_state)
+                .map(|s| s.trim().to_string())
+                .unwrap_or_else(|_| "/workspace".to_string());
+            let sandbox_label = format!("{:<LABEL_WIDTH$}", "sandbox:");
+            let cwd_label = format!("{:<LABEL_WIDTH$}", "cwd:");
+            (
+                vec![Span::from(format!("{sandbox_label} ")).dim(), Span::from(container.to_string())],
+                vec![Span::from(format!("{cwd_label} ")).dim(), Span::from(sandbox_cwd)],
+            )
+        };
 
         let mut lines = vec![
             make_row(title_spans),

@@ -1,10 +1,14 @@
 //! Global sandbox state — set once at startup, read everywhere.
+//!
+//! Nexal always runs inside a Podman container. There is no pluggable
+//! backend and no "sandbox off" mode. This module stores the container
+//! name (set once on startup) and exposes it for the exec layer.
 
 use std::sync::OnceLock;
 
 static SANDBOX: OnceLock<SandboxState> = OnceLock::new();
 
-/// Runtime sandbox configuration.
+/// Runtime sandbox state: just the container name.
 #[derive(Debug, Clone)]
 pub struct SandboxState {
     /// Container name (e.g. "nexal-abc123").
@@ -24,13 +28,8 @@ impl SandboxState {
         })
     }
 
-    /// Sandbox is always active (Podman container always created).
-    pub fn is_active() -> bool {
-        true
-    }
-
-    /// Get the container name.
-    pub fn container_name() -> Option<&'static str> {
-        Some(&Self::get().container)
+    /// Get the container name. Always available (Podman is always on).
+    pub fn container_name() -> &'static str {
+        &Self::get().container
     }
 }

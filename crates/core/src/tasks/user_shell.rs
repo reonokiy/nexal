@@ -155,20 +155,11 @@ pub(crate) async fn execute_user_shell_command(
     //   !cmd    — run in subshell, do NOT change persistent cwd
     //   %cd dir — change persistent cwd without running a command
     //   cmd     — run and persist new cwd afterward
-    let (sandbox_type, final_command) = if nexal_config::sandbox::SandboxState::is_active() {
-        if let Some(container) = nexal_config::sandbox::SandboxState::container_name() {
-            let saved_cwd = read_sandbox_cwd(&cwd);
-            let podman_cmd = build_podman_command(
-                &container,
-                &saved_cwd,
-                &raw_command,
-            );
-            (SandboxType::None, podman_cmd)
-        } else {
-            (SandboxType::None, exec_command.clone())
-        }
-    } else {
-        (SandboxType::None, exec_command.clone())
+    let (sandbox_type, final_command) = {
+        let container = nexal_config::sandbox::SandboxState::container_name();
+        let saved_cwd = read_sandbox_cwd(&cwd);
+        let podman_cmd = build_podman_command(container, &saved_cwd, &raw_command);
+        (SandboxType::None, podman_cmd)
     };
 
     let exec_env = ExecRequest {

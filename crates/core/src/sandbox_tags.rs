@@ -10,7 +10,5 @@ pub(crate) fn sandbox_tag(policy: &SandboxPolicy) -> &'static str {
         return "external";
     }
 
-    get_platform_sandbox()
-        .map(SandboxType::as_metric_tag)
-        .unwrap_or("none")
+    get_platform_sandbox().as_metric_tag()
 }
