@@ -90,6 +90,9 @@ struct DrainResult {
     had_response_action: bool,
     /// True if the turn was interrupted by an `AgentMessage::Interrupt`.
     interrupted: bool,
+    /// Messages that arrived while the turn was active and could not be
+    /// processed in-place. The caller should replay these after the turn.
+    buffered: Vec<AgentMessage>,
 }
 
 /// A running agent actor.
@@ -159,7 +162,21 @@ impl AgentActor {
     ) {
         info!(session = %self.session_key, "agent actor started");
 
-        while let Some(msg) = inbox.recv().await {
+        // Messages that arrived while a turn was active are buffered here
+        // and replayed before pulling the next message from inbox.
+        let mut lookahead: std::collections::VecDeque<AgentMessage> =
+            std::collections::VecDeque::new();
+
+        loop {
+            let msg = if let Some(queued) = lookahead.pop_front() {
+                queued
+            } else {
+                match inbox.recv().await {
+                    Some(m) => m,
+                    None => break,
+                }
+            };
+
             match msg {
                 AgentMessage::UserInput {
                     text,
@@ -169,8 +186,10 @@ impl AgentActor {
                     metadata,
                     images,
                 } => {
-                    self.handle_input(text, sender, channel, chat_id, metadata, images, &mut inbox, &event_tx)
+                    let buffered = self
+                        .handle_input(text, sender, channel, chat_id, metadata, images, &mut inbox, &event_tx)
                         .await;
+                    lookahead.extend(buffered);
                 }
                 AgentMessage::Interrupt => {
                     // No active turn — nothing to interrupt.
@@ -185,6 +204,8 @@ impl AgentActor {
     }
 
     /// Process a user input: start a turn, drain events, emit response.
+    /// Returns any `AgentMessage`s that arrived while a turn was active and
+    /// could not be processed in-place. The caller should replay them.
     async fn handle_input(
         &mut self,
         text: String,
@@ -195,7 +216,7 @@ impl AgentActor {
         images: Vec<nexal_channel_core::ImageAttachment>,
         inbox: &mut mpsc::Receiver<AgentMessage>,
         event_tx: &mpsc::Sender<AgentEvent>,
-    ) {
+    ) -> Vec<AgentMessage> {
         let prompt_text = render_channel_context(&text, &sender, &channel, &chat_id, &metadata);
         info!(
             session = %self.session_key,
@@ -241,7 +262,7 @@ impl AgentActor {
                         message: format!("turn/start: {e}"),
                     })
                     .await;
-                return;
+                return Vec::new();
             }
         };
 
@@ -254,6 +275,7 @@ impl AgentActor {
 
         // Drain events until turn completes
         let mut result = self.drain_turn(inbox, &turn_id).await;
+        let mut all_buffered = result.buffered;
 
         if result.interrupted {
             let _ = event_tx
@@ -264,7 +286,7 @@ impl AgentActor {
                 })
                 .await;
             write_agent_status(&self.config, "idle", "");
-            return;
+            return all_buffered;
         }
 
         // ── Response-action state machine ──
@@ -324,6 +346,7 @@ impl AgentActor {
                 Ok(resp) => {
                     let nudge_turn_id = resp.turn.id.clone();
                     result = self.drain_turn(inbox, &nudge_turn_id).await;
+                    all_buffered.extend(result.buffered.drain(..));
                     if result.interrupted {
                         break;
                     }
@@ -355,6 +378,7 @@ impl AgentActor {
             })
             .await;
         write_agent_status(&self.config, "idle", "");
+        all_buffered
     }
 
     /// Drain the event stream until `TurnCompleted`, `Error`, or an interrupt.
@@ -373,6 +397,7 @@ impl AgentActor {
         let mut had_any_tool_call = false;
         let mut had_response_action = false;
         let mut interrupted = false;
+        let mut buffered: Vec<AgentMessage> = Vec::new();
         let thread_id = &self.thread_id;
 
         // Timeout to avoid hanging forever if API silently fails
@@ -515,13 +540,14 @@ impl AgentActor {
                             interrupted = true;
                             break;
                         }
-                        Some(_) => {
-                            // Other messages (e.g. UserInput) cannot be processed
-                            // mid-turn; drop them.
-                            warn!(
+                        Some(msg) => {
+                            // Buffer UserInput that arrived mid-turn; the run
+                            // loop will replay them once the turn finishes.
+                            debug!(
                                 session = %self.session_key,
-                                "dropped message received during active turn"
+                                "buffering message received during active turn"
                             );
+                            buffered.push(msg);
                         }
                         None => break,
                     }
@@ -534,6 +560,7 @@ impl AgentActor {
             had_tool_call: had_any_tool_call,
             had_response_action,
             interrupted,
+            buffered,
         }
     }
 }
