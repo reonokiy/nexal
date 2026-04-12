@@ -149,18 +149,11 @@ pub(crate) async fn execute_user_shell_command(
 
     let sandbox_policy = SandboxPolicy::DangerFullAccess;
 
-    // When NEXAL_SANDBOX=podman, wrap the command with `podman exec`.
-    //
-    // Jupyter-style prefixes:
-    //   !cmd    — run in subshell, do NOT change persistent cwd
-    //   %cd dir — change persistent cwd without running a command
-    //   cmd     — run and persist new cwd afterward
-    let (sandbox_type, final_command) = {
-        let container = nexal_config::sandbox::SandboxState::container_name();
-        let saved_cwd = read_sandbox_cwd(&cwd);
-        let podman_cmd = build_podman_command(container, &saved_cwd, &raw_command);
-        (SandboxType::None, podman_cmd)
-    };
+    // The command runs inside the Podman container via exec-server.
+    // The sandbox transform remaps the cwd to /workspace and the
+    // exec-server executes the command directly.
+    let sandbox_type = SandboxType::Podman;
+    let final_command = exec_command.clone();
 
     let exec_env = ExecRequest {
         command: final_command,
@@ -190,6 +183,7 @@ pub(crate) async fn execute_user_shell_command(
         &sandbox_policy,
         stdout_stream,
         /*after_spawn*/ None,
+        Some(&turn_context.environment),
     )
     .or_cancel(&cancellation_token)
     .await;
@@ -355,53 +349,3 @@ async fn persist_user_shell_output(
             .await;
     }
 }
-
-/// Map a host-side path to the container-side /workspace path.
-/// Build the podman exec command for a `!` shell command.
-///
-/// Shell commands (`!cmd`) run in the saved cwd but do NOT persist
-/// cwd changes — each command is effectively a subshell.
-/// Persistent cwd is only changed by `%cd` (handled at the TUI layer).
-fn build_podman_command(
-    container: &str,
-    saved_cwd: &str,
-    raw_command: &str,
-) -> Vec<String> {
-    let wrapped = format!(
-        "cd {cwd} 2>/dev/null; {cmd}",
-        cwd = shell_escape(saved_cwd),
-        cmd = raw_command,
-    );
-    vec![
-        "podman".into(), "exec".into(), container.into(),
-        "bash".into(), "-lc".into(), wrapped,
-    ]
-}
-
-/// Read the saved container cwd from the state file.
-/// Falls back to /workspace if no state exists yet.
-fn read_sandbox_cwd(host_cwd: &std::path::Path) -> String {
-    // The state file is at <host_workspace>/agents/.sandbox_cwd
-    // which maps to /workspace/agents/.sandbox_cwd inside the container.
-    let state_file = host_workspace_dir(host_cwd).join("agents").join(".sandbox_cwd");
-    std::fs::read_to_string(state_file)
-        .map(|s| s.trim().to_string())
-        .unwrap_or_else(|_| "/workspace".to_string())
-}
-
-/// Get the host workspace directory from the cwd or env.
-fn host_workspace_dir(host_cwd: &std::path::Path) -> std::path::PathBuf {
-    if let Ok(workspace) = std::env::var("NEXAL_WORKSPACE") {
-        return std::path::PathBuf::from(workspace);
-    }
-    if let Ok(home) = std::env::var("HOME") {
-        return std::path::PathBuf::from(home).join(".nexal").join("workspace");
-    }
-    host_cwd.to_path_buf()
-}
-
-/// Simple shell escaping for a path string.
-fn shell_escape(s: &str) -> String {
-    format!("'{}'", s.replace('\'', "'\\''"))
-}
-

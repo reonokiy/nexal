@@ -150,6 +150,7 @@ pub(super) async fn try_run_zsh_fork(
         sandbox_policy_cwd: ctx.turn.cwd.to_path_buf(),
         nexal_linux_sandbox_exe: ctx.turn.nexal_linux_sandbox_exe.clone(),
         use_legacy_landlock: ctx.turn.features.use_legacy_landlock(),
+        environment: Arc::clone(&ctx.turn.environment),
     };
     let main_execve_wrapper_exe = ctx
         .session
@@ -247,6 +248,7 @@ pub(crate) async fn prepare_unified_exec_zsh_fork(
         sandbox_policy_cwd: ctx.turn.cwd.to_path_buf(),
         nexal_linux_sandbox_exe: ctx.turn.nexal_linux_sandbox_exe.clone(),
         use_legacy_landlock: ctx.turn.features.use_legacy_landlock(),
+        environment: Arc::clone(&ctx.turn.environment),
     };
     let escalation_policy = CoreShellActionProvider {
         policy: Arc::clone(&exec_policy),
@@ -662,6 +664,7 @@ struct CoreShellCommandExecutor {
     sandbox_policy_cwd: PathBuf,
     nexal_linux_sandbox_exe: Option<PathBuf>,
     use_legacy_landlock: bool,
+    environment: Arc<nexal_exec_server::Environment>,
 }
 
 struct PrepareSandboxedExecParams<'a> {
@@ -709,6 +712,7 @@ impl ShellCommandExecutor for CoreShellCommandExecutor {
             },
             /*stdout_stream*/ None,
             after_spawn,
+            Some(&self.environment),
         )
         .await?;
 

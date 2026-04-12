@@ -118,6 +118,7 @@ impl ExecRequest {
 pub async fn execute_env(
     exec_request: ExecRequest,
     stdout_stream: Option<StdoutStream>,
+    environment: Option<&nexal_exec_server::Environment>,
 ) -> crate::error::Result<ExecToolCallOutput> {
     let effective_policy = exec_request.sandbox_policy.clone();
     execute_exec_request(
@@ -125,6 +126,7 @@ pub async fn execute_env(
         &effective_policy,
         stdout_stream,
         /*after_spawn*/ None,
+        environment,
     )
     .await
 }
@@ -133,7 +135,8 @@ pub async fn execute_exec_request_with_after_spawn(
     exec_request: ExecRequest,
     stdout_stream: Option<StdoutStream>,
     after_spawn: Option<Box<dyn FnOnce() + Send>>,
+    environment: Option<&nexal_exec_server::Environment>,
 ) -> crate::error::Result<ExecToolCallOutput> {
     let effective_policy = exec_request.sandbox_policy.clone();
-    execute_exec_request(exec_request, &effective_policy, stdout_stream, after_spawn).await
+    execute_exec_request(exec_request, &effective_policy, stdout_stream, after_spawn, environment).await
 }

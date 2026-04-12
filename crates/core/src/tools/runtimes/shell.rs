@@ -250,7 +250,7 @@ impl ToolRuntime<ShellRequest, ExecToolCallOutput> for ShellRuntime {
         let env = attempt
             .env_for(command, options, req.network.as_ref())
             .map_err(|err| ToolError::Nexal(err.into()))?;
-        let out = execute_env(env, Self::stdout_stream(ctx))
+        let out = execute_env(env, Self::stdout_stream(ctx), Some(&ctx.turn.environment))
             .await
             .map_err(ToolError::Nexal)?;
         Ok(out)

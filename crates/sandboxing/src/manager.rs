@@ -178,37 +178,19 @@ impl SandboxManager {
                 )
             }
             SandboxType::Podman => {
-                // Use the persistent container via `podman exec`. The
-                // container is pre-created by create_sandbox_container()
-                // and its name is stored in SandboxState.
-                {
-                    let container = nexal_config::sandbox::SandboxState::container_name();
-                    let container_cwd = map_host_to_container_cwd(&command.cwd);
-
-                    // Extract the actual command to run.
-                    // Core wraps commands as: ["/usr/sbin/bash", "-lc", "actual cmd"]
-                    // or ["/usr/sbin/bash", "-c", "...exec '/bin/bash' -c 'actual cmd'"]
-                    // We strip ALL of that and just run: bash -c "actual cmd"
-                    let raw_cmd = extract_raw_command(&argv);
-
-                    let podman_argv = vec![
-                        "podman".to_string(),
-                        "exec".to_string(),
-                        "-w".to_string(),
-                        container_cwd.clone(),
-                        container.to_string(),
-                        "bash".to_string(),
-                        "-c".to_string(),
-                        raw_cmd.clone(),
-                    ];
-                    tracing::debug!(
-                        container = %container,
-                        cwd = %container_cwd,
-                        cmd = %raw_cmd,
-                        "podman exec sandbox"
-                    );
-                    (podman_argv, None)
-                }
+                // The exec-server runs INSIDE the container. We just need
+                // to extract the raw command and remap the cwd to the
+                // container path. The actual execution routes through the
+                // exec-server WebSocket — no `podman exec` subprocess.
+                let raw_cmd = extract_raw_command(&argv);
+                let container_cwd = map_host_to_container_cwd(&command.cwd);
+                command.cwd = std::path::PathBuf::from(&container_cwd);
+                tracing::debug!(
+                    cwd = %container_cwd,
+                    cmd = %raw_cmd,
+                    "sandbox exec (via exec-server)"
+                );
+                (vec!["bash".to_string(), "-c".to_string(), raw_cmd], None)
             }
         };
 

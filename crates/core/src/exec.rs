@@ -206,7 +206,7 @@ pub async fn process_exec_tool_call(
     )?;
 
     // Route through the sandboxing module for a single, unified execution path.
-    crate::sandboxing::execute_env(exec_req, stdout_stream).await
+    crate::sandboxing::execute_env(exec_req, stdout_stream, None).await
 }
 
 /// Transform a portable exec request into the concrete argv/env that should be
@@ -284,6 +284,7 @@ pub(crate) async fn execute_exec_request(
     sandbox_policy: &SandboxPolicy,
     stdout_stream: Option<StdoutStream>,
     after_spawn: Option<Box<dyn FnOnce() + Send>>,
+    environment: Option<&nexal_exec_server::Environment>,
 ) -> Result<ExecToolCallOutput> {
     let ExecRequest {
         command,
@@ -321,6 +322,7 @@ pub(crate) async fn execute_exec_request(
         network_sandbox_policy,
         stdout_stream,
         after_spawn,
+        environment,
     )
     .await;
     let duration = start.elapsed();
@@ -580,6 +582,7 @@ async fn exec(
     network_sandbox_policy: NetworkSandboxPolicy,
     stdout_stream: Option<StdoutStream>,
     after_spawn: Option<Box<dyn FnOnce() + Send>>,
+    environment: Option<&nexal_exec_server::Environment>,
 ) -> Result<RawExecToolCallOutput> {
     let ExecParams {
         command,
@@ -595,6 +598,34 @@ async fn exec(
         network.apply_to_env(&mut env);
     }
 
+    // When exec-server is available (always in nexal), route through the
+    // WebSocket backend. The exec-server runs INSIDE the Podman container
+    // and executes the command directly — no `podman exec` subprocess.
+    if let Some(env_ref) = environment {
+        if env_ref.exec_server_url().is_some() {
+            let process_id = format!("exec-{}", uuid::Uuid::new_v4());
+            let started = env_ref
+                .get_exec_backend()
+                .start(nexal_exec_server::ExecParams {
+                    process_id: process_id.into(),
+                    argv: command,
+                    cwd,
+                    env,
+                    tty: false,
+                    arg0,
+                })
+                .await
+                .map_err(|err| NexalErr::Io(io::Error::new(io::ErrorKind::Other, err.to_string())))?;
+
+            if let Some(after_spawn) = after_spawn {
+                after_spawn();
+            }
+
+            return consume_remote_output(started, expiration, capture_policy, stdout_stream).await;
+        }
+    }
+
+    // Fallback: local subprocess (used only when no exec-server is configured).
     let (program, args) = command.split_first().ok_or_else(|| {
         NexalErr::Io(io::Error::new(
             io::ErrorKind::InvalidInput,
@@ -608,9 +639,6 @@ async fn exec(
         arg0: arg0_ref,
         cwd,
         network_sandbox_policy,
-        // The environment already has attempt-scoped proxy settings from
-        // apply_to_env_for_attempt above. Passing network here would reapply
-        // non-attempt proxy vars and drop attempt correlation metadata.
         network: None,
         stdio_policy: StdioPolicy::RedirectForShellTool,
         env,
@@ -713,6 +741,120 @@ async fn consume_output(
     let stdout = await_output(&mut stdout_handle, capture_policy.io_drain_timeout()).await?;
     let stderr = await_output(&mut stderr_handle, capture_policy.io_drain_timeout()).await?;
     let aggregated_output = aggregate_output(&stdout, &stderr, retained_bytes_cap);
+
+    Ok(RawExecToolCallOutput {
+        exit_status,
+        stdout,
+        stderr,
+        aggregated_output,
+        timed_out,
+    })
+}
+
+/// Read output from an exec-server remote process until it exits.
+///
+/// Mirrors `consume_output` but reads via the `ExecProcess::read` RPC
+/// instead of local stdio pipes. Respects the same timeout and stream
+/// semantics.
+/// Read output from an exec-server remote process until it exits.
+///
+/// Mirrors `consume_output` but reads via the `ExecProcess::read` RPC
+/// instead of local stdio pipes. Respects the same timeout semantics.
+async fn consume_remote_output(
+    started: nexal_exec_server::StartedExecProcess,
+    expiration: ExecExpiration,
+    capture_policy: ExecCapturePolicy,
+    stdout_stream: Option<StdoutStream>,
+) -> Result<RawExecToolCallOutput> {
+    use nexal_exec_server::ExecOutputStream;
+
+    let retained_bytes_cap = capture_policy.retained_bytes_cap().unwrap_or(EXEC_OUTPUT_MAX_BYTES);
+    let process = started.process;
+    let mut stdout_buf = Vec::new();
+    let mut stderr_buf = Vec::new();
+    let mut seq: u64 = 0;
+    let mut exit_code: Option<i32> = None;
+    let mut timed_out = false;
+
+    let read_loop = async {
+        loop {
+            let resp = match process
+                .read(Some(seq), Some(READ_CHUNK_SIZE), Some(500))
+                .await
+            {
+                Ok(r) => r,
+                Err(e) => {
+                    return Err(NexalErr::Io(io::Error::new(
+                        io::ErrorKind::Other,
+                        e.to_string(),
+                    )));
+                }
+            };
+
+            for chunk in &resp.chunks {
+                let data = &chunk.chunk.0;
+                let (buf, proto_stream) = match chunk.stream {
+                    ExecOutputStream::Stdout | ExecOutputStream::Pty => (
+                        &mut stdout_buf,
+                        nexal_protocol::protocol::ExecOutputStream::Stdout,
+                    ),
+                    ExecOutputStream::Stderr => (
+                        &mut stderr_buf,
+                        nexal_protocol::protocol::ExecOutputStream::Stderr,
+                    ),
+                };
+                if buf.len() < retained_bytes_cap {
+                    let take = data.len().min(retained_bytes_cap - buf.len());
+                    buf.extend_from_slice(&data[..take]);
+                }
+                if let Some(ref stream) = stdout_stream {
+                    let _ = stream.tx_event.send(Event {
+                        id: stream.sub_id.clone(),
+                        msg: EventMsg::ExecCommandOutputDelta(ExecCommandOutputDeltaEvent {
+                            call_id: stream.call_id.clone(),
+                            stream: proto_stream,
+                            chunk: data.to_vec(),
+                        }),
+                    });
+                }
+            }
+            seq = resp.next_seq;
+
+            if resp.exited || resp.closed {
+                exit_code = resp.exit_code;
+                return Ok(());
+            }
+        }
+    };
+
+    let expiration_wait = async {
+        if capture_policy.uses_expiration() {
+            expiration.wait().await;
+        } else {
+            std::future::pending::<()>().await;
+        }
+    };
+
+    tokio::select! {
+        result = read_loop => { result?; }
+        _ = expiration_wait => {
+            let _ = process.terminate().await;
+            timed_out = true;
+        }
+    }
+
+    let code = exit_code.unwrap_or(if timed_out { EXEC_TIMEOUT_EXIT_CODE } else { -1 });
+    let exit_status = synthetic_exit_status(code);
+
+    let stdout = StreamOutput {
+        text: stdout_buf,
+        truncated_after_lines: None,
+    };
+    let stderr = StreamOutput {
+        text: stderr_buf,
+        truncated_after_lines: None,
+    };
+    let aggregated_output = aggregate_output(&stdout, &stderr, Some(retained_bytes_cap));
 
     Ok(RawExecToolCallOutput {
         exit_status,
