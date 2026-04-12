@@ -736,7 +736,7 @@ async fn run_idle(args: IdleArgs, config: Arc<NexalConfig>) -> anyhow::Result<()
 
     // If any flag is explicit, only start flagged channels.
     // If no flags, auto-detect from configured tokens.
-    let explicit = args.telegram || args.discord || args.http;
+    let explicit = args.telegram || args.discord || args.http || args.heartbeat || args.cron;
     let flags = ChannelFlags {
         telegram: if explicit {
             args.telegram
