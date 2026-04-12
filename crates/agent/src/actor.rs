@@ -508,27 +508,26 @@ fn render_channel_context(
 
 /// Compress an image to a max dimension of 768px and encode as a data URI.
 /// This keeps images small enough for LLM vision context while still readable.
-fn compress_and_encode_image(data: &[u8], _mime_type: &str) -> String {
+fn compress_and_encode_image(data: &[u8], mime_type: &str) -> String {
     use base64::Engine;
 
     const MAX_DIM: u32 = 768;
     const JPEG_QUALITY: u8 = 60;
 
-    // Try to decode and resize. If decoding fails (unsupported format),
-    // fall back to encoding the raw bytes.
-    let jpeg_bytes = match image::load_from_memory(data) {
-        Ok(img) => {
-            let resized = img.resize(MAX_DIM, MAX_DIM, image::imageops::FilterType::Triangle);
-            let mut buf = std::io::Cursor::new(Vec::new());
-            let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut buf, JPEG_QUALITY);
-            if resized.write_with_encoder(encoder).is_err() {
-                buf = std::io::Cursor::new(data.to_vec());
-            }
-            buf.into_inner()
+    // Try to decode, resize, and re-encode as JPEG.
+    // Fall back to the raw bytes with the original MIME type on any failure.
+    if let Ok(img) = image::load_from_memory(data) {
+        let resized = img.resize(MAX_DIM, MAX_DIM, image::imageops::FilterType::Triangle);
+        let mut buf = std::io::Cursor::new(Vec::new());
+        let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut buf, JPEG_QUALITY);
+        if resized.write_with_encoder(encoder).is_ok() {
+            let b64 = base64::engine::general_purpose::STANDARD.encode(buf.into_inner());
+            return format!("data:image/jpeg;base64,{b64}");
         }
-        Err(_) => data.to_vec(),
-    };
+    }
 
-    let b64 = base64::engine::general_purpose::STANDARD.encode(&jpeg_bytes);
-    format!("data:image/jpeg;base64,{b64}")
+    // Fallback: pass through raw bytes with the original MIME type so the
+    // caller gets a correctly-labelled data URI instead of lying about jpeg.
+    let b64 = base64::engine::general_purpose::STANDARD.encode(data);
+    format!("data:{mime_type};base64,{b64}")
 }
