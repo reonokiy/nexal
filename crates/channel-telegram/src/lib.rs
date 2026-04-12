@@ -471,7 +471,15 @@ async fn dispatch_media_group(
 
     info!(
         "telegram album from @{username} in {chat_id}: {} ({} image(s))",
-        if display_text.len() > 50 { &display_text[..50] } else { &display_text },
+        if display_text.len() > 50 {
+            let end = display_text.char_indices()
+                .map(|(i, _)| i)
+                .find(|&i| i >= 50)
+                .unwrap_or(display_text.len());
+            format!("{}...", &display_text[..end])
+        } else {
+            display_text.clone()
+        },
         all_images.len()
     );
 
