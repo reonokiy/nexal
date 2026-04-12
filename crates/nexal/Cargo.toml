@@ -31,8 +31,12 @@ nexal-exec-server = { workspace = true }
 nexal-tui = { workspace = true, optional = true }
 
 anyhow = { workspace = true }
+bollard = { workspace = true }
+bytes = { workspace = true }
 clap = { workspace = true }
 dotenvy = "0.15"
+libc = { workspace = true }
+tar = { workspace = true }
 opentelemetry = { workspace = true }
 opentelemetry_sdk = { workspace = true }
 opentelemetry-otlp = { workspace = true }
