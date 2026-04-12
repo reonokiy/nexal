@@ -513,10 +513,16 @@ fn extract_embedded_exec_server() -> anyhow::Result<std::path::PathBuf> {
     };
 
     if needs_extract {
-        std::fs::write(&bin_path, EMBEDDED_EXEC_SERVER)
-            .context("extract embedded nexal-exec-server")?;
-        std::fs::set_permissions(&bin_path, std::fs::Permissions::from_mode(0o755))
-            .context("chmod nexal-exec-server")?;
+        // Write to a sibling temp file then rename atomically to avoid a race
+        // where two concurrent nexal instances both write and one reads a
+        // partially-written binary.
+        let tmp_path = cache_dir.join("nexal-exec-server.tmp");
+        std::fs::write(&tmp_path, EMBEDDED_EXEC_SERVER)
+            .context("extract embedded nexal-exec-server to tmp")?;
+        std::fs::set_permissions(&tmp_path, std::fs::Permissions::from_mode(0o755))
+            .context("chmod nexal-exec-server tmp")?;
+        std::fs::rename(&tmp_path, &bin_path)
+            .context("rename nexal-exec-server into place")?;
     }
 
     Ok(bin_path)
