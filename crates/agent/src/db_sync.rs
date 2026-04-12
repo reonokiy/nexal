@@ -5,10 +5,12 @@
 //! and assistant responses to nexal.db so that chatlog/toollog skills
 //! can query them.
 
+use std::io::SeekFrom;
 use std::path::Path;
 use std::sync::Arc;
 
 use nexal_state::StateDb;
+use tokio::io::{AsyncReadExt, AsyncSeekExt};
 use tokio::time::{Duration, interval};
 
 
@@ -18,7 +20,8 @@ pub fn start_sync(db: Arc<StateDb>, nexal_home: &Path) -> tokio::task::JoinHandl
     let sessions_dir = nexal_home.join("sessions");
     tokio::spawn(async move {
         let mut tick = interval(Duration::from_secs(2));
-        let mut last_size: u64 = 0;
+        let mut last_path: Option<std::path::PathBuf> = None;
+        let mut last_offset: u64 = 0;
 
         loop {
             tick.tick().await;
@@ -29,21 +32,38 @@ pub fn start_sync(db: Arc<StateDb>, nexal_home: &Path) -> tokio::task::JoinHandl
                 None => continue,
             };
 
+            // Reset offset when session file changes
+            if last_path.as_deref() != Some(latest.as_path()) {
+                last_path = Some(latest.clone());
+                last_offset = 0;
+            }
+
             // Check if file grew
             let meta = match tokio::fs::metadata(&latest).await {
                 Ok(m) => m,
                 Err(_) => continue,
             };
             let size = meta.len();
-            if size == last_size {
+            if size <= last_offset {
                 continue;
             }
-            last_size = size;
 
-            // Read and parse new lines
-            if let Ok(content) = tokio::fs::read_to_string(&latest).await {
-                sync_jsonl_to_db(&db, &content).await;
+            // Read only new bytes since last_offset
+            let mut file = match tokio::fs::File::open(&latest).await {
+                Ok(f) => f,
+                Err(_) => continue,
+            };
+            if file.seek(SeekFrom::Start(last_offset)).await.is_err() {
+                continue;
             }
+            let mut new_bytes = Vec::new();
+            if file.read_to_end(&mut new_bytes).await.is_err() {
+                continue;
+            }
+            if let Ok(new_content) = std::str::from_utf8(&new_bytes) {
+                sync_jsonl_to_db(&db, new_content).await;
+            }
+            last_offset = size;
         }
     })
 }
