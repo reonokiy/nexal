@@ -181,8 +181,8 @@ async fn handle_toollog_query(
     let mut clauses: Vec<String> = Vec::new();
     let mut params: Vec<String> = Vec::new();
 
-    push_filter(&mut clauses, &mut params, "session_id LIKE ? || ':%'", p.channel.as_ref());
-    push_filter(&mut clauses, &mut params, "session_id LIKE '%:' || ?", p.chat_id.as_ref());
+    push_filter(&mut clauses, &mut params, "session_id LIKE ? || ':%' ESCAPE '\\'", p.channel.as_ref().map(|v| like_escape(v)).as_ref());
+    push_filter(&mut clauses, &mut params, "session_id LIKE '%:' || ? ESCAPE '\\'", p.chat_id.as_ref().map(|v| like_escape(v)).as_ref());
     push_filter(&mut clauses, &mut params, "tool_name = ?", p.tool_name.as_ref());
     push_filter(&mut clauses, &mut params, "status = ?", p.status.as_ref());
     push_filter(&mut clauses, &mut params, "timestamp >= ?", p.since.as_ref());
@@ -248,13 +248,13 @@ async fn handle_chatlog_query(
     let mut clauses: Vec<String> = Vec::new();
     let mut params: Vec<String> = Vec::new();
 
-    push_filter(&mut clauses, &mut params, "session_id LIKE ? || ':%'", p.channel.as_ref());
-    push_filter(&mut clauses, &mut params, "session_id LIKE '%:' || ?", p.chat_id.as_ref());
+    push_filter(&mut clauses, &mut params, "session_id LIKE ? || ':%' ESCAPE '\\'", p.channel.as_ref().map(|v| like_escape(v)).as_ref());
+    push_filter(&mut clauses, &mut params, "session_id LIKE '%:' || ? ESCAPE '\\'", p.chat_id.as_ref().map(|v| like_escape(v)).as_ref());
     push_filter(&mut clauses, &mut params, "sender = ?", p.sender.as_ref());
     push_filter(&mut clauses, &mut params, "role = ?", p.role.as_ref());
     push_filter(&mut clauses, &mut params, "timestamp >= ?", p.since.as_ref());
     push_filter(&mut clauses, &mut params, "timestamp <= ?", p.until.as_ref());
-    push_filter(&mut clauses, &mut params, "text LIKE '%' || ? || '%'", p.search.as_ref());
+    push_filter(&mut clauses, &mut params, "text LIKE '%' || ? || '%' ESCAPE '\\'", p.search.as_ref().map(|v| like_escape(v)).as_ref());
 
     let where_clause = if clauses.is_empty() {
         String::new()
@@ -314,6 +314,19 @@ fn push_filter(
         clauses.push(clause.to_string());
         params.push(v.clone());
     }
+}
+
+/// Escape a value for use inside a SQLite/Postgres LIKE pattern with `ESCAPE '\'`.
+/// Escapes `\`, `%`, and `_` so they are treated as literals.
+fn like_escape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for ch in s.chars() {
+        match ch {
+            '\\' | '%' | '_' => { out.push('\\'); out.push(ch); }
+            _ => out.push(ch),
+        }
+    }
+    out
 }
 
 fn rows_to_dicts(columns: &[String], rows: Vec<Vec<Value>>) -> Vec<Value> {

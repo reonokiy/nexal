@@ -111,6 +111,24 @@ enum RoPool {
 
 /// Translate SQLite-style `?` placeholders to Postgres `$1`, `$2`, … in order.
 /// `?` inside single-quoted string literals is left unchanged.
+/// Returns true if `keyword` appears in `sql` as a whole SQL token
+/// (i.e. not embedded in an identifier like `updated_at`).
+/// `sql` is expected to be already lowercased.
+fn contains_sql_keyword(sql: &str, keyword: &str) -> bool {
+    let mut start = 0;
+    while let Some(pos) = sql[start..].find(keyword) {
+        let abs = start + pos;
+        let before_ok = abs == 0 || !sql.as_bytes()[abs - 1].is_ascii_alphanumeric() && sql.as_bytes()[abs - 1] != b'_';
+        let after = abs + keyword.len();
+        let after_ok = after >= sql.len() || !sql.as_bytes()[after].is_ascii_alphanumeric() && sql.as_bytes()[after] != b'_';
+        if before_ok && after_ok {
+            return true;
+        }
+        start = abs + 1;
+    }
+    false
+}
+
 fn translate_placeholders(sql: &str) -> String {
     let mut out = String::with_capacity(sql.len() + 8);
     let mut n: usize = 0;
@@ -368,8 +386,19 @@ impl StateDb {
         if !allowed {
             anyhow::bail!("Only SELECT / WITH / EXPLAIN queries are allowed");
         }
-        if stripped.contains("attach") {
-            anyhow::bail!("ATTACH is not allowed");
+
+        // Secondary blocklist: reject any query containing write-capable keywords,
+        // regardless of prefix. This catches `WITH ... DELETE FROM ...` style CTEs
+        // and prevents ATTACH / DETACH database attacks.
+        // Word-boundary check: keyword must be preceded/followed by a non-word char.
+        const WRITE_KEYWORDS: &[&str] = &[
+            "insert", "update", "delete", "drop", "alter", "create",
+            "attach", "detach", "replace", "truncate",
+        ];
+        for kw in WRITE_KEYWORDS {
+            if contains_sql_keyword(&stripped, kw) {
+                anyhow::bail!("Query contains disallowed keyword: {kw}");
+            }
         }
 
         match self.ro.as_ref() {
