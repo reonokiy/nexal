@@ -88,6 +88,8 @@ struct DrainResult {
     /// Whether a "response action" was taken — i.e. a tool call that counts
     /// as the agent having made a deliberate send-or-skip decision.
     had_response_action: bool,
+    /// True if the turn was interrupted by an `AgentMessage::Interrupt`.
+    interrupted: bool,
 }
 
 /// A running agent actor.
@@ -167,12 +169,12 @@ impl AgentActor {
                     metadata,
                     images,
                 } => {
-                    self.handle_input(text, sender, channel, chat_id, metadata, images, &event_tx)
+                    self.handle_input(text, sender, channel, chat_id, metadata, images, &mut inbox, &event_tx)
                         .await;
                 }
                 AgentMessage::Interrupt => {
-                    debug!(session = %self.session_key, "interrupt requested");
-                    // TODO: send Op::Interrupt via client
+                    // No active turn — nothing to interrupt.
+                    debug!(session = %self.session_key, "interrupt received with no active turn; ignoring");
                 }
                 AgentMessage::Shutdown => {
                     info!(session = %self.session_key, "agent actor shutting down");
@@ -191,6 +193,7 @@ impl AgentActor {
         chat_id: String,
         metadata: serde_json::Value,
         images: Vec<nexal_channel_core::ImageAttachment>,
+        inbox: &mut mpsc::Receiver<AgentMessage>,
         event_tx: &mpsc::Sender<AgentEvent>,
     ) {
         let prompt_text = render_channel_context(&text, &sender, &channel, &chat_id, &metadata);
@@ -242,14 +245,27 @@ impl AgentActor {
             }
         };
 
+        let turn_id = turn_resp.turn.id.clone();
         debug!(
             session = %self.session_key,
-            task = %turn_resp.turn.id,
+            task = %turn_id,
             "turn started"
         );
 
         // Drain events until turn completes
-        let mut result = self.drain_turn().await;
+        let mut result = self.drain_turn(inbox, &turn_id).await;
+
+        if result.interrupted {
+            let _ = event_tx
+                .send(AgentEvent::StatusChange {
+                    session_key: self.session_key.clone(),
+                    status: "idle".into(),
+                    activity: String::new(),
+                })
+                .await;
+            write_agent_status(&self.config, "idle", "");
+            return;
+        }
 
         // ── Response-action state machine ──
         // The agent is now "busy". It must transition back to "idle" by taking
@@ -305,8 +321,12 @@ impl AgentActor {
                 .await;
 
             match retry {
-                Ok(_) => {
-                    result = self.drain_turn().await;
+                Ok(resp) => {
+                    let nudge_turn_id = resp.turn.id.clone();
+                    result = self.drain_turn(inbox, &nudge_turn_id).await;
+                    if result.interrupted {
+                        break;
+                    }
                 }
                 Err(e) => {
                     warn!(session = %self.session_key, "nudge turn failed: {e}");
@@ -337,11 +357,22 @@ impl AgentActor {
         write_agent_status(&self.config, "idle", "");
     }
 
-    /// Drain the event stream until `TurnCompleted` or `Error`.
-    async fn drain_turn(&mut self) -> DrainResult {
+    /// Drain the event stream until `TurnCompleted`, `Error`, or an interrupt.
+    ///
+    /// Polls `inbox` inside the select so that an `AgentMessage::Interrupt`
+    /// arriving mid-turn sends `TurnInterrupt` to the server immediately and
+    /// returns with `DrainResult::interrupted = true`.
+    async fn drain_turn(
+        &mut self,
+        inbox: &mut mpsc::Receiver<AgentMessage>,
+        active_turn_id: &str,
+    ) -> DrainResult {
+        use nexal_app_server_protocol::{TurnInterruptParams, TurnInterruptResponse};
+
         let mut buf = String::new();
         let mut had_any_tool_call = false;
         let mut had_response_action = false;
+        let mut interrupted = false;
         let thread_id = &self.thread_id;
 
         // Timeout to avoid hanging forever if API silently fails
@@ -446,6 +477,55 @@ impl AgentActor {
                     }
                     break;
                 }
+                msg = inbox.recv() => {
+                    match msg {
+                        Some(AgentMessage::Interrupt) => {
+                            info!(
+                                session = %self.session_key,
+                                turn = %active_turn_id,
+                                "interrupting active turn"
+                            );
+                            let _ = self.client
+                                .request_typed::<TurnInterruptResponse>(
+                                    ClientRequest::TurnInterrupt {
+                                        request_id: RequestId::Integer(0),
+                                        params: TurnInterruptParams {
+                                            thread_id: self.thread_id.clone(),
+                                            turn_id: active_turn_id.to_string(),
+                                        },
+                                    },
+                                )
+                                .await;
+                            interrupted = true;
+                            break;
+                        }
+                        Some(AgentMessage::Shutdown) => {
+                            // Propagate shutdown: interrupt the current turn first.
+                            let _ = self.client
+                                .request_typed::<TurnInterruptResponse>(
+                                    ClientRequest::TurnInterrupt {
+                                        request_id: RequestId::Integer(0),
+                                        params: TurnInterruptParams {
+                                            thread_id: self.thread_id.clone(),
+                                            turn_id: active_turn_id.to_string(),
+                                        },
+                                    },
+                                )
+                                .await;
+                            interrupted = true;
+                            break;
+                        }
+                        Some(_) => {
+                            // Other messages (e.g. UserInput) cannot be processed
+                            // mid-turn; drop them.
+                            warn!(
+                                session = %self.session_key,
+                                "dropped message received during active turn"
+                            );
+                        }
+                        None => break,
+                    }
+                }
             }
         }
 
@@ -453,6 +533,7 @@ impl AgentActor {
             text: buf,
             had_tool_call: had_any_tool_call,
             had_response_action,
+            interrupted,
         }
     }
 }
