@@ -88,7 +88,7 @@ impl Agent {
         // Event consumer — drives UI side effects only (typing indicators,
         // error logging). Agent replies flow out through skill scripts
         // inside the sandbox container, not through this stream.
-        let pool = Arc::clone(&self.pool);
+        let mut event_rx = self.pool.take_event_rx();
         let channels_by_name: Arc<HashMap<String, Arc<dyn Channel>>> = Arc::new(
             self.channels
                 .iter()
@@ -98,7 +98,7 @@ impl Agent {
         let typing_handles: Arc<Mutex<HashMap<String, TypingHandle>>> =
             Arc::new(Mutex::new(HashMap::new()));
         let event_handle = tokio::spawn(async move {
-            while let Some(event) = pool.recv_event().await {
+            while let Some(event) = event_rx.recv().await {
                 match event {
                     AgentEvent::Error { session_key, message } => {
                         tracing::error!(session = %session_key, "agent error: {message}");

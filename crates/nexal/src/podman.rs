@@ -81,8 +81,7 @@ fn tar_single_file(filename: &str, content: &[u8]) -> anyhow::Result<Bytes> {
 pub async fn create_sandbox_container(config: &NexalConfig) -> anyhow::Result<SandboxHandle> {
     let docker = connect_podman()?;
     let name = format!("nexal-{}", crate::short_id());
-    let image = std::env::var("SANDBOX_IMAGE")
-        .unwrap_or_else(|_| config.sandbox_image.clone());
+    let image = config.sandbox_image.clone();
     let container_port = 9100u16;
 
     debug!(container = %name, image = %image, "creating sandbox container via API");

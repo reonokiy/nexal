@@ -10,7 +10,6 @@ use anyhow::Context;
 use dashmap::DashMap;
 use nexal_app_server_client::AppServerClient;
 use nexal_config::NexalConfig;
-use tokio::sync::Mutex;
 use tokio::sync::OnceCell;
 use tokio::sync::mpsc;
 use tracing::{info, warn};
@@ -31,7 +30,8 @@ pub struct AgentPool {
     sessions: DashMap<String, Arc<OnceCell<AgentHandle>>>,
     /// Channel for receiving events from all actors.
     event_tx: mpsc::Sender<AgentEvent>,
-    event_rx: Mutex<mpsc::Receiver<AgentEvent>>,
+    /// Receiver half — taken out once by the event loop via `take_event_rx`.
+    event_rx: std::sync::Mutex<Option<mpsc::Receiver<AgentEvent>>>,
     /// Pre-created environment manager (e.g. for krun).
     environment_manager: Option<Arc<nexal_exec_server::EnvironmentManager>>,
     /// State signal server for push-based BUSY→IDLE transitions.
@@ -46,7 +46,7 @@ impl AgentPool {
             config,
             sessions: DashMap::new(),
             event_tx,
-            event_rx: Mutex::new(event_rx),
+            event_rx: std::sync::Mutex::new(Some(event_rx)),
             environment_manager: None,
             signal_server: None,
         }
@@ -80,9 +80,16 @@ impl AgentPool {
         handle.send(msg).await
     }
 
-    /// Receive the next event from any actor.
-    pub async fn recv_event(&self) -> Option<AgentEvent> {
-        self.event_rx.lock().await.recv().await
+    /// Take the event receiver out of the pool.
+    ///
+    /// Called once by the event loop at startup. Panics on a second call since
+    /// there is exactly one consumer.
+    pub fn take_event_rx(&self) -> mpsc::Receiver<AgentEvent> {
+        self.event_rx
+            .lock()
+            .expect("event_rx mutex poisoned")
+            .take()
+            .expect("take_event_rx called more than once")
     }
 
     async fn get_or_create(

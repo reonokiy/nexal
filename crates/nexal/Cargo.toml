@@ -11,12 +11,12 @@ path = "src/main.rs"
 [features]
 default = ["tui"]
 tui = ["nexal-tui"]
-embedded-agent = ["dirs-next"]
+embedded-agent = ["dirs"]
 
 [dependencies]
 nexal-config = { workspace = true }
 nexal-agent = { workspace = true }
-dirs-next = { version = "2", optional = true }
+dirs = { workspace = true, optional = true }
 nexal-state = { workspace = true }
 nexal-channel-core = { workspace = true }
 nexal-channel-telegram = { workspace = true }

@@ -39,7 +39,7 @@ struct Cli {
     #[arg(long)]
     heartbeat: bool,
 
-    /// Enable cron scheduler (jobs stored in workspace/agents/cron_jobs.json)
+    /// Enable cron scheduler (jobs stored in nexal.db)
     #[arg(long)]
     cron: bool,
 }
@@ -68,7 +68,7 @@ struct IdleArgs {
     #[arg(long)]
     heartbeat: bool,
 
-    /// Enable cron scheduler (jobs stored in workspace/agents/cron_jobs.json)
+    /// Enable cron scheduler (jobs stored in nexal.db)
     #[arg(long)]
     cron: bool,
 }
@@ -499,7 +499,7 @@ pub(crate) fn find_exec_server_binary() -> anyhow::Result<std::path::PathBuf> {
 fn extract_embedded_exec_server() -> anyhow::Result<std::path::PathBuf> {
     use std::os::unix::fs::PermissionsExt;
 
-    let cache_dir = dirs_next::cache_dir()
+    let cache_dir = dirs::cache_dir()
         .unwrap_or_else(|| std::path::PathBuf::from("/tmp"))
         .join("nexal");
     std::fs::create_dir_all(&cache_dir).context("create nexal cache dir")?;
@@ -719,6 +719,7 @@ async fn run_idle(args: IdleArgs, config: Arc<NexalConfig>) -> anyhow::Result<()
 
     // Create Podman sandbox container.
     let sandbox = podman::create_sandbox_container(&config).await?;
+    nexal_config::sandbox::SandboxState::init(sandbox.name.clone());
     register_sandbox_proxies(&sandbox, &config).await;
 
     // Start the state signal socket for push-based BUSY→IDLE transitions.
