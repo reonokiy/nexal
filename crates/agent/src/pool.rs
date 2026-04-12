@@ -4,13 +4,14 @@
 //! Messages are sent via non-blocking `AgentHandle::send()`.
 //! Responses arrive via the event channel.
 
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use anyhow::Context;
+use dashmap::DashMap;
 use nexal_app_server_client::AppServerClient;
 use nexal_config::NexalConfig;
 use tokio::sync::Mutex;
+use tokio::sync::OnceCell;
 use tokio::sync::mpsc;
 use tracing::{info, warn};
 
@@ -25,7 +26,9 @@ use crate::signal::StateSignalServer;
 /// Thread-safe; concurrent messages on *different* sessions run in parallel.
 pub struct AgentPool {
     config: Arc<NexalConfig>,
-    sessions: Mutex<HashMap<String, AgentHandle>>,
+    /// Per-session OnceCell ensures at most one actor is ever created per key,
+    /// even under concurrent requests, without holding a global lock during creation.
+    sessions: DashMap<String, Arc<OnceCell<AgentHandle>>>,
     /// Channel for receiving events from all actors.
     event_tx: mpsc::Sender<AgentEvent>,
     event_rx: Mutex<mpsc::Receiver<AgentEvent>>,
@@ -41,7 +44,7 @@ impl AgentPool {
         let (event_tx, event_rx) = mpsc::channel(256);
         Self {
             config,
-            sessions: Mutex::new(HashMap::new()),
+            sessions: DashMap::new(),
             event_tx,
             event_rx: Mutex::new(event_rx),
             environment_manager: None,
@@ -87,27 +90,25 @@ impl AgentPool {
         key: &str,
         msg: &AgentMessage,
     ) -> anyhow::Result<AgentHandle> {
-        // Fast path
-        {
-            let map = self.sessions.lock().await;
-            if let Some(h) = map.get(key) {
-                return Ok(h.clone());
-            }
-        }
-
-        // Slow path: create session + actor.
-        // Always use in-process client — the agent core runs on the host,
-        // only exec commands go to the Podman container (via NEXAL_SANDBOX).
-        info!("creating new agent session for {key}");
-        let actor = self.create_inprocess_actor(key, msg).await?;
-
-        let handle = actor.spawn(self.event_tx.clone());
-
-        let mut map = self.sessions.lock().await;
-        Ok(map
+        // Atomically get-or-insert a OnceCell for this key. DashMap's entry
+        // API is internally sharded and sync, so no two callers can race here.
+        let cell = self
+            .sessions
             .entry(key.to_string())
-            .or_insert(handle)
-            .clone())
+            .or_insert_with(|| Arc::new(OnceCell::new()))
+            .clone();
+
+        // Only the first caller initialises the cell; any concurrent caller
+        // for the same key waits here without holding any lock.
+        cell.get_or_try_init(|| async {
+            // Always use in-process client — the agent core runs on the host,
+            // only exec commands go to the Podman container (via NEXAL_SANDBOX).
+            info!("creating new agent session for {key}");
+            let actor = self.create_inprocess_actor(key, msg).await?;
+            Ok::<AgentHandle, anyhow::Error>(actor.spawn(self.event_tx.clone()))
+        })
+        .await
+        .map(AgentHandle::clone)
     }
 
     async fn create_inprocess_actor(
