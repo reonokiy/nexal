@@ -59,6 +59,15 @@ impl Channel for TelegramChannel {
         let ch_config = Arc::new(self.ch_config.clone());
         let on_message = Arc::new(on_message);
 
+        // Fetch bot username once at startup so detect_mention doesn't call
+        // get_me() on every incoming message.
+        let bot_username: Arc<String> = Arc::new(
+            bot.get_me()
+                .await
+                .map(|me| me.username.clone().unwrap_or_default())
+                .unwrap_or_default(),
+        );
+
         // Buffer for accumulating media group messages before dispatching.
         let media_groups: Arc<Mutex<HashMap<String, PendingMediaGroup>>> =
             Arc::new(Mutex::new(HashMap::new()));
@@ -68,6 +77,7 @@ impl Channel for TelegramChannel {
             move |the_bot: Bot, msg: Message| {
                 let config = Arc::clone(&config);
                 let ch_cfg = Arc::clone(&ch_config);
+                let bot_username = Arc::clone(&bot_username);
                 let on_message = Arc::clone(&on_message);
                 let media_groups = Arc::clone(&media_groups);
                 async move {
@@ -139,7 +149,7 @@ impl Channel for TelegramChannel {
                         let gid = group_id.clone();
                         let config2 = Arc::clone(&config);
                         let on_msg = Arc::clone(&on_message);
-                        let bot2 = the_bot.clone();
+                        let bu = Arc::clone(&bot_username);
                         let timer = tokio::spawn(async move {
                             // Telegram sends all media group messages within ~1s.
                             tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
@@ -149,7 +159,7 @@ impl Channel for TelegramChannel {
                             };
                             if let Some(pending) = pending {
                                 dispatch_media_group(
-                                    pending.messages, &config2, &on_msg, &bot2,
+                                    pending.messages, &config2, &on_msg, &bu,
                                 ).await;
                             }
                         });
@@ -161,7 +171,7 @@ impl Channel for TelegramChannel {
                     }
 
                     // Single message (not a media group) — dispatch immediately.
-                    let is_mentioned = detect_mention(&the_bot, &msg, &full_text).await;
+                    let is_mentioned = detect_mention(&bot_username, &msg, &full_text);
                     let is_admin = config.is_admin(&username);
                     let incoming = IncomingMessage {
                         channel: "telegram".to_string(),
@@ -410,7 +420,7 @@ async fn download_file(bot: &Bot, file_id: &str) -> Result<Vec<u8>, teloxide::Re
 }
 
 /// Check whether the bot was mentioned in this message.
-async fn detect_mention(bot: &Bot, msg: &Message, text: &str) -> bool {
+fn detect_mention(bot_username: &str, msg: &Message, text: &str) -> bool {
     if msg.chat.is_private() {
         return true;
     }
@@ -421,11 +431,6 @@ async fn detect_mention(bot: &Bot, msg: &Message, text: &str) -> bool {
     {
         return true;
     }
-    let bot_username = bot
-        .get_me()
-        .await
-        .map(|me| me.username.clone().unwrap_or_default())
-        .unwrap_or_default();
     !bot_username.is_empty() && text.contains(&format!("@{bot_username}"))
 }
 
@@ -434,7 +439,7 @@ async fn dispatch_media_group(
     messages: Vec<(String, Vec<ImageAttachment>, Message)>,
     config: &NexalConfig,
     on_message: &nexal_channel_core::MessageCallback,
-    bot: &Bot,
+    bot_username: &str,
 ) {
     if messages.is_empty() {
         return;
@@ -443,11 +448,7 @@ async fn dispatch_media_group(
     // Use the first message for metadata (chat_id, sender, timestamp, message_id).
     let first_msg = &messages[0].2;
     let chat_id = first_msg.chat.id.0.to_string();
-    let username = first_msg
-        .from
-        .as_ref()
-        .and_then(|u| u.username.as_deref())
-        .unwrap_or("unknown");
+    let (username, _user_id) = extract_sender(first_msg);
 
     // Combine all captions (skip empty).
     let combined_text: String = messages
@@ -489,13 +490,13 @@ async fn dispatch_media_group(
         combined_text
     };
 
-    let is_mentioned = detect_mention(bot, first_msg, &text).await;
+    let is_mentioned = detect_mention(bot_username, first_msg, &text);
     let is_admin = config.is_admin(&username);
 
     let incoming = IncomingMessage {
         channel: "telegram".to_string(),
         chat_id,
-        sender: username.to_string(),
+        sender: username,
         text,
         timestamp: first_msg.date.timestamp_millis(),
         is_mentioned,
