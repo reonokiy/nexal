@@ -1,5 +1,5 @@
 /**
- * bash tool — executes shell commands through the Rust `exec-server`
+ * bash tool — executes shell commands through the Rust `nexal-agent`
  * WebSocket. This is the only shell surface the agent sees.
  *
  * Shape matches `AgentTool` from `@mariozechner/pi-agent-core`. The

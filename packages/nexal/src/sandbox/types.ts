@@ -2,7 +2,7 @@
  * SandboxBackend — pluggable per-session sandbox.
  *
  * Every sandbox backend produces a fresh `ExecServerClient` per session
- * key. The client speaks the exec-server stdio JSON-RPC protocol; how
+ * key. The client speaks the nexal-agent JSON-RPC protocol over WS; how
  * those bytes get delivered into a sandboxed environment (podman exec,
  * gvisor, firecracker, plain process, …) is up to the implementation.
  *

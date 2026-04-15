@@ -4,9 +4,9 @@ mod common;
 
 use nexal_app_server_protocol::JSONRPCMessage;
 use nexal_app_server_protocol::JSONRPCResponse;
-use nexal_exec_server::ExecResponse;
-use nexal_exec_server::InitializeParams;
-use nexal_exec_server::ProcessId;
+use nexal_agent::ExecResponse;
+use nexal_agent::InitializeParams;
+use nexal_agent::ProcessId;
 use common::exec_server::exec_server;
 use pretty_assertions::assert_eq;
 

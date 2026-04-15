@@ -2,18 +2,18 @@
  * Smoke the Podman sandbox backend against a real container.
  *
  *   NEXAL_SANDBOX_IMAGE=ghcr.io/reonokiy/nexal-sandbox:python3.13-debian13 \
- *   NEXAL_EXEC_SERVER_BIN=/path/to/nexal-exec-server \
+ *   NEXAL_AGENT_BIN=/path/to/nexal-exec-server \
  *   bun run src/scripts/smoke-sandbox.ts
  */
 import { PodmanBackend } from "../sandbox/podman.ts";
 
 const image = process.env.NEXAL_SANDBOX_IMAGE ?? "ghcr.io/reonokiy/nexal-sandbox:python3.13-debian13";
-const bin = process.env.NEXAL_EXEC_SERVER_BIN ?? "/home/lean/i/nexal/target/release/nexal-exec-server";
+const bin = process.env.NEXAL_AGENT_BIN ?? "/home/lean/i/nexal/target/release/nexal-agent";
 const sessionKey = process.env.NEXAL_SESSION ?? "smoke:sandbox";
 
 const mgr = new PodmanBackend({
 	image,
-	execServerBin: bin,
+	agentBin: bin,
 	memory: "256m",
 	cpus: "0.5",
 	pidsLimit: 128,

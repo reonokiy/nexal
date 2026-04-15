@@ -1,43 +1,34 @@
-# Default: build everything in release mode
-default: build
+# Default: build the nexal-agent binary (release).
+default: agent
 
-# Build nexal-exec-server (release) then nexal (release, with embedded exec-server, no TUI)
-build:
-    cargo build --release -p nexal-exec-server
-    NEXAL_EXEC_SERVER_BIN={{justfile_directory()}}/target/release/nexal-exec-server \
-        cargo build --release -p nexal --no-default-features --features embedded-agent
+# Build the in-container agent binary in release mode.
+agent:
+    cargo build --release -p nexal-agent
 
-# Build and run (release, embedded exec-server). Pass args after --.
-run *ARGS: build
-    ./target/release/nexal {{ARGS}}
+# Debug build of the agent.
+agent-dev:
+    cargo build -p nexal-agent
 
-# Development build (debug, no TUI, no embedding)
-dev:
-    cargo build -p nexal-exec-server
-    cargo build -p nexal --no-default-features
-
-# Development build and run. Pass args after --.
-dev-run *ARGS: dev
-    ./target/debug/nexal {{ARGS}}
-
-# Build with TUI support (release)
-build-tui:
-    cargo build --release -p nexal-exec-server
-    NEXAL_EXEC_SERVER_BIN={{justfile_directory()}}/target/release/nexal-exec-server \
-        cargo build --release -p nexal --features embedded-agent,tui
-
-# Build only nexal-exec-server in release mode
-exec-server:
-    cargo build --release -p nexal-exec-server
-
-# Run checks on the whole workspace
+# Run checks on the whole workspace.
 check:
     cargo check
 
-# Run all tests
+# Run all tests.
 test:
     cargo test
 
-# Clean build artifacts
+# Clean build artifacts.
 clean:
     cargo clean
+
+# Run the Bun frontend in dev mode (watch).
+nexal:
+    cd packages/nexal && bun run dev
+
+# Run Bun frontend once (no watch).
+nexal-start:
+    cd packages/nexal && bun run start
+
+# Typecheck Bun frontend.
+nexal-typecheck:
+    cd packages/nexal && bun run typecheck

@@ -17,9 +17,9 @@ src/
     heartbeat.ts      — Periodic tick (mirrors crates/channel-heartbeat)
     cron.ts           — Agent-scheduled cron (mirrors crates/channel-cron)
   tools/
-    bash.ts           — bash tool proxied to exec-server over WebSocket
+    bash.ts           — bash tool proxied to nexal-agent over WebSocket
     (read/write/edit — likely added as AgentTool definitions)
-  exec-client.ts      — WebSocket client for crates/exec-server
+  exec-client.ts      — WebSocket client for crates/nexal-agent
   config.ts           — TOML + env config loader
 ```
 
@@ -29,7 +29,7 @@ src/
   in the pool. If none exists, a new one is constructed with the session
   system prompt + any persisted messages.
 - `Agent.prompt(userMsg)` drives one turn; tool calls inside the turn hit
-  the bash tool, which opens a WebSocket to a per-session `exec-server`
+  the bash tool, which opens a WebSocket to a per-session `nexal-agent`
   instance (running inside a sandbox container).
 - Mid-turn messages (same chat, user typed again) are injected via
   `agent.steer(...)` so the model sees them on the next LLM hop.
@@ -38,7 +38,7 @@ src/
 ## Runtime
 
 - Bun ≥ 1.3 (for native TS + WebSocket client)
-- `crates/exec-server` must be built and on PATH (or embedded)
+- `crates/nexal-agent` must be built (default path `target/release/nexal-agent`)
 
 ## Status
 

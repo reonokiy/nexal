@@ -9,7 +9,7 @@
  * Podman container named `nexal-<sanitized-session-key>`. At create
  * time:
  *
- *   1. The host-side `nexal-exec-server` binary is copied into the
+ *   1. The host-side `nexal-agent` binary is copied into the
  *      container at `/usr/local/bin/`.
  *   2. The container is started with that binary as PID 1, listening
  *      on `ws://0.0.0.0:9100` inside the container.
@@ -43,8 +43,8 @@ import type { SandboxBackend } from "./types.ts";
 export interface PodmanBackendConfig {
 	/** Podman image (e.g. "ghcr.io/reonokiy/nexal-sandbox:python3.13-debian13"). */
 	image: string;
-	/** Path to the host-side nexal-exec-server binary (copied into each container). */
-	execServerBin: string;
+	/** Path to the host-side nexal-agent binary (copied into each container). */
+	agentBin: string;
 	/** Path to the podman CLI. Default: "podman". */
 	podmanBin?: string;
 	/** OCI runtime override (e.g. "crun"). */
@@ -62,7 +62,7 @@ export interface PodmanBackendConfig {
 }
 
 const DEFAULT_PODMAN = "podman";
-/** Port exec-server listens on inside the container. */
+/** Port the in-container nexal-agent listens on. */
 const CONTAINER_WS_PORT = 9100;
 
 interface ContainerInfo {
@@ -140,6 +140,14 @@ export class PodmanBackend implements SandboxBackend {
 			"--userns=keep-id",
 			"--security-opt=no-new-privileges",
 			"--cap-drop=ALL",
+			// Labels — let `podman ps --filter label=app=nexal` find every
+			// container we own, and `--filter label=nexal.session=<key>`
+			// pinpoint a single worker. `nexal.kind` distinguishes worker
+			// containers from any future utility containers.
+			"--label=app=nexal",
+			"--label=nexal.kind=worker",
+			`--label=nexal.session=${sessionKey}`,
+			`--label=nexal.created=${new Date().toISOString()}`,
 			// `/workspace` is the user-facing project area; `/workspace/.nexal`
 			// is the convention for nexal's own state (HOME, dotfiles,
 			// scratch, lockfiles). Keeping it under /workspace means it
@@ -147,7 +155,7 @@ export class PodmanBackend implements SandboxBackend {
 			"--env=HOME=/workspace/.nexal",
 			"--env=NEXAL_DATA_DIR=/workspace/.nexal",
 			"--workdir=/workspace",
-			// Publish the in-container exec-server WS port to a random
+			// Publish the in-container nexal-agent WS port to a random
 			// host port, bound to localhost. Format: HOST_IP:HOST_PORT:CTR_PORT.
 			// HOST_PORT=0 → kernel assigns.
 			`--publish=127.0.0.1::${CONTAINER_WS_PORT}/tcp`,
@@ -166,16 +174,16 @@ export class PodmanBackend implements SandboxBackend {
 		}
 		if (this.config.workspace) args.push(`--volume=${this.config.workspace}:/workspace`);
 		args.push(this.config.image);
-		// Container entrypoint = exec-server itself, listening on WS.
-		args.push("/usr/local/bin/nexal-exec-server", "--listen", `ws://0.0.0.0:${CONTAINER_WS_PORT}`);
+		// Container entrypoint = nexal-agent itself, listening on WS.
+		args.push("/usr/local/bin/nexal-agent", "--listen", `ws://0.0.0.0:${CONTAINER_WS_PORT}`);
 
 		await this.podman(args);
 
-		// Copy exec-server binary into the container at /usr/local/bin.
+		// Copy the nexal-agent binary into the container at /usr/local/bin.
 		await this.podman([
 			"cp",
-			this.config.execServerBin,
-			`${name}:/usr/local/bin/nexal-exec-server`,
+			this.config.agentBin,
+			`${name}:/usr/local/bin/nexal-agent`,
 		]);
 
 		await this.podman(["start", name]);

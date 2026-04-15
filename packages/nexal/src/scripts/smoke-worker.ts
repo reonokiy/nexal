@@ -12,11 +12,11 @@
  * Requirements:
  *   - podman on PATH + pull-access to the sandbox image
  *   - OPENROUTER_API_KEY (or change NEXAL_MODEL_PROVIDER/NEXAL_MODEL)
- *   - nexal-exec-server binary at target/release/nexal-exec-server
+ *   - nexal-agent binary at target/release/nexal-agent
  *
  * Env knobs:
  *   NEXAL_SANDBOX_IMAGE   (default ghcr.io/reonokiy/nexal-sandbox:…)
- *   NEXAL_EXEC_SERVER_BIN (default ../../../../target/release/nexal-exec-server)
+ *   NEXAL_AGENT_BIN (default ../../../../target/release/nexal-agent)
  *   NEXAL_MODEL_PROVIDER  (default openrouter)
  *   NEXAL_MODEL           (default openai/gpt-4o-mini)
  */
@@ -35,9 +35,9 @@ import { createWorkerStore } from "../workers/store.ts";
 
 const IMAGE =
 	process.env.NEXAL_SANDBOX_IMAGE ?? "ghcr.io/reonokiy/nexal-sandbox:python3.13-debian13";
-const EXEC_BIN =
-	process.env.NEXAL_EXEC_SERVER_BIN ??
-	`${import.meta.dir}/../../../../target/release/nexal-exec-server`;
+const AGENT_BIN =
+	process.env.NEXAL_AGENT_BIN ??
+	`${import.meta.dir}/../../../../target/release/nexal-agent`;
 const PROVIDER = process.env.NEXAL_MODEL_PROVIDER ?? "openrouter";
 const MODEL_ID = process.env.NEXAL_MODEL ?? "openai/gpt-4o-mini";
 
@@ -65,7 +65,7 @@ async function main(): Promise<void> {
 
 	const sandbox = new PodmanBackend({
 		image: IMAGE,
-		execServerBin: EXEC_BIN,
+		agentBin: AGENT_BIN,
 		memory: "512m",
 		cpus: "1.0",
 		pidsLimit: 256,

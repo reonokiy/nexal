@@ -14,7 +14,7 @@
  * need it; it just isn't acquired for the main agent anymore.
  *
  * Env:
- *   NEXAL_EXEC_SERVER_BIN          (default ../../../target/release/nexal-exec-server)
+ *   NEXAL_AGENT_BIN                (default ../../../target/release/nexal-agent)
  *   NEXAL_HTTP_PORT                (default 3000)
  *   NEXAL_MODEL_PROVIDER           (default "openrouter")
  *   NEXAL_MODEL                    (default "openai/gpt-4o")
@@ -63,9 +63,9 @@ const DEFAULT_EXECUTOR_PROMPT = [
 
 async function main(): Promise<void> {
 	const cfg = await loadConfig();
-	const execBin =
-		process.env.NEXAL_EXEC_SERVER_BIN ??
-		`${import.meta.dir}/../../../target/release/nexal-exec-server`;
+	const agentBin =
+		process.env.NEXAL_AGENT_BIN ??
+		`${import.meta.dir}/../../../target/release/nexal-agent`;
 	const httpPort = Number(
 		(cfg.channel.http?.port as number | string | undefined) ??
 			process.env.NEXAL_HTTP_PORT ??
@@ -85,7 +85,7 @@ async function main(): Promise<void> {
 			process.env.NEXAL_SANDBOX_BACKEND ??
 			(sandboxBucket.backend as string | undefined),
 		config: sandboxBucket,
-		defaults: { execServerBin: execBin, workspace: cfg.workspace },
+		defaults: { agentBin, workspace: cfg.workspace },
 	});
 	console.log(`[nexal] sandbox backend: ${sandbox.name} (workers only)`);
 

@@ -8,12 +8,12 @@ use std::sync::Arc;
 
 use anyhow::Context;
 use anyhow::Result;
-use nexal_exec_server::CopyOptions;
-use nexal_exec_server::CreateDirectoryOptions;
-use nexal_exec_server::Environment;
-use nexal_exec_server::ExecutorFileSystem;
-use nexal_exec_server::ReadDirectoryEntry;
-use nexal_exec_server::RemoveOptions;
+use nexal_agent::CopyOptions;
+use nexal_agent::CreateDirectoryOptions;
+use nexal_agent::Environment;
+use nexal_agent::ExecutorFileSystem;
+use nexal_agent::ReadDirectoryEntry;
+use nexal_agent::RemoveOptions;
 use nexal_utils_absolute_path::AbsolutePathBuf;
 use pretty_assertions::assert_eq;
 use tempfile::TempDir;

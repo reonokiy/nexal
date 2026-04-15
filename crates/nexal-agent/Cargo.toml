@@ -1,5 +1,5 @@
 [package]
-name = "nexal-exec-server"
+name = "nexal-agent"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -8,8 +8,8 @@ license.workspace = true
 doctest = false
 
 [[bin]]
-name = "nexal-exec-server"
-path = "src/bin/nexal-exec-server.rs"
+name = "nexal-agent"
+path = "src/bin/nexal-agent.rs"
 
 [lints]
 workspace = true

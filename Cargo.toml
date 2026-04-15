@@ -1,6 +1,6 @@
 [workspace]
 members = [
-    "crates/exec-server",
+    "crates/nexal-agent",
     "crates/app-server-protocol",
     "crates/protocol",
     "crates/codex-experimental-api-macros",
@@ -20,9 +20,9 @@ edition = "2024"
 license = "Apache-2.0"
 
 [workspace.dependencies]
-# ── Internal: only what the exec-server stack still needs ──
+# ── Internal: only what the agent/gateway stack needs ──
 nexal-app-server-protocol = { path = "crates/app-server-protocol" }
-nexal-exec-server = { path = "crates/exec-server" }
+nexal-agent = { path = "crates/nexal-agent" }
 nexal-experimental-api-macros = { path = "crates/codex-experimental-api-macros" }
 nexal-git-utils = { path = "crates/git-utils" }
 nexal-protocol = { path = "crates/protocol" }

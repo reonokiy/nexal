@@ -18,7 +18,7 @@ export interface SandboxFactoryOptions {
 	/** Backend-specific config bucket (passed straight through to the chosen backend). */
 	config: Record<string, unknown>;
 	/** Resolved fallback values pulled from the top-level NexalConfig. */
-	defaults: { execServerBin: string; workspace: string };
+	defaults: { agentBin: string; workspace: string };
 }
 
 export function createSandboxBackend(opts: SandboxFactoryOptions): SandboxBackend {
@@ -39,7 +39,7 @@ function buildPodmanConfig(opts: SandboxFactoryOptions): PodmanBackendConfig {
 		image:
 			(c.image as string | undefined) ??
 			"ghcr.io/reonokiy/nexal-sandbox:python3.13-debian13",
-		execServerBin: (c.execServerBin as string | undefined) ?? opts.defaults.execServerBin,
+		agentBin: (c.agentBin as string | undefined) ?? opts.defaults.agentBin,
 		podmanBin: c.podmanBin as string | undefined,
 		runtime: c.runtime as string | undefined,
 		memory: (c.memory as string | undefined) ?? "512m",

@@ -1,8 +1,8 @@
 /**
- * JSON-RPC 2.0 client for `nexal-exec-server` over **WebSocket**.
+ * JSON-RPC 2.0 client for `nexal-agent` over **WebSocket**.
  *
- * The server is reachable at `ws://HOST:PORT` (see
- * `crates/exec-server/src/server/transport.rs`). Each WebSocket text
+ * The agent is reachable at `ws://HOST:PORT` (see
+ * `crates/nexal-agent/src/server/transport.rs`). Each WebSocket text
  * frame carries one JSON-RPC message.
  *
  * This client exposes the subset needed by the bash tool:
@@ -71,7 +71,7 @@ export class ExecServerClient {
 			const ws = new WebSocket(this.options.url);
 			this.ws = ws;
 			const timer = setTimeout(() => {
-				reject(new Error(`exec-server WS connect timed out: ${this.options.url}`));
+				reject(new Error(`nexal-agent WS connect timed out: ${this.options.url}`));
 				ws.close();
 			}, this.options.connectTimeoutMs ?? 5_000);
 
@@ -81,10 +81,10 @@ export class ExecServerClient {
 			});
 			ws.addEventListener("error", (ev: any) => {
 				clearTimeout(timer);
-				reject(new Error(`exec-server WS error: ${ev?.message ?? this.options.url}`));
+				reject(new Error(`nexal-agent WS error: ${ev?.message ?? this.options.url}`));
 			});
 			ws.addEventListener("close", () => {
-				for (const p of this.pending.values()) p.reject(new Error("exec-server WS closed"));
+				for (const p of this.pending.values()) p.reject(new Error("nexal-agent WS closed"));
 				this.pending.clear();
 				this.ws = null;
 				this.readyPromise = null;
@@ -165,7 +165,7 @@ export class ExecServerClient {
 				exited = true;
 				exitCode = resp.exitCode ?? 0;
 			}
-			if (resp.failure) throw new Error(`exec-server process failed: ${resp.failure}`);
+			if (resp.failure) throw new Error(`nexal-agent process failed: ${resp.failure}`);
 		}
 
 		return { stdout, stderr, exitCode, timedOut };
@@ -195,7 +195,7 @@ export class ExecServerClient {
 
 	private requireOpen(): WebSocket {
 		if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-			throw new Error("exec-server WS not connected — call connect() first");
+			throw new Error("nexal-agent WS not connected — call connect() first");
 		}
 		return this.ws;
 	}

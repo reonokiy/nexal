@@ -31,7 +31,7 @@ export interface AgentPoolConfig {
 	 * Optional per-session tool factory. Called once when a session is
 	 * first created; returned tools are appended to `tools`. The returned
 	 * `dispose` is invoked when the session is shut down — use it to
-	 * clean up per-session resources (e.g. exec-server subprocess).
+	 * clean up per-session resources (e.g. nexal-agent subprocess).
 	 */
 	toolsFor?: (sessionKey: string) => Promise<{
 		tools: AgentTool<any>[];

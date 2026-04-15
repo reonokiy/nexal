@@ -1119,35 +1119,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "nexal-app-server-protocol"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap",
- "inventory",
- "nexal-experimental-api-macros",
- "nexal-git-utils",
- "nexal-protocol",
- "nexal-utils-absolute-path",
- "nexal-utils-cargo-bin",
- "pretty_assertions",
- "rmcp",
- "schemars 0.8.22",
- "serde",
- "serde_json",
- "serde_with",
- "shlex",
- "similar",
- "strum_macros",
- "tempfile",
- "thiserror 2.0.18",
- "tracing",
- "ts-rs",
- "uuid",
-]
-
-[[package]]
-name = "nexal-exec-server"
+name = "nexal-agent"
 version = "0.1.0"
 dependencies = [
  "anyhow",
@@ -1173,6 +1145,34 @@ dependencies = [
  "tokio-tungstenite",
  "tokio-util",
  "tracing",
+]
+
+[[package]]
+name = "nexal-app-server-protocol"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "inventory",
+ "nexal-experimental-api-macros",
+ "nexal-git-utils",
+ "nexal-protocol",
+ "nexal-utils-absolute-path",
+ "nexal-utils-cargo-bin",
+ "pretty_assertions",
+ "rmcp",
+ "schemars 0.8.22",
+ "serde",
+ "serde_json",
+ "serde_with",
+ "shlex",
+ "similar",
+ "strum_macros",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tracing",
+ "ts-rs",
+ "uuid",
 ]
 
 [[package]]
