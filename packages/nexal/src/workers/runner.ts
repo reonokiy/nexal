@@ -237,11 +237,15 @@ export class WorkerRunner {
 	// ── Internals ─────────────────────────────────────────────────────
 
 	/**
-	 * Register every configured proxy with the gateway and write the
-	 * resulting URLs into `/workspace/.nexal/proxies/<name>.url` so the
-	 * executor can read them at runtime. No-op when there's no gateway,
-	 * no proxies configured, or the client has no `agentId` (e.g. a
-	 * future non-gateway sandbox backend).
+	 * Register every configured proxy with the gateway. Gateway in turn
+	 * tells nexal-agent (in this container) to bring up a unix socket
+	 * under `/workspace/.nexal/proxies/<name>.sock` that forwards to
+	 * the gateway, which adds auth headers and proxies to the real
+	 * upstream. The executor uses the socket directly:
+	 *   `curl --unix-socket /workspace/.nexal/proxies/jina.sock http://x/v1/search`
+	 *
+	 * No-op when there's no gateway, no proxies configured, or the
+	 * client has no `agentId`.
 	 */
 	private async setupProxies(): Promise<void> {
 		const client = this.client;
@@ -251,36 +255,23 @@ export class WorkerRunner {
 		const agentId = client.agentId;
 		if (!agentId) return;
 
-		// Reset the proxies dir so dropped registrations don't linger.
+		// Make sure the directory exists. Sockets are created by
+		// nexal-agent during gateway/register_proxy itself; we just
+		// need the parent dir present.
 		await client
-			.runCommand(
-				[
-					"/bin/sh",
-					"-c",
-					"rm -rf /workspace/.nexal/proxies && mkdir -p /workspace/.nexal/proxies",
-				],
-				{ timeoutMs: 5_000 },
-			)
-			.catch((err) => console.error(`[worker:${this.id}] reset proxies dir`, err));
+			.runCommand(["/bin/sh", "-c", "mkdir -p /workspace/.nexal/proxies"], {
+				timeoutMs: 5_000,
+			})
+			.catch((err) => console.error(`[worker:${this.id}] mkdir proxies dir`, err));
 
 		for (const spec of proxies) {
 			try {
-				const { url } = await gateway.invoke("gateway/register_proxy", {
+				await gateway.invoke("gateway/register_proxy", {
 					agent_id: agentId,
 					name: spec.name,
 					upstream_url: spec.upstreamUrl,
 					headers: spec.headers ?? {},
 				});
-				const safeName = spec.name.replace(/[^A-Za-z0-9_.-]/g, "_");
-				const safeUrl = url.replace(/'/g, "'\\''");
-				await client.runCommand(
-					[
-						"/bin/sh",
-						"-c",
-						`printf '%s\\n' '${safeUrl}' > /workspace/.nexal/proxies/${safeName}.url`,
-					],
-					{ timeoutMs: 3_000 },
-				);
 			} catch (err) {
 				console.error(
 					`[worker:${this.id}] proxy ${spec.name} setup failed`,

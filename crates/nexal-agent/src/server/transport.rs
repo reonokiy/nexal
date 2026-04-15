@@ -1,11 +1,9 @@
 use std::net::SocketAddr;
 
-use tokio::net::TcpListener;
-use tokio_tungstenite::accept_async;
-use tracing::warn;
+use jsonrpsee::server::{ServerBuilder, ServerHandle};
 
-use crate::connection::JsonRpcConnection;
-use crate::server::rpc::processor::run_connection;
+use crate::server::ExecServerHandler;
+use crate::server::rpc::jsonrpsee::build_module;
 
 pub const DEFAULT_LISTEN_URL: &str = "ws://127.0.0.1:0";
 
@@ -50,34 +48,25 @@ pub(crate) async fn run_transport(
     listen_url: &str,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let bind_address = parse_listen_url(listen_url)?;
-    run_websocket_listener(bind_address).await
-}
-
-async fn run_websocket_listener(
-    bind_address: SocketAddr,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let listener = TcpListener::bind(bind_address).await?;
-    let local_addr = listener.local_addr()?;
+    let (local_addr, handle) = start_server(bind_address).await?;
     tracing::info!("nexal-exec-server listening on ws://{local_addr}");
     println!("ws://{local_addr}");
+    handle.stopped().await;
+    Ok(())
+}
 
-    loop {
-        let (stream, peer_addr) = listener.accept().await?;
-        tokio::spawn(async move {
-            match accept_async(stream).await {
-                Ok(websocket) => {
-                    run_connection(JsonRpcConnection::from_websocket(
-                        websocket,
-                        format!("exec-server websocket {peer_addr}"),
-                    ))
-                    .await;
-                }
-                Err(err) => {
-                    warn!(
-                        "failed to accept exec-server websocket connection from {peer_addr}: {err}"
-                    );
-                }
-            }
-        });
-    }
+pub(crate) async fn start_server(
+    bind_address: SocketAddr,
+) -> Result<(SocketAddr, ServerHandle), Box<dyn std::error::Error + Send + Sync>> {
+    let server = ServerBuilder::default().build(bind_address).await?;
+    let local_addr = server.local_addr()?;
+    let handler = std::sync::Arc::new(ExecServerHandler::new());
+    let module = build_module(handler.clone());
+    let handle = server.start(module);
+    let cleanup_handle = handle.clone();
+    tokio::spawn(async move {
+        cleanup_handle.stopped().await;
+        handler.shutdown().await;
+    });
+    Ok((local_addr, handle))
 }

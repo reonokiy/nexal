@@ -193,13 +193,7 @@ impl ContainerBackend for PodmanBackend {
         let setup_cmd = "mkdir -p /workspace/.nexal && chmod 1777 /workspace /workspace/.nexal";
         if let Err(err) = self
             .podman(&[
-                "exec",
-                "--user",
-                "0",
-                &spec.name,
-                "/bin/sh",
-                "-c",
-                setup_cmd,
+                "exec", "--user", "0", &spec.name, "/bin/sh", "-c", setup_cmd,
             ])
             .await
         {

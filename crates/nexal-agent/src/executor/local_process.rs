@@ -40,6 +40,7 @@ use crate::rpc::RpcServerOutboundMessage;
 use crate::rpc::internal_error;
 use crate::rpc::invalid_params;
 use crate::rpc::invalid_request;
+use crate::server::{ProcessEvent, ProcessEventBroadcaster};
 
 const RETAINED_OUTPUT_BYTES_PER_PROCESS: usize = 1024 * 1024;
 const NOTIFICATION_CHANNEL_CAPACITY: usize = 256;
@@ -75,6 +76,7 @@ enum ProcessEntry {
 
 struct Inner {
     notifications: RpcNotificationSender,
+    process_events: ProcessEventBroadcaster,
     processes: Mutex<HashMap<ProcessId, ProcessEntry>>,
     initialize_requested: AtomicBool,
     initialized: AtomicBool,
@@ -96,15 +98,22 @@ impl Default for LocalProcess {
         let (outgoing_tx, mut outgoing_rx) =
             mpsc::channel::<RpcServerOutboundMessage>(NOTIFICATION_CHANNEL_CAPACITY);
         tokio::spawn(async move { while outgoing_rx.recv().await.is_some() {} });
-        Self::new(RpcNotificationSender::new(outgoing_tx))
+        Self::new(
+            RpcNotificationSender::new(outgoing_tx),
+            ProcessEventBroadcaster::new(),
+        )
     }
 }
 
 impl LocalProcess {
-    pub(crate) fn new(notifications: RpcNotificationSender) -> Self {
+    pub(crate) fn new(
+        notifications: RpcNotificationSender,
+        process_events: ProcessEventBroadcaster,
+    ) -> Self {
         Self {
             inner: Arc::new(Inner {
                 notifications,
+                process_events,
                 processes: Mutex::new(HashMap::new()),
                 initialize_requested: AtomicBool::new(false),
                 initialized: AtomicBool::new(false),
@@ -126,6 +135,10 @@ impl LocalProcess {
         for process in remaining {
             process.session.terminate();
         }
+    }
+
+    pub(crate) fn subscribe_events(&self) -> tokio::sync::broadcast::Receiver<ProcessEvent> {
+        self.inner.process_events.subscribe()
     }
 
     pub(crate) fn initialize(&self) -> Result<InitializeResponse, JSONRPCErrorError> {
@@ -557,6 +570,7 @@ async fn stream_output(
         {
             break;
         }
+        inner.process_events.send_output_delta(notification);
     }
 
     finish_output_stream(process_id, inner).await;
@@ -586,14 +600,17 @@ async fn watch_exit(
         }
     };
     output_notify.notify_waiters();
-    if let Some(notification) = notification
+    if let Some(notification) = notification.as_ref()
         && inner
             .notifications
-            .notify(crate::protocol::EXEC_EXITED_METHOD, &notification)
+            .notify(crate::protocol::EXEC_EXITED_METHOD, notification)
             .await
             .is_err()
     {
         return;
+    }
+    if let Some(notification) = notification.clone() {
+        inner.process_events.send_exited(notification);
     }
 
     maybe_emit_closed(process_id.clone(), Arc::clone(&inner)).await;
@@ -654,6 +671,7 @@ async fn maybe_emit_closed(process_id: ProcessId, inner: Arc<Inner>) {
         .await
         .is_err()
     {}
+    inner.process_events.send_closed(notification);
 }
 
 /// Detect the default shell in this execution environment.

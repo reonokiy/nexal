@@ -29,8 +29,11 @@ use crate::protocol::WriteParams;
 use crate::protocol::WriteResponse;
 use crate::proxy::ProxyManager;
 use crate::rpc::RpcNotificationSender;
+use crate::rpc::RpcServerOutboundMessage;
 use crate::server::services::file_system::FileSystemHandler;
 use crate::server::services::process::ProcessHandler;
+use crate::server::services::{ProcessEvent, ProcessEventBroadcaster};
+use tokio::sync::mpsc;
 
 #[derive(Clone)]
 pub(crate) struct ExecServerHandler {
@@ -40,9 +43,11 @@ pub(crate) struct ExecServerHandler {
 }
 
 impl ExecServerHandler {
-    pub(crate) fn new(notifications: RpcNotificationSender) -> Self {
+    pub(crate) fn new() -> Self {
+        let process_events = ProcessEventBroadcaster::new();
+        let notifications = discard_notification_sender();
         Self {
-            process: ProcessHandler::new(notifications),
+            process: ProcessHandler::new(notifications, process_events),
             file_system: FileSystemHandler::default(),
             proxy: std::sync::Arc::new(ProxyManager::new()),
         }
@@ -166,4 +171,16 @@ impl ExecServerHandler {
         let ok = self.proxy.unregister(&params.socket_path).await;
         Ok(ProxyUnregisterResponse { ok })
     }
+
+    pub(crate) fn subscribe_process_events(
+        &self,
+    ) -> tokio::sync::broadcast::Receiver<ProcessEvent> {
+        self.process.subscribe_events()
+    }
+}
+
+fn discard_notification_sender() -> RpcNotificationSender {
+    let (outgoing_tx, mut outgoing_rx) = mpsc::channel::<RpcServerOutboundMessage>(256);
+    tokio::spawn(async move { while outgoing_rx.recv().await.is_some() {} });
+    RpcNotificationSender::new(outgoing_tx)
 }

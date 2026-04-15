@@ -11,6 +11,7 @@ use crate::protocol::TerminateResponse;
 use crate::protocol::WriteParams;
 use crate::protocol::WriteResponse;
 use crate::rpc::RpcNotificationSender;
+use crate::server::services::{ProcessEvent, ProcessEventBroadcaster};
 
 #[derive(Clone)]
 pub(crate) struct ProcessHandler {
@@ -18,9 +19,12 @@ pub(crate) struct ProcessHandler {
 }
 
 impl ProcessHandler {
-    pub(crate) fn new(notifications: RpcNotificationSender) -> Self {
+    pub(crate) fn new(
+        notifications: RpcNotificationSender,
+        process_events: ProcessEventBroadcaster,
+    ) -> Self {
         Self {
-            process: LocalProcess::new(notifications),
+            process: LocalProcess::new(notifications, process_events),
         }
     }
 
@@ -66,5 +70,9 @@ impl ProcessHandler {
         params: TerminateParams,
     ) -> Result<TerminateResponse, JSONRPCErrorError> {
         self.process.terminate_process(params).await
+    }
+
+    pub(crate) fn subscribe_events(&self) -> tokio::sync::broadcast::Receiver<ProcessEvent> {
+        self.process.subscribe_events()
     }
 }

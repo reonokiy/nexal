@@ -140,4 +140,3 @@ pub fn kill_child_process_group(child: &mut Child) -> io::Result<()> {
 
     Ok(())
 }
-

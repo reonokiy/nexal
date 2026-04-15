@@ -1,2 +1,1 @@
-pub(crate) mod processor;
-pub(crate) mod routes;
+pub(crate) mod jsonrpsee;

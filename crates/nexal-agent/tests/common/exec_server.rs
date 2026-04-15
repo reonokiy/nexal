@@ -4,13 +4,13 @@ use std::process::Stdio;
 use std::time::Duration;
 
 use anyhow::anyhow;
+use futures::SinkExt;
+use futures::StreamExt;
 use nexal_agent::JSONRPCMessage;
 use nexal_agent::JSONRPCNotification;
 use nexal_agent::JSONRPCRequest;
 use nexal_agent::RequestId;
 use nexal_utils_cargo_bin::cargo_bin;
-use futures::SinkExt;
-use futures::StreamExt;
 use tokio::io::AsyncBufReadExt;
 use tokio::io::BufReader;
 use tokio::process::Child;

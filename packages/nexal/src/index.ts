@@ -56,7 +56,7 @@ const DEFAULT_EXECUTOR_PROMPT = [
 	"Filesystem layout:",
 	"  - /workspace        — user-facing project area. Put files the user expects to see here.",
 	"  - /workspace/.nexal — your HOME and scratch space (logs, lockfiles, dotfiles, internal state). $HOME and $NEXAL_DATA_DIR both point here.",
-	"  - /workspace/.nexal/proxies/<name>.url — pre-registered upstream API proxies. The file contains the full URL to call; the gateway injects auth headers for you, so you NEVER see or need API keys. Append paths to that URL (e.g. `curl \"$(cat $NEXAL_DATA_DIR/proxies/jina.url)/v1/search?q=foo\"`).",
+	"  - /workspace/.nexal/proxies/<name>.sock — pre-registered upstream API proxies as Unix sockets. The gateway injects auth headers for you, so you NEVER see or need API keys. Use the socket directly, e.g. `curl --unix-socket /workspace/.nexal/proxies/jina.sock http://x/v1/search?q=foo` (the host part of the URL is ignored).",
 	"Do the work assigned to you. Use bash freely. Call send_update for milestones, when you need clarification, and to deliver final results.",
 	"Do NOT echo every intermediate thought — each send_update call becomes a separate Telegram message.",
 ].join("\n");

@@ -2,11 +2,11 @@
 
 mod common;
 
-use nexal_agent::JSONRPCMessage;
-use nexal_agent::JSONRPCResponse;
+use common::exec_server::exec_server;
 use nexal_agent::InitializeParams;
 use nexal_agent::InitializeResponse;
-use common::exec_server::exec_server;
+use nexal_agent::JSONRPCMessage;
+use nexal_agent::JSONRPCResponse;
 use pretty_assertions::assert_eq;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

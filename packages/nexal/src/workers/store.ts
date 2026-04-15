@@ -83,46 +83,11 @@ export interface WorkerStoreConfig {
 	url: string;
 }
 
-const CREATE_SQL = `
-CREATE TABLE IF NOT EXISTS workers (
-  id TEXT PRIMARY KEY,
-  kind TEXT NOT NULL CHECK (kind IN ('coordinator','executor')),
-  lifetime TEXT NOT NULL CHECK (lifetime IN ('persistent','shot')),
-  parent_session_key TEXT NOT NULL,
-  source_channel TEXT NOT NULL,
-  source_chat_id TEXT NOT NULL,
-  source_reply_to TEXT,
-  name TEXT NOT NULL,
-  initial_prompt TEXT,
-  system_prompt TEXT NOT NULL,
-  model_provider TEXT NOT NULL,
-  model_id TEXT NOT NULL,
-  status TEXT NOT NULL CHECK (status IN ('spawning','idle','running','completed','cancelled','failed')),
-  messages_json TEXT NOT NULL DEFAULT '[]',
-  container_name TEXT NOT NULL,
-  created_at BIGINT NOT NULL,
-  started_at BIGINT,
-  updated_at BIGINT NOT NULL,
-  completed_at BIGINT,
-  error TEXT,
-  turn_count INTEGER NOT NULL DEFAULT 0,
-  send_policy TEXT NOT NULL DEFAULT 'explicit'
-);
-CREATE INDEX IF NOT EXISTS workers_status_idx ON workers(status);
-CREATE INDEX IF NOT EXISTS workers_parent_idx ON workers(parent_session_key);
-`;
-
 export async function createWorkerStore(cfg: WorkerStoreConfig): Promise<WorkerStore> {
 	if (!cfg.url) throw new Error("workers.url (postgres connection string) required");
 	const sql = new (Bun as any).SQL(cfg.url);
 	const db = drizzle(sql, { schema });
 	const { workers } = schema;
-
-	// Bootstrap the schema. CREATE TABLE IF NOT EXISTS is a no-op when
-	// the table already exists; idempotent across restarts.
-	for (const stmt of CREATE_SQL.split(";").map((s) => s.trim()).filter(Boolean)) {
-		await sql.unsafe(stmt + ";");
-	}
 
 	return {
 		async insert(row: WorkerCreate): Promise<WorkerRow> {

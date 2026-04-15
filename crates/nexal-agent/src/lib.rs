@@ -13,7 +13,6 @@ pub(crate) use executor::remote_file_system;
 pub(crate) use executor::remote_process;
 pub(crate) use transport::client;
 pub(crate) use transport::client_api;
-pub(crate) use transport::connection;
 pub(crate) use transport::protocol;
 pub(crate) use transport::rpc;
 

@@ -60,32 +60,3 @@ export const workers = pgTable(
 
 export type WorkerRow = typeof workers.$inferSelect;
 export type WorkerInsert = typeof workers.$inferInsert;
-
-export const CREATE_SQL = `
-CREATE TABLE IF NOT EXISTS workers (
-  id TEXT PRIMARY KEY,
-  kind TEXT NOT NULL CHECK (kind IN ('coordinator','executor')),
-  lifetime TEXT NOT NULL CHECK (lifetime IN ('persistent','shot')),
-  parent_session_key TEXT NOT NULL,
-  source_channel TEXT NOT NULL,
-  source_chat_id TEXT NOT NULL,
-  source_reply_to TEXT,
-  name TEXT NOT NULL,
-  initial_prompt TEXT,
-  system_prompt TEXT NOT NULL,
-  model_provider TEXT NOT NULL,
-  model_id TEXT NOT NULL,
-  status TEXT NOT NULL CHECK (status IN ('spawning','idle','running','completed','cancelled','failed')),
-  messages_json TEXT NOT NULL DEFAULT '[]',
-  container_name TEXT NOT NULL,
-  created_at BIGINT NOT NULL,
-  started_at BIGINT,
-  updated_at BIGINT NOT NULL,
-  completed_at BIGINT,
-  error TEXT,
-  turn_count INTEGER NOT NULL DEFAULT 0,
-  send_policy TEXT NOT NULL DEFAULT 'explicit'
-);
-CREATE INDEX IF NOT EXISTS workers_status_idx ON workers(status);
-CREATE INDEX IF NOT EXISTS workers_parent_idx ON workers(parent_session_key);
-`;

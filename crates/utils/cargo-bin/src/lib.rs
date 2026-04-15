@@ -84,27 +84,25 @@ macro_rules! find_resource {
     }};
 }
 
-
 fn resolve_cargo_runfile(resource: &Path) -> std::io::Result<PathBuf> {
     let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     Ok(manifest_dir.join(resource))
 }
 
 pub fn repo_root() -> io::Result<PathBuf> {
-    resolve_cargo_runfile(Path::new("repo_root.marker"))
-        .and_then(|marker| {
-            let mut root = marker;
-            for _ in 0..4 {
-                root = root
-                    .parent()
-                    .ok_or_else(|| {
-                        io::Error::new(
-                            io::ErrorKind::NotFound,
-                            "repo_root.marker did not have expected parent depth",
-                        )
-                    })?
-                    .to_path_buf();
-            }
-            Ok(root)
-        })
+    resolve_cargo_runfile(Path::new("repo_root.marker")).and_then(|marker| {
+        let mut root = marker;
+        for _ in 0..4 {
+            root = root
+                .parent()
+                .ok_or_else(|| {
+                    io::Error::new(
+                        io::ErrorKind::NotFound,
+                        "repo_root.marker did not have expected parent depth",
+                    )
+                })?
+                .to_path_buf();
+        }
+        Ok(root)
+    })
 }

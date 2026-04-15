@@ -234,10 +234,14 @@ pub struct RegisterProxyParams {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct RegisterProxyResponse {
-    /// Opaque identifier baked into the URL the agent should hit.
+    /// Opaque identifier the in-container nexal-agent forwards to the
+    /// gateway with. Used to look the entry up on the proxy HTTP server.
     pub token: String,
-    /// Full URL the agent should target. Path is appended after this.
-    pub url: String,
+    /// Unix socket path inside the container. The gateway told
+    /// `nexal-agent` to create it; container code uses it directly,
+    /// e.g. `curl --unix-socket /workspace/.nexal/proxies/jina.sock http://x/v1/search`
+    /// (the URL's host part is ignored).
+    pub socket_path: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

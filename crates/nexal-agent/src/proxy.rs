@@ -48,15 +48,14 @@ impl ProxyManager {
 
         let _ = tokio::fs::remove_file(&path).await;
 
-        let listener = UnixListener::bind(&path)
-            .map_err(|e| format!("bind {socket_path}: {e}"))?;
+        let listener = UnixListener::bind(&path).map_err(|e| format!("bind {socket_path}: {e}"))?;
 
         let cancel = CancellationToken::new();
         let cancel_clone = cancel.clone();
 
         // Parse upstream URL into host:port for TCP connection.
-        let upstream_info = parse_upstream(upstream_url)
-            .map_err(|e| format!("invalid upstream URL: {e}"))?;
+        let upstream_info =
+            parse_upstream(upstream_url).map_err(|e| format!("invalid upstream URL: {e}"))?;
 
         info!(socket = %socket_path, upstream = %upstream_url, "proxy registered");
 
@@ -68,7 +67,13 @@ impl ProxyManager {
         if let Some(old) = instances.remove(&path) {
             old.cancel.cancel();
         }
-        instances.insert(path, ProxyInstance { cancel, _task: task });
+        instances.insert(
+            path,
+            ProxyInstance {
+                cancel,
+                _task: task,
+            },
+        );
 
         Ok(())
     }
@@ -123,7 +128,12 @@ fn parse_upstream(url: &str) -> Result<UpstreamInfo, String> {
         None => (host_port.to_string(), port),
     };
 
-    Ok(UpstreamInfo { host, port, tls, path_prefix })
+    Ok(UpstreamInfo {
+        host,
+        port,
+        tls,
+        path_prefix,
+    })
 }
 
 async fn run_proxy_listener(

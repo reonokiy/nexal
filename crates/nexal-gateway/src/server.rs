@@ -299,31 +299,64 @@ impl Session {
             }
             METHOD_REGISTER_PROXY => {
                 let p: RegisterProxyParams = parse_params(params)?;
-                if self.registry.get(&p.agent_id).await.is_none() {
-                    return Err(JsonRpcError {
+                let agent_entry = self.registry.get(&p.agent_id).await.ok_or_else(|| {
+                    JsonRpcError {
                         code: error_code::UNKNOWN_AGENT,
                         message: format!("no agent {}", p.agent_id),
                         data: None,
-                    });
-                }
+                    }
+                })?;
+                let socket_path = container_socket_path(&p.name);
                 let entry = self
                     .registry
                     .proxies
-                    .register(p.agent_id, p.name, p.upstream_url, p.headers)
+                    .register(p.agent_id.clone(), p.name.clone(), p.upstream_url, p.headers)
                     .await;
-                let url = format!(
+                // URL the in-container nexal-agent forwards to. Path is
+                // appended by the agent when it rewrites request lines.
+                let gateway_url = format!(
                     "{}/p/{}",
                     self.cfg.proxy_external_base.trim_end_matches('/'),
                     entry.token
                 );
+                // Bring up the unix socket in the container. Socket
+                // creation fails → undo our registry entry so we don't
+                // leak a token without a matching socket.
+                let agent_resp = agent_entry
+                    .conn
+                    .invoke(
+                        "proxy/register",
+                        Some(serde_json::json!({
+                            "socket_path": socket_path,
+                            "upstream_url": gateway_url,
+                            "headers": {},
+                        })),
+                    )
+                    .await;
+                if let Err(err) = agent_resp {
+                    self.registry.proxies.unregister(&p.agent_id, &p.name).await;
+                    return Err(JsonRpcError::from(err));
+                }
                 Ok(serde_json::to_value(RegisterProxyResponse {
                     token: entry.token,
-                    url,
+                    socket_path,
                 })
                 .unwrap_or(Value::Null))
             }
             METHOD_UNREGISTER_PROXY => {
                 let p: UnregisterProxyParams = parse_params(params)?;
+                let socket_path = container_socket_path(&p.name);
+                // Best-effort socket teardown on the agent side. If the
+                // agent is gone the socket is gone with it — not an error.
+                if let Some(agent_entry) = self.registry.get(&p.agent_id).await {
+                    let _ = agent_entry
+                        .conn
+                        .invoke(
+                            "proxy/unregister",
+                            Some(serde_json::json!({ "socket_path": socket_path })),
+                        )
+                        .await;
+                }
                 let removed = self.registry.proxies.unregister(&p.agent_id, &p.name).await;
                 Ok(serde_json::to_value(OkResponse { ok: removed }).unwrap_or(Value::Null))
             }
@@ -382,6 +415,21 @@ fn registry_err(err: crate::registry::RegistryError) -> JsonRpcError {
         message: msg,
         data: None,
     }
+}
+
+/// Convention: every proxy registered for an agent gets a Unix socket
+/// at this path inside its container. The executor system prompt
+/// (Bun side) tells workers where to look.
+fn container_socket_path(name: &str) -> String {
+    let mut sanitized = String::with_capacity(name.len());
+    for c in name.chars() {
+        if c.is_ascii_alphanumeric() || c == '_' || c == '.' || c == '-' {
+            sanitized.push(c);
+        } else {
+            sanitized.push('_');
+        }
+    }
+    format!("/workspace/.nexal/proxies/{sanitized}.sock")
 }
 
 #[allow(dead_code)]

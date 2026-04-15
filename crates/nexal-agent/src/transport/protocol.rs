@@ -2,29 +2,19 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
+use jsonrpsee::types::TwoPointZero;
 use serde::Deserialize;
 use serde::Serialize;
 
 use crate::ProcessId;
 
+#[cfg(test)]
 pub const INITIALIZE_METHOD: &str = "initialize";
+#[cfg(test)]
 pub const INITIALIZED_METHOD: &str = "initialized";
-pub const EXEC_METHOD: &str = "process/start";
-pub const EXEC_READ_METHOD: &str = "process/read";
-pub const EXEC_WRITE_METHOD: &str = "process/write";
-pub const EXEC_TERMINATE_METHOD: &str = "process/terminate";
 pub const EXEC_OUTPUT_DELTA_METHOD: &str = "process/output";
 pub const EXEC_EXITED_METHOD: &str = "process/exited";
 pub const EXEC_CLOSED_METHOD: &str = "process/closed";
-pub const FS_READ_FILE_METHOD: &str = "fs/read_file";
-pub const FS_WRITE_FILE_METHOD: &str = "fs/write_file";
-pub const FS_CREATE_DIRECTORY_METHOD: &str = "fs/create_directory";
-pub const FS_GET_METADATA_METHOD: &str = "fs/get_metadata";
-pub const FS_READ_DIRECTORY_METHOD: &str = "fs/read_directory";
-pub const FS_REMOVE_METHOD: &str = "fs/remove";
-pub const FS_COPY_METHOD: &str = "fs/copy";
-pub const PROXY_REGISTER_METHOD: &str = "proxy/register";
-pub const PROXY_UNREGISTER_METHOD: &str = "proxy/unregister";
 
 /// Register a reverse proxy Unix socket inside the container.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -232,6 +222,8 @@ pub enum JSONRPCMessage {
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct JSONRPCRequest {
+    #[serde(default = "jsonrpc_2_0")]
+    pub jsonrpc: TwoPointZero,
     pub id: RequestId,
     pub method: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -240,6 +232,8 @@ pub struct JSONRPCRequest {
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct JSONRPCNotification {
+    #[serde(default = "jsonrpc_2_0")]
+    pub jsonrpc: TwoPointZero,
     pub method: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub params: Option<serde_json::Value>,
@@ -247,12 +241,16 @@ pub struct JSONRPCNotification {
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct JSONRPCResponse {
+    #[serde(default = "jsonrpc_2_0")]
+    pub jsonrpc: TwoPointZero,
     pub id: RequestId,
     pub result: serde_json::Value,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct JSONRPCError {
+    #[serde(default = "jsonrpc_2_0")]
+    pub jsonrpc: TwoPointZero,
     pub error: JSONRPCErrorError,
     pub id: RequestId,
 }
@@ -263,6 +261,10 @@ pub struct JSONRPCErrorError {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub data: Option<serde_json::Value>,
     pub message: String,
+}
+
+fn jsonrpc_2_0() -> TwoPointZero {
+    TwoPointZero
 }
 
 // ── Filesystem wire types ──

@@ -180,9 +180,7 @@ async fn spawn_process_with_stdin_mode(
 
     let handle = ProcessHandle::new(
         writer_tx,
-        Box::new(PipeChildTerminator {
-            process_group_id,
-        }),
+        Box::new(PipeChildTerminator { process_group_id }),
         reader_handle,
         reader_abort_handles,
         writer_handle,

@@ -4,13 +4,16 @@ use std::sync::Arc;
 use clap::Parser;
 use nexal_gateway::backend::PodmanBackend;
 use nexal_gateway::config::GatewayConfig;
-use nexal_gateway::proxy::{serve_proxy, ProxyRegistry};
+use nexal_gateway::proxy::{ProxyRegistry, serve_proxy};
 use nexal_gateway::registry::SpawnDefaults;
-use nexal_gateway::{server::ServerConfig, AgentRegistry};
+use nexal_gateway::{AgentRegistry, server::ServerConfig};
 use tracing_subscriber::EnvFilter;
 
 #[derive(Debug, Parser)]
-#[command(version, about = "nexal-gateway: host-side multiplexer for nexal-agent containers")]
+#[command(
+    version,
+    about = "nexal-gateway: host-side multiplexer for nexal-agent containers"
+)]
 struct Args {
     /// Path to the gateway TOML config. Defaults to ~/.nexal/gateway.toml.
     #[arg(long = "config", value_name = "PATH", env = "NEXAL_GATEWAY_CONFIG")]
@@ -25,7 +28,10 @@ struct Args {
     proxy_listen: Option<String>,
 
     /// Override the proxy URL prefix handed to agents.
-    #[arg(long = "proxy-external-base", env = "NEXAL_GATEWAY_PROXY_EXTERNAL_BASE")]
+    #[arg(
+        long = "proxy-external-base",
+        env = "NEXAL_GATEWAY_PROXY_EXTERNAL_BASE"
+    )]
     proxy_external_base: Option<String>,
 
     /// Override the shared auth token. Required if not set in config.

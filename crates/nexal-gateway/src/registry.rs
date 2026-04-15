@@ -15,7 +15,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::Value;
 use thiserror::Error;
-use tokio::sync::{broadcast, mpsc, Mutex};
+use tokio::sync::{Mutex, broadcast, mpsc};
 use uuid::Uuid;
 
 use crate::agent_conn::{AgentConn, AgentConnError, AgentNotification};
@@ -133,18 +133,21 @@ impl AgentRegistry {
             return Err(RegistryError::UnknownContainer(container_name));
         }
         // Make sure it's started, then discover the WS URL.
-        let _ = self.backend.ensure(ContainerSpec {
-            name: container_name.clone(),
-            image: self.spawn_defaults.image.clone(), // unused on the reuse path
-            env: Default::default(),
-            labels: Default::default(),
-            workspace: self.spawn_defaults.workspace.clone(),
-            agent_bin: self.spawn_defaults.agent_bin.clone(),
-            memory: self.spawn_defaults.memory.clone(),
-            cpus: self.spawn_defaults.cpus.clone(),
-            pids_limit: self.spawn_defaults.pids_limit,
-            network: self.spawn_defaults.network,
-        }).await?;
+        let _ = self
+            .backend
+            .ensure(ContainerSpec {
+                name: container_name.clone(),
+                image: self.spawn_defaults.image.clone(), // unused on the reuse path
+                env: Default::default(),
+                labels: Default::default(),
+                workspace: self.spawn_defaults.workspace.clone(),
+                agent_bin: self.spawn_defaults.agent_bin.clone(),
+                memory: self.spawn_defaults.memory.clone(),
+                cpus: self.spawn_defaults.cpus.clone(),
+                pids_limit: self.spawn_defaults.pids_limit,
+                network: self.spawn_defaults.network,
+            })
+            .await?;
         let ws_url = self.backend.ws_url(&container_name).await?;
         let handle = ContainerHandle {
             name: container_name,
@@ -175,8 +178,12 @@ impl AgentRegistry {
             }
         });
 
-        let conn = AgentConn::connect(&handle.ws_url, &format!("nexal-gateway/{agent_id}"), per_agent_tx)
-            .await?;
+        let conn = AgentConn::connect(
+            &handle.ws_url,
+            &format!("nexal-gateway/{agent_id}"),
+            per_agent_tx,
+        )
+        .await?;
         let entry = AgentEntry {
             agent_id: agent_id.clone(),
             container_name: handle.name,
@@ -245,7 +252,8 @@ impl AgentRegistry {
 
     fn derive_container_name(&self, name: &str) -> String {
         // Sanitize: only letters, digits, _ . - allowed by podman.
-        let mut out = String::with_capacity(name.len() + self.spawn_defaults.container_name_prefix.len());
+        let mut out =
+            String::with_capacity(name.len() + self.spawn_defaults.container_name_prefix.len());
         out.push_str(&self.spawn_defaults.container_name_prefix);
         for c in name.chars() {
             if c.is_ascii_alphanumeric() || c == '_' || c == '.' || c == '-' {

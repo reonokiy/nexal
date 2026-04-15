@@ -113,7 +113,10 @@ impl AgentConn {
         let _init: Value = conn
             .invoke("initialize", Some(json!({ "client_name": client_name })))
             .await?;
-        conn.notify("initialized", json!({})).await?;
+        // `initialized` is declared as a no-arg METHOD in the jsonrpsee
+        // server (not a JSON-RPC notification), so send it as a request
+        // with an id and wait for the response.
+        let _ = conn.invoke("initialized", None).await?;
         Ok(conn)
     }
 
@@ -138,7 +141,7 @@ impl AgentConn {
                 "jsonrpc": JSONRPC_VERSION,
                 "id": id,
                 "method": method,
-                "params": params.unwrap_or(Value::Null),
+                "params": wrap_params_positional(params),
             }))
             .await
             .map_err(|_| AgentConnError::Closed)?;
@@ -153,7 +156,7 @@ impl AgentConn {
             .send(json!({
                 "jsonrpc": JSONRPC_VERSION,
                 "method": method,
-                "params": params,
+                "params": wrap_params_positional(Some(params)),
             }))
             .await
             .map_err(|_| AgentConnError::Closed)
@@ -209,6 +212,26 @@ async fn drain_pending(pending: &Arc<Mutex<Pending>>) {
     let mut pending = pending.lock().await;
     for (_id, tx) in pending.drain() {
         let _ = tx.send(Err(AgentConnError::Closed));
+    }
+}
+
+/// nexal-agent uses jsonrpsee, which serializes single-parameter
+/// methods as a positional array (`"params": [{...}]`). Frontend and
+/// our own internal callers pass a single object — wrap it before
+/// sending.
+///
+/// - `None` → `[]` (matches a zero-arg jsonrpsee method).
+/// - `Some(Value::Array(_))` → passed through unchanged (caller
+///   already prepared positional form, e.g. for multi-param methods).
+/// - `Some(Value::Null)` → `[]`.
+/// - anything else → `[value]` (single-arg wrap).
+fn wrap_params_positional(params: Option<Value>) -> Value {
+    match params {
+        None | Some(Value::Null) => Value::Array(Vec::new()),
+        Some(Value::Array(arr)) => Value::Array(arr),
+        // Empty `{}` means "no args" — common idiom on the Bun side.
+        Some(Value::Object(obj)) if obj.is_empty() => Value::Array(Vec::new()),
+        Some(other) => Value::Array(vec![other]),
     }
 }
 

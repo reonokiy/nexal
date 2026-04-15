@@ -1,7 +1,26 @@
 use std::collections::HashMap;
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
+use std::sync::Weak;
 use std::time::Duration;
 
+use arc_swap::ArcSwap;
+use jsonrpsee::core::client::{Error as JsonRpseeError, Subscription};
+use jsonrpsee::ws_client::{WsClient, WsClientBuilder};
+use tokio::sync::Mutex;
+use tokio::sync::watch;
+
+use tokio::time::timeout;
+
+use crate::ProcessId;
+use crate::client_api::ExecServerClientConnectOptions;
+use crate::client_api::RemoteExecServerConnectArgs;
+use crate::protocol::ExecClosedNotification;
+use crate::protocol::ExecExitedNotification;
+use crate::protocol::ExecOutputDeltaNotification;
+use crate::protocol::ExecParams;
+use crate::protocol::ExecResponse;
 use crate::protocol::FsCopyParams;
 use crate::protocol::FsCopyResponse;
 use crate::protocol::FsCreateDirectoryParams;
@@ -16,41 +35,6 @@ use crate::protocol::FsRemoveParams;
 use crate::protocol::FsRemoveResponse;
 use crate::protocol::FsWriteFileParams;
 use crate::protocol::FsWriteFileResponse;
-use crate::protocol::JSONRPCNotification;
-use arc_swap::ArcSwap;
-use serde_json::Value;
-use tokio::sync::Mutex;
-use tokio::sync::watch;
-
-use tokio::time::timeout;
-use tokio_tungstenite::connect_async;
-use tracing::debug;
-
-use crate::ProcessId;
-use crate::client_api::ExecServerClientConnectOptions;
-use crate::client_api::RemoteExecServerConnectArgs;
-use crate::connection::JsonRpcConnection;
-use crate::protocol::EXEC_CLOSED_METHOD;
-use crate::protocol::EXEC_EXITED_METHOD;
-use crate::protocol::EXEC_METHOD;
-use crate::protocol::EXEC_OUTPUT_DELTA_METHOD;
-use crate::protocol::EXEC_READ_METHOD;
-use crate::protocol::EXEC_TERMINATE_METHOD;
-use crate::protocol::EXEC_WRITE_METHOD;
-use crate::protocol::ExecClosedNotification;
-use crate::protocol::ExecExitedNotification;
-use crate::protocol::ExecOutputDeltaNotification;
-use crate::protocol::ExecParams;
-use crate::protocol::ExecResponse;
-use crate::protocol::FS_COPY_METHOD;
-use crate::protocol::FS_CREATE_DIRECTORY_METHOD;
-use crate::protocol::FS_GET_METADATA_METHOD;
-use crate::protocol::FS_READ_DIRECTORY_METHOD;
-use crate::protocol::FS_READ_FILE_METHOD;
-use crate::protocol::FS_REMOVE_METHOD;
-use crate::protocol::FS_WRITE_FILE_METHOD;
-use crate::protocol::INITIALIZE_METHOD;
-use crate::protocol::INITIALIZED_METHOD;
 use crate::protocol::InitializeParams;
 use crate::protocol::InitializeResponse;
 use crate::protocol::ReadParams;
@@ -59,12 +43,12 @@ use crate::protocol::TerminateParams;
 use crate::protocol::TerminateResponse;
 use crate::protocol::WriteParams;
 use crate::protocol::WriteResponse;
-use crate::rpc::RpcCallError;
-use crate::rpc::RpcClient;
-use crate::rpc::RpcClientEvent;
+use crate::transport::jsonrpsee_api::ExecServerJsonRpseeApiClient;
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const INITIALIZE_TIMEOUT: Duration = Duration::from_secs(10);
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(24 * 60 * 60);
+const SUBSCRIPTION_BUFFER_CAPACITY: usize = 16 * 1024;
 
 impl Default for ExecServerClientConnectOptions {
     fn default() -> Self {
@@ -108,7 +92,7 @@ pub(crate) struct Session {
 }
 
 struct Inner {
-    client: RpcClient,
+    client: Arc<WsClient>,
     // The remote transport delivers one shared notification stream for every
     // process on the connection. Keep a local process_id -> session registry so
     // we can turn those connection-global notifications into process wakeups
@@ -118,12 +102,14 @@ struct Inner {
     // need serialization so concurrent register/remove operations do not
     // overwrite each other's copy-on-write updates.
     sessions_write_lock: Mutex<()>,
-    reader_task: tokio::task::JoinHandle<()>,
+    subscription_tasks: Vec<tokio::task::JoinHandle<()>>,
 }
 
 impl Drop for Inner {
     fn drop(&mut self) {
-        self.reader_task.abort();
+        for task in &self.subscription_tasks {
+            task.abort();
+        }
     }
 }
 
@@ -138,10 +124,10 @@ pub enum ExecServerError {
     #[error("timed out connecting to exec-server websocket `{url}` after {timeout:?}")]
     WebSocketConnectTimeout { url: String, timeout: Duration },
     #[error("failed to connect to exec-server websocket `{url}`: {source}")]
-    WebSocketConnect {
+    WebSocketConnectJsonrpsee {
         url: String,
         #[source]
-        source: tokio_tungstenite::tungstenite::Error,
+        source: JsonRpseeError,
     },
     #[error("timed out waiting for exec-server initialize handshake after {timeout:?}")]
     InitializeTimedOut { timeout: Duration },
@@ -166,25 +152,25 @@ impl ExecServerClient {
     ) -> Result<Self, ExecServerError> {
         let websocket_url = args.websocket_url.clone();
         let connect_timeout = args.connect_timeout;
-        let (stream, _) = timeout(connect_timeout, connect_async(websocket_url.as_str()))
-            .await
-            .map_err(|_| ExecServerError::WebSocketConnectTimeout {
-                url: websocket_url.clone(),
-                timeout: connect_timeout,
-            })?
-            .map_err(|source| ExecServerError::WebSocketConnect {
-                url: websocket_url.clone(),
-                source,
-            })?;
-
-        Self::connect(
-            JsonRpcConnection::from_websocket(
-                stream,
-                format!("exec-server websocket {websocket_url}"),
-            ),
-            args.into(),
+        let client = timeout(
+            connect_timeout,
+            WsClientBuilder::default()
+                .connection_timeout(connect_timeout)
+                .request_timeout(REQUEST_TIMEOUT)
+                .max_buffer_capacity_per_subscription(SUBSCRIPTION_BUFFER_CAPACITY)
+                .build(&websocket_url),
         )
         .await
+        .map_err(|_| ExecServerError::WebSocketConnectTimeout {
+            url: websocket_url.clone(),
+            timeout: connect_timeout,
+        })?
+        .map_err(|source| ExecServerError::WebSocketConnectJsonrpsee {
+            url: websocket_url.clone(),
+            source,
+        })?;
+
+        Self::connect(Arc::new(client), args.into()).await
     }
 
     pub async fn initialize(
@@ -200,7 +186,7 @@ impl ExecServerClient {
             let response = self
                 .inner
                 .client
-                .call(INITIALIZE_METHOD, &InitializeParams { client_name })
+                .initialize(InitializeParams { client_name })
                 .await?;
             self.notify_initialized().await?;
             Ok(response)
@@ -212,17 +198,13 @@ impl ExecServerClient {
     }
 
     pub async fn exec(&self, params: ExecParams) -> Result<ExecResponse, ExecServerError> {
-        self.inner
-            .client
-            .call(EXEC_METHOD, &params)
-            .await
-            .map_err(Into::into)
+        self.inner.client.exec(params).await.map_err(Into::into)
     }
 
     pub async fn read(&self, params: ReadParams) -> Result<ReadResponse, ExecServerError> {
         self.inner
             .client
-            .call(EXEC_READ_METHOD, &params)
+            .exec_read(params)
             .await
             .map_err(Into::into)
     }
@@ -234,13 +216,10 @@ impl ExecServerClient {
     ) -> Result<WriteResponse, ExecServerError> {
         self.inner
             .client
-            .call(
-                EXEC_WRITE_METHOD,
-                &WriteParams {
-                    process_id: process_id.clone(),
-                    chunk: chunk.into(),
-                },
-            )
+            .exec_write(WriteParams {
+                process_id: process_id.clone(),
+                chunk: chunk.into(),
+            })
             .await
             .map_err(Into::into)
     }
@@ -251,12 +230,9 @@ impl ExecServerClient {
     ) -> Result<TerminateResponse, ExecServerError> {
         self.inner
             .client
-            .call(
-                EXEC_TERMINATE_METHOD,
-                &TerminateParams {
-                    process_id: process_id.clone(),
-                },
-            )
+            .terminate(TerminateParams {
+                process_id: process_id.clone(),
+            })
             .await
             .map_err(Into::into)
     }
@@ -267,7 +243,7 @@ impl ExecServerClient {
     ) -> Result<FsReadFileResponse, ExecServerError> {
         self.inner
             .client
-            .call(FS_READ_FILE_METHOD, &params)
+            .fs_read_file(params)
             .await
             .map_err(Into::into)
     }
@@ -278,7 +254,7 @@ impl ExecServerClient {
     ) -> Result<FsWriteFileResponse, ExecServerError> {
         self.inner
             .client
-            .call(FS_WRITE_FILE_METHOD, &params)
+            .fs_write_file(params)
             .await
             .map_err(Into::into)
     }
@@ -289,7 +265,7 @@ impl ExecServerClient {
     ) -> Result<FsCreateDirectoryResponse, ExecServerError> {
         self.inner
             .client
-            .call(FS_CREATE_DIRECTORY_METHOD, &params)
+            .fs_create_directory(params)
             .await
             .map_err(Into::into)
     }
@@ -300,7 +276,7 @@ impl ExecServerClient {
     ) -> Result<FsGetMetadataResponse, ExecServerError> {
         self.inner
             .client
-            .call(FS_GET_METADATA_METHOD, &params)
+            .fs_get_metadata(params)
             .await
             .map_err(Into::into)
     }
@@ -311,7 +287,7 @@ impl ExecServerClient {
     ) -> Result<FsReadDirectoryResponse, ExecServerError> {
         self.inner
             .client
-            .call(FS_READ_DIRECTORY_METHOD, &params)
+            .fs_read_directory(params)
             .await
             .map_err(Into::into)
     }
@@ -322,17 +298,13 @@ impl ExecServerClient {
     ) -> Result<FsRemoveResponse, ExecServerError> {
         self.inner
             .client
-            .call(FS_REMOVE_METHOD, &params)
+            .fs_remove(params)
             .await
             .map_err(Into::into)
     }
 
     pub async fn fs_copy(&self, params: FsCopyParams) -> Result<FsCopyResponse, ExecServerError> {
-        self.inner
-            .client
-            .call(FS_COPY_METHOD, &params)
-            .await
-            .map_err(Into::into)
+        self.inner.client.fs_copy(params).await.map_err(Into::into)
     }
 
     /// Register a reverse proxy Unix socket inside the container.
@@ -342,7 +314,7 @@ impl ExecServerClient {
     ) -> Result<crate::protocol::ProxyRegisterResponse, ExecServerError> {
         self.inner
             .client
-            .call(crate::protocol::PROXY_REGISTER_METHOD, &params)
+            .proxy_register(params)
             .await
             .map_err(Into::into)
     }
@@ -354,7 +326,7 @@ impl ExecServerClient {
     ) -> Result<crate::protocol::ProxyUnregisterResponse, ExecServerError> {
         self.inner
             .client
-            .call(crate::protocol::PROXY_UNREGISTER_METHOD, &params)
+            .proxy_unregister(params)
             .await
             .map_err(Into::into)
     }
@@ -379,45 +351,43 @@ impl ExecServerClient {
     }
 
     async fn connect(
-        connection: JsonRpcConnection,
+        rpc_client: Arc<WsClient>,
         options: ExecServerClientConnectOptions,
     ) -> Result<Self, ExecServerError> {
-        let (rpc_client, mut events_rx) = RpcClient::new(connection);
-        let inner = Arc::new_cyclic(|weak| {
-            let weak = weak.clone();
-            let reader_task = tokio::spawn(async move {
-                while let Some(event) = events_rx.recv().await {
-                    match event {
-                        RpcClientEvent::Notification(notification) => {
-                            if let Some(inner) = weak.upgrade()
-                                && let Err(err) =
-                                    handle_server_notification(&inner, notification).await
-                            {
-                                fail_all_sessions(
-                                    &inner,
-                                    format!("exec-server notification handling failed: {err}"),
-                                )
-                                .await;
-                                return;
-                            }
-                        }
-                        RpcClientEvent::Disconnected { reason } => {
-                            if let Some(inner) = weak.upgrade() {
-                                fail_all_sessions(&inner, disconnected_message(reason.as_deref()))
-                                    .await;
-                            }
-                            return;
-                        }
-                    }
-                }
-            });
+        let output_subscription = rpc_client.subscribe_exec_output(None).await?;
+        let exited_subscription = rpc_client.subscribe_exec_exited(None).await?;
+        let closed_subscription = rpc_client.subscribe_exec_closed(None).await?;
 
-            Inner {
-                client: rpc_client,
-                sessions: ArcSwap::from_pointee(HashMap::new()),
-                sessions_write_lock: Mutex::new(()),
-                reader_task,
-            }
+        let inner = Arc::new_cyclic(|weak| Inner {
+            client: rpc_client,
+            sessions: ArcSwap::from_pointee(HashMap::new()),
+            sessions_write_lock: Mutex::new(()),
+            subscription_tasks: vec![
+                spawn_notification_task(
+                    weak.clone(),
+                    output_subscription,
+                    "process/output",
+                    |inner, notification| {
+                        Box::pin(handle_exec_output_notification(inner, notification))
+                    },
+                ),
+                spawn_notification_task(
+                    weak.clone(),
+                    exited_subscription,
+                    "process/exited",
+                    |inner, notification| {
+                        Box::pin(handle_exec_exited_notification(inner, notification))
+                    },
+                ),
+                spawn_notification_task(
+                    weak.clone(),
+                    closed_subscription,
+                    "process/closed",
+                    |inner, notification| {
+                        Box::pin(handle_exec_closed_notification(inner, notification))
+                    },
+                ),
+            ],
         });
 
         let client = Self {
@@ -432,23 +402,34 @@ impl ExecServerClient {
     }
 
     async fn notify_initialized(&self) -> Result<(), ExecServerError> {
-        self.inner
-            .client
-            .notify(INITIALIZED_METHOD, &serde_json::json!({}))
-            .await
-            .map_err(ExecServerError::Json)
+        self.inner.client.initialized().await.map_err(Into::into)
     }
 }
 
-impl From<RpcCallError> for ExecServerError {
-    fn from(value: RpcCallError) -> Self {
+impl From<JsonRpseeError> for ExecServerError {
+    fn from(value: JsonRpseeError) -> Self {
         match value {
-            RpcCallError::Closed => Self::Closed,
-            RpcCallError::Json(err) => Self::Json(err),
-            RpcCallError::Server(error) => Self::Server {
-                code: error.code,
-                message: error.message,
+            JsonRpseeError::Call(error) => Self::Server {
+                code: i64::from(error.code()),
+                message: error.message().to_string(),
             },
+            JsonRpseeError::ParseError(err) => Self::Json(err),
+            JsonRpseeError::Transport(_) => Self::Closed,
+            JsonRpseeError::RestartNeeded(_) => Self::Closed,
+            JsonRpseeError::ServiceDisconnect => Self::Closed,
+            JsonRpseeError::RequestTimeout => {
+                Self::Protocol("exec-server request timed out".to_string())
+            }
+            JsonRpseeError::InvalidSubscriptionId => {
+                Self::Protocol("exec-server returned invalid subscription id".to_string())
+            }
+            JsonRpseeError::InvalidRequestId(err) => Self::Protocol(err.to_string()),
+            JsonRpseeError::Custom(message) => Self::Protocol(message),
+            JsonRpseeError::HttpNotImplemented => {
+                Self::Protocol("exec-server websocket client operation not implemented".to_string())
+            }
+            JsonRpseeError::EmptyBatchRequest(err) => Self::Protocol(err.to_string()),
+            JsonRpseeError::RegisterMethod(err) => Self::Protocol(err.to_string()),
         }
     }
 }
@@ -624,38 +605,87 @@ async fn fail_all_sessions(inner: &Arc<Inner>, message: String) {
     }
 }
 
-async fn handle_server_notification(
-    inner: &Arc<Inner>,
-    notification: JSONRPCNotification,
+type NotificationHandler<T> =
+    fn(Arc<Inner>, T) -> Pin<Box<dyn Future<Output = Result<(), ExecServerError>> + Send>>;
+
+fn spawn_notification_task<T>(
+    weak: Weak<Inner>,
+    mut subscription: Subscription<T>,
+    method: &'static str,
+    handle: NotificationHandler<T>,
+) -> tokio::task::JoinHandle<()>
+where
+    T: Send + 'static + serde::de::DeserializeOwned,
+{
+    tokio::spawn(async move {
+        loop {
+            match subscription.next().await {
+                Some(Ok(notification)) => {
+                    let Some(inner) = weak.upgrade() else {
+                        return;
+                    };
+                    if let Err(err) = handle(inner.clone(), notification).await {
+                        fail_all_sessions(
+                            &inner,
+                            format!(
+                                "exec-server notification handling failed for `{method}`: {err}"
+                            ),
+                        )
+                        .await;
+                        return;
+                    }
+                }
+                Some(Err(err)) => {
+                    let Some(inner) = weak.upgrade() else {
+                        return;
+                    };
+                    fail_all_sessions(
+                        &inner,
+                        format!("failed to decode exec-server notification `{method}`: {err}"),
+                    )
+                    .await;
+                    return;
+                }
+                None => {
+                    if let Some(inner) = weak.upgrade() {
+                        fail_all_sessions(&inner, disconnected_message(None)).await;
+                    }
+                    return;
+                }
+            }
+        }
+    })
+}
+
+async fn handle_exec_output_notification(
+    inner: Arc<Inner>,
+    notification: ExecOutputDeltaNotification,
 ) -> Result<(), ExecServerError> {
-    match notification.method.as_str() {
-        EXEC_OUTPUT_DELTA_METHOD => {
-            let params: ExecOutputDeltaNotification =
-                serde_json::from_value(notification.params.unwrap_or(Value::Null))?;
-            if let Some(session) = inner.get_session(&params.process_id) {
-                session.note_change(params.seq);
-            }
-        }
-        EXEC_EXITED_METHOD => {
-            let params: ExecExitedNotification =
-                serde_json::from_value(notification.params.unwrap_or(Value::Null))?;
-            if let Some(session) = inner.get_session(&params.process_id) {
-                session.note_change(params.seq);
-            }
-        }
-        EXEC_CLOSED_METHOD => {
-            let params: ExecClosedNotification =
-                serde_json::from_value(notification.params.unwrap_or(Value::Null))?;
-            // Closed is the terminal lifecycle event for this process, so drop
-            // the routing entry before forwarding it.
-            let session = inner.remove_session(&params.process_id).await;
-            if let Some(session) = session {
-                session.note_change(params.seq);
-            }
-        }
-        other => {
-            debug!("ignoring unknown exec-server notification: {other}");
-        }
+    if let Some(session) = inner.get_session(&notification.process_id) {
+        session.note_change(notification.seq);
+    }
+    Ok(())
+}
+
+async fn handle_exec_exited_notification(
+    inner: Arc<Inner>,
+    notification: ExecExitedNotification,
+) -> Result<(), ExecServerError> {
+    if let Some(session) = inner.get_session(&notification.process_id) {
+        session.note_change(notification.seq);
+    }
+    Ok(())
+}
+
+async fn handle_exec_closed_notification(
+    inner: Arc<Inner>,
+    notification: ExecClosedNotification,
+) -> Result<(), ExecServerError> {
+    // Closed is the terminal lifecycle event for this process, so drop
+    // the routing entry before forwarding it.
+    let session = inner.remove_session(&notification.process_id).await;
+    if let Some(session) = session {
+        session.note_change(notification.seq);
     }
     Ok(())
 }
@@ -737,6 +767,36 @@ mod tests {
                 .await
                 .expect("server websocket handshake should succeed");
 
+            let mut output_subscription_id = None;
+            let mut exited_subscription_id = None;
+            let mut closed_subscription_id = None;
+
+            for subscription_id in 1..=3 {
+                let request = match read_jsonrpc_message(&mut websocket).await {
+                    JSONRPCMessage::Request(request) => request,
+                    other => panic!("expected subscription request, got {other:?}"),
+                };
+                match request.method.as_str() {
+                    "process/subscribe_output" => output_subscription_id = Some(subscription_id),
+                    "process/subscribe_exited" => exited_subscription_id = Some(subscription_id),
+                    "process/subscribe_closed" => closed_subscription_id = Some(subscription_id),
+                    other => panic!("unexpected subscription request method `{other}`"),
+                }
+                write_jsonrpc_message(
+                    &mut websocket,
+                    JSONRPCMessage::Response(JSONRPCResponse {
+                        jsonrpc: jsonrpsee::types::TwoPointZero,
+                        id: request.id,
+                        result: serde_json::json!(subscription_id),
+                    }),
+                )
+                .await;
+            }
+
+            assert_eq!(output_subscription_id, Some(1));
+            assert_eq!(exited_subscription_id, Some(2));
+            assert_eq!(closed_subscription_id, Some(3));
+
             let initialize = read_jsonrpc_message(&mut websocket).await;
             let request = match initialize {
                 JSONRPCMessage::Request(request) if request.method == INITIALIZE_METHOD => request,
@@ -745,6 +805,7 @@ mod tests {
             write_jsonrpc_message(
                 &mut websocket,
                 JSONRPCMessage::Response(JSONRPCResponse {
+                    jsonrpc: jsonrpsee::types::TwoPointZero,
                     id: request.id,
                     result: serde_json::to_value(InitializeResponse::default())
                         .expect("initialize response should serialize"),
@@ -754,8 +815,17 @@ mod tests {
 
             let initialized = read_jsonrpc_message(&mut websocket).await;
             match initialized {
-                JSONRPCMessage::Notification(notification)
-                    if notification.method == INITIALIZED_METHOD => {}
+                JSONRPCMessage::Request(request) if request.method == INITIALIZED_METHOD => {
+                    write_jsonrpc_message(
+                        &mut websocket,
+                        JSONRPCMessage::Response(JSONRPCResponse {
+                            jsonrpc: jsonrpsee::types::TwoPointZero,
+                            id: request.id,
+                            result: serde_json::Value::Null,
+                        }),
+                    )
+                    .await;
+                }
                 other => panic!("expected initialized notification, got {other:?}"),
             }
 
@@ -788,16 +858,17 @@ mod tests {
         for seq in 0..=4096 {
             notifications_tx
                 .send(JSONRPCMessage::Notification(JSONRPCNotification {
+                    jsonrpc: jsonrpsee::types::TwoPointZero,
                     method: EXEC_OUTPUT_DELTA_METHOD.to_string(),
-                    params: Some(
-                        serde_json::to_value(ExecOutputDeltaNotification {
+                    params: Some(serde_json::json!({
+                        "subscription": 1,
+                        "result": ExecOutputDeltaNotification {
                             process_id: noisy_process_id.clone(),
                             seq,
                             stream: ExecOutputStream::Stdout,
                             chunk: b"x".to_vec().into(),
-                        })
-                        .expect("output notification should serialize"),
-                    ),
+                        }
+                    })),
                 }))
                 .await
                 .expect("output notification should queue");
@@ -805,15 +876,16 @@ mod tests {
 
         notifications_tx
             .send(JSONRPCMessage::Notification(JSONRPCNotification {
+                jsonrpc: jsonrpsee::types::TwoPointZero,
                 method: EXEC_EXITED_METHOD.to_string(),
-                params: Some(
-                    serde_json::to_value(ExecExitedNotification {
+                params: Some(serde_json::json!({
+                    "subscription": 2,
+                    "result": ExecExitedNotification {
                         process_id: quiet_process_id,
                         seq: 1,
                         exit_code: 17,
-                    })
-                    .expect("exit notification should serialize"),
-                ),
+                    }
+                })),
             }))
             .await
             .expect("exit notification should queue");

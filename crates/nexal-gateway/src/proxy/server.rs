@@ -19,12 +19,12 @@
 use std::sync::Arc;
 
 use axum::{
+    Router,
     body::{Body, Bytes},
     extract::{Path, Request, State},
     http::{HeaderMap, HeaderName, HeaderValue, Method, StatusCode, Uri},
     response::{IntoResponse, Response},
     routing::any,
-    Router,
 };
 use futures::TryStreamExt;
 use http_body_util::BodyExt;
@@ -75,12 +75,7 @@ async fn handle(
     forward(token, rest, state, req).await
 }
 
-async fn forward(
-    token: String,
-    rest: String,
-    state: ProxyState,
-    req: Request,
-) -> Response {
+async fn forward(token: String, rest: String, state: ProxyState, req: Request) -> Response {
     let entry = match state.registry.lookup(&token).await {
         Some(e) => e,
         None => {
@@ -97,11 +92,7 @@ async fn forward(
         Ok(u) => u,
         Err(err) => {
             warn!("proxy {} bad upstream url: {err}", entry.name);
-            return (
-                StatusCode::BAD_REQUEST,
-                format!("bad upstream url: {err}"),
-            )
-                .into_response();
+            return (StatusCode::BAD_REQUEST, format!("bad upstream url: {err}")).into_response();
         }
     };
 
@@ -145,8 +136,8 @@ async fn forward(
         }
     };
 
-    let status = StatusCode::from_u16(upstream_resp.status().as_u16())
-        .unwrap_or(StatusCode::BAD_GATEWAY);
+    let status =
+        StatusCode::from_u16(upstream_resp.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
     let mut resp_headers = HeaderMap::new();
     for (name, value) in upstream_resp.headers() {
         if is_hop_by_hop(name.as_str()) {
@@ -165,10 +156,13 @@ async fn forward(
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e));
     let body = Body::from_stream(stream);
 
-    let mut resp = Response::builder().status(status).body(body).unwrap_or_else(|err| {
-        error!("proxy {} build response: {err}", entry.name);
-        Response::new(Body::from("response build error"))
-    });
+    let mut resp = Response::builder()
+        .status(status)
+        .body(body)
+        .unwrap_or_else(|err| {
+            error!("proxy {} build response: {err}", entry.name);
+            Response::new(Body::from("response build error"))
+        });
     *resp.headers_mut() = resp_headers;
     resp
 }
