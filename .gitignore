@@ -8,3 +8,10 @@ __pycache__/
 .venv
 .vscode
 .claude
+
+# Reference checkouts (not vendored — clone locally for reading)
+upstream/pi-mono/
+
+# Bun
+node_modules/
+bun.lock
