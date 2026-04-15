@@ -5,8 +5,8 @@ use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
-use async_trait::async_trait;
 use crate::protocol::JSONRPCErrorError;
+use async_trait::async_trait;
 use nexal_utils_pty::ExecCommandSession;
 use nexal_utils_pty::TerminalSize;
 use tokio::sync::Mutex;

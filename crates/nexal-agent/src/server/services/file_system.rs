@@ -1,7 +1,5 @@
 use std::io;
 
-use base64::Engine as _;
-use base64::engine::general_purpose::STANDARD;
 use crate::protocol::FsCopyParams;
 use crate::protocol::FsCopyResponse;
 use crate::protocol::FsCreateDirectoryParams;
@@ -18,6 +16,8 @@ use crate::protocol::FsRemoveResponse;
 use crate::protocol::FsWriteFileParams;
 use crate::protocol::FsWriteFileResponse;
 use crate::protocol::JSONRPCErrorError;
+use base64::Engine as _;
+use base64::engine::general_purpose::STANDARD;
 
 use crate::CopyOptions;
 use crate::CreateDirectoryOptions;

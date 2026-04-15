@@ -1045,6 +1045,7 @@ dependencies = [
  "futures",
  "nexal-utils-absolute-path",
  "nexal-utils-cargo-bin",
+ "nexal-utils-json-transport",
  "nexal-utils-pty",
  "pretty_assertions",
  "rustls",
@@ -1073,6 +1074,7 @@ dependencies = [
  "futures",
  "http",
  "http-body-util",
+ "nexal-utils-json-transport",
  "reqwest",
  "serde",
  "serde_json",
@@ -1104,6 +1106,17 @@ version = "0.1.0"
 dependencies = [
  "assert_cmd",
  "thiserror 2.0.18",
+]
+
+[[package]]
+name = "nexal-utils-json-transport"
+version = "0.1.0"
+dependencies = [
+ "futures",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-tungstenite",
 ]
 
 [[package]]

@@ -5,7 +5,7 @@ use tokio_tungstenite::accept_async;
 use tracing::warn;
 
 use crate::connection::JsonRpcConnection;
-use crate::server::processor::run_connection;
+use crate::server::rpc::processor::run_connection;
 
 pub const DEFAULT_LISTEN_URL: &str = "ws://127.0.0.1:0";
 
@@ -97,5 +97,3 @@ async fn run_websocket_listener(
         });
     }
 }
-
-

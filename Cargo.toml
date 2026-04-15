@@ -4,6 +4,7 @@ members = [
     "crates/nexal-gateway",
     "crates/utils/absolute-path",
     "crates/utils/cargo-bin",
+    "crates/utils/json-transport",
     "crates/utils/pty",
 ]
 resolver = "2"
@@ -19,6 +20,7 @@ nexal-agent = { path = "crates/nexal-agent" }
 nexal-gateway = { path = "crates/nexal-gateway" }
 nexal-utils-absolute-path = { path = "crates/utils/absolute-path" }
 nexal-utils-cargo-bin = { path = "crates/utils/cargo-bin" }
+nexal-utils-json-transport = { path = "crates/utils/json-transport" }
 nexal-utils-pty = { path = "crates/utils/pty" }
 
 # ── External ──
@@ -67,4 +69,3 @@ split-debuginfo = "off"
 strip = "symbols"
 codegen-units = 1
 panic = "abort"
-

@@ -17,20 +17,20 @@ use crate::protocol::JSONRPCErrorError;
 use crate::protocol::ExecParams;
 use crate::protocol::ExecResponse;
 use crate::protocol::InitializeResponse;
+use crate::protocol::ProxyRegisterParams;
+use crate::protocol::ProxyRegisterResponse;
+use crate::protocol::ProxyUnregisterParams;
+use crate::protocol::ProxyUnregisterResponse;
 use crate::protocol::ReadParams;
 use crate::protocol::ReadResponse;
 use crate::protocol::TerminateParams;
 use crate::protocol::TerminateResponse;
 use crate::protocol::WriteParams;
 use crate::protocol::WriteResponse;
-use crate::protocol::ProxyRegisterParams;
-use crate::protocol::ProxyRegisterResponse;
-use crate::protocol::ProxyUnregisterParams;
-use crate::protocol::ProxyUnregisterResponse;
 use crate::proxy::ProxyManager;
 use crate::rpc::RpcNotificationSender;
-use crate::server::file_system_handler::FileSystemHandler;
-use crate::server::process_handler::ProcessHandler;
+use crate::server::services::file_system::FileSystemHandler;
+use crate::server::services::process::ProcessHandler;
 
 #[derive(Clone)]
 pub(crate) struct ExecServerHandler {
@@ -167,4 +167,3 @@ impl ExecServerHandler {
         Ok(ProxyUnregisterResponse { ok })
     }
 }
-

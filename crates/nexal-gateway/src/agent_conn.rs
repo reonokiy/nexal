@@ -16,17 +16,14 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use futures::{SinkExt, StreamExt};
-use serde_json::{json, Value};
+use nexal_utils_json_transport::{JsonMessageConnection, JsonMessageConnectionEvent};
+use serde_json::{Value, json};
 use thiserror::Error;
-use tokio::net::TcpStream;
-use tokio::sync::{mpsc, oneshot, Mutex};
-use tokio_tungstenite::{
-    connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream,
-};
-use tracing::{debug, warn};
+use tokio::sync::{Mutex, mpsc, oneshot};
+use tokio_tungstenite::connect_async;
+use tracing::warn;
 
-use crate::protocol::{JsonRpcError, JSONRPC_VERSION};
+use crate::protocol::{JSONRPC_VERSION, JsonRpcError};
 
 #[derive(Debug, Clone, Error)]
 pub enum AgentConnError {
@@ -47,16 +44,16 @@ pub struct AgentNotification {
     pub params: Option<Value>,
 }
 
-type WsStream = WebSocketStream<MaybeTlsStream<TcpStream>>;
 type Pending = HashMap<u64, oneshot::Sender<Result<Value, AgentConnError>>>;
 
 pub struct AgentConn {
-    sink: Arc<Mutex<futures::stream::SplitSink<WsStream, Message>>>,
+    write_tx: mpsc::Sender<Value>,
     pending: Arc<Mutex<Pending>>,
     next_id: Arc<Mutex<u64>>,
     /// Closed → reader task ended, all future invokes will error.
     closed: Arc<Mutex<bool>>,
-    _reader: tokio::task::JoinHandle<()>,
+    reader: tokio::task::JoinHandle<()>,
+    transport_tasks: Vec<tokio::task::JoinHandle<()>>,
 }
 
 impl AgentConn {
@@ -68,9 +65,10 @@ impl AgentConn {
         let (ws, _resp) = connect_async(ws_url)
             .await
             .map_err(|e| AgentConnError::Connect(format!("{e}")))?;
-        let (sink, mut stream) = ws.split();
+        let (write_tx, mut incoming_rx, transport_tasks) =
+            JsonMessageConnection::from_websocket(ws, format!("agent websocket {ws_url}"))
+                .into_parts();
 
-        let sink = Arc::new(Mutex::new(sink));
         let pending: Arc<Mutex<Pending>> = Arc::new(Mutex::new(HashMap::new()));
         let next_id = Arc::new(Mutex::new(1u64));
         let closed = Arc::new(Mutex::new(false));
@@ -79,53 +77,39 @@ impl AgentConn {
         let closed_for_reader = closed.clone();
 
         let reader = tokio::spawn(async move {
-            while let Some(frame) = stream.next().await {
-                match frame {
-                    Ok(Message::Text(text)) => {
+            while let Some(event) = incoming_rx.recv().await {
+                match event {
+                    JsonMessageConnectionEvent::Message(value) => {
                         if let Err(err) =
-                            dispatch_frame(&text, &pending_for_reader, &notify_tx).await
+                            dispatch_frame(value, &pending_for_reader, &notify_tx).await
                         {
                             warn!("agent frame dispatch error: {err}");
                         }
                     }
-                    Ok(Message::Binary(bytes)) => match std::str::from_utf8(&bytes) {
-                        Ok(text) => {
-                            if let Err(err) =
-                                dispatch_frame(text, &pending_for_reader, &notify_tx).await
-                            {
-                                warn!("agent binary frame dispatch error: {err}");
-                            }
-                        }
-                        Err(_) => warn!("agent sent non-utf8 binary frame, dropping"),
-                    },
-                    Ok(Message::Close(_)) => {
-                        debug!("agent ws close frame");
-                        break;
+                    JsonMessageConnectionEvent::MalformedMessage { reason } => {
+                        warn!("agent frame dispatch error: {reason}");
                     }
-                    Ok(_) => {} // pings/pongs handled by tungstenite
-                    Err(err) => {
-                        warn!("agent ws read error: {err}");
+                    JsonMessageConnectionEvent::Disconnected { reason } => {
+                        if let Some(reason) = reason {
+                            warn!("agent ws read error: {reason}");
+                        }
                         break;
                     }
                 }
             }
             *closed_for_reader.lock().await = true;
-            // Fail every pending request — gateway frontend gets a clean error.
-            let mut pend = pending_for_reader.lock().await;
-            for (_id, tx) in pend.drain() {
-                let _ = tx.send(Err(AgentConnError::Closed));
-            }
+            drain_pending(&pending_for_reader).await;
         });
 
         let conn = Self {
-            sink,
+            write_tx,
             pending,
             next_id,
             closed,
-            _reader: reader,
+            reader,
+            transport_tasks,
         };
 
-        // LSP-style handshake — must complete before any other call.
         let _init: Value = conn
             .invoke("initialize", Some(json!({ "client_name": client_name })))
             .await?;
@@ -133,7 +117,6 @@ impl AgentConn {
         Ok(conn)
     }
 
-    /// Send a request, await response.
     pub async fn invoke(
         &self,
         method: &str,
@@ -150,57 +133,47 @@ impl AgentConn {
         };
         let (tx, rx) = oneshot::channel();
         self.pending.lock().await.insert(id, tx);
-        let frame = json!({
-            "jsonrpc": JSONRPC_VERSION,
-            "id": id,
-            "method": method,
-            "params": params.unwrap_or(Value::Null),
-        });
-        let text = serde_json::to_string(&frame)
-            .map_err(|e| AgentConnError::Send(format!("encode: {e}")))?;
-        self.sink
-            .lock()
+        self.write_tx
+            .send(json!({
+                "jsonrpc": JSONRPC_VERSION,
+                "id": id,
+                "method": method,
+                "params": params.unwrap_or(Value::Null),
+            }))
             .await
-            .send(Message::Text(text.into()))
-            .await
-            .map_err(|e| AgentConnError::Send(format!("{e}")))?;
+            .map_err(|_| AgentConnError::Closed)?;
         match rx.await {
             Ok(res) => res,
             Err(_) => Err(AgentConnError::Closed),
         }
     }
 
-    /// Send a notification (fire-and-forget).
     pub async fn notify(&self, method: &str, params: Value) -> Result<(), AgentConnError> {
-        let frame = json!({
-            "jsonrpc": JSONRPC_VERSION,
-            "method": method,
-            "params": params,
-        });
-        let text = serde_json::to_string(&frame)
-            .map_err(|e| AgentConnError::Send(format!("encode: {e}")))?;
-        self.sink
-            .lock()
+        self.write_tx
+            .send(json!({
+                "jsonrpc": JSONRPC_VERSION,
+                "method": method,
+                "params": params,
+            }))
             .await
-            .send(Message::Text(text.into()))
-            .await
-            .map_err(|e| AgentConnError::Send(format!("{e}")))?;
-        Ok(())
+            .map_err(|_| AgentConnError::Closed)
     }
 
     pub async fn close(&self) {
         *self.closed.lock().await = true;
-        let _ = self.sink.lock().await.close().await;
+        self.reader.abort();
+        for task in &self.transport_tasks {
+            task.abort();
+        }
+        drain_pending(&self.pending).await;
     }
 }
 
 async fn dispatch_frame(
-    text: &str,
+    value: Value,
     pending: &Arc<Mutex<Pending>>,
     notify_tx: &mpsc::Sender<AgentNotification>,
 ) -> Result<(), AgentConnError> {
-    let value: Value =
-        serde_json::from_str(text).map_err(|e| AgentConnError::BadFrame(format!("json: {e}")))?;
     if let Some(id_val) = value.get("id") {
         if let Some(id) = id_val.as_u64() {
             let mut map = pending.lock().await;
@@ -221,7 +194,7 @@ async fn dispatch_frame(
             return Ok(());
         }
     }
-    // Notification (no id, or id with non-numeric value).
+
     let method = value
         .get("method")
         .and_then(Value::as_str)
@@ -230,6 +203,13 @@ async fn dispatch_frame(
     let params = value.get("params").cloned();
     let _ = notify_tx.send(AgentNotification { method, params }).await;
     Ok(())
+}
+
+async fn drain_pending(pending: &Arc<Mutex<Pending>>) {
+    let mut pending = pending.lock().await;
+    for (_id, tx) in pending.drain() {
+        let _ = tx.send(Err(AgentConnError::Closed));
+    }
 }
 
 impl From<AgentConnError> for JsonRpcError {

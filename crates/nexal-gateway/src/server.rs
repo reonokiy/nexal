@@ -21,21 +21,20 @@
 
 use std::sync::Arc;
 
-use futures::{SinkExt, StreamExt};
-use serde_json::{json, Value};
+use nexal_utils_json_transport::{JsonMessageConnection, JsonMessageConnectionEvent};
+use serde_json::{Value, json};
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::Mutex;
-use tokio_tungstenite::{accept_async, tungstenite::Message, WebSocketStream};
+use tokio::sync::{Mutex, mpsc};
+use tokio_tungstenite::accept_async;
 use tracing::{debug, error, info, warn};
 
 use crate::protocol::{
-    error_code, notification, AgentInvokeParams, AgentNotifyParams, AgentSummary, AttachAgentParams,
-    HelloParams, HelloResponse, JsonRpcError, JsonRpcRequest, JsonRpcResponse, ListAgentsResponse,
-    OkResponse, RegisterProxyParams, RegisterProxyResponse, SpawnAgentParams, SpawnAgentResponse,
-    UnregisterProxyParams, AgentIdParams, JSONRPC_VERSION, METHOD_AGENT_INVOKE,
-    METHOD_ATTACH_AGENT, METHOD_DETACH_AGENT, METHOD_HELLO, METHOD_KILL_AGENT,
-    METHOD_LIST_AGENTS, METHOD_REGISTER_PROXY, METHOD_SPAWN_AGENT, METHOD_UNREGISTER_PROXY,
-    NOTIFY_AGENT,
+    AgentIdParams, AgentInvokeParams, AgentNotifyParams, AgentSummary, AttachAgentParams,
+    HelloParams, HelloResponse, JSONRPC_VERSION, JsonRpcError, JsonRpcRequest, JsonRpcResponse,
+    ListAgentsResponse, METHOD_AGENT_INVOKE, METHOD_ATTACH_AGENT, METHOD_DETACH_AGENT,
+    METHOD_HELLO, METHOD_KILL_AGENT, METHOD_LIST_AGENTS, METHOD_REGISTER_PROXY, METHOD_SPAWN_AGENT,
+    METHOD_UNREGISTER_PROXY, NOTIFY_AGENT, OkResponse, RegisterProxyParams, RegisterProxyResponse,
+    SpawnAgentParams, SpawnAgentResponse, UnregisterProxyParams, error_code, notification,
 };
 use crate::registry::AgentRegistry;
 
@@ -45,13 +44,9 @@ pub const GATEWAY_VERSION: &str = env!("CARGO_PKG_VERSION");
 pub struct ServerConfig {
     pub listen: String,
     pub token: String,
-    /// Base URL handed to agents in `register_proxy` responses, e.g.
-    /// `http://host.containers.internal:5501`. Agents append
-    /// `/p/<token>/<rest>` themselves.
     pub proxy_external_base: String,
 }
 
-/// Run the frontend server until the TCP listener errors out.
 pub async fn serve(cfg: ServerConfig, registry: Arc<AgentRegistry>) -> std::io::Result<()> {
     let listener = TcpListener::bind(&cfg.listen).await?;
     info!("nexal-gateway listening on ws://{}", cfg.listen);
@@ -83,15 +78,16 @@ async fn handle_connection(
         .await
         .map_err(|e| format!("ws handshake: {e}"))?;
     info!("frontend session opened: {peer}");
-    let session = Session::new(ws, cfg, registry);
+    let session = Session::new(ws, cfg, registry, format!("frontend websocket {peer}"));
     session.run().await;
     info!("frontend session closed: {peer}");
     Ok(())
 }
 
 struct Session {
-    ws_sink: Arc<Mutex<futures::stream::SplitSink<WebSocketStream<TcpStream>, Message>>>,
-    ws_stream: Arc<Mutex<futures::stream::SplitStream<WebSocketStream<TcpStream>>>>,
+    ws_tx: mpsc::Sender<Value>,
+    incoming_rx: mpsc::Receiver<JsonMessageConnectionEvent<Value>>,
+    connection_tasks: Vec<tokio::task::JoinHandle<()>>,
     cfg: ServerConfig,
     registry: Arc<AgentRegistry>,
     authenticated: Arc<Mutex<bool>>,
@@ -99,31 +95,33 @@ struct Session {
 
 impl Session {
     fn new(
-        ws: WebSocketStream<TcpStream>,
+        ws: tokio_tungstenite::WebSocketStream<TcpStream>,
         cfg: ServerConfig,
         registry: Arc<AgentRegistry>,
+        connection_label: String,
     ) -> Self {
-        let (sink, stream) = ws.split();
+        let (ws_tx, incoming_rx, connection_tasks) =
+            JsonMessageConnection::from_websocket(ws, connection_label).into_parts();
         Self {
-            ws_sink: Arc::new(Mutex::new(sink)),
-            ws_stream: Arc::new(Mutex::new(stream)),
+            ws_tx,
+            incoming_rx,
+            connection_tasks,
             cfg,
             registry,
             authenticated: Arc::new(Mutex::new(false)),
         }
     }
 
-    async fn run(self) {
-        // Forward agent notifications to this session.
+    async fn run(mut self) {
         let mut notify_rx = self.registry.subscribe_notifications();
-        let sink_for_notify = self.ws_sink.clone();
+        let write_tx = self.ws_tx.clone();
         let auth_for_notify = self.authenticated.clone();
         let notify_task = tokio::spawn(async move {
             while let Ok(notif) = notify_rx.recv().await {
                 if !*auth_for_notify.lock().await {
                     continue;
                 }
-                let n = notification(
+                let value = match serde_json::to_value(notification(
                     NOTIFY_AGENT,
                     serde_json::to_value(AgentNotifyParams {
                         agent_id: notif.agent_id,
@@ -131,47 +129,44 @@ impl Session {
                         params: notif.params,
                     })
                     .unwrap_or(Value::Null),
-                );
-                let text = match serde_json::to_string(&n) {
-                    Ok(t) => t,
+                )) {
+                    Ok(value) => value,
                     Err(err) => {
                         warn!("encode notification: {err}");
                         continue;
                     }
                 };
-                let mut sink = sink_for_notify.lock().await;
-                if sink.send(Message::Text(text.into())).await.is_err() {
+                if write_tx.send(value).await.is_err() {
                     break;
                 }
             }
         });
 
-        // Process inbound requests serially.
-        loop {
-            let frame = {
-                let mut s = self.ws_stream.lock().await;
-                s.next().await
-            };
-            match frame {
-                Some(Ok(Message::Text(text))) => self.handle_text(&text).await,
-                Some(Ok(Message::Binary(bytes))) => match std::str::from_utf8(&bytes) {
-                    Ok(text) => self.handle_text(text).await,
-                    Err(_) => warn!("frontend sent non-utf8 binary, dropping"),
-                },
-                Some(Ok(Message::Close(_))) => break,
-                Some(Ok(_)) => {}
-                Some(Err(err)) => {
-                    debug!("frontend ws read: {err}");
+        while let Some(event) = self.incoming_rx.recv().await {
+            match event {
+                JsonMessageConnectionEvent::Message(value) => self.handle_value(value).await,
+                JsonMessageConnectionEvent::MalformedMessage { reason } => {
+                    self.send_error(Value::Null, error_code::PARSE_ERROR, reason)
+                        .await;
+                }
+                JsonMessageConnectionEvent::Disconnected { reason } => {
+                    if let Some(reason) = reason {
+                        debug!("frontend ws read: {reason}");
+                    }
                     break;
                 }
-                None => break,
             }
         }
+
         notify_task.abort();
+        for task in self.connection_tasks {
+            task.abort();
+            let _ = task.await;
+        }
     }
 
-    async fn handle_text(&self, text: &str) {
-        let req: JsonRpcRequest = match serde_json::from_str(text) {
+    async fn handle_value(&self, value: Value) {
+        let req: JsonRpcRequest = match serde_json::from_value(value) {
             Ok(r) => r,
             Err(err) => {
                 self.send_error(Value::Null, error_code::PARSE_ERROR, format!("json: {err}"))
@@ -181,13 +176,11 @@ impl Session {
         };
         let id = req.id.clone();
 
-        // Notifications (no id) — we don't expose any, so just log.
         let Some(req_id) = id.clone() else {
             debug!("frontend notification ignored: {}", req.method);
             return;
         };
 
-        // Auth gate.
         if !*self.authenticated.lock().await && req.method != METHOD_HELLO {
             self.send_error(
                 req_id,
@@ -248,12 +241,18 @@ impl Session {
             }
             METHOD_KILL_AGENT => {
                 let p: AgentIdParams = parse_params(params)?;
-                self.registry.kill(&p.agent_id).await.map_err(registry_err)?;
+                self.registry
+                    .kill(&p.agent_id)
+                    .await
+                    .map_err(registry_err)?;
                 Ok(serde_json::to_value(OkResponse { ok: true }).unwrap_or(Value::Null))
             }
             METHOD_DETACH_AGENT => {
                 let p: AgentIdParams = parse_params(params)?;
-                self.registry.detach(&p.agent_id).await.map_err(registry_err)?;
+                self.registry
+                    .detach(&p.agent_id)
+                    .await
+                    .map_err(registry_err)?;
                 Ok(serde_json::to_value(OkResponse { ok: true }).unwrap_or(Value::Null))
             }
             METHOD_ATTACH_AGENT => {
@@ -300,8 +299,6 @@ impl Session {
             }
             METHOD_REGISTER_PROXY => {
                 let p: RegisterProxyParams = parse_params(params)?;
-                // Validate the agent_id exists so we don't accumulate
-                // dangling proxy entries from typos.
                 if self.registry.get(&p.agent_id).await.is_none() {
                     return Err(JsonRpcError {
                         code: error_code::UNKNOWN_AGENT,
@@ -348,15 +345,14 @@ impl Session {
     }
 
     async fn send_response(&self, resp: JsonRpcResponse) {
-        let text = match serde_json::to_string(&resp) {
-            Ok(t) => t,
+        let value = match serde_json::to_value(resp) {
+            Ok(value) => value,
             Err(err) => {
                 warn!("encode response: {err}");
                 return;
             }
         };
-        let mut sink = self.ws_sink.lock().await;
-        if let Err(err) = sink.send(Message::Text(text.into())).await {
+        if let Err(err) = self.ws_tx.send(value).await {
             debug!("send response: {err}");
         }
     }
@@ -376,9 +372,10 @@ fn registry_err(err: crate::registry::RegistryError) -> JsonRpcError {
         Backend(e) => (error_code::BACKEND_ERROR, format!("{e}")),
         AgentConn(e) => (error_code::BACKEND_ERROR, format!("{e}")),
         UnknownAgent(id) => (error_code::UNKNOWN_AGENT, format!("unknown agent {id}")),
-        UnknownContainer(name) => {
-            (error_code::UNKNOWN_AGENT, format!("unknown container {name}"))
-        }
+        UnknownContainer(name) => (
+            error_code::UNKNOWN_AGENT,
+            format!("unknown container {name}"),
+        ),
     };
     JsonRpcError {
         code,
@@ -387,7 +384,6 @@ fn registry_err(err: crate::registry::RegistryError) -> JsonRpcError {
     }
 }
 
-// Suppress unused-import warning if the json! macro is dropped in future edits.
 #[allow(dead_code)]
 fn _ensure_json_used() -> Value {
     json!(null)

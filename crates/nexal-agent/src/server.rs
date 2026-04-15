@@ -1,11 +1,8 @@
-mod file_system_handler;
-mod handler;
-mod process_handler;
-mod processor;
-mod registry;
+mod rpc;
+mod services;
 mod transport;
 
-pub(crate) use handler::ExecServerHandler;
+pub(crate) use services::ExecServerHandler;
 pub use transport::DEFAULT_LISTEN_URL;
 pub use transport::ExecServerListenUrlParseError;
 

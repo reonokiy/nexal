@@ -13,7 +13,7 @@ use crate::rpc::encode_server_message;
 use crate::rpc::invalid_request;
 use crate::rpc::method_not_found;
 use crate::server::ExecServerHandler;
-use crate::server::registry::build_router;
+use crate::server::rpc::routes::build_router;
 
 pub(crate) async fn run_connection(connection: JsonRpcConnection) {
     let router = Arc::new(build_router());

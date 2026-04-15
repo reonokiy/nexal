@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use arc_swap::ArcSwap;
 use crate::protocol::FsCopyParams;
 use crate::protocol::FsCopyResponse;
 use crate::protocol::FsCreateDirectoryParams;
@@ -18,6 +17,7 @@ use crate::protocol::FsRemoveResponse;
 use crate::protocol::FsWriteFileParams;
 use crate::protocol::FsWriteFileResponse;
 use crate::protocol::JSONRPCNotification;
+use arc_swap::ArcSwap;
 use serde_json::Value;
 use tokio::sync::Mutex;
 use tokio::sync::watch;
@@ -438,9 +438,15 @@ impl ExecServerClient {
             }
         });
 
-        let client = Self { inner, init_response: Arc::new(InitializeResponse::default()) };
+        let client = Self {
+            inner,
+            init_response: Arc::new(InitializeResponse::default()),
+        };
         let response = client.initialize(options).await?;
-        Ok(Self { init_response: Arc::new(response), ..client })
+        Ok(Self {
+            init_response: Arc::new(response),
+            ..client
+        })
     }
 
     async fn notify_initialized(&self) -> Result<(), ExecServerError> {
