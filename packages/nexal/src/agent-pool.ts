@@ -68,6 +68,35 @@ export class AgentPool {
 		runner.process(msg);
 	}
 
+	/**
+	 * Inject a synthetic message into a chat session's debouncer — used
+	 * when a spawned worker's `report_to_parent` lands on the top-level
+	 * coordinator (which has no DB row, only an in-memory Agent here).
+	 *
+	 * `sessionKey` is `"<channel>:<chatId>"`; the synthesized
+	 * IncomingMessage carries that channel/chatId so the dispatcher's
+	 * eventual reply still flows back to the correct chat.
+	 */
+	injectMessage(sessionKeyStr: string, sender: string, text: string): void {
+		const sepIdx = sessionKeyStr.indexOf(":");
+		if (sepIdx === -1) {
+			console.error(`[agent-pool] injectMessage: malformed sessionKey ${sessionKeyStr}`);
+			return;
+		}
+		const channel = sessionKeyStr.slice(0, sepIdx);
+		const chatId = sessionKeyStr.slice(sepIdx + 1);
+		this.handle({
+			channel,
+			chatId,
+			sender,
+			text,
+			timestamp: Date.now(),
+			isMentioned: true,
+			metadata: {},
+			images: [],
+		});
+	}
+
 	/** Called by the debouncer with the merged batch. */
 	private async handleMerged(msg: IncomingMessage): Promise<void> {
 		const key = sessionKey(msg);

@@ -27,4 +27,12 @@ export interface SandboxBackend {
 	acquire(sessionKey: string): Promise<ExecServerClient>;
 	release(sessionKey: string): Promise<void>;
 	releaseAll(): Promise<void>;
+	/**
+	 * Optional: forget the mapping for `sessionKey` but leave the
+	 * sandbox running. Used by long-lived sub-agent tasks so their
+	 * containers survive a nexal process restart. Backends that don't
+	 * implement this MAY fall back to no-op (mapping stays; next
+	 * `acquire` will skip any "reuse" branch the backend implements).
+	 */
+	detach?(sessionKey: string): Promise<void>;
 }

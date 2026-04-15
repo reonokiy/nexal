@@ -1,0 +1,339 @@
+/**
+ * WorkerRunner — one sub-agent instance (coordinator or executor).
+ *
+ * Owns:
+ *   - a Podman container (via `SandboxBackend.acquire("worker:<id>")`)
+ *   - an `ExecServerClient` WebSocket into that container
+ *   - one `Agent` (from pi-agent-core)
+ *
+ * Tool set is selected by `kind`:
+ *   - `"coordinator"` — dispatcher tools only (spawn_…, route_to_agent, …),
+ *                       NO bash. Lets sub-coordinators recursively spawn
+ *                       their own children.
+ *   - `"executor"`    — `bash` + `send_update`. Does the work.
+ *
+ * Termination is selected by `lifetime`:
+ *   - `"persistent"` — on `agent_end`, flip to `idle` and stay alive.
+ *                      `route(message)` feeds the next instruction (via
+ *                      `Agent.steer` if streaming, else `Agent.prompt`).
+ *                      Coordinators are always persistent.
+ *   - `"shot"`       — on `agent_end`, mark `completed`, release the
+ *                      sandbox, notify the registry. Only valid for
+ *                      executors.
+ *
+ * All:
+ *   - persist `messages_json` + `turn_count` on `turn_end` (debounced)
+ *   - flush synchronously on terminal transitions
+ *   - surface `errorMessage` to the chat as `❌ failed: …`
+ *   - send_policy `"final"`/`"all"` is honored for executors. Coord
+ *     output is dispatching prose — usually noisy — so coordinators
+ *     ignore policy and only emit via their tools' explicit messages
+ *     (in practice, dispatcher tools don't talk to the chat directly).
+ */
+import { Agent, type AgentMessage, type AgentTool } from "@mariozechner/pi-agent-core";
+import type { Model } from "@mariozechner/pi-ai";
+
+import type { Channel } from "../channels/types.ts";
+import type { ExecServerClient } from "../exec-client.ts";
+import type { SandboxBackend } from "../sandbox/types.ts";
+import { createBashTool } from "../tools/bash.ts";
+import { deserializeMessages, serializeMessages } from "./serialize.ts";
+import type { SendPolicy, WorkerKind, WorkerLifetime, WorkerRow, WorkerStore } from "./store.ts";
+
+const PERSIST_DEBOUNCE_MS = 250;
+
+const RESUME_NUDGE = [
+	"[nexal] You were interrupted by a process restart.",
+	"Your shell container has been re-attached; filesystem side-effects in /workspace",
+	"persist, but anything done outside /workspace or in-memory container state is gone.",
+	"Inspect /workspace, figure out where you left off, continue the work,",
+	"and call send_update when you have progress to share.",
+].join(" ");
+
+export interface WorkerRunnerDeps {
+	row: WorkerRow;
+	store: WorkerStore;
+	sandbox: SandboxBackend;
+	model: Model<any>;
+	channels: Map<string, Channel>;
+	/**
+	 * Tool factory called once when the agent is constructed. The
+	 * registry routes here based on `runner.row.kind`:
+	 *   - executor    → `[bash, send_update, …]`
+	 *   - coordinator → `[spawn_executor, spawn_coordinator, …]` (no bash)
+	 */
+	toolsForKind: (runner: WorkerRunner) => AgentTool<any>[];
+	resumed: boolean;
+	/** Called once a shot executor reaches a terminal state. */
+	onTerminal: (id: string) => void;
+}
+
+export class WorkerRunner {
+	readonly id: string;
+	readonly kind: WorkerKind;
+	readonly lifetime: WorkerLifetime;
+	readonly row: WorkerRow;
+	readonly sandboxKey: string;
+	private agent?: Agent;
+	private client?: ExecServerClient;
+	private disposed = false;
+	private persistTimer: ReturnType<typeof setTimeout> | null = null;
+	private latestTurnCount: number;
+
+	constructor(private readonly deps: WorkerRunnerDeps) {
+		this.id = deps.row.id;
+		this.kind = deps.row.kind;
+		this.lifetime = deps.row.lifetime;
+		this.row = deps.row;
+		this.sandboxKey = `worker:${deps.row.id}`;
+		this.latestTurnCount = deps.row.turnCount;
+	}
+
+	/**
+	 * Acquire sandbox + Agent and run the initial prompt (or the
+	 * resume nudge when re-attaching after a restart). For persistent
+	 * workers `start()` resolves once the initial run reaches idle;
+	 * for shot workers it resolves once the run terminates.
+	 */
+	async start(): Promise<void> {
+		const { row, sandbox, model, store } = this.deps;
+
+		// Coordinators don't need a bash sandbox at all (they only call
+		// dispatcher tools that talk to the registry). Skipping the
+		// container for coordinators saves real resources, especially
+		// once sub-coordinators are common.
+		if (this.kind === "executor") {
+			this.client = await sandbox.acquire(this.sandboxKey);
+			await this.client.connect();
+			await this.client.initialize(`nexal:${this.sandboxKey}`);
+		}
+
+		const initialMessages = deserializeMessages(row.messagesJson);
+		const tools = this.deps.toolsForKind(this);
+		const agent = new Agent({
+			initialState: {
+				systemPrompt: row.systemPrompt,
+				model,
+				tools,
+				messages: initialMessages,
+			},
+			convertToLlm: (messages) =>
+				messages.filter(
+					(m) => m.role === "user" || m.role === "assistant" || m.role === "toolResult",
+				),
+			sessionId: this.sandboxKey,
+		});
+		this.agent = agent;
+
+		this.wireEvents(agent);
+
+		await store.markStarted(this.id);
+
+		if (this.deps.resumed && initialMessages.length > 0) {
+			await agent.prompt(RESUME_NUDGE);
+		} else if (row.initialPrompt) {
+			await agent.prompt(row.initialPrompt);
+		} else {
+			// Persistent agent spawned without an initial prompt — flip
+			// to idle immediately so the parent can route to it.
+			await store.markIdle(this.id, serializeMessages(initialMessages));
+		}
+	}
+
+	/** Exposed so the toolsForKind factory can attach bash for executors. */
+	get execClient(): ExecServerClient | undefined {
+		return this.client;
+	}
+
+	/**
+	 * Coordinator → existing persistent agent (coordinator or
+	 * executor). If mid-run, queue via `agent.steer`; else
+	 * `agent.prompt`. Throws for shot lifetime.
+	 */
+	async route(message: string): Promise<void> {
+		if (this.lifetime !== "persistent") {
+			throw new Error(`worker ${this.id} is one-shot; cannot accept route`);
+		}
+		const agent = this.agent;
+		if (!agent) throw new Error(`worker ${this.id} not started`);
+		const msg: AgentMessage = { role: "user", content: message, timestamp: Date.now() };
+		if (agent.state.isStreaming) {
+			agent.steer(msg);
+			return;
+		}
+		await this.deps.store.markStarted(this.id);
+		await agent.prompt(msg);
+	}
+
+	get currentAgent(): Agent | undefined {
+		return this.agent;
+	}
+
+	async cancel(reason = "cancelled"): Promise<void> {
+		if (this.disposed) return;
+		this.agent?.abort();
+		await this.agent?.waitForIdle().catch(() => undefined);
+		await this.flushNow();
+		await this.deps.store.setStatus(this.id, "cancelled", reason);
+		await this.dispose(true);
+		this.deps.onTerminal(this.id);
+	}
+
+	/**
+	 * Process-shutdown teardown: abort the agent, flush, detach (NOT
+	 * release) the sandbox so the container survives. The DB row is
+	 * left in whatever non-terminal state it was in (`running` or
+	 * `idle`) so the next process re-picks it up.
+	 */
+	async suspend(): Promise<void> {
+		if (this.disposed) return;
+		this.agent?.abort();
+		await this.agent?.waitForIdle().catch(() => undefined);
+		await this.flushNow();
+		await this.dispose(false);
+	}
+
+	async dispose(releaseSandbox: boolean): Promise<void> {
+		if (this.disposed) return;
+		this.disposed = true;
+		if (this.persistTimer) {
+			clearTimeout(this.persistTimer);
+			this.persistTimer = null;
+		}
+		try {
+			await this.client?.close();
+		} catch {}
+		if (releaseSandbox) {
+			await this.deps.sandbox.release(this.sandboxKey).catch(() => undefined);
+		} else if (this.deps.sandbox.detach) {
+			await this.deps.sandbox.detach(this.sandboxKey).catch(() => undefined);
+		}
+	}
+
+	async sendToSourceChat(text: string, opts?: { replyTo?: string }): Promise<void> {
+		if (!text.trim()) return;
+		const ch = this.deps.channels.get(this.deps.row.sourceChannel);
+		if (!ch) {
+			console.error(
+				`[worker:${this.id}] source channel "${this.deps.row.sourceChannel}" not registered`,
+			);
+			return;
+		}
+		try {
+			await ch.send({
+				chatId: this.deps.row.sourceChatId,
+				text: `[${this.deps.row.name}] ${text}`,
+				replyTo: opts?.replyTo ?? this.deps.row.sourceReplyTo ?? undefined,
+			});
+		} catch (err) {
+			console.error(`[worker:${this.id}] send failed`, err);
+		}
+	}
+
+	// ── Internals ─────────────────────────────────────────────────────
+
+	private wireEvents(agent: Agent): void {
+		agent.subscribe(async (event) => {
+			try {
+				if (event.type === "turn_end") {
+					this.latestTurnCount += 1;
+					this.scheduleFlush();
+					return;
+				}
+				if (event.type === "message_end" && event.message.role === "assistant") {
+					if (this.deps.row.sendPolicy === "all") {
+						const text = extractText(event.message);
+						if (text) await this.sendToSourceChat(text);
+					}
+					return;
+				}
+				if (event.type === "agent_end") {
+					await this.handleAgentEnd(agent, event.messages);
+				}
+			} catch (err) {
+				console.error(`[worker:${this.id}] event handler ${event.type}`, err);
+			}
+		});
+	}
+
+	private async handleAgentEnd(agent: Agent, messages: AgentMessage[]): Promise<void> {
+		if (this.disposed) return;
+		const errorMessage = agent.state.errorMessage;
+		const policy = this.deps.row.sendPolicy as SendPolicy;
+		await this.flushNow(messages);
+
+		if (errorMessage) {
+			await this.deps.store.markFailed(this.id, errorMessage);
+			await this.sendToSourceChat(`❌ failed: ${errorMessage}`);
+			await this.dispose(true);
+			this.deps.onTerminal(this.id);
+			return;
+		}
+
+		// Coordinators talk to the user via their dispatcher tool calls,
+		// not via assistant content — so suppress send_policy for them
+		// (their assistant text is dispatching prose, usually noise).
+		if (this.kind === "executor" && (policy === "final" || policy === "all")) {
+			const final = extractLastAssistantText(messages);
+			if (final) await this.sendToSourceChat(final);
+		}
+
+		if (this.lifetime === "shot") {
+			await this.deps.store.markCompleted(this.id, serializeMessages(messages));
+			await this.dispose(true);
+			this.deps.onTerminal(this.id);
+			return;
+		}
+
+		// Persistent: stay alive, accept future routes.
+		await this.deps.store.markIdle(this.id, serializeMessages(messages));
+	}
+
+	private scheduleFlush(): void {
+		if (this.persistTimer) return;
+		this.persistTimer = setTimeout(() => {
+			this.persistTimer = null;
+			void this.flushNow();
+		}, PERSIST_DEBOUNCE_MS);
+	}
+
+	private async flushNow(messagesOverride?: AgentMessage[]): Promise<void> {
+		if (this.persistTimer) {
+			clearTimeout(this.persistTimer);
+			this.persistTimer = null;
+		}
+		const messages = messagesOverride ?? this.agent?.state.messages;
+		if (!messages) return;
+		try {
+			await this.deps.store.setMessages(
+				this.id,
+				serializeMessages(messages),
+				this.latestTurnCount,
+			);
+		} catch (err) {
+			console.error(`[worker:${this.id}] persist failed`, err);
+		}
+	}
+}
+
+function extractText(msg: AgentMessage): string {
+	const content = (msg as { content?: unknown }).content;
+	if (typeof content === "string") return content;
+	if (!Array.isArray(content)) return "";
+	const parts: string[] = [];
+	for (const block of content) {
+		if (typeof block === "string") parts.push(block);
+		else if (block && typeof block === "object" && "type" in block && (block as any).type === "text") {
+			parts.push(String((block as any).text ?? ""));
+		}
+	}
+	return parts.join("");
+}
+
+function extractLastAssistantText(messages: AgentMessage[]): string {
+	for (let i = messages.length - 1; i >= 0; i--) {
+		const m = messages[i]!;
+		if (m.role === "assistant") return extractText(m);
+	}
+	return "";
+}

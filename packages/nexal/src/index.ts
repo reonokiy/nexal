@@ -1,19 +1,29 @@
 /**
  * Nexal entry — load config, start channels, wire them into the
- * AgentPool with a per-session sandboxed bash tool.
+ * AgentPool. The per-chat main agent is a **dispatcher only**:
  *
- * Sandboxing is **mandatory**. Only the *backend* is configurable;
- * today only `"podman"` is implemented (see `src/sandbox/`).
+ *   - it has NO bash and NO sandbox of its own
+ *   - its only tools are the dispatcher set: spawn_worker,
+ *     spawn_shot_task, route_to_worker, list_workers, get_worker,
+ *     cancel_worker (see `tools/worker.ts`)
+ *   - all real work happens inside spawned workers, each of which
+ *     gets its own Podman container, its own Agent, and a `bash` +
+ *     `send_update` tool set
+ *
+ * The sandbox backend is still constructed at startup because workers
+ * need it; it just isn't acquired for the main agent anymore.
  *
  * Env:
- *   NEXAL_EXEC_SERVER_BIN   (default ../../../target/release/nexal-exec-server)
- *   NEXAL_HTTP_PORT         (default 3000)
- *   NEXAL_MODEL_PROVIDER    (default "openrouter")
- *   NEXAL_MODEL             (default "openai/gpt-4o")
- *   NEXAL_SYSTEM_PROMPT     (default "You are Nexal.")
- *   NEXAL_SANDBOX_BACKEND   (default "podman")
+ *   NEXAL_EXEC_SERVER_BIN          (default ../../../target/release/nexal-exec-server)
+ *   NEXAL_HTTP_PORT                (default 3000)
+ *   NEXAL_MODEL_PROVIDER           (default "openrouter")
+ *   NEXAL_MODEL                    (default "openai/gpt-4o")
+ *   NEXAL_COORDINATOR_SYSTEM_PROMPT (override the default coordinator prompt)
+ *   NEXAL_EXECUTOR_SYSTEM_PROMPT    (default executor system prompt)
+ *   NEXAL_SANDBOX_BACKEND          (default "podman")
  *   OPENROUTER_API_KEY etc. — per provider (see @mariozechner/pi-ai env-api-keys)
  */
+import type { AgentTool } from "@mariozechner/pi-agent-core";
 import { getModel } from "@mariozechner/pi-ai";
 
 import { AgentPool } from "./agent-pool.ts";
@@ -25,6 +35,31 @@ import { CronChannel } from "./channels/cron.ts";
 import { loadConfig } from "./config.ts";
 import { createSandboxBackend } from "./sandbox/index.ts";
 import { createBashTool } from "./tools/bash.ts";
+import { createReportToParentTool } from "./tools/report_to_parent.ts";
+import { createSendUpdateTool } from "./tools/send_update.ts";
+import { createDispatcherTools } from "./tools/worker.ts";
+import { WorkerRegistry } from "./workers/registry.ts";
+import { createWorkerStore } from "./workers/store.ts";
+
+const DEFAULT_COORDINATOR_PROMPT = [
+	"You are a Nexal coordinator. You DO NOT execute tasks yourself — you have no shell, no filesystem, no network.",
+	"You schedule work onto agents below you and route messages between them.",
+	"For every incoming message, decide:",
+	"  1. Does an existing agent (use list_agents) already own this domain? If yes, route_to_agent(id, message).",
+	"  2. Is this an ongoing project / role / area? Spawn an executor (spawn_executor) with a clear system_prompt that defines its identity.",
+	"  3. Is this a one-shot job (single command, single fetch, single build)? Use spawn_shot_task.",
+	"  4. Is the domain large enough to deserve its own scheduling layer? Spawn a sub-coordinator (spawn_coordinator) and route work to it.",
+	"Executors reply to the user directly via send_update — you don't need to summarize their output. Keep your own replies short: announce routing decisions, ask for clarification when ambiguous, but never try to do the work yourself.",
+].join("\n");
+
+const DEFAULT_EXECUTOR_PROMPT = [
+	"You are a Nexal executor agent. You have bash inside a Podman sandbox at /workspace and one tool to talk to the user: send_update.",
+	"Filesystem layout:",
+	"  - /workspace        — user-facing project area. Put files the user expects to see here.",
+	"  - /workspace/.nexal — your HOME and scratch space (logs, lockfiles, dotfiles, internal state). $HOME and $NEXAL_DATA_DIR both point here.",
+	"Do the work assigned to you. Use bash freely. Call send_update for milestones, when you need clarification, and to deliver final results.",
+	"Do NOT echo every intermediate thought — each send_update call becomes a separate Telegram message.",
+].join("\n");
 
 async function main(): Promise<void> {
 	const cfg = await loadConfig();
@@ -38,9 +73,12 @@ async function main(): Promise<void> {
 	);
 	const provider = process.env.NEXAL_MODEL_PROVIDER ?? "openrouter";
 	const modelId = process.env.NEXAL_MODEL ?? "openai/gpt-4o";
-	const systemPrompt = process.env.NEXAL_SYSTEM_PROMPT ?? "You are Nexal.";
+	const coordinatorPrompt =
+		process.env.NEXAL_COORDINATOR_SYSTEM_PROMPT ?? DEFAULT_COORDINATOR_PROMPT;
+	const executorPrompt =
+		process.env.NEXAL_EXECUTOR_SYSTEM_PROMPT ?? DEFAULT_EXECUTOR_PROMPT;
 
-	// Sandbox is always on. Pick a backend; default = podman (only impl today).
+	// Sandbox is needed by workers; the dispatcher itself never acquires.
 	const sandboxBucket = (cfg.channel.sandbox ?? {}) as Record<string, unknown>;
 	const sandbox = createSandboxBackend({
 		backend:
@@ -49,7 +87,7 @@ async function main(): Promise<void> {
 		config: sandboxBucket,
 		defaults: { execServerBin: execBin, workspace: cfg.workspace },
 	});
-	console.log(`[nexal] sandbox backend: ${sandbox.name} (one sandbox per session)`);
+	console.log(`[nexal] sandbox backend: ${sandbox.name} (workers only)`);
 
 	const model = getModel(provider as any, modelId);
 
@@ -98,20 +136,87 @@ async function main(): Promise<void> {
 		);
 	}
 
-	const pool = new AgentPool({
-		systemPrompt,
+	// Worker registry — long-lived persistent workers + one-shot tasks
+	// spawned by the dispatcher. Persistence via Drizzle (SQLite or
+	// Postgres); containers survive nexal process restart so live
+	// workers resume automatically.
+	const workerStore = await createWorkerStore({
+		backend: cfg.workers.backend,
+		url: cfg.workers.url,
+	});
+	console.log(
+		`[nexal] worker store: ${workerStore.backend} (maxConcurrent=${cfg.workers.maxConcurrent})`,
+	);
+	// `WorkerRegistry` is constructed BEFORE the factories close over it
+	// because the coordinator factory recursively builds dispatcher
+	// tools that reference the same registry — sub-coordinators can
+	// spawn more agents through it. Explicit type annotation breaks
+	// the inference cycle.
+	// Forward decl so `pool` can be referenced from deliverToTopLevel
+	// before it's constructed below.
+	let pool: AgentPool | undefined;
+
+	const workers: WorkerRegistry = new WorkerRegistry({
+		store: workerStore,
+		sandbox,
+		model,
+		modelProvider: provider,
+		modelId,
+		channels,
+		maxConcurrent: cfg.workers.maxConcurrent,
+		executorSystemPromptDefault: executorPrompt,
+		coordinatorSystemPromptDefault: coordinatorPrompt,
+		executorTools: (runner) => {
+			const client = runner.execClient;
+			const tools: AgentTool<any>[] = [
+				createSendUpdateTool(runner),
+				createReportToParentTool(workers, runner),
+			];
+			if (client) tools.unshift(createBashTool(client));
+			else console.error(`[nexal] executor ${runner.id} has no exec client`);
+			return tools;
+		},
+		coordinatorTools: (runner) => [
+			// Sub-coordinator: same dispatcher surface as the top-level
+			// one, scoped to its own subtree (its row id becomes the
+			// parentSessionKey for any agents it spawns).
+			...createDispatcherTools(workers, {
+				parentSessionKey: runner.id,
+				sourceChannel: runner.row.sourceChannel,
+				sourceChatId: runner.row.sourceChatId,
+				sourceReplyTo: runner.row.sourceReplyTo ?? null,
+			}),
+			// And the upward edge: sub-coordinators can escalate to
+			// their own parent (which may be another sub-coordinator
+			// or the top-level coordinator).
+			createReportToParentTool(workers, runner),
+		],
+		deliverToTopLevel: (sessionKey, sender, message) => {
+			if (!pool) {
+				console.error("[nexal] deliverToTopLevel before pool ready");
+				return;
+			}
+			pool.injectMessage(sessionKey, sender, message);
+		},
+	});
+
+	pool = new AgentPool({
+		systemPrompt: coordinatorPrompt,
 		model,
 		tools: [],
 		toolsFor: async (key) => {
-			const client = await sandbox.acquire(key);
-			await client.connect();
-			await client.initialize(`nexal:${key}`);
+			// Top-level coordinator: NO sandbox, NO bash. Just the
+			// dispatcher tool surface scoped to this chat.
+			const sepIdx = key.indexOf(":");
+			const channelName = sepIdx === -1 ? key : key.slice(0, sepIdx);
+			const chatId = sepIdx === -1 ? "" : key.slice(sepIdx + 1);
 			return {
-				tools: [createBashTool(client)],
-				dispose: async () => {
-					await client.close();
-					await sandbox.release(key);
-				},
+				tools: createDispatcherTools(workers, {
+					parentSessionKey: key,
+					sourceChannel: channelName,
+					sourceChatId: chatId,
+				}),
+				// no dispose: nothing to release
 			};
 		},
 		channels,
@@ -127,6 +232,12 @@ async function main(): Promise<void> {
 		console.error(`[nexal] ${sig} received, shutting down`);
 		stop.abort();
 		await pool.shutdown();
+		// Suspend workers BEFORE releaseAll: suspend calls sandbox.detach()
+		// which keeps worker containers running so they resume on next
+		// startup; releaseAll then has nothing left to clean up.
+		await workers.shutdown().catch((err) =>
+			console.error("[nexal] worker registry shutdown", err),
+		);
 		await Promise.all([...channels.values()].map((c) => c.stop().catch(() => undefined)));
 		await sandbox.releaseAll();
 		process.exit(0);
@@ -144,6 +255,12 @@ async function main(): Promise<void> {
 				}
 			}),
 		),
+	);
+
+	// Resume non-terminal workers after channels are up so their
+	// send_update calls can land on the right destination.
+	await workers.resumePending().catch((err: unknown) =>
+		console.error("[nexal] resumePending failed", err),
 	);
 
 	await new Promise<void>((resolve) => {

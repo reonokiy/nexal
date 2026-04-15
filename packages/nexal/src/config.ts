@@ -36,6 +36,17 @@ export interface NexalConfig {
 	channel: Record<string, Record<string, unknown>>;
 	/** Arbitrary provider overrides (mirrors `[providers.NAME]`). */
 	providers: Record<string, Record<string, unknown>>;
+	/** Long-running sub-agent task subsystem. */
+	workers: WorkersConfig;
+}
+
+export interface WorkersConfig {
+	/** Persistence backend. */
+	backend: "sqlite" | "postgres";
+	/** sqlite: filesystem path; postgres: connection string. */
+	url: string;
+	/** Global cap on concurrent live workers (each holds a Podman container). */
+	maxConcurrent: number;
 }
 
 const DEFAULTS: NexalConfig = {
@@ -47,6 +58,11 @@ const DEFAULTS: NexalConfig = {
 	activeWindowSecs: 60,
 	channel: {},
 	providers: {},
+	workers: {
+		backend: "sqlite",
+		url: join(homedir(), ".nexal", "workers.db"),
+		maxConcurrent: 5,
+	},
 };
 
 export async function loadConfig(): Promise<NexalConfig> {
@@ -88,6 +104,21 @@ function applyOverlay(cfg: NexalConfig, source: Record<string, unknown>): void {
 	if (typeof source.activeWindowSecs === "number") cfg.activeWindowSecs = source.activeWindowSecs;
 	if (isObject(source.channel)) cfg.channel = mergeMaps(cfg.channel, source.channel);
 	if (isObject(source.providers)) cfg.providers = mergeMaps(cfg.providers, source.providers);
+	if (isObject(source.workers)) applyWorkersOverlay(cfg.workers, source.workers);
+}
+
+function applyWorkersOverlay(
+	workers: NexalConfig["workers"],
+	source: Record<string, unknown>,
+): void {
+	const backend = source.backend;
+	if (backend === "sqlite" || backend === "postgres") workers.backend = backend;
+	const url = source.url;
+	if (typeof url === "string") workers.url = url;
+	const dbPath = source.dbPath ?? source.db_path;
+	if (typeof dbPath === "string") workers.url = dbPath;
+	const maxC = source.maxConcurrent ?? source.max_concurrent;
+	if (typeof maxC === "number") workers.maxConcurrent = maxC;
 }
 
 function applyEnv(cfg: NexalConfig, env: Record<string, string | undefined>): void {
@@ -133,6 +164,22 @@ function setDeep(cfg: NexalConfig, path: string[], value: unknown): void {
 	}
 	if (path[0] === "providers") {
 		setNested(cfg.providers, path.slice(1), value);
+		return;
+	}
+	if (path[0] === "workers" && path.length >= 2) {
+		const key = snakeToCamel(path.slice(1).join("_"));
+		switch (key) {
+			case "backend":
+				if (value === "sqlite" || value === "postgres") cfg.workers.backend = value;
+				return;
+			case "url":
+			case "dbPath":
+				if (typeof value === "string") cfg.workers.url = value;
+				return;
+			case "maxConcurrent":
+				if (typeof value === "number") cfg.workers.maxConcurrent = value;
+				return;
+		}
 		return;
 	}
 

@@ -22,6 +22,13 @@
  * connection persists too. A new `acquire(sameKey)` returns a fresh
  * client to the same container.
  *
+ * Filesystem convention inside the container:
+ *   - `/workspace`        is the user-facing project area (cwd).
+ *   - `/workspace/.nexal` is HOME + `$NEXAL_DATA_DIR` — for dotfiles,
+ *                         lockfiles, and any executor scratch state.
+ *   When the host workspace is bind-mounted, both survive container
+ *   restart.
+ *
  * ## Why podman CLI and not the REST API
  *
  * The Rust implementation uses `bollard` (Docker/Podman REST). From
@@ -82,6 +89,15 @@ export class PodmanBackend implements SandboxBackend {
 		this.containers.delete(sessionKey);
 	}
 
+	/**
+	 * Forget the mapping for `sessionKey` but leave the container
+	 * running. Used on graceful shutdown for long-lived sub-agent
+	 * containers that must survive the nexal process restart.
+	 */
+	async detach(sessionKey: string): Promise<void> {
+		this.containers.delete(sessionKey);
+	}
+
 	async releaseAll(): Promise<void> {
 		await Promise.all([...this.containers.keys()].map((k) => this.release(k)));
 	}
@@ -105,8 +121,17 @@ export class PodmanBackend implements SandboxBackend {
 	private async createContainer(sessionKey: string): Promise<ContainerInfo> {
 		const name = `nexal-${sanitize(sessionKey)}`;
 
-		// Wipe any stale container from a previous run.
-		await this.podman(["rm", "-f", name]).catch(() => undefined);
+		// Reuse an existing container by name if one is still around from
+		// a previous nexal run — this is what lets long-running sub-agent
+		// tasks survive process restarts.
+		const exists = await this.containerExists(name);
+		if (exists) {
+			// Make sure it's running (podman create + start may have left
+			// it stopped, and a prior SIGKILL may have halted it).
+			await this.podman(["start", name]).catch(() => undefined);
+			const wsUrl = await this.discoverWsUrl(name);
+			return { name, wsUrl };
+		}
 
 		const args: string[] = [
 			"create",
@@ -115,7 +140,12 @@ export class PodmanBackend implements SandboxBackend {
 			"--userns=keep-id",
 			"--security-opt=no-new-privileges",
 			"--cap-drop=ALL",
-			"--env=HOME=/workspace",
+			// `/workspace` is the user-facing project area; `/workspace/.nexal`
+			// is the convention for nexal's own state (HOME, dotfiles,
+			// scratch, lockfiles). Keeping it under /workspace means it
+			// survives container restart when the workspace is bind-mounted.
+			"--env=HOME=/workspace/.nexal",
+			"--env=NEXAL_DATA_DIR=/workspace/.nexal",
 			"--workdir=/workspace",
 			// Publish the in-container exec-server WS port to a random
 			// host port, bound to localhost. Format: HOST_IP:HOST_PORT:CTR_PORT.
@@ -150,9 +180,29 @@ export class PodmanBackend implements SandboxBackend {
 
 		await this.podman(["start", name]);
 
+		// Make sure HOME (= /workspace/.nexal) exists. If the workspace
+		// is bind-mounted from the host this could pre-exist; if not,
+		// the directory is created inside the container's overlay. The
+		// command is idempotent and runs as the container's effective
+		// uid (which under --userns=keep-id is the host user).
+		await this.podman(["exec", name, "/bin/sh", "-c", "mkdir -p /workspace/.nexal"]).catch(
+			(err) => {
+				console.error(`[podman] could not ensure /workspace/.nexal in ${name}:`, err);
+			},
+		);
+
 		// Discover the host-mapped port via `podman port`.
 		const wsUrl = await this.discoverWsUrl(name);
 		return { name, wsUrl };
+	}
+
+	private async containerExists(name: string): Promise<boolean> {
+		try {
+			await this.podman(["container", "exists", name]);
+			return true;
+		} catch {
+			return false;
+		}
 	}
 
 	/** Wait for podman to publish the port, then resolve `ws://127.0.0.1:<host-port>`. */
