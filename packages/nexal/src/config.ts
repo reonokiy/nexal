@@ -38,6 +38,17 @@ export interface NexalConfig {
 	providers: Record<string, Record<string, unknown>>;
 	/** Long-running sub-agent task subsystem. */
 	workers: WorkersConfig;
+	/** nexal-gateway connection. */
+	gateway: GatewayConfig;
+}
+
+export interface GatewayConfig {
+	/** WebSocket URL of the gateway, e.g. `"ws://127.0.0.1:5500"`. */
+	url: string;
+	/** Shared auth token sent in `gateway/hello`. */
+	token: string;
+	/** Identifier sent in `gateway/hello` (default: `"nexal-bun"`). */
+	clientName: string;
 }
 
 export interface WorkersConfig {
@@ -62,6 +73,11 @@ const DEFAULTS: NexalConfig = {
 		backend: "sqlite",
 		url: join(homedir(), ".nexal", "workers.db"),
 		maxConcurrent: 5,
+	},
+	gateway: {
+		url: "ws://127.0.0.1:5500",
+		token: "",
+		clientName: "nexal-bun",
 	},
 };
 
@@ -105,6 +121,19 @@ function applyOverlay(cfg: NexalConfig, source: Record<string, unknown>): void {
 	if (isObject(source.channel)) cfg.channel = mergeMaps(cfg.channel, source.channel);
 	if (isObject(source.providers)) cfg.providers = mergeMaps(cfg.providers, source.providers);
 	if (isObject(source.workers)) applyWorkersOverlay(cfg.workers, source.workers);
+	if (isObject(source.gateway)) applyGatewayOverlay(cfg.gateway, source.gateway);
+}
+
+function applyGatewayOverlay(
+	gateway: NexalConfig["gateway"],
+	source: Record<string, unknown>,
+): void {
+	const url = source.url;
+	if (typeof url === "string") gateway.url = url;
+	const token = source.token;
+	if (typeof token === "string") gateway.token = token;
+	const clientName = source.clientName ?? source.client_name;
+	if (typeof clientName === "string") gateway.clientName = clientName;
 }
 
 function applyWorkersOverlay(
@@ -178,6 +207,21 @@ function setDeep(cfg: NexalConfig, path: string[], value: unknown): void {
 				return;
 			case "maxConcurrent":
 				if (typeof value === "number") cfg.workers.maxConcurrent = value;
+				return;
+		}
+		return;
+	}
+	if (path[0] === "gateway" && path.length >= 2) {
+		const key = snakeToCamel(path.slice(1).join("_"));
+		switch (key) {
+			case "url":
+				if (typeof value === "string") cfg.gateway.url = value;
+				return;
+			case "token":
+				if (typeof value === "string") cfg.gateway.token = value;
+				return;
+			case "clientName":
+				if (typeof value === "string") cfg.gateway.clientName = value;
 				return;
 		}
 		return;

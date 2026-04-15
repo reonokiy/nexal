@@ -3,7 +3,7 @@
  *
  * Owns:
  *   - a Podman container (via `SandboxBackend.acquire("worker:<id>")`)
- *   - an `ExecServerClient` WebSocket into that container
+ *   - an `AgentClient` (gateway-mediated) for that container
  *   - one `Agent` (from pi-agent-core)
  *
  * Tool set is selected by `kind`:
@@ -34,8 +34,7 @@ import { Agent, type AgentMessage, type AgentTool } from "@mariozechner/pi-agent
 import type { Model } from "@mariozechner/pi-ai";
 
 import type { Channel } from "../channels/types.ts";
-import type { ExecServerClient } from "../exec-client.ts";
-import type { SandboxBackend } from "../sandbox/types.ts";
+import type { AgentClient, SandboxBackend } from "../sandbox/types.ts";
 import { createBashTool } from "../tools/bash.ts";
 import { deserializeMessages, serializeMessages } from "./serialize.ts";
 import type { SendPolicy, WorkerKind, WorkerLifetime, WorkerRow, WorkerStore } from "./store.ts";
@@ -75,7 +74,7 @@ export class WorkerRunner {
 	readonly row: WorkerRow;
 	readonly sandboxKey: string;
 	private agent?: Agent;
-	private client?: ExecServerClient;
+	private client?: AgentClient;
 	private disposed = false;
 	private persistTimer: ReturnType<typeof setTimeout> | null = null;
 	private latestTurnCount: number;
@@ -104,8 +103,6 @@ export class WorkerRunner {
 		// once sub-coordinators are common.
 		if (this.kind === "executor") {
 			this.client = await sandbox.acquire(this.sandboxKey);
-			await this.client.connect();
-			await this.client.initialize(`nexal:${this.sandboxKey}`);
 		}
 
 		const initialMessages = deserializeMessages(row.messagesJson);
@@ -141,7 +138,7 @@ export class WorkerRunner {
 	}
 
 	/** Exposed so the toolsForKind factory can attach bash for executors. */
-	get execClient(): ExecServerClient | undefined {
+	get execClient(): AgentClient | undefined {
 		return this.client;
 	}
 

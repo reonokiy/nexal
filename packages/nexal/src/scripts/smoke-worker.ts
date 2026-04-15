@@ -1,24 +1,21 @@
 /**
- * End-to-end smoke of the worker subsystem (executor only — see the
- * coordinator chain in actual Telegram use; smoking the recursive
- * coordinator dispatcher requires a real LLM playing the dispatcher
- * which is hard to make deterministic).
+ * End-to-end smoke of the worker subsystem against a live nexal-gateway.
  *
- * Spawns one shot executor with its own Podman container + real LLM,
- * asks it to write a file inside /workspace and call send_update,
- * then asserts the stub channel saw the message and the row ended up
- * `completed`.
+ * Spawns one shot executor through the gateway, asks it to write a
+ * file inside /workspace and call send_update, then asserts the stub
+ * channel saw the message and the row ended up `completed`.
  *
  * Requirements:
- *   - podman on PATH + pull-access to the sandbox image
+ *   - nexal-gateway running and reachable
  *   - OPENROUTER_API_KEY (or change NEXAL_MODEL_PROVIDER/NEXAL_MODEL)
- *   - nexal-agent binary at target/release/nexal-agent
+ *   - the gateway's [defaults].agent_bin pointing at target/release/nexal-agent
+ *   - podman + sandbox image available to the gateway
  *
  * Env knobs:
- *   NEXAL_SANDBOX_IMAGE   (default ghcr.io/reonokiy/nexal-sandbox:…)
- *   NEXAL_AGENT_BIN (default ../../../../target/release/nexal-agent)
- *   NEXAL_MODEL_PROVIDER  (default openrouter)
- *   NEXAL_MODEL           (default openai/gpt-4o-mini)
+ *   NEXAL_GATEWAY_URL    (default ws://127.0.0.1:5500)
+ *   NEXAL_GATEWAY_TOKEN  (REQUIRED; matches the gateway's token)
+ *   NEXAL_MODEL_PROVIDER (default openrouter)
+ *   NEXAL_MODEL          (default openai/gpt-4o-mini)
  */
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -26,18 +23,16 @@ import { join } from "node:path";
 import { getModel } from "@mariozechner/pi-ai";
 
 import type { Channel, OutgoingReply } from "../channels/types.ts";
-import { PodmanBackend } from "../sandbox/podman.ts";
+import { GatewayClient } from "../gateway/client.ts";
+import { GatewayBackend } from "../sandbox/gateway.ts";
 import { createBashTool } from "../tools/bash.ts";
 import { createSendUpdateTool } from "../tools/send_update.ts";
 import { WorkerRegistry } from "../workers/registry.ts";
 import type { WorkerRunner } from "../workers/runner.ts";
 import { createWorkerStore } from "../workers/store.ts";
 
-const IMAGE =
-	process.env.NEXAL_SANDBOX_IMAGE ?? "ghcr.io/reonokiy/nexal-sandbox:python3.13-debian13";
-const AGENT_BIN =
-	process.env.NEXAL_AGENT_BIN ??
-	`${import.meta.dir}/../../../../target/release/nexal-agent`;
+const GATEWAY_URL = process.env.NEXAL_GATEWAY_URL ?? "ws://127.0.0.1:5500";
+const GATEWAY_TOKEN = process.env.NEXAL_GATEWAY_TOKEN;
 const PROVIDER = process.env.NEXAL_MODEL_PROVIDER ?? "openrouter";
 const MODEL_ID = process.env.NEXAL_MODEL ?? "openai/gpt-4o-mini";
 
@@ -53,25 +48,24 @@ class StubChannel implements Channel {
 }
 
 async function main(): Promise<void> {
+	if (!GATEWAY_TOKEN) {
+		throw new Error("NEXAL_GATEWAY_TOKEN env var is required");
+	}
 	const dir = await mkdtemp(join(tmpdir(), "nexal-smoke-worker-"));
-	const workspaceDir = join(dir, "workspace");
-	await Bun.write(join(workspaceDir, ".placeholder"), "").catch(() => undefined);
-
 	const store = await createWorkerStore({
 		backend: "sqlite",
 		url: join(dir, "workers.db"),
 	});
-	console.log(`[smoke] db=${join(dir, "workers.db")} workspace=${workspaceDir}`);
+	console.log(`[smoke] db=${join(dir, "workers.db")} gateway=${GATEWAY_URL}`);
 
-	const sandbox = new PodmanBackend({
-		image: IMAGE,
-		agentBin: AGENT_BIN,
-		memory: "512m",
-		cpus: "1.0",
-		pidsLimit: 256,
-		network: false,
-		workspace: workspaceDir,
+	const gateway = new GatewayClient({
+		url: GATEWAY_URL,
+		token: GATEWAY_TOKEN,
+		clientName: "smoke-worker",
 	});
+	await gateway.hello();
+	const sandbox = new GatewayBackend(gateway);
+
 	const stub = new StubChannel();
 	const channels = new Map<string, Channel>([["stub", stub]]);
 	const model = getModel(PROVIDER as any, MODEL_ID);
@@ -108,7 +102,6 @@ async function main(): Promise<void> {
 	});
 	console.log(`[smoke] spawned worker ${row.id}`);
 
-	// Poll for terminal state.
 	const deadline = Date.now() + 120_000;
 	let final = row;
 	while (Date.now() < deadline) {
@@ -129,17 +122,9 @@ async function main(): Promise<void> {
 		throw new Error(`stub channel did not see a 'done' update: ${JSON.stringify(stub.sent)}`);
 	}
 
-	const out = Bun.file(join(workspaceDir, "out"));
-	if (!(await out.exists())) {
-		throw new Error(`executor did not create /workspace/out`);
-	}
-	const content = (await out.text()).trim();
-	if (!content.includes("hello-from-sub-agent")) {
-		throw new Error(`/workspace/out content unexpected: ${content}`);
-	}
-
 	await registry.shutdown();
 	await sandbox.releaseAll();
+	await gateway.close();
 	await rm(dir, { recursive: true, force: true });
 	console.log("[smoke] OK");
 }

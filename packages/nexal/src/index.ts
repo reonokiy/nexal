@@ -1,26 +1,24 @@
 /**
- * Nexal entry — load config, start channels, wire them into the
- * AgentPool. The per-chat main agent is a **dispatcher only**:
+ * Nexal entry — load config, connect to nexal-gateway, start channels,
+ * wire them into the AgentPool. The per-chat main agent is a
+ * **dispatcher only**:
  *
  *   - it has NO bash and NO sandbox of its own
- *   - its only tools are the dispatcher set: spawn_worker,
- *     spawn_shot_task, route_to_worker, list_workers, get_worker,
- *     cancel_worker (see `tools/worker.ts`)
- *   - all real work happens inside spawned workers, each of which
- *     gets its own Podman container, its own Agent, and a `bash` +
- *     `send_update` tool set
- *
- * The sandbox backend is still constructed at startup because workers
- * need it; it just isn't acquired for the main agent anymore.
+ *   - its only tools are the dispatcher set: spawn_executor,
+ *     spawn_shot_task, spawn_coordinator, route_to_agent, list_agents,
+ *     get_agent, cancel_agent (see `tools/worker.ts`)
+ *   - all real work happens inside spawned executors, each of which
+ *     lives in a Podman container managed by `nexal-gateway`, and
+ *     gets bash + send_update + report_to_parent
  *
  * Env:
- *   NEXAL_AGENT_BIN                (default ../../../target/release/nexal-agent)
- *   NEXAL_HTTP_PORT                (default 3000)
- *   NEXAL_MODEL_PROVIDER           (default "openrouter")
- *   NEXAL_MODEL                    (default "openai/gpt-4o")
+ *   NEXAL_HTTP_PORT                 (default 3000)
+ *   NEXAL_MODEL_PROVIDER            (default "openrouter")
+ *   NEXAL_MODEL                     (default "openai/gpt-4o")
  *   NEXAL_COORDINATOR_SYSTEM_PROMPT (override the default coordinator prompt)
- *   NEXAL_EXECUTOR_SYSTEM_PROMPT    (default executor system prompt)
- *   NEXAL_SANDBOX_BACKEND          (default "podman")
+ *   NEXAL_EXECUTOR_SYSTEM_PROMPT    (override the default executor prompt)
+ *   NEXAL_GATEWAY_URL               (override [gateway].url)
+ *   NEXAL_GATEWAY_TOKEN             (override [gateway].token; required if not in config)
  *   OPENROUTER_API_KEY etc. — per provider (see @mariozechner/pi-ai env-api-keys)
  */
 import type { AgentTool } from "@mariozechner/pi-agent-core";
@@ -33,6 +31,7 @@ import { TelegramChannel } from "./channels/telegram.ts";
 import { HeartbeatChannel } from "./channels/heartbeat.ts";
 import { CronChannel } from "./channels/cron.ts";
 import { loadConfig } from "./config.ts";
+import { GatewayClient } from "./gateway/client.ts";
 import { createSandboxBackend } from "./sandbox/index.ts";
 import { createBashTool } from "./tools/bash.ts";
 import { createReportToParentTool } from "./tools/report_to_parent.ts";
@@ -63,9 +62,6 @@ const DEFAULT_EXECUTOR_PROMPT = [
 
 async function main(): Promise<void> {
 	const cfg = await loadConfig();
-	const agentBin =
-		process.env.NEXAL_AGENT_BIN ??
-		`${import.meta.dir}/../../../target/release/nexal-agent`;
 	const httpPort = Number(
 		(cfg.channel.http?.port as number | string | undefined) ??
 			process.env.NEXAL_HTTP_PORT ??
@@ -78,14 +74,24 @@ async function main(): Promise<void> {
 	const executorPrompt =
 		process.env.NEXAL_EXECUTOR_SYSTEM_PROMPT ?? DEFAULT_EXECUTOR_PROMPT;
 
-	// Sandbox is needed by workers; the dispatcher itself never acquires.
-	const sandboxBucket = (cfg.channel.sandbox ?? {}) as Record<string, unknown>;
+	const gatewayUrl = process.env.NEXAL_GATEWAY_URL ?? cfg.gateway.url;
+	const gatewayToken = process.env.NEXAL_GATEWAY_TOKEN ?? cfg.gateway.token;
+	if (!gatewayToken) {
+		throw new Error(
+			"no nexal-gateway token configured; set [gateway].token in ~/.nexal/config.toml or NEXAL_GATEWAY_TOKEN",
+		);
+	}
+	const gateway = new GatewayClient({
+		url: gatewayUrl,
+		token: gatewayToken,
+		clientName: cfg.gateway.clientName,
+	});
+	await gateway.hello();
+	console.log(`[nexal] gateway connected: ${gatewayUrl}`);
+
 	const sandbox = createSandboxBackend({
-		backend:
-			process.env.NEXAL_SANDBOX_BACKEND ??
-			(sandboxBucket.backend as string | undefined),
-		config: sandboxBucket,
-		defaults: { agentBin, workspace: cfg.workspace },
+		gatewayClient: gateway,
+		gatewayOptions: { defaultWorkspace: cfg.workspace },
 	});
 	console.log(`[nexal] sandbox backend: ${sandbox.name} (workers only)`);
 

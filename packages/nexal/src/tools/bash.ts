@@ -8,7 +8,7 @@
 import type { AgentTool, AgentToolResult } from "@mariozechner/pi-agent-core";
 import { type Static, Type } from "@mariozechner/pi-ai";
 
-import type { ExecServerClient } from "../exec-client.ts";
+import type { AgentClient } from "../sandbox/types.ts";
 
 export const BashParams = Type.Object({
 	command: Type.String({ description: "Shell command to run inside the sandbox (passed to bash -c)." }),
@@ -23,7 +23,7 @@ export interface BashDetails {
 	timedOut: boolean;
 }
 
-export function createBashTool(client: ExecServerClient): AgentTool<typeof BashParams, BashDetails> {
+export function createBashTool(client: AgentClient): AgentTool<typeof BashParams, BashDetails> {
 	return {
 		name: "bash",
 		label: "Bash",

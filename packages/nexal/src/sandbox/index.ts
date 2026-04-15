@@ -1,51 +1,40 @@
 /**
  * Sandbox factory — picks a backend by name from config.
  *
- * Sandboxing is mandatory; only the *backend* is configurable. Today the
- * only backend is `"podman"`. Adding e.g. `"firecracker"` is a matter
- * of writing another `SandboxBackend` impl and registering it here.
+ * Today the only backend is `"gateway"` (talks to `nexal-gateway`,
+ * which in turn owns podman). Adding e.g. a `"local"` backend that
+ * spawns `nexal-agent` directly without a container is a matter of
+ * writing another `SandboxBackend` impl and registering it here.
  */
 
-import { PodmanBackend, type PodmanBackendConfig } from "./podman.ts";
+import { GatewayBackend, type GatewayBackendOptions } from "./gateway.ts";
+import type { GatewayClient } from "../gateway/client.ts";
 import type { SandboxBackend } from "./types.ts";
 
-export type { SandboxBackend } from "./types.ts";
-export { PodmanBackend, type PodmanBackendConfig } from "./podman.ts";
+export type {
+	AcquireOptions,
+	AgentClient,
+	RunCommandOptions,
+	RunCommandResult,
+	SandboxBackend,
+} from "./types.ts";
+export { GatewayBackend, type GatewayBackendOptions } from "./gateway.ts";
 
 export interface SandboxFactoryOptions {
-	/** Backend identifier. Default: "podman" (the only one implemented). */
+	/** Backend identifier. Default: `"gateway"`. */
 	backend?: string;
-	/** Backend-specific config bucket (passed straight through to the chosen backend). */
-	config: Record<string, unknown>;
-	/** Resolved fallback values pulled from the top-level NexalConfig. */
-	defaults: { agentBin: string; workspace: string };
+	/** Shared `GatewayClient` used by the gateway backend. */
+	gatewayClient: GatewayClient;
+	/** Backend-specific options bag (currently only `gateway` consumes it). */
+	gatewayOptions?: GatewayBackendOptions;
 }
 
 export function createSandboxBackend(opts: SandboxFactoryOptions): SandboxBackend {
-	const name = (opts.backend ?? "podman").toLowerCase();
+	const name = (opts.backend ?? "gateway").toLowerCase();
 	switch (name) {
-		case "podman":
-			return new PodmanBackend(buildPodmanConfig(opts));
+		case "gateway":
+			return new GatewayBackend(opts.gatewayClient, opts.gatewayOptions);
 		default:
-			throw new Error(
-				`unknown sandbox backend: "${name}". Supported: "podman".`,
-			);
+			throw new Error(`unknown sandbox backend: "${name}". Supported: "gateway".`);
 	}
-}
-
-function buildPodmanConfig(opts: SandboxFactoryOptions): PodmanBackendConfig {
-	const c = opts.config;
-	return {
-		image:
-			(c.image as string | undefined) ??
-			"ghcr.io/reonokiy/nexal-sandbox:python3.13-debian13",
-		agentBin: (c.agentBin as string | undefined) ?? opts.defaults.agentBin,
-		podmanBin: c.podmanBin as string | undefined,
-		runtime: c.runtime as string | undefined,
-		memory: (c.memory as string | undefined) ?? "512m",
-		cpus: (c.cpus as string | undefined) ?? "1.0",
-		pidsLimit: (c.pidsLimit as number | undefined) ?? 256,
-		network: (c.network as boolean | undefined) ?? true,
-		workspace: (c.workspace as string | undefined) ?? opts.defaults.workspace,
-	};
 }
