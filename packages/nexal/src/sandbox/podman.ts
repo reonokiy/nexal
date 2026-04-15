@@ -6,15 +6,21 @@
  * ## Architecture
  *
  * Each `sessionKey` (e.g. `"telegram:-100123456"`) gets a long-lived
- * Podman container named `nexal-<sanitized-session-key>`. Inside the
- * container, `/usr/local/bin/nexal-exec-server` is present (injected
- * at container creation). When the agent wants to run a shell command:
+ * Podman container named `nexal-<sanitized-session-key>`. At create
+ * time:
  *
- *     podman exec -i <container> /usr/local/bin/nexal-exec-server --listen stdio
+ *   1. The host-side `nexal-exec-server` binary is copied into the
+ *      container at `/usr/local/bin/`.
+ *   2. The container is started with that binary as PID 1, listening
+ *      on `ws://0.0.0.0:9100` inside the container.
+ *   3. Port 9100 is published to a random host port via Podman's port
+ *      mapping; we discover it with `podman inspect`.
+ *   4. The TS side connects to `ws://127.0.0.1:<host-port>` with the
+ *      WebSocket-based ExecServerClient.
  *
- * is spawned as a child process. stdio carries the JSON-RPC messages
- * (same protocol as `ExecServerClient`). The container stays up
- * between tool calls so the bash environment persists across turns.
+ * The container stays up for the life of the session; the WS
+ * connection persists too. A new `acquire(sameKey)` returns a fresh
+ * client to the same container.
  *
  * ## Why podman CLI and not the REST API
  *
@@ -22,12 +28,6 @@
  * Bun we'd need a Docker API client; the CLI is already installed and
  * well-behaved. Overhead is a few spawns per container lifecycle,
  * which is a drop in the bucket. Migrate to REST when it matters.
- *
- * ## Why stdio inside the container, not the exec-server WebSocket
- *
- * The openai-oss-forks tungstenite fork in exec-server refuses stock
- * WebSocket clients (see `project_exec_server_stdio.md` memory). stdio
- * works unchanged; `podman exec -i` wires it through.
  */
 
 import { ExecServerClient } from "../exec-client.ts";
@@ -55,33 +55,30 @@ export interface PodmanBackendConfig {
 }
 
 const DEFAULT_PODMAN = "podman";
+/** Port exec-server listens on inside the container. */
+const CONTAINER_WS_PORT = 9100;
+
+interface ContainerInfo {
+	name: string;
+	wsUrl: string;
+}
 
 export class PodmanBackend implements SandboxBackend {
 	readonly name = "podman";
-	private readonly containers = new Map<string, string>(); // sessionKey → container name
-	private readonly acquiring = new Map<string, Promise<string>>();
+	private readonly containers = new Map<string, ContainerInfo>();
+	private readonly acquiring = new Map<string, Promise<ContainerInfo>>();
 
 	constructor(private readonly config: PodmanBackendConfig) {}
 
 	async acquire(sessionKey: string): Promise<ExecServerClient> {
-		const name = await this.ensureContainer(sessionKey);
-		return new ExecServerClient({
-			cmd: [
-				this.config.podmanBin ?? DEFAULT_PODMAN,
-				"exec",
-				"-i",
-				name,
-				"/usr/local/bin/nexal-exec-server",
-				"--listen",
-				"stdio",
-			],
-		});
+		const info = await this.ensureContainer(sessionKey);
+		return new ExecServerClient({ url: info.wsUrl });
 	}
 
 	async release(sessionKey: string): Promise<void> {
-		const name = this.containers.get(sessionKey);
-		if (!name) return;
-		await this.podman(["rm", "-f", name]).catch(() => undefined);
+		const info = this.containers.get(sessionKey);
+		if (!info) return;
+		await this.podman(["rm", "-f", info.name]).catch(() => undefined);
 		this.containers.delete(sessionKey);
 	}
 
@@ -91,7 +88,7 @@ export class PodmanBackend implements SandboxBackend {
 
 	// ── Internals ─────────────────────────────────────────────────────
 
-	private async ensureContainer(sessionKey: string): Promise<string> {
+	private async ensureContainer(sessionKey: string): Promise<ContainerInfo> {
 		const existing = this.containers.get(sessionKey);
 		if (existing) return existing;
 
@@ -100,12 +97,12 @@ export class PodmanBackend implements SandboxBackend {
 
 		const p = this.createContainer(sessionKey).finally(() => this.acquiring.delete(sessionKey));
 		this.acquiring.set(sessionKey, p);
-		const name = await p;
-		this.containers.set(sessionKey, name);
-		return name;
+		const info = await p;
+		this.containers.set(sessionKey, info);
+		return info;
 	}
 
-	private async createContainer(sessionKey: string): Promise<string> {
+	private async createContainer(sessionKey: string): Promise<ContainerInfo> {
 		const name = `nexal-${sanitize(sessionKey)}`;
 
 		// Wipe any stale container from a previous run.
@@ -120,21 +117,27 @@ export class PodmanBackend implements SandboxBackend {
 			"--cap-drop=ALL",
 			"--env=HOME=/workspace",
 			"--workdir=/workspace",
+			// Publish the in-container exec-server WS port to a random
+			// host port, bound to localhost. Format: HOST_IP:HOST_PORT:CTR_PORT.
+			// HOST_PORT=0 → kernel assigns.
+			`--publish=127.0.0.1::${CONTAINER_WS_PORT}/tcp`,
 		];
 
 		if (this.config.runtime) args.push(`--runtime=${this.config.runtime}`);
 		if (this.config.memory) args.push(`--memory=${this.config.memory}`);
 		if (this.config.cpus) args.push(`--cpus=${this.config.cpus}`);
 		if (this.config.pidsLimit !== undefined) args.push(`--pids-limit=${this.config.pidsLimit}`);
-		args.push(this.config.network ? "--network=pasta" : "--network=none");
+		// Always use pasta — we need a network namespace for the published WS
+		// port to be reachable from the host. The `network` flag only toggles
+		// outbound DNS resolution.
+		args.push("--network=pasta");
 		if (this.config.network) {
 			args.push("--dns=1.1.1.1", "--dns=8.8.8.8");
 		}
 		if (this.config.workspace) args.push(`--volume=${this.config.workspace}:/workspace`);
 		args.push(this.config.image);
-		// Entrypoint keeps the container alive; we `podman exec` into it
-		// for each JSON-RPC session.
-		args.push("sleep", "infinity");
+		// Container entrypoint = exec-server itself, listening on WS.
+		args.push("/usr/local/bin/nexal-exec-server", "--listen", `ws://0.0.0.0:${CONTAINER_WS_PORT}`);
 
 		await this.podman(args);
 
@@ -146,7 +149,28 @@ export class PodmanBackend implements SandboxBackend {
 		]);
 
 		await this.podman(["start", name]);
-		return name;
+
+		// Discover the host-mapped port via `podman port`.
+		const wsUrl = await this.discoverWsUrl(name);
+		return { name, wsUrl };
+	}
+
+	/** Wait for podman to publish the port, then resolve `ws://127.0.0.1:<host-port>`. */
+	private async discoverWsUrl(containerName: string): Promise<string> {
+		for (let attempt = 1; attempt <= 30; attempt++) {
+			try {
+				// `podman port <name> 9100/tcp` prints e.g. "127.0.0.1:34567"
+				const out = await this.podman(["port", containerName, `${CONTAINER_WS_PORT}/tcp`]);
+				const line = out.split("\n")[0]?.trim();
+				if (line) {
+					return `ws://${line}`;
+				}
+			} catch {
+				// fall through to retry
+			}
+			await new Promise((r) => setTimeout(r, 200));
+		}
+		throw new Error(`could not discover host-mapped WS port for container ${containerName}`);
 	}
 
 	private async podman(args: string[]): Promise<string> {

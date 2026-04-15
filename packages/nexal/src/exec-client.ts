@@ -1,28 +1,21 @@
 /**
- * JSON-RPC 2.0 client for `nexal-exec-server` over **stdio**.
+ * JSON-RPC 2.0 client for `nexal-exec-server` over **WebSocket**.
  *
- * The server is spawned as a child process with `--listen stdio`:
- * each line on stdin is a JSON-RPC message, each line on stdout is a
- * response or notification (see `crates/exec-server/src/connection.rs
- * → JsonRpcConnection::from_stdio`). stdio is the cleanest transport:
- *
- *   - No port allocation / firewall concerns
- *   - One exec-server per sandbox session, trivially isolated
- *   - The Rust-fork `tokio-tungstenite` refuses connections from stock
- *     WebSocket clients (verified with Bun and Node `ws`), so stdio is
- *     also the *only* transport that actually works here.
+ * The server is reachable at `ws://HOST:PORT` (see
+ * `crates/exec-server/src/server/transport.rs`). Each WebSocket text
+ * frame carries one JSON-RPC message.
  *
  * This client exposes the subset needed by the bash tool:
  *
- *   - `initialize(clientName)`
- *   - `runCommand(argv, options)`  → collects stdout/stderr + exit code
+ *   - `initialize(clientName)`   — followed by the LSP-style
+ *                                  `initialized` notification
+ *   - `runCommand(argv, opts)`   — collects stdout/stderr + exit code
  *
- * Future extension points: fs/* methods, notification stream for
- * live streaming tool output.
+ * Future extension points: fs/* methods, switch from polling
+ * `process/read` to the `process/output` notification stream.
  */
 
 import { randomUUID } from "node:crypto";
-import type { Subprocess } from "bun";
 
 type JsonRpcId = string | number;
 
@@ -45,15 +38,10 @@ interface Pending {
 }
 
 export interface ExecServerOptions {
-	/**
-	 * Command that speaks the exec-server stdio JSON-RPC protocol.
-	 * Typical values:
-	 *   - Local: `["/path/to/nexal-exec-server", "--listen", "stdio"]`
-	 *   - Containerized: `["podman", "exec", "-i", "nexal-<name>", "nexal-exec-server", "--listen", "stdio"]`
-	 */
-	cmd: string[];
-	/** Extra env for the child process. */
-	env?: Record<string, string>;
+	/** WebSocket URL, e.g. `"ws://127.0.0.1:4777"`. */
+	url: string;
+	/** How long to wait for the WS handshake before failing. */
+	connectTimeoutMs?: number;
 }
 
 export interface RunCommandOptions {
@@ -71,22 +59,46 @@ export interface RunCommandResult {
 }
 
 export class ExecServerClient {
-	private proc: Subprocess<"pipe", "pipe", "inherit"> | null = null;
+	private ws: WebSocket | null = null;
 	private readonly pending = new Map<JsonRpcId, Pending>();
-	private readerTask: Promise<void> | null = null;
+	private readyPromise: Promise<void> | null = null;
 
 	constructor(private readonly options: ExecServerOptions) {}
 
 	async connect(): Promise<void> {
-		if (this.proc) return;
-		this.proc = Bun.spawn({
-			cmd: this.options.cmd,
-			stdin: "pipe",
-			stdout: "pipe",
-			stderr: "inherit",
-			env: { ...process.env, ...(this.options.env ?? {}) } as Record<string, string>,
-		}) as Subprocess<"pipe", "pipe", "inherit">;
-		this.readerTask = this.readLoop();
+		if (this.readyPromise) return this.readyPromise;
+		this.readyPromise = new Promise<void>((resolve, reject) => {
+			const ws = new WebSocket(this.options.url);
+			this.ws = ws;
+			const timer = setTimeout(() => {
+				reject(new Error(`exec-server WS connect timed out: ${this.options.url}`));
+				ws.close();
+			}, this.options.connectTimeoutMs ?? 5_000);
+
+			ws.addEventListener("open", () => {
+				clearTimeout(timer);
+				resolve();
+			});
+			ws.addEventListener("error", (ev: any) => {
+				clearTimeout(timer);
+				reject(new Error(`exec-server WS error: ${ev?.message ?? this.options.url}`));
+			});
+			ws.addEventListener("close", () => {
+				for (const p of this.pending.values()) p.reject(new Error("exec-server WS closed"));
+				this.pending.clear();
+				this.ws = null;
+				this.readyPromise = null;
+			});
+			ws.addEventListener("message", (ev) => {
+				const data = ev.data;
+				const text =
+					typeof data === "string"
+						? data
+						: new TextDecoder().decode(new Uint8Array(data as ArrayBuffer));
+				this.dispatch(text);
+			});
+		});
+		return this.readyPromise;
 	}
 
 	async initialize(clientName: string): Promise<{ defaultShell?: string; cwd?: string }> {
@@ -96,15 +108,8 @@ export class ExecServerClient {
 		};
 		// LSP-style handshake: server gates all other methods behind an
 		// `initialized` notification from the client.
-		await this.notify("initialized", {});
+		this.notify("initialized", {});
 		return resp;
-	}
-
-	private async notify(method: string, params: unknown): Promise<void> {
-		if (!this.proc) await this.connect();
-		const msg = { jsonrpc: "2.0" as const, method, params };
-		await this.proc!.stdin.write(JSON.stringify(msg) + "\n");
-		await this.proc!.stdin.flush();
 	}
 
 	async runCommand(argv: string[], options: RunCommandOptions = {}): Promise<RunCommandResult> {
@@ -124,10 +129,8 @@ export class ExecServerClient {
 		// IMPORTANT: track the last chunk `seq` we've actually *seen*, not
 		// the server's `next_seq`. The server filters with strict `>`, so
 		// passing `next_seq` as `after_seq` silently drops any chunk whose
-		// seq == next_seq — which happens whenever the process emits a
-		// new stdout chunk between our reads, or when exit/closed bumps
-		// next_seq past the last chunk. Using `last seen chunk seq`
-		// guarantees we never miss a chunk.
+		// seq == next_seq — happens when exit/closed bumps next_seq past
+		// the last chunk. Using last-seen guarantees we never miss one.
 		let afterSeq = 0;
 		let exited = false;
 		let timedOut = false;
@@ -169,50 +172,32 @@ export class ExecServerClient {
 	}
 
 	async close(): Promise<void> {
-		this.proc?.kill();
-		this.proc = null;
-		await this.readerTask?.catch(() => undefined);
-		this.readerTask = null;
-		for (const p of this.pending.values()) p.reject(new Error("exec-server closed"));
-		this.pending.clear();
+		this.ws?.close();
+		this.ws = null;
+		this.readyPromise = null;
 	}
 
-	private async call(method: string, params: unknown): Promise<unknown> {
-		if (!this.proc) await this.connect();
+	// ── Internals ─────────────────────────────────────────────────────
+
+	private notify(method: string, params: unknown): void {
+		this.requireOpen().send(JSON.stringify({ jsonrpc: "2.0", method, params }));
+	}
+
+	private call(method: string, params: unknown): Promise<unknown> {
 		const id = randomUUID();
 		const req = { jsonrpc: "2.0" as const, id, method, params };
 		const p = new Promise<unknown>((resolve, reject) => {
 			this.pending.set(id, { resolve, reject });
 		});
-		const line = JSON.stringify(req) + "\n";
-		await this.proc!.stdin.write(line);
-		await this.proc!.stdin.flush();
+		this.requireOpen().send(JSON.stringify(req));
 		return p;
 	}
 
-	private async readLoop(): Promise<void> {
-		const reader = this.proc!.stdout.getReader();
-		const decoder = new TextDecoder();
-		let buf = "";
-		try {
-			while (true) {
-				const { value, done } = await reader.read();
-				if (done) break;
-				buf += decoder.decode(value, { stream: true });
-				let idx: number;
-				while ((idx = buf.indexOf("\n")) !== -1) {
-					const line = buf.slice(0, idx).trim();
-					buf = buf.slice(idx + 1);
-					if (!line) continue;
-					this.dispatch(line);
-				}
-			}
-		} catch (err) {
-			console.error("[exec-client] read loop error", err);
-		} finally {
-			for (const p of this.pending.values()) p.reject(new Error("exec-server stdout closed"));
-			this.pending.clear();
+	private requireOpen(): WebSocket {
+		if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+			throw new Error("exec-server WS not connected — call connect() first");
 		}
+		return this.ws;
 	}
 
 	private dispatch(line: string): void {
@@ -220,7 +205,7 @@ export class ExecServerClient {
 		try {
 			msg = JSON.parse(line);
 		} catch {
-			console.error("[exec-client] non-JSON line dropped:", line.slice(0, 120));
+			console.error("[exec-client] non-JSON frame dropped:", line.slice(0, 120));
 			return;
 		}
 		if ("id" in msg && msg.id !== undefined) {

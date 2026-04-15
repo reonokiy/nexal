@@ -1,14 +1,19 @@
 /**
- * Smoke test for ExecServerClient over stdio.
- *   NEXAL_EXEC_SERVER_BIN=/path/to/nexal-exec-server bun run src/scripts/smoke-exec.ts
+ * Smoke test for ExecServerClient over WebSocket.
+ *
+ * Start an exec-server first:
+ *   target/release/nexal-exec-server --listen ws://127.0.0.1:4777
+ *
+ * Then run:
+ *   NEXAL_EXEC_SERVER_URL=ws://127.0.0.1:4777 bun run src/scripts/smoke-exec.ts
  */
 import { ExecServerClient } from "../exec-client.ts";
 
-const binary = process.env.NEXAL_EXEC_SERVER_BIN ?? "/home/lean/i/nexal/target/release/nexal-exec-server";
-const client = new ExecServerClient({ cmd: [binary, "--listen", "stdio"] });
+const url = process.env.NEXAL_EXEC_SERVER_URL ?? "ws://127.0.0.1:4777";
+const client = new ExecServerClient({ url });
 
 await client.connect();
-console.log("spawned");
+console.log("connected");
 const init = await client.initialize("smoke-exec");
 console.log("initialize →", init);
 
