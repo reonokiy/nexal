@@ -1,78 +1,16 @@
 [workspace]
 members = [
-    # ── Nexal own crates ──
-    "crates/nexal",
-    "crates/nexal-config",
-    "crates/agent",
-    "crates/channel-core",
-    "crates/channel-telegram",
-    "crates/channel-discord",
-    "crates/channel-http",
-    "crates/channel-heartbeat",
-    "crates/channel-cron",
-    "crates/nexal-state",
-
-    # ── Forked codex crates ──
-    "crates/ansi-escape",
-    "crates/apply-patch",
-    "crates/app-server",
-    "crates/app-server-client",
-    "crates/app-server-protocol",
-    "crates/arg0",
-    "crates/async-utils",
-    "crates/code-mode",
-    "crates/codex-api",
-    "crates/codex-client",
-    "crates/codex-experimental-api-macros",
-    "crates/config",
-    "crates/core",
-    "crates/core-skills",
     "crates/exec-server",
-    "crates/features",
-    "crates/file-search",
-    "crates/git-utils",
-    "crates/hooks",
-    "crates/instructions",
-    "crates/keyring-store",
-    "crates/linux-sandbox",
-    "crates/login",
-    "crates/network-proxy",
-    "crates/plugin",
+    "crates/app-server-protocol",
     "crates/protocol",
-    "crates/rmcp-client",
-    "crates/rollout",
-    "crates/sandboxing",
-    "crates/secrets",
-    "crates/shell-command",
-    "crates/shell-escalation",
-    "crates/skills",
-    "crates/state",
-    "crates/terminal-detection",
-    "crates/tui",
-    "crates/tui-render",
-    # Utils
+    "crates/codex-experimental-api-macros",
+    "crates/git-utils",
     "crates/utils/absolute-path",
-    "crates/utils/approval-presets",
     "crates/utils/cache",
     "crates/utils/cargo-bin",
-    "crates/utils/cli",
-    "crates/utils/elapsed",
-    "crates/utils/fuzzy-match",
-    "crates/utils/home-dir",
     "crates/utils/image",
-    "crates/utils/json-to-toml",
-    "crates/utils/output-truncation",
-    "crates/utils/path-utils",
-    "crates/utils/plugins",
     "crates/utils/pty",
-    "crates/utils/readiness",
-    "crates/utils/rustls-provider",
-    "crates/utils/sandbox-summary",
-    "crates/utils/sleep-inhibitor",
-    "crates/utils/stream-parser",
     "crates/utils/string",
-    "crates/utils/template",
-
 ]
 resolver = "2"
 
@@ -82,241 +20,65 @@ edition = "2024"
 license = "Apache-2.0"
 
 [workspace.dependencies]
-# ── Internal: nexal own crates ──
-nexal-config = { path = "crates/nexal-config" }
-nexal-agent = { path = "crates/agent" }
-nexal-state = { path = "crates/nexal-state" }
-nexal-channel-core = { path = "crates/channel-core" }
-nexal-channel-telegram = { path = "crates/channel-telegram" }
-nexal-channel-discord = { path = "crates/channel-discord" }
-nexal-channel-http = { path = "crates/channel-http" }
-nexal-channel-heartbeat = { path = "crates/channel-heartbeat" }
-nexal-channel-cron = { path = "crates/channel-cron" }
-
-# ── Internal: forked codex crates ──
-app_test_support = { path = "crates/app-server/tests/common" }
-nexal-ansi-escape = { path = "crates/ansi-escape" }
-nexal-api = { path = "crates/codex-api" }
-nexal-app-server = { path = "crates/app-server" }
-nexal-app-server-client = { path = "crates/app-server-client" }
+# ── Internal: only what the exec-server stack still needs ──
 nexal-app-server-protocol = { path = "crates/app-server-protocol" }
-nexal-apply-patch = { path = "crates/apply-patch" }
-nexal-arg0 = { path = "crates/arg0" }
-nexal-async-utils = { path = "crates/async-utils" }
-nexal-client = { path = "crates/codex-client" }
-nexal-code-mode = { path = "crates/code-mode" }
-nexal-config-loader = { path = "crates/config" }
-nexal-core = { path = "crates/core" }
-nexal-core-skills = { path = "crates/core-skills" }
 nexal-exec-server = { path = "crates/exec-server" }
 nexal-experimental-api-macros = { path = "crates/codex-experimental-api-macros" }
-nexal-features = { path = "crates/features" }
-nexal-file-search = { path = "crates/file-search" }
 nexal-git-utils = { path = "crates/git-utils" }
-nexal-hooks = { path = "crates/hooks" }
-nexal-instructions = { path = "crates/instructions" }
-nexal-keyring-store = { path = "crates/keyring-store" }
-nexal-linux-sandbox = { path = "crates/linux-sandbox" }
-nexal-login = { path = "crates/login" }
-nexal-network-proxy = { path = "crates/network-proxy" }
-nexal-plugin = { path = "crates/plugin" }
 nexal-protocol = { path = "crates/protocol" }
-nexal-rmcp-client = { path = "crates/rmcp-client" }
-nexal-rollout = { path = "crates/rollout" }
-nexal-rollout-state = { path = "crates/state" }
-nexal-sandboxing = { path = "crates/sandboxing" }
-nexal-secrets = { path = "crates/secrets" }
-nexal-shell-command = { path = "crates/shell-command" }
-nexal-shell-escalation = { path = "crates/shell-escalation" }
-nexal-skills = { path = "crates/skills" }
-nexal-terminal-detection = { path = "crates/terminal-detection" }
-nexal-tui = { path = "crates/tui" }
-nexal-tui-render = { path = "crates/tui-render" }
-core_test_support = { path = "crates/core/tests/common" }
-
-# Utils
 nexal-utils-absolute-path = { path = "crates/utils/absolute-path" }
-nexal-utils-approval-presets = { path = "crates/utils/approval-presets" }
 nexal-utils-cache = { path = "crates/utils/cache" }
 nexal-utils-cargo-bin = { path = "crates/utils/cargo-bin" }
-nexal-utils-cli = { path = "crates/utils/cli" }
-nexal-utils-elapsed = { path = "crates/utils/elapsed" }
-nexal-utils-fuzzy-match = { path = "crates/utils/fuzzy-match" }
-nexal-utils-home-dir = { path = "crates/utils/home-dir" }
 nexal-utils-image = { path = "crates/utils/image" }
-nexal-utils-json-to-toml = { path = "crates/utils/json-to-toml" }
-nexal-utils-output-truncation = { path = "crates/utils/output-truncation" }
-nexal-utils-path = { path = "crates/utils/path-utils" }
-nexal-utils-plugins = { path = "crates/utils/plugins" }
 nexal-utils-pty = { path = "crates/utils/pty" }
-nexal-utils-readiness = { path = "crates/utils/readiness" }
-nexal-utils-rustls-provider = { path = "crates/utils/rustls-provider" }
-nexal-utils-sandbox-summary = { path = "crates/utils/sandbox-summary" }
-nexal-utils-sleep-inhibitor = { path = "crates/utils/sleep-inhibitor" }
-nexal-utils-stream-parser = { path = "crates/utils/stream-parser" }
 nexal-utils-string = { path = "crates/utils/string" }
-nexal-utils-template = { path = "crates/utils/template" }
-ansi-to-tui = "7.0.0"
+
+# ── External crates used by the kept crates ──
 anyhow = "1"
-arboard = { version = "3", features = ["wayland-data-control"] }
 arc-swap = "1.9.0"
 assert_cmd = "2"
 assert_matches = "1.5.0"
-async-channel = "2.3.1"
 async-trait = "0.1.89"
-axum = { version = "0.8", default-features = false }
 base64 = "0.22.1"
-bollard = "0.20"
-bm25 = "2.3.2"
-bytes = "1.10.1"
-chardetng = "0.1.17"
-chrono = "0.4.43"
 clap = { version = "4", features = ["derive", "env"] }
-color-eyre = "0.6.3"
-constant_time_eq = "0.3.1"
-crossbeam-channel = "0.5.15"
-crossterm = "0.28.1"
-csv = "1.3.1"
-ctor = "0.6.3"
-dashmap = "6"
-derive_more = "2"
-diffy = "0.4.2"
 dirs = "6"
-dotenvy = "0.15.7"
-dunce = "1.0.4"
-encoding_rs = "0.8.35"
-env-flags = "0.1.1"
-eventsource-stream = "0.2.3"
-figment = { version = "0.10", features = ["toml", "env"] }
 futures = { version = "0.3", default-features = false }
-globset = "0.4"
-hmac = "0.12.1"
-http = "1.3.1"
-hyper = { version = "1", features = ["server", "http1"] }
-hyper-util = { version = "0.1", features = ["server", "tokio", "http1"] }
 icu_decimal = "2.1"
 icu_locale_core = "2.1"
 icu_provider = { version = "2.1", features = ["sync"] }
-ignore = "0.4.23"
 image = { version = "^0.25.9", default-features = false, features = ["jpeg", "png", "webp", "gif"] }
-iana-time-zone = "0.1.64"
-include_dir = "0.7.4"
-indexmap = "2.12.0"
-insta = "1.46.3"
 inventory = "0.3.19"
-itertools = "0.14.0"
-jsonwebtoken = "9.3.1"
-keyring = { version = "3.6", default-features = false }
-landlock = "0.4.4"
-lazy_static = "1"
 libc = "0.2.182"
-log = "0.4"
 lru = "0.16.3"
-maplit = "1.0.2"
 mime_guess = "2.0.5"
-notify = "8.2.0"
-nucleo = { git = "https://github.com/helix-editor/nucleo.git", rev = "4253de9faabb4e5c6d81d946a5e35a90f87347ee" }
-once_cell = "1.20.2"
-openssl-sys = "*"
-opentelemetry = "0.31.0"
-opentelemetry_sdk = { version = "0.31.0", features = ["rt-tokio", "experimental_trace_batch_span_processor_with_async_runtime"] }
-opentelemetry-otlp = { version = "0.31.0", features = ["http-proto", "reqwest-client"] }
-os_info = "3.12.0"
-owo-colors = "4.3.0"
 path-absolutize = "3.1.1"
-pathdiff = "0.2"
 portable-pty = "0.9.0"
-predicates = "3"
 pretty_assertions = "1.4.1"
-pulldown-cmark = "0.10"
 quick-xml = "0.38.4"
-rand = "0.9"
-ratatui = "0.29.0"
-ratatui-macros = "0.6.0"
-regex = "1.12.3"
-regex-lite = "0.1.8"
-reqwest = "0.12"
 rmcp = { version = "0.15.0", default-features = false }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
 rustls-native-certs = "0.8.3"
-rustls-pki-types = "1.14.0"
 schemars = "0.8.22"
-seccompiler = "0.5.0"
 serde = { version = "1", features = ["derive"] }
-sea-orm = { version = "1", default-features = false, features = [
-    "sqlx-sqlite", "sqlx-postgres",
-    "runtime-tokio-rustls",
-    "macros",
-    "with-chrono",
-] }
-sea-orm-migration = { version = "1", default-features = false, features = [
-    "sqlx-sqlite", "sqlx-postgres",
-    "runtime-tokio-rustls",
-] }
 serde_json = "1"
-serde_path_to_error = "0.1.20"
 serde_with = "3.17"
-serde_yaml = "0.9"
-serial_test = "3.2.0"
 sha1 = "0.10.6"
-sha2 = "0.10"
 shlex = "1.3.0"
 similar = "2.7.0"
-socket2 = "0.6.1"
-sqlx = { version = "0.8.6", default-features = false, features = [
-    "chrono", "json", "macros", "migrate", "runtime-tokio-rustls", "sqlite", "postgres", "time", "uuid",
-] }
 strum = "0.27.2"
 strum_macros = "0.28.0"
-supports-color = "3.0.2"
-syntect = "5"
 sys-locale = "0.3.2"
-tar = "0.4"
 tempfile = "3.23.0"
-test-log = "0.2.19"
-textwrap = "0.16.2"
 thiserror = "2.0.17"
-time = "0.3.47"
-tiny_http = "0.12"
 tokio = { version = "1", features = ["full"] }
-tokio-stream = "0.1.18"
-tokio-test = "0.4"
 tokio-rustls = "0.26"
 tokio-tungstenite = { version = "0.28.0", features = ["proxy", "rustls-tls-native-roots"] }
 tokio-util = "0.7.18"
-toml = "0.9.5"
-toml_edit = "0.24.0"
-tower = { version = "0.5", features = ["util"] }
 tracing = "0.1.44"
-tracing-appender = "0.2.3"
-tracing-opentelemetry = "0.32.0"
-tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
-tracing-test = "0.2.5"
-tree-sitter = "0.25.10"
-tree-sitter-bash = "0.25"
 ts-rs = "11"
 tungstenite = { version = "0.27.0", features = ["deflate", "proxy"] }
-unicode-segmentation = "1.12.0"
-unicode-width = "0.2"
-url = "2"
-urlencoding = "2.1"
 uuid = { version = "1", features = ["v4"] }
-vt100 = "0.16.2"
 walkdir = "2.5.0"
-webbrowser = "1.0"
-which = "8"
-wildmatch = "2.6.1"
-v8 = "=146.4.0"
-wiremock = "0.6"
-zstd = "0.13"
-
-# Nexal-specific deps
-teloxide = { version = "0.13", default-features = false, features = [
-    "macros", "ctrlc_handler", "rustls",
-] }
-serenity = { version = "0.12", default-features = false, features = [
-    "client", "gateway", "model", "rustls_backend",
-] }
 
 [workspace.lints]
 rust = {}
@@ -327,7 +89,6 @@ unwrap_used = "deny"
 [workspace.metadata.cargo-shear]
 ignored = [
     "icu_provider",
-    "openssl-sys",
 ]
 
 [profile.release]
@@ -338,8 +99,6 @@ codegen-units = 1
 panic = "abort"
 
 [patch.crates-io]
-crossterm = { git = "https://github.com/nornagon/crossterm", branch = "nornagon/color-query" }
-ratatui = { git = "https://github.com/nornagon/ratatui", branch = "nornagon-v0.29.0-patch" }
 tokio-tungstenite = { git = "https://github.com/openai-oss-forks/tokio-tungstenite", rev = "132f5b39c862e3a970f731d709608b3e6276d5f6" }
 tungstenite = { git = "https://github.com/openai-oss-forks/tungstenite-rs", rev = "9200079d3b54a1ff51072e24d81fd354f085156f" }
 
