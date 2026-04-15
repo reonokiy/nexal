@@ -15,11 +15,11 @@ pub const JSONRPC_VERSION: &str = "2.0";
 // ── Method names ─────────────────────────────────────────────────────
 
 pub const METHOD_HELLO: &str = "gateway/hello";
-pub const METHOD_SPAWN_AGENT: &str = "gateway/spawnAgent";
-pub const METHOD_KILL_AGENT: &str = "gateway/killAgent";
-pub const METHOD_DETACH_AGENT: &str = "gateway/detachAgent";
-pub const METHOD_ATTACH_AGENT: &str = "gateway/attachAgent";
-pub const METHOD_LIST_AGENTS: &str = "gateway/listAgents";
+pub const METHOD_SPAWN_AGENT: &str = "gateway/spawn_agent";
+pub const METHOD_KILL_AGENT: &str = "gateway/kill_agent";
+pub const METHOD_DETACH_AGENT: &str = "gateway/detach_agent";
+pub const METHOD_ATTACH_AGENT: &str = "gateway/attach_agent";
+pub const METHOD_LIST_AGENTS: &str = "gateway/list_agents";
 pub const METHOD_AGENT_INVOKE: &str = "agent/invoke";
 
 /// Notification carrying an in-band notification from a specific agent.
