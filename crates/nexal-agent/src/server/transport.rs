@@ -49,24 +49,8 @@ pub(crate) fn parse_listen_url(
 pub(crate) async fn run_transport(
     listen_url: &str,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    if listen_url == "stdio" {
-        return run_stdio().await;
-    }
     let bind_address = parse_listen_url(listen_url)?;
     run_websocket_listener(bind_address).await
-}
-
-async fn run_stdio() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    tracing::info!("nexal-exec-server running on stdio");
-    let stdin = tokio::io::stdin();
-    let stdout = tokio::io::stdout();
-    run_connection(JsonRpcConnection::from_stdio(
-        stdin,
-        stdout,
-        "nexal-exec-server stdio".to_string(),
-    ))
-    .await;
-    Ok(())
 }
 
 async fn run_websocket_listener(

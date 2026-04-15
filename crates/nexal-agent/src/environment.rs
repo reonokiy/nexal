@@ -148,7 +148,7 @@ impl Environment {
 
     pub fn create_from_client(client: ExecServerClient) -> Self {
         Self {
-            exec_server_url: Some("child-process://local".into()),
+            exec_server_url: Some("attached-client://local".into()),
             remote_exec_server_client: Some(client.clone()),
             exec_backend: Arc::new(RemoteProcess::new(client)),
             remote_env_info: None,
@@ -162,7 +162,7 @@ impl Environment {
         env_info: RemoteEnvInfo,
     ) -> Self {
         Self {
-            exec_server_url: Some("child-process://local".into()),
+            exec_server_url: Some("attached-client://local".into()),
             remote_exec_server_client: Some(client.clone()),
             exec_backend: Arc::new(RemoteProcess::new(client)),
             remote_env_info: Some(env_info),

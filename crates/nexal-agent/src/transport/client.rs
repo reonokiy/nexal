@@ -135,8 +135,6 @@ pub struct ExecServerClient {
 
 #[derive(Debug, thiserror::Error)]
 pub enum ExecServerError {
-    #[error("failed to spawn exec-server: {0}")]
-    Spawn(#[source] std::io::Error),
     #[error("timed out connecting to exec-server websocket `{url}` after {timeout:?}")]
     WebSocketConnectTimeout { url: String, timeout: Duration },
     #[error("failed to connect to exec-server websocket `{url}`: {source}")]
@@ -161,22 +159,6 @@ impl ExecServerClient {
     /// The initialize response from the exec-server, containing environment info.
     pub fn init_response(&self) -> &InitializeResponse {
         &self.init_response
-    }
-
-    pub async fn connect_child_process(
-        stdin: tokio::process::ChildStdin,
-        stdout: tokio::process::ChildStdout,
-        options: ExecServerClientConnectOptions,
-    ) -> Result<Self, ExecServerError> {
-        Self::connect(
-            JsonRpcConnection::from_stdio(
-                stdout,
-                stdin,
-                "nexal-exec-server child-process".to_string(),
-            ),
-            options,
-        )
-        .await
     }
 
     pub async fn connect_websocket(
@@ -683,20 +665,23 @@ mod tests {
     use crate::protocol::JSONRPCMessage;
     use crate::protocol::JSONRPCNotification;
     use crate::protocol::JSONRPCResponse;
+    use futures::SinkExt;
+    use futures::StreamExt;
     use pretty_assertions::assert_eq;
-    use tokio::io::AsyncBufReadExt;
+    use tokio::io::AsyncRead;
     use tokio::io::AsyncWrite;
-    use tokio::io::AsyncWriteExt;
-    use tokio::io::BufReader;
-    use tokio::io::duplex;
+    use tokio::net::TcpListener;
     use tokio::sync::mpsc;
     use tokio::time::Duration;
     use tokio::time::timeout;
+    use tokio_tungstenite::WebSocketStream;
+    use tokio_tungstenite::accept_async;
+    use tokio_tungstenite::tungstenite::Message;
 
     use super::ExecServerClient;
     use super::ExecServerClientConnectOptions;
+    use super::RemoteExecServerConnectArgs;
     use crate::ProcessId;
-    use crate::connection::JsonRpcConnection;
     use crate::protocol::EXEC_EXITED_METHOD;
     use crate::protocol::EXEC_OUTPUT_DELTA_METHOD;
     use crate::protocol::ExecExitedNotification;
@@ -706,43 +691,59 @@ mod tests {
     use crate::protocol::INITIALIZED_METHOD;
     use crate::protocol::InitializeResponse;
 
-    async fn read_jsonrpc_line<R>(lines: &mut tokio::io::Lines<BufReader<R>>) -> JSONRPCMessage
+    async fn read_jsonrpc_message<S>(websocket: &mut WebSocketStream<S>) -> JSONRPCMessage
     where
-        R: tokio::io::AsyncRead + Unpin,
+        S: AsyncRead + AsyncWrite + Unpin,
     {
-        let line = timeout(Duration::from_secs(1), lines.next_line())
+        let frame = timeout(Duration::from_secs(1), websocket.next())
             .await
             .expect("json-rpc read should not time out")
-            .expect("json-rpc read should succeed")
-            .expect("json-rpc connection should stay open");
-        serde_json::from_str(&line).expect("json-rpc line should parse")
+            .expect("json-rpc websocket should stay open")
+            .expect("json-rpc read should succeed");
+        match frame {
+            Message::Text(text) => {
+                serde_json::from_str(text.as_ref()).expect("json-rpc text frame should parse")
+            }
+            Message::Binary(bytes) => {
+                serde_json::from_slice(bytes.as_ref()).expect("json-rpc binary frame should parse")
+            }
+            other => panic!("expected json-rpc message frame, got {other:?}"),
+        }
     }
 
-    async fn write_jsonrpc_line<W>(writer: &mut W, message: JSONRPCMessage)
+    async fn write_jsonrpc_message<S>(websocket: &mut WebSocketStream<S>, message: JSONRPCMessage)
     where
-        W: AsyncWrite + Unpin,
+        S: AsyncRead + AsyncWrite + Unpin,
     {
         let encoded = serde_json::to_string(&message).expect("json-rpc message should serialize");
-        writer
-            .write_all(format!("{encoded}\n").as_bytes())
+        websocket
+            .send(Message::Text(encoded.into()))
             .await
-            .expect("json-rpc line should write");
+            .expect("json-rpc message should write");
     }
 
     #[tokio::test]
     async fn wake_notifications_do_not_block_other_sessions() {
-        let (client_stdin, server_reader) = duplex(1 << 20);
-        let (mut server_writer, client_stdout) = duplex(1 << 20);
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("listener should bind");
+        let addr = listener
+            .local_addr()
+            .expect("listener should have local addr");
         let (notifications_tx, mut notifications_rx) = mpsc::channel(16);
         let server = tokio::spawn(async move {
-            let mut lines = BufReader::new(server_reader).lines();
-            let initialize = read_jsonrpc_line(&mut lines).await;
+            let (stream, _) = listener.accept().await.expect("server should accept");
+            let mut websocket = accept_async(stream)
+                .await
+                .expect("server websocket handshake should succeed");
+
+            let initialize = read_jsonrpc_message(&mut websocket).await;
             let request = match initialize {
                 JSONRPCMessage::Request(request) if request.method == INITIALIZE_METHOD => request,
                 other => panic!("expected initialize request, got {other:?}"),
             };
-            write_jsonrpc_line(
-                &mut server_writer,
+            write_jsonrpc_message(
+                &mut websocket,
                 JSONRPCMessage::Response(JSONRPCResponse {
                     id: request.id,
                     result: serde_json::to_value(InitializeResponse::default())
@@ -751,7 +752,7 @@ mod tests {
             )
             .await;
 
-            let initialized = read_jsonrpc_line(&mut lines).await;
+            let initialized = read_jsonrpc_message(&mut websocket).await;
             match initialized {
                 JSONRPCMessage::Notification(notification)
                     if notification.method == INITIALIZED_METHOD => {}
@@ -759,18 +760,16 @@ mod tests {
             }
 
             while let Some(message) = notifications_rx.recv().await {
-                write_jsonrpc_line(&mut server_writer, message).await;
+                write_jsonrpc_message(&mut websocket, message).await;
             }
         });
 
-        let client = ExecServerClient::connect(
-            JsonRpcConnection::from_stdio(
-                client_stdout,
-                client_stdin,
-                "test-exec-server-client".to_string(),
-            ),
-            ExecServerClientConnectOptions::default(),
-        )
+        let client = ExecServerClient::connect_websocket(RemoteExecServerConnectArgs {
+            websocket_url: format!("ws://{addr}"),
+            client_name: ExecServerClientConnectOptions::default().client_name,
+            connect_timeout: Duration::from_secs(1),
+            initialize_timeout: Duration::from_secs(1),
+        })
         .await
         .expect("client should connect");
 
