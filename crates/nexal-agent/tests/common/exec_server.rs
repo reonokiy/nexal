@@ -4,10 +4,10 @@ use std::process::Stdio;
 use std::time::Duration;
 
 use anyhow::anyhow;
-use nexal_app_server_protocol::JSONRPCMessage;
-use nexal_app_server_protocol::JSONRPCNotification;
-use nexal_app_server_protocol::JSONRPCRequest;
-use nexal_app_server_protocol::RequestId;
+use nexal_agent::JSONRPCMessage;
+use nexal_agent::JSONRPCNotification;
+use nexal_agent::JSONRPCRequest;
+use nexal_agent::RequestId;
 use nexal_utils_cargo_bin::cargo_bin;
 use futures::SinkExt;
 use futures::StreamExt;
@@ -75,7 +75,6 @@ impl ExecServerHarness {
             id: id.clone(),
             method: method.to_string(),
             params: Some(params),
-            trace: None,
         }))
         .await?;
         Ok(id)

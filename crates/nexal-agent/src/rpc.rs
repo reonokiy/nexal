@@ -5,13 +5,13 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicI64;
 use std::sync::atomic::Ordering;
 
-use nexal_app_server_protocol::JSONRPCError;
-use nexal_app_server_protocol::JSONRPCErrorError;
-use nexal_app_server_protocol::JSONRPCMessage;
-use nexal_app_server_protocol::JSONRPCNotification;
-use nexal_app_server_protocol::JSONRPCRequest;
-use nexal_app_server_protocol::JSONRPCResponse;
-use nexal_app_server_protocol::RequestId;
+use crate::protocol::JSONRPCError;
+use crate::protocol::JSONRPCErrorError;
+use crate::protocol::JSONRPCMessage;
+use crate::protocol::JSONRPCNotification;
+use crate::protocol::JSONRPCRequest;
+use crate::protocol::JSONRPCResponse;
+use crate::protocol::RequestId;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
@@ -267,7 +267,6 @@ impl RpcClient {
                 id: request_id.clone(),
                 method: method.to_string(),
                 params: Some(params),
-                trace: None,
             }))
             .await
             .is_err()
@@ -444,8 +443,8 @@ async fn drain_pending(pending: &Mutex<HashMap<RequestId, PendingRequest>>) {
 mod tests {
     use std::time::Duration;
 
-    use nexal_app_server_protocol::JSONRPCMessage;
-    use nexal_app_server_protocol::JSONRPCResponse;
+    use crate::protocol::JSONRPCMessage;
+    use crate::protocol::JSONRPCResponse;
     use pretty_assertions::assert_eq;
     use tokio::io::AsyncBufReadExt;
     use tokio::io::AsyncWriteExt;

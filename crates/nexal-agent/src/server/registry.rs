@@ -24,13 +24,13 @@ use crate::protocol::ProxyRegisterParams;
 use crate::protocol::ProxyUnregisterParams;
 use crate::rpc::RpcRouter;
 use crate::server::ExecServerHandler;
-use nexal_app_server_protocol::FsCopyParams;
-use nexal_app_server_protocol::FsCreateDirectoryParams;
-use nexal_app_server_protocol::FsGetMetadataParams;
-use nexal_app_server_protocol::FsReadDirectoryParams;
-use nexal_app_server_protocol::FsReadFileParams;
-use nexal_app_server_protocol::FsRemoveParams;
-use nexal_app_server_protocol::FsWriteFileParams;
+use crate::protocol::FsCopyParams;
+use crate::protocol::FsCreateDirectoryParams;
+use crate::protocol::FsGetMetadataParams;
+use crate::protocol::FsReadDirectoryParams;
+use crate::protocol::FsReadFileParams;
+use crate::protocol::FsRemoveParams;
+use crate::protocol::FsWriteFileParams;
 
 pub(crate) fn build_router() -> RpcRouter<ExecServerHandler> {
     let mut router = RpcRouter::new();

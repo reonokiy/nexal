@@ -2,9 +2,9 @@
 
 mod common;
 
-use nexal_app_server_protocol::JSONRPCError;
-use nexal_app_server_protocol::JSONRPCMessage;
-use nexal_app_server_protocol::JSONRPCResponse;
+use nexal_agent::JSONRPCError;
+use nexal_agent::JSONRPCMessage;
+use nexal_agent::JSONRPCResponse;
 use nexal_agent::InitializeParams;
 use nexal_agent::InitializeResponse;
 use common::exec_server::exec_server;
@@ -21,7 +21,7 @@ async fn exec_server_reports_malformed_websocket_json_and_keeps_running() -> any
     let JSONRPCMessage::Error(JSONRPCError { id, error }) = response else {
         panic!("expected malformed-message error response");
     };
-    assert_eq!(id, nexal_app_server_protocol::RequestId::Integer(-1));
+    assert_eq!(id, nexal_agent::RequestId::Integer(-1));
     assert_eq!(error.code, -32600);
     assert!(
         error
@@ -53,7 +53,7 @@ async fn exec_server_reports_malformed_websocket_json_and_keeps_running() -> any
     };
     assert_eq!(id, initialize_id);
     let initialize_response: InitializeResponse = serde_json::from_value(result)?;
-    assert_eq!(initialize_response, InitializeResponse {});
+    assert_eq!(initialize_response, InitializeResponse::default());
 
     server.shutdown().await?;
     Ok(())

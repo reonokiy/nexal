@@ -45,7 +45,7 @@ pub(crate) async fn run_connection(connection: JsonRpcConnection) {
                 warn!("ignoring malformed exec-server message: {reason}");
                 if outgoing_tx
                     .send(RpcServerOutboundMessage::Error {
-                        request_id: nexal_app_server_protocol::RequestId::Integer(-1),
+                        request_id: crate::protocol::RequestId::Integer(-1),
                         error: invalid_request(reason),
                     })
                     .await
@@ -55,7 +55,7 @@ pub(crate) async fn run_connection(connection: JsonRpcConnection) {
                 }
             }
             JsonRpcConnectionEvent::Message(message) => match message {
-                nexal_app_server_protocol::JSONRPCMessage::Request(request) => {
+                crate::protocol::JSONRPCMessage::Request(request) => {
                     if let Some(route) = router.request_route(request.method.as_str()) {
                         let message = route(handler.clone(), request).await;
                         if outgoing_tx.send(message).await.is_err() {
@@ -75,7 +75,7 @@ pub(crate) async fn run_connection(connection: JsonRpcConnection) {
                         break;
                     }
                 }
-                nexal_app_server_protocol::JSONRPCMessage::Notification(notification) => {
+                crate::protocol::JSONRPCMessage::Notification(notification) => {
                     let Some(route) = router.notification_route(notification.method.as_str())
                     else {
                         warn!(
@@ -89,14 +89,14 @@ pub(crate) async fn run_connection(connection: JsonRpcConnection) {
                         break;
                     }
                 }
-                nexal_app_server_protocol::JSONRPCMessage::Response(response) => {
+                crate::protocol::JSONRPCMessage::Response(response) => {
                     warn!(
                         "closing exec-server connection after unexpected client response: {:?}",
                         response.id
                     );
                     break;
                 }
-                nexal_app_server_protocol::JSONRPCMessage::Error(error) => {
+                crate::protocol::JSONRPCMessage::Error(error) => {
                     warn!(
                         "closing exec-server connection after unexpected client error: {:?}",
                         error.id

@@ -1,4 +1,4 @@
-use nexal_app_server_protocol::JSONRPCErrorError;
+use crate::protocol::JSONRPCErrorError;
 
 use crate::local_process::LocalProcess;
 use crate::protocol::ExecParams;

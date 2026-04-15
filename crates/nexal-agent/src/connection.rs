@@ -1,4 +1,4 @@
-use nexal_app_server_protocol::JSONRPCMessage;
+use crate::protocol::JSONRPCMessage;
 use futures::SinkExt;
 use futures::StreamExt;
 use tokio::io::AsyncRead;

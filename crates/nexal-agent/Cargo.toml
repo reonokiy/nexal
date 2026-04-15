@@ -19,7 +19,6 @@ arc-swap = { workspace = true }
 async-trait = { workspace = true }
 base64 = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
-nexal-app-server-protocol = { workspace = true }
 nexal-utils-absolute-path = { workspace = true }
 nexal-utils-pty = { workspace = true }
 futures = { workspace = true }

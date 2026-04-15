@@ -3,21 +3,21 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use arc_swap::ArcSwap;
-use nexal_app_server_protocol::FsCopyParams;
-use nexal_app_server_protocol::FsCopyResponse;
-use nexal_app_server_protocol::FsCreateDirectoryParams;
-use nexal_app_server_protocol::FsCreateDirectoryResponse;
-use nexal_app_server_protocol::FsGetMetadataParams;
-use nexal_app_server_protocol::FsGetMetadataResponse;
-use nexal_app_server_protocol::FsReadDirectoryParams;
-use nexal_app_server_protocol::FsReadDirectoryResponse;
-use nexal_app_server_protocol::FsReadFileParams;
-use nexal_app_server_protocol::FsReadFileResponse;
-use nexal_app_server_protocol::FsRemoveParams;
-use nexal_app_server_protocol::FsRemoveResponse;
-use nexal_app_server_protocol::FsWriteFileParams;
-use nexal_app_server_protocol::FsWriteFileResponse;
-use nexal_app_server_protocol::JSONRPCNotification;
+use crate::protocol::FsCopyParams;
+use crate::protocol::FsCopyResponse;
+use crate::protocol::FsCreateDirectoryParams;
+use crate::protocol::FsCreateDirectoryResponse;
+use crate::protocol::FsGetMetadataParams;
+use crate::protocol::FsGetMetadataResponse;
+use crate::protocol::FsReadDirectoryParams;
+use crate::protocol::FsReadDirectoryResponse;
+use crate::protocol::FsReadFileParams;
+use crate::protocol::FsReadFileResponse;
+use crate::protocol::FsRemoveParams;
+use crate::protocol::FsRemoveResponse;
+use crate::protocol::FsWriteFileParams;
+use crate::protocol::FsWriteFileResponse;
+use crate::protocol::JSONRPCNotification;
 use serde_json::Value;
 use tokio::sync::Mutex;
 use tokio::sync::watch;
@@ -674,9 +674,9 @@ async fn handle_server_notification(
 
 #[cfg(test)]
 mod tests {
-    use nexal_app_server_protocol::JSONRPCMessage;
-    use nexal_app_server_protocol::JSONRPCNotification;
-    use nexal_app_server_protocol::JSONRPCResponse;
+    use crate::protocol::JSONRPCMessage;
+    use crate::protocol::JSONRPCNotification;
+    use crate::protocol::JSONRPCResponse;
     use pretty_assertions::assert_eq;
     use tokio::io::AsyncBufReadExt;
     use tokio::io::AsyncWrite;

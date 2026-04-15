@@ -2,8 +2,8 @@
 
 mod common;
 
-use nexal_app_server_protocol::JSONRPCMessage;
-use nexal_app_server_protocol::JSONRPCResponse;
+use nexal_agent::JSONRPCMessage;
+use nexal_agent::JSONRPCResponse;
 use nexal_agent::ExecResponse;
 use nexal_agent::InitializeParams;
 use nexal_agent::ProcessId;

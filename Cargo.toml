@@ -2,16 +2,9 @@
 members = [
     "crates/nexal-agent",
     "crates/nexal-gateway",
-    "crates/app-server-protocol",
-    "crates/protocol",
-    "crates/codex-experimental-api-macros",
-    "crates/git-utils",
     "crates/utils/absolute-path",
-    "crates/utils/cache",
     "crates/utils/cargo-bin",
-    "crates/utils/image",
     "crates/utils/pty",
-    "crates/utils/string",
 ]
 resolver = "2"
 
@@ -21,55 +14,30 @@ edition = "2024"
 license = "Apache-2.0"
 
 [workspace.dependencies]
-# ── Internal: only what the agent/gateway stack needs ──
-nexal-app-server-protocol = { path = "crates/app-server-protocol" }
+# ── Internal ──
 nexal-agent = { path = "crates/nexal-agent" }
 nexal-gateway = { path = "crates/nexal-gateway" }
-nexal-experimental-api-macros = { path = "crates/codex-experimental-api-macros" }
-nexal-git-utils = { path = "crates/git-utils" }
-nexal-protocol = { path = "crates/protocol" }
 nexal-utils-absolute-path = { path = "crates/utils/absolute-path" }
-nexal-utils-cache = { path = "crates/utils/cache" }
 nexal-utils-cargo-bin = { path = "crates/utils/cargo-bin" }
-nexal-utils-image = { path = "crates/utils/image" }
 nexal-utils-pty = { path = "crates/utils/pty" }
-nexal-utils-string = { path = "crates/utils/string" }
 
-# ── External crates used by the kept crates ──
+# ── External ──
 anyhow = "1"
 arc-swap = "1.9.0"
 assert_cmd = "2"
-assert_matches = "1.5.0"
 async-trait = "0.1.89"
 base64 = "0.22.1"
 clap = { version = "4", features = ["derive", "env"] }
 dirs = "6"
 futures = { version = "0.3", default-features = false }
-icu_decimal = "2.1"
-icu_locale_core = "2.1"
-icu_provider = { version = "2.1", features = ["sync"] }
-image = { version = "^0.25.9", default-features = false, features = ["jpeg", "png", "webp", "gif"] }
-inventory = "0.3.19"
 libc = "0.2.182"
-lru = "0.16.3"
-mime_guess = "2.0.5"
 path-absolutize = "3.1.1"
 portable-pty = "0.9.0"
 pretty_assertions = "1.4.1"
-quick-xml = "0.38.4"
-rmcp = { version = "0.15.0", default-features = false }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
 rustls-native-certs = "0.8.3"
-schemars = "0.8.22"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-serde_with = "3.17"
-sha1 = "0.10.6"
-shlex = "1.3.0"
-similar = "2.7.0"
-strum = "0.27.2"
-strum_macros = "0.28.0"
-sys-locale = "0.3.2"
 tempfile = "3.23.0"
 thiserror = "2.0.17"
 tokio = { version = "1", features = ["full"] }
@@ -84,10 +52,7 @@ http = "1"
 http-body-util = "0.1"
 bytes = "1"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream", "http2"] }
-ts-rs = "11"
-tungstenite = { version = "0.28.0" }
 uuid = { version = "1", features = ["v4"] }
-walkdir = "2.5.0"
 
 [workspace.lints]
 rust = {}
@@ -95,10 +60,6 @@ rust = {}
 [workspace.lints.clippy]
 unwrap_used = "deny"
 
-[workspace.metadata.cargo-shear]
-ignored = [
-    "icu_provider",
-]
 
 [profile.release]
 lto = "thin"
