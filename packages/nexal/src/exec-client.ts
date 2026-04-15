@@ -101,9 +101,9 @@ export class ExecServerClient {
 		return this.readyPromise;
 	}
 
-	async initialize(clientName: string): Promise<{ defaultShell?: string; cwd?: string }> {
-		const resp = (await this.call("initialize", { clientName })) as {
-			defaultShell?: string;
+	async initialize(clientName: string): Promise<{ default_shell?: string; cwd?: string }> {
+		const resp = (await this.call("initialize", { client_name: clientName })) as {
+			default_shell?: string;
 			cwd?: string;
 		};
 		// LSP-style handshake: server gates all other methods behind an
@@ -115,7 +115,7 @@ export class ExecServerClient {
 	async runCommand(argv: string[], options: RunCommandOptions = {}): Promise<RunCommandResult> {
 		const processId = options.processId ?? randomUUID();
 		await this.call("process/start", {
-			processId,
+			process_id: processId,
 			argv,
 			cwd: options.cwd ?? "/tmp",
 			env: options.env ?? {},
@@ -139,19 +139,19 @@ export class ExecServerClient {
 		while (!exited) {
 			if (options.timeoutMs !== undefined && Date.now() - start > options.timeoutMs) {
 				timedOut = true;
-				await this.call("process/terminate", { processId }).catch(() => undefined);
+				await this.call("process/terminate", { process_id: processId }).catch(() => undefined);
 				break;
 			}
 			const resp = (await this.call("process/read", {
-				processId,
-				afterSeq,
-				maxBytes: 1 << 20,
-				waitMs: 100,
+				process_id: processId,
+				after_seq: afterSeq,
+				max_bytes: 1 << 20,
+				wait_ms: 100,
 			})) as {
 				chunks: Array<{ seq: number; stream: "stdout" | "stderr" | "pty"; chunk: string }>;
-				nextSeq: number;
+				next_seq: number;
 				exited: boolean;
-				exitCode: number | null;
+				exit_code: number | null;
 				closed: boolean;
 				failure: string | null;
 			};
@@ -163,7 +163,7 @@ export class ExecServerClient {
 			}
 			if (resp.exited) {
 				exited = true;
-				exitCode = resp.exitCode ?? 0;
+				exitCode = resp.exit_code ?? 0;
 			}
 			if (resp.failure) throw new Error(`nexal-agent process failed: ${resp.failure}`);
 		}

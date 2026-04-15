@@ -28,7 +28,7 @@ pub const PROXY_UNREGISTER_METHOD: &str = "proxy/unregister";
 
 /// Register a reverse proxy Unix socket inside the container.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "snake_case")]
 pub struct ProxyRegisterParams {
     /// Path to the Unix socket (e.g. "/workspace/agents/proxy/api.telegram.org").
     pub socket_path: String,
@@ -40,19 +40,19 @@ pub struct ProxyRegisterParams {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "snake_case")]
 pub struct ProxyRegisterResponse {
     pub ok: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "snake_case")]
 pub struct ProxyUnregisterParams {
     pub socket_path: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "snake_case")]
 pub struct ProxyUnregisterResponse {
     pub ok: bool,
 }
@@ -74,13 +74,13 @@ impl From<Vec<u8>> for ByteChunk {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "snake_case")]
 pub struct InitializeParams {
     pub client_name: String,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "snake_case")]
 pub struct InitializeResponse {
     /// Default shell available in this execution environment (e.g. "/bin/bash").
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -91,7 +91,7 @@ pub struct InitializeResponse {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "snake_case")]
 pub struct ExecParams {
     /// Client-chosen logical process handle scoped to this connection/session.
     /// This is a protocol key, not an OS pid.
@@ -104,13 +104,13 @@ pub struct ExecParams {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "snake_case")]
 pub struct ExecResponse {
     pub process_id: ProcessId,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "snake_case")]
 pub struct ReadParams {
     pub process_id: ProcessId,
     pub after_seq: Option<u64>,
@@ -119,7 +119,7 @@ pub struct ReadParams {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "snake_case")]
 pub struct ProcessOutputChunk {
     pub seq: u64,
     pub stream: ExecOutputStream,
@@ -127,7 +127,7 @@ pub struct ProcessOutputChunk {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "snake_case")]
 pub struct ReadResponse {
     pub chunks: Vec<ProcessOutputChunk>,
     pub next_seq: u64,
@@ -138,14 +138,14 @@ pub struct ReadResponse {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "snake_case")]
 pub struct WriteParams {
     pub process_id: ProcessId,
     pub chunk: ByteChunk,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "snake_case")]
 pub enum WriteStatus {
     Accepted,
     UnknownProcess,
@@ -154,25 +154,25 @@ pub enum WriteStatus {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "snake_case")]
 pub struct WriteResponse {
     pub status: WriteStatus,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "snake_case")]
 pub struct TerminateParams {
     pub process_id: ProcessId,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "snake_case")]
 pub struct TerminateResponse {
     pub running: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "snake_case")]
 pub enum ExecOutputStream {
     Stdout,
     Stderr,
@@ -180,7 +180,7 @@ pub enum ExecOutputStream {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "snake_case")]
 pub struct ExecOutputDeltaNotification {
     pub process_id: ProcessId,
     pub seq: u64,
@@ -189,7 +189,7 @@ pub struct ExecOutputDeltaNotification {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "snake_case")]
 pub struct ExecExitedNotification {
     pub process_id: ProcessId,
     pub seq: u64,
@@ -197,7 +197,7 @@ pub struct ExecExitedNotification {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "snake_case")]
 pub struct ExecClosedNotification {
     pub process_id: ProcessId,
     pub seq: u64,

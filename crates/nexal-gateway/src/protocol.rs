@@ -111,14 +111,14 @@ pub mod error_code {
 // ── gateway/hello ────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "snake_case")]
 pub struct HelloParams {
     pub token: String,
     pub client_name: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "snake_case")]
 pub struct HelloResponse {
     pub ok: bool,
     pub gateway_version: String,
@@ -127,7 +127,7 @@ pub struct HelloResponse {
 // ── gateway/spawnAgent ───────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "snake_case")]
 pub struct SpawnAgentParams {
     /// Human-friendly suffix for the container name (e.g. `worker-abc`).
     pub name: String,
@@ -146,7 +146,7 @@ pub struct SpawnAgentParams {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "snake_case")]
 pub struct SpawnAgentResponse {
     pub agent_id: String,
     pub container_name: String,
@@ -155,13 +155,13 @@ pub struct SpawnAgentResponse {
 // ── gateway/killAgent / detachAgent ──────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "snake_case")]
 pub struct AgentIdParams {
     pub agent_id: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "snake_case")]
 pub struct OkResponse {
     pub ok: bool,
 }
@@ -169,7 +169,7 @@ pub struct OkResponse {
 // ── gateway/attachAgent ──────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "snake_case")]
 pub struct AttachAgentParams {
     pub container_name: String,
 }
@@ -177,13 +177,13 @@ pub struct AttachAgentParams {
 // ── gateway/listAgents ───────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "snake_case")]
 pub struct ListAgentsResponse {
     pub agents: Vec<AgentSummary>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "snake_case")]
 pub struct AgentSummary {
     pub agent_id: String,
     pub container_name: String,
@@ -193,7 +193,7 @@ pub struct AgentSummary {
 // ── agent/invoke ─────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "snake_case")]
 pub struct AgentInvokeParams {
     pub agent_id: String,
     pub method: String,
@@ -204,7 +204,7 @@ pub struct AgentInvokeParams {
 // agent/notify wraps a notification coming from an agent
 // (e.g. process/output, process/exited).
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "snake_case")]
 pub struct AgentNotifyParams {
     pub agent_id: String,
     pub method: String,

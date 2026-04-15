@@ -127,7 +127,7 @@ impl AgentConn {
 
         // LSP-style handshake — must complete before any other call.
         let _init: Value = conn
-            .invoke("initialize", Some(json!({ "clientName": client_name })))
+            .invoke("initialize", Some(json!({ "client_name": client_name })))
             .await?;
         conn.notify("initialized", json!({})).await?;
         Ok(conn)

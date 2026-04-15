@@ -181,18 +181,32 @@ impl ContainerBackend for PodmanBackend {
 
         self.podman(&["start", &spec.name]).await?;
 
-        // Best-effort mkdir for HOME.
+        // Ensure /workspace/.nexal exists and is writable by the
+        // keep-id mapped user. Done as root inside the container so it
+        // works even when the image's /workspace is root-owned (the
+        // common case when no host bind-mount is provided).
+        //
+        // When a bind-mount IS present we still mkdir+chmod — the
+        // operations are no-ops if the dir already exists with the
+        // right perms, and the host-side workspace is per-session so
+        // any chmod we do is contained to that session's directory.
+        let setup_cmd = "mkdir -p /workspace/.nexal && chmod 1777 /workspace /workspace/.nexal";
         if let Err(err) = self
             .podman(&[
                 "exec",
+                "--user",
+                "0",
                 &spec.name,
                 "/bin/sh",
                 "-c",
-                "mkdir -p /workspace/.nexal",
+                setup_cmd,
             ])
             .await
         {
-            warn!("podman exec mkdir /workspace/.nexal failed for {}: {err}", spec.name);
+            warn!(
+                "podman exec workspace setup failed for {}: {err}",
+                spec.name
+            );
         }
 
         let ws_url = self.discover_ws_url(&spec.name).await?;
