@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "crates/nexal-agent",
+    "crates/nexal-gateway",
     "crates/app-server-protocol",
     "crates/protocol",
     "crates/codex-experimental-api-macros",
@@ -23,6 +24,7 @@ license = "Apache-2.0"
 # ── Internal: only what the agent/gateway stack needs ──
 nexal-app-server-protocol = { path = "crates/app-server-protocol" }
 nexal-agent = { path = "crates/nexal-agent" }
+nexal-gateway = { path = "crates/nexal-gateway" }
 nexal-experimental-api-macros = { path = "crates/codex-experimental-api-macros" }
 nexal-git-utils = { path = "crates/git-utils" }
 nexal-protocol = { path = "crates/protocol" }
@@ -75,6 +77,8 @@ tokio-rustls = "0.26"
 tokio-tungstenite = { version = "0.28.0", features = ["rustls-tls-native-roots"] }
 tokio-util = "0.7.18"
 tracing = "0.1.44"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+toml = "0.8"
 ts-rs = "11"
 tungstenite = { version = "0.28.0" }
 uuid = { version = "1", features = ["v4"] }
