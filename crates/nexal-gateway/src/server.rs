@@ -436,3 +436,54 @@ fn container_socket_path(name: &str) -> String {
 fn _ensure_json_used() -> Value {
     json!(null)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::container_socket_path;
+
+    #[test]
+    fn socket_path_uses_convention() {
+        assert_eq!(
+            container_socket_path("jina"),
+            "/workspace/.nexal/proxies/jina.sock"
+        );
+    }
+
+    #[test]
+    fn socket_path_preserves_safe_chars() {
+        assert_eq!(
+            container_socket_path("api-v2.0_final"),
+            "/workspace/.nexal/proxies/api-v2.0_final.sock"
+        );
+    }
+
+    #[test]
+    fn socket_path_sanitizes_unsafe_chars() {
+        assert_eq!(
+            container_socket_path("foo/bar baz"),
+            "/workspace/.nexal/proxies/foo_bar_baz.sock"
+        );
+        assert_eq!(
+            container_socket_path("has:colon"),
+            "/workspace/.nexal/proxies/has_colon.sock"
+        );
+    }
+
+    #[test]
+    fn socket_path_preserves_empty_name_safely() {
+        // An empty name shouldn't produce a traversable path.
+        assert_eq!(
+            container_socket_path(""),
+            "/workspace/.nexal/proxies/.sock"
+        );
+    }
+
+    #[test]
+    fn socket_path_sanitizes_unicode_to_underscore() {
+        // Non-ascii collapses to underscore, keeping paths POSIX-safe.
+        assert_eq!(
+            container_socket_path("测试"),
+            "/workspace/.nexal/proxies/__.sock"
+        );
+    }
+}

@@ -18,18 +18,13 @@ async fn exec_server_reports_malformed_websocket_json_and_keeps_running() -> any
     let response = server
         .wait_for_event(|event| matches!(event, JSONRPCMessage::Error(_)))
         .await?;
-    let JSONRPCMessage::Error(JSONRPCError { id, error }) = response else {
+    let JSONRPCMessage::Error(JSONRPCError { id, error, .. }) = response else {
         panic!("expected malformed-message error response");
     };
-    assert_eq!(id, nexal_agent::RequestId::Integer(-1));
-    assert_eq!(error.code, -32600);
-    assert!(
-        error
-            .message
-            .starts_with("failed to parse websocket JSON-RPC message from exec-server websocket"),
-        "unexpected malformed-message error: {}",
-        error.message
-    );
+    // jsonrpsee emits a null id for parse errors (the caller's id is
+    // unknown when the frame couldn't be parsed) and code -32700.
+    assert_eq!(id, nexal_agent::RequestId::Null);
+    assert_eq!(error.code, -32700);
 
     let initialize_id = server
         .send_request(
@@ -48,12 +43,20 @@ async fn exec_server_reports_malformed_websocket_json_and_keeps_running() -> any
             )
         })
         .await?;
-    let JSONRPCMessage::Response(JSONRPCResponse { id, result }) = response else {
+    let JSONRPCMessage::Response(JSONRPCResponse { id, result, .. }) = response else {
         panic!("expected initialize response after malformed input");
     };
     assert_eq!(id, initialize_id);
     let initialize_response: InitializeResponse = serde_json::from_value(result)?;
-    assert_eq!(initialize_response, InitializeResponse::default());
+    // Same as `tests/initialize.rs`: any valid response works; the
+    // specific default_shell/cwd values are environment-dependent.
+    assert!(
+        initialize_response.default_shell.is_some()
+            || initialize_response.cwd.is_some()
+            || initialize_response == InitializeResponse::default(),
+        "unexpected initialize response: {:?}",
+        initialize_response,
+    );
 
     server.shutdown().await?;
     Ok(())

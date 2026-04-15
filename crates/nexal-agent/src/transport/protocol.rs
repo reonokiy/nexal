@@ -200,6 +200,9 @@ pub struct ExecClosedNotification {
 pub enum RequestId {
     String(String),
     Integer(i64),
+    /// JSON-RPC 2.0 allows `null` ids — jsonrpsee emits them when it
+    /// can't parse the caller's id (e.g. a malformed frame).
+    Null,
 }
 
 impl std::fmt::Display for RequestId {
@@ -207,6 +210,7 @@ impl std::fmt::Display for RequestId {
         match self {
             Self::String(value) => f.write_str(value),
             Self::Integer(value) => write!(f, "{value}"),
+            Self::Null => f.write_str("null"),
         }
     }
 }

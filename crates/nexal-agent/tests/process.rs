@@ -30,15 +30,25 @@ async fn exec_server_starts_process_over_websocket() -> anyhow::Result<()> {
         })
         .await?;
 
-    server
-        .send_notification("initialized", serde_json::json!({}))
+    // `initialized` is a jsonrpsee method now, not a notification —
+    // send it with an id so the server sees it.
+    let initialized_id = server
+        .send_request("initialized", serde_json::Value::Null)
+        .await?;
+    let _ = server
+        .wait_for_event(|event| {
+            matches!(
+                event,
+                JSONRPCMessage::Response(JSONRPCResponse { id, .. }) if id == &initialized_id
+            )
+        })
         .await?;
 
     let process_start_id = server
         .send_request(
             "process/start",
             serde_json::json!({
-                "processId": "proc-1",
+                "process_id": "proc-1",
                 "argv": ["true"],
                 "cwd": std::env::current_dir()?,
                 "env": {},
@@ -55,7 +65,7 @@ async fn exec_server_starts_process_over_websocket() -> anyhow::Result<()> {
             )
         })
         .await?;
-    let JSONRPCMessage::Response(JSONRPCResponse { id, result }) = response else {
+    let JSONRPCMessage::Response(JSONRPCResponse { id, result, .. }) = response else {
         panic!("expected process/start response");
     };
     assert_eq!(id, process_start_id);

@@ -105,3 +105,107 @@ pub type SharedProxyRegistry = Arc<ProxyRegistry>;
 fn generate_token() -> String {
     Uuid::new_v4().simple().to_string()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn register_returns_distinct_tokens() {
+        let reg = ProxyRegistry::new();
+        let a = reg
+            .register("agent-1".into(), "jina".into(), "https://jina".into(), HashMap::new())
+            .await;
+        let b = reg
+            .register("agent-1".into(), "openai".into(), "https://oai".into(), HashMap::new())
+            .await;
+        assert_ne!(a.token, b.token);
+    }
+
+    #[tokio::test]
+    async fn register_same_key_replaces_token() {
+        let reg = ProxyRegistry::new();
+        let first = reg
+            .register("a".into(), "jina".into(), "https://jina".into(), HashMap::new())
+            .await;
+        let second = reg
+            .register("a".into(), "jina".into(), "https://jina2".into(), HashMap::new())
+            .await;
+        assert_ne!(first.token, second.token, "token should rotate on replace");
+        assert!(
+            reg.lookup(&first.token).await.is_none(),
+            "old token should 404"
+        );
+        let looked_up = reg.lookup(&second.token).await.unwrap();
+        assert_eq!(looked_up.upstream_url, "https://jina2");
+    }
+
+    #[tokio::test]
+    async fn unregister_only_removes_named_entry() {
+        let reg = ProxyRegistry::new();
+        let keep = reg
+            .register("a".into(), "jina".into(), "u".into(), HashMap::new())
+            .await;
+        let drop = reg
+            .register("a".into(), "openai".into(), "u".into(), HashMap::new())
+            .await;
+        assert!(reg.unregister("a", "openai").await);
+        assert!(reg.lookup(&drop.token).await.is_none());
+        assert!(reg.lookup(&keep.token).await.is_some());
+    }
+
+    #[tokio::test]
+    async fn unregister_missing_returns_false() {
+        let reg = ProxyRegistry::new();
+        assert!(!reg.unregister("nobody", "jina").await);
+    }
+
+    #[tokio::test]
+    async fn cleanup_for_agent_drops_all_its_entries() {
+        let reg = ProxyRegistry::new();
+        let _ = reg
+            .register("a".into(), "jina".into(), "u".into(), HashMap::new())
+            .await;
+        let _ = reg
+            .register("a".into(), "openai".into(), "u".into(), HashMap::new())
+            .await;
+        let other = reg
+            .register("b".into(), "jina".into(), "u".into(), HashMap::new())
+            .await;
+        let dropped = reg.cleanup_for_agent("a").await;
+        assert_eq!(dropped, 2);
+        // Other agent's entry survives.
+        assert!(reg.lookup(&other.token).await.is_some());
+        // Re-register after cleanup works.
+        let reborn = reg
+            .register("a".into(), "jina".into(), "u".into(), HashMap::new())
+            .await;
+        assert_eq!(reborn.agent_id, "a");
+    }
+
+    #[tokio::test]
+    async fn lookup_unknown_token_returns_none() {
+        let reg = ProxyRegistry::new();
+        assert!(reg.lookup("deadbeef").await.is_none());
+    }
+
+    #[tokio::test]
+    async fn register_preserves_headers_and_upstream() {
+        let reg = ProxyRegistry::new();
+        let mut hdrs = HashMap::new();
+        hdrs.insert("Authorization".into(), "Bearer x".into());
+        let entry = reg
+            .register(
+                "a".into(),
+                "jina".into(),
+                "https://api.jina.ai".into(),
+                hdrs.clone(),
+            )
+            .await;
+        let got = reg.lookup(&entry.token).await.unwrap();
+        assert_eq!(got.agent_id, "a");
+        assert_eq!(got.name, "jina");
+        assert_eq!(got.upstream_url, "https://api.jina.ai");
+        assert_eq!(got.headers, hdrs);
+    }
+}

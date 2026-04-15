@@ -235,6 +235,48 @@ fn wrap_params_positional(params: Option<Value>) -> Value {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::wrap_params_positional;
+    use serde_json::{json, Value};
+
+    #[test]
+    fn none_becomes_empty_array() {
+        assert_eq!(wrap_params_positional(None), json!([]));
+    }
+
+    #[test]
+    fn null_becomes_empty_array() {
+        assert_eq!(wrap_params_positional(Some(Value::Null)), json!([]));
+    }
+
+    #[test]
+    fn empty_object_becomes_empty_array() {
+        assert_eq!(wrap_params_positional(Some(json!({}))), json!([]));
+    }
+
+    #[test]
+    fn array_passes_through_unchanged() {
+        let arr = json!([{"a": 1}, 2, "three"]);
+        assert_eq!(wrap_params_positional(Some(arr.clone())), arr);
+    }
+
+    #[test]
+    fn single_object_wraps_in_array() {
+        assert_eq!(
+            wrap_params_positional(Some(json!({"client_name": "x"}))),
+            json!([{"client_name": "x"}])
+        );
+    }
+
+    #[test]
+    fn scalar_wraps_in_array() {
+        assert_eq!(wrap_params_positional(Some(json!(42))), json!([42]));
+        assert_eq!(wrap_params_positional(Some(json!("hi"))), json!(["hi"]));
+        assert_eq!(wrap_params_positional(Some(json!(true))), json!([true]));
+    }
+}
+
 impl From<AgentConnError> for JsonRpcError {
     fn from(e: AgentConnError) -> Self {
         let (code, message) = match &e {

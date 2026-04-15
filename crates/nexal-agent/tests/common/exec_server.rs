@@ -6,6 +6,7 @@ use std::time::Duration;
 use anyhow::anyhow;
 use futures::SinkExt;
 use futures::StreamExt;
+use jsonrpsee::types::TwoPointZero;
 use nexal_agent::JSONRPCMessage;
 use nexal_agent::JSONRPCNotification;
 use nexal_agent::JSONRPCRequest;
@@ -41,7 +42,7 @@ impl Drop for ExecServerHarness {
 }
 
 pub(crate) async fn exec_server() -> anyhow::Result<ExecServerHarness> {
-    let binary = cargo_bin("nexal-exec-server")?;
+    let binary = cargo_bin("nexal-agent")?;
     let mut child = Command::new(binary);
     child.args(["--listen", "ws://127.0.0.1:0"]);
     child.stdin(Stdio::null());
@@ -72,9 +73,10 @@ impl ExecServerHarness {
         let id = RequestId::Integer(self.next_request_id);
         self.next_request_id += 1;
         self.send_message(JSONRPCMessage::Request(JSONRPCRequest {
+            jsonrpc: TwoPointZero,
             id: id.clone(),
             method: method.to_string(),
-            params: Some(params),
+            params: Some(to_positional(params)),
         }))
         .await?;
         Ok(id)
@@ -86,8 +88,9 @@ impl ExecServerHarness {
         params: serde_json::Value,
     ) -> anyhow::Result<()> {
         self.send_message(JSONRPCMessage::Notification(JSONRPCNotification {
+            jsonrpc: TwoPointZero,
             method: method.to_string(),
-            params: Some(params),
+            params: Some(to_positional(params)),
         }))
         .await
     }
@@ -211,5 +214,22 @@ async fn read_listen_url_from_stdout(child: &mut Child) -> anyhow::Result<String
         if listen_url.starts_with("ws://") {
             return Ok(listen_url.to_string());
         }
+    }
+}
+
+/// nexal-agent uses jsonrpsee, which expects positional params —
+/// `"params": [arg1, arg2, ...]` with each element deserializing to
+/// the matching Rust fn arg. For single-struct methods like
+/// `fn initialize(&self, params: InitializeParams)`, the wire form
+/// becomes `"params": [{"client_name": "..."}]`. Tests pass a single
+/// object as the "natural" params shape and this helper wraps it.
+fn to_positional(params: serde_json::Value) -> serde_json::Value {
+    match params {
+        serde_json::Value::Null => serde_json::Value::Array(Vec::new()),
+        serde_json::Value::Array(_) => params,
+        serde_json::Value::Object(ref obj) if obj.is_empty() => {
+            serde_json::Value::Array(Vec::new())
+        }
+        other => serde_json::Value::Array(vec![other]),
     }
 }
