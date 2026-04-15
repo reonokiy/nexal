@@ -4,6 +4,7 @@ use std::sync::Arc;
 use clap::Parser;
 use nexal_gateway::backend::PodmanBackend;
 use nexal_gateway::config::GatewayConfig;
+use nexal_gateway::proxy::{serve_proxy, ProxyRegistry};
 use nexal_gateway::registry::SpawnDefaults;
 use nexal_gateway::{server::ServerConfig, AgentRegistry};
 use tracing_subscriber::EnvFilter;
@@ -15,9 +16,17 @@ struct Args {
     #[arg(long = "config", value_name = "PATH", env = "NEXAL_GATEWAY_CONFIG")]
     config: Option<PathBuf>,
 
-    /// Override the listen address (e.g. `127.0.0.1:5500`).
+    /// Override the WS listen address (e.g. `127.0.0.1:5500`).
     #[arg(long, env = "NEXAL_GATEWAY_LISTEN")]
     listen: Option<String>,
+
+    /// Override the proxy HTTP listen address (e.g. `0.0.0.0:5501`).
+    #[arg(long = "proxy-listen", env = "NEXAL_GATEWAY_PROXY_LISTEN")]
+    proxy_listen: Option<String>,
+
+    /// Override the proxy URL prefix handed to agents.
+    #[arg(long = "proxy-external-base", env = "NEXAL_GATEWAY_PROXY_EXTERNAL_BASE")]
+    proxy_external_base: Option<String>,
 
     /// Override the shared auth token. Required if not set in config.
     #[arg(long, env = "NEXAL_GATEWAY_TOKEN")]
@@ -64,6 +73,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .image
         .or(cfg.defaults.image.clone())
         .unwrap_or_else(|| "ghcr.io/reonokiy/nexal-sandbox:python3.13-debian13".to_string());
+    let proxy_listen = args
+        .proxy_listen
+        .or(cfg.proxy.listen.clone())
+        .unwrap_or_else(|| "0.0.0.0:5501".to_string());
+    let proxy_external_base = args
+        .proxy_external_base
+        .or(cfg.proxy.external_base.clone())
+        .unwrap_or_else(|| "http://host.containers.internal:5501".to_string());
 
     let backend = match cfg.backend.kind.as_deref().unwrap_or("podman") {
         "podman" => Arc::new(PodmanBackend::new(
@@ -88,7 +105,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             .unwrap_or_else(|| "nexal-worker-".into()),
     };
 
-    let registry = Arc::new(AgentRegistry::new(backend, defaults));
+    let proxies = Arc::new(ProxyRegistry::new());
+    let registry = Arc::new(AgentRegistry::new(backend, defaults, proxies.clone()));
 
     // Graceful shutdown — detach (not destroy) all agents on Ctrl-C.
     let registry_for_shutdown = registry.clone();
@@ -100,6 +118,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         }
     });
 
-    nexal_gateway::serve(ServerConfig { listen, token }, registry).await?;
+    // Spawn the proxy server alongside the WS server. Both run forever
+    // until the process exits.
+    let proxy_listen_clone = proxy_listen.clone();
+    tokio::spawn(async move {
+        if let Err(err) = serve_proxy(proxy_listen_clone, proxies).await {
+            tracing::error!("proxy server failed: {err}");
+        }
+    });
+
+    nexal_gateway::serve(
+        ServerConfig {
+            listen,
+            token,
+            proxy_external_base,
+        },
+        registry,
+    )
+    .await?;
     Ok(())
 }

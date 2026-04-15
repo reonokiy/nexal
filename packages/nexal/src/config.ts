@@ -40,6 +40,24 @@ export interface NexalConfig {
 	workers: WorkersConfig;
 	/** nexal-gateway connection. */
 	gateway: GatewayConfig;
+	/** Per-executor sandbox extras (proxies, …). */
+	executor: ExecutorConfig;
+}
+
+export interface ExecutorConfig {
+	/**
+	 * Upstream API proxies registered for every executor on spawn.
+	 * Each becomes a file at `$NEXAL_DATA_DIR/proxies/<name>.url`
+	 * inside the container; the executor reads that file to get the
+	 * URL and calls it directly (gateway injects the auth headers).
+	 */
+	proxies: ProxySpec[];
+}
+
+export interface ProxySpec {
+	name: string;
+	upstreamUrl: string;
+	headers?: Record<string, string>;
 }
 
 export interface GatewayConfig {
@@ -52,9 +70,7 @@ export interface GatewayConfig {
 }
 
 export interface WorkersConfig {
-	/** Persistence backend. */
-	backend: "sqlite" | "postgres";
-	/** sqlite: filesystem path; postgres: connection string. */
+	/** Postgres connection string (e.g. `postgres://user:pw@host/db`). Required. */
 	url: string;
 	/** Global cap on concurrent live workers (each holds a Podman container). */
 	maxConcurrent: number;
@@ -70,14 +86,16 @@ const DEFAULTS: NexalConfig = {
 	channel: {},
 	providers: {},
 	workers: {
-		backend: "sqlite",
-		url: join(homedir(), ".nexal", "workers.db"),
+		url: process.env.NEXAL_WORKERS_URL ?? "",
 		maxConcurrent: 5,
 	},
 	gateway: {
 		url: "ws://127.0.0.1:5500",
 		token: "",
 		clientName: "nexal-bun",
+	},
+	executor: {
+		proxies: [],
 	},
 };
 
@@ -122,6 +140,28 @@ function applyOverlay(cfg: NexalConfig, source: Record<string, unknown>): void {
 	if (isObject(source.providers)) cfg.providers = mergeMaps(cfg.providers, source.providers);
 	if (isObject(source.workers)) applyWorkersOverlay(cfg.workers, source.workers);
 	if (isObject(source.gateway)) applyGatewayOverlay(cfg.gateway, source.gateway);
+	if (isObject(source.executor)) applyExecutorOverlay(cfg.executor, source.executor);
+}
+
+function applyExecutorOverlay(
+	executor: NexalConfig["executor"],
+	source: Record<string, unknown>,
+): void {
+	const proxies = source.proxies;
+	if (Array.isArray(proxies)) {
+		executor.proxies = proxies
+			.filter(isObject)
+			.map((p) => ({
+				name: String(p.name ?? ""),
+				upstreamUrl: String(p.upstreamUrl ?? p.upstream_url ?? ""),
+				headers: isObject(p.headers)
+					? Object.fromEntries(
+							Object.entries(p.headers).map(([k, v]) => [k, String(v)]),
+					  )
+					: undefined,
+			}))
+			.filter((p) => p.name && p.upstreamUrl);
+	}
 }
 
 function applyGatewayOverlay(
@@ -140,12 +180,8 @@ function applyWorkersOverlay(
 	workers: NexalConfig["workers"],
 	source: Record<string, unknown>,
 ): void {
-	const backend = source.backend;
-	if (backend === "sqlite" || backend === "postgres") workers.backend = backend;
 	const url = source.url;
 	if (typeof url === "string") workers.url = url;
-	const dbPath = source.dbPath ?? source.db_path;
-	if (typeof dbPath === "string") workers.url = dbPath;
 	const maxC = source.maxConcurrent ?? source.max_concurrent;
 	if (typeof maxC === "number") workers.maxConcurrent = maxC;
 }
@@ -198,11 +234,7 @@ function setDeep(cfg: NexalConfig, path: string[], value: unknown): void {
 	if (path[0] === "workers" && path.length >= 2) {
 		const key = snakeToCamel(path.slice(1).join("_"));
 		switch (key) {
-			case "backend":
-				if (value === "sqlite" || value === "postgres") cfg.workers.backend = value;
-				return;
 			case "url":
-			case "dbPath":
 				if (typeof value === "string") cfg.workers.url = value;
 				return;
 			case "maxConcurrent":

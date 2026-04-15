@@ -1,24 +1,15 @@
 /**
  * WorkerStore — Drizzle-backed persistence for sub-agent workers.
  *
- * Two drivers are supported:
- *   - `"sqlite"`   → `drizzle-orm/bun-sqlite` on top of `bun:sqlite`
- *   - `"postgres"` → `drizzle-orm/postgres-js` on top of `postgres`
- *
- * `createWorkerStore(cfg)` is the one entry point — `WorkerRegistry` /
- * `WorkerRunner` consume only the `WorkerStore` interface and don't
- * know which driver is wired.
+ * Postgres-only via `drizzle-orm/bun-sql` (uses Bun's native
+ * `Bun.sql` driver, no extra npm deps). Earlier dual-driver design
+ * was dropped after confirming Drizzle has no plan to support
+ * dialect-agnostic schemas — see https://github.com/drizzle-team/drizzle-orm/discussions/2469.
  */
-import { Database } from "bun:sqlite";
 import { and, desc, eq, inArray } from "drizzle-orm";
-import { drizzle as drizzleBun } from "drizzle-orm/bun-sqlite";
-import { drizzle as drizzlePg } from "drizzle-orm/postgres-js";
-import { mkdir } from "node:fs/promises";
-import { dirname } from "node:path";
-import postgres from "postgres";
+import { drizzle } from "drizzle-orm/bun-sql";
 
-import * as pgSchema from "./schema-pg.ts";
-import * as sqliteSchema from "./schema-sqlite.ts";
+import * as schema from "./schema.ts";
 
 export type WorkerKind = "coordinator" | "executor";
 export type WorkerLifetime = "persistent" | "shot";
@@ -31,7 +22,6 @@ export type WorkerStatus =
 	| "failed";
 export type SendPolicy = "explicit" | "final" | "all";
 
-/** Plain row shape returned by the store. Identical across drivers. */
 export interface WorkerRow {
 	id: string;
 	kind: WorkerKind;
@@ -75,7 +65,6 @@ export interface WorkerCreate {
 }
 
 export interface WorkerStore {
-	readonly backend: "sqlite" | "postgres";
 	insert(row: WorkerCreate): Promise<WorkerRow>;
 	get(id: string): Promise<WorkerRow | null>;
 	listByStatus(status: WorkerStatus | WorkerStatus[]): Promise<WorkerRow[]>;
@@ -90,157 +79,52 @@ export interface WorkerStore {
 }
 
 export interface WorkerStoreConfig {
-	backend: "sqlite" | "postgres";
-	/** sqlite: filesystem path; postgres: connection string. */
+	/** Postgres connection string, e.g. `postgres://user:pw@host:5432/db`. */
 	url: string;
 }
 
-export async function createWorkerStore(
-	cfg: WorkerStoreConfig,
-): Promise<WorkerStore> {
-	if (cfg.backend === "postgres") return createPgStore(cfg.url);
-	return createSqliteStore(cfg.url);
-}
+const CREATE_SQL = `
+CREATE TABLE IF NOT EXISTS workers (
+  id TEXT PRIMARY KEY,
+  kind TEXT NOT NULL CHECK (kind IN ('coordinator','executor')),
+  lifetime TEXT NOT NULL CHECK (lifetime IN ('persistent','shot')),
+  parent_session_key TEXT NOT NULL,
+  source_channel TEXT NOT NULL,
+  source_chat_id TEXT NOT NULL,
+  source_reply_to TEXT,
+  name TEXT NOT NULL,
+  initial_prompt TEXT,
+  system_prompt TEXT NOT NULL,
+  model_provider TEXT NOT NULL,
+  model_id TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('spawning','idle','running','completed','cancelled','failed')),
+  messages_json TEXT NOT NULL DEFAULT '[]',
+  container_name TEXT NOT NULL,
+  created_at BIGINT NOT NULL,
+  started_at BIGINT,
+  updated_at BIGINT NOT NULL,
+  completed_at BIGINT,
+  error TEXT,
+  turn_count INTEGER NOT NULL DEFAULT 0,
+  send_policy TEXT NOT NULL DEFAULT 'explicit'
+);
+CREATE INDEX IF NOT EXISTS workers_status_idx ON workers(status);
+CREATE INDEX IF NOT EXISTS workers_parent_idx ON workers(parent_session_key);
+`;
 
-// ── SQLite ──────────────────────────────────────────────────────────────
+export async function createWorkerStore(cfg: WorkerStoreConfig): Promise<WorkerStore> {
+	if (!cfg.url) throw new Error("workers.url (postgres connection string) required");
+	const sql = new (Bun as any).SQL(cfg.url);
+	const db = drizzle(sql, { schema });
+	const { workers } = schema;
 
-async function createSqliteStore(path: string): Promise<WorkerStore> {
-	await mkdir(dirname(path), { recursive: true }).catch(() => undefined);
-	const raw = new Database(path, { create: true });
-	raw.exec("PRAGMA journal_mode = WAL;");
-	raw.exec(sqliteSchema.CREATE_SQL);
-	const db = drizzleBun(raw, { schema: sqliteSchema });
-	const { workers } = sqliteSchema;
-
-	async function getById(id: string): Promise<WorkerRow | null> {
-		const rows = await db.select().from(workers).where(eq(workers.id, id)).all();
-		return rows[0] ? castRow(rows[0]) : null;
+	// Bootstrap the schema. CREATE TABLE IF NOT EXISTS is a no-op when
+	// the table already exists; idempotent across restarts.
+	for (const stmt of CREATE_SQL.split(";").map((s) => s.trim()).filter(Boolean)) {
+		await sql.unsafe(stmt + ";");
 	}
 
 	return {
-		backend: "sqlite",
-		async insert(row: WorkerCreate): Promise<WorkerRow> {
-			const now = Date.now();
-			await db
-				.insert(workers)
-				.values({
-					id: row.id,
-					kind: row.kind,
-					lifetime: row.lifetime,
-					parentSessionKey: row.parentSessionKey,
-					sourceChannel: row.sourceChannel,
-					sourceChatId: row.sourceChatId,
-					sourceReplyTo: row.sourceReplyTo ?? null,
-					name: row.name,
-					initialPrompt: row.initialPrompt ?? null,
-					systemPrompt: row.systemPrompt,
-					modelProvider: row.modelProvider,
-					modelId: row.modelId,
-					status: "spawning",
-					messagesJson: "[]",
-					containerName: row.containerName,
-					createdAt: now,
-					startedAt: null,
-					updatedAt: now,
-					completedAt: null,
-					error: null,
-					turnCount: 0,
-					sendPolicy: row.sendPolicy ?? "explicit",
-				})
-				.run();
-			const out = await getById(row.id);
-			if (!out) throw new Error(`insert returned no row for ${row.id}`);
-			return out;
-		},
-		get: getById,
-		async listByStatus(status): Promise<WorkerRow[]> {
-			const arr = Array.isArray(status) ? status : [status];
-			const rows = await db
-				.select()
-				.from(workers)
-				.where(inArray(workers.status, arr))
-				.orderBy(workers.createdAt)
-				.all();
-			return rows.map(castRow);
-		},
-		async listByParent(parentSessionKey: string, limit = 50): Promise<WorkerRow[]> {
-			const rows = await db
-				.select()
-				.from(workers)
-				.where(eq(workers.parentSessionKey, parentSessionKey))
-				.orderBy(desc(workers.createdAt))
-				.limit(limit)
-				.all();
-			return rows.map(castRow);
-		},
-		async setStatus(id, status, error = null): Promise<void> {
-			await db
-				.update(workers)
-				.set({ status, error, updatedAt: Date.now() })
-				.where(eq(workers.id, id))
-				.run();
-		},
-		async setMessages(id, messagesJson, turnCount): Promise<void> {
-			await db
-				.update(workers)
-				.set({ messagesJson, turnCount, updatedAt: Date.now() })
-				.where(eq(workers.id, id))
-				.run();
-		},
-		async markStarted(id): Promise<void> {
-			const now = Date.now();
-			await db
-				.update(workers)
-				.set({ status: "running", startedAt: now, updatedAt: now })
-				.where(and(eq(workers.id, id)))
-				.run();
-		},
-		async markIdle(id, messagesJson): Promise<void> {
-			const now = Date.now();
-			await db
-				.update(workers)
-				.set({ status: "idle", messagesJson, updatedAt: now })
-				.where(eq(workers.id, id))
-				.run();
-		},
-		async markCompleted(id, messagesJson): Promise<void> {
-			const now = Date.now();
-			await db
-				.update(workers)
-				.set({
-					status: "completed",
-					messagesJson,
-					completedAt: now,
-					updatedAt: now,
-					error: null,
-				})
-				.where(eq(workers.id, id))
-				.run();
-		},
-		async markFailed(id, error): Promise<void> {
-			const now = Date.now();
-			await db
-				.update(workers)
-				.set({ status: "failed", error, completedAt: now, updatedAt: now })
-				.where(eq(workers.id, id))
-				.run();
-		},
-		async close(): Promise<void> {
-			raw.close();
-		},
-	};
-}
-
-// ── Postgres ────────────────────────────────────────────────────────────
-
-async function createPgStore(url: string): Promise<WorkerStore> {
-	const sql = postgres(url, { onnotice: () => undefined });
-	await sql.unsafe(pgSchema.CREATE_SQL);
-	const db = drizzlePg(sql, { schema: pgSchema });
-	const { workers } = pgSchema;
-
-	return {
-		backend: "postgres",
 		async insert(row: WorkerCreate): Promise<WorkerRow> {
 			const now = Date.now();
 			const [inserted] = await db
@@ -273,10 +157,12 @@ async function createPgStore(url: string): Promise<WorkerStore> {
 			if (!inserted) throw new Error(`insert returned no row for ${row.id}`);
 			return castRow(inserted);
 		},
-		async get(id): Promise<WorkerRow | null> {
+
+		async get(id: string): Promise<WorkerRow | null> {
 			const rows = await db.select().from(workers).where(eq(workers.id, id));
 			return rows[0] ? castRow(rows[0]) : null;
 		},
+
 		async listByStatus(status): Promise<WorkerRow[]> {
 			const arr = Array.isArray(status) ? status : [status];
 			const rows = await db
@@ -286,6 +172,7 @@ async function createPgStore(url: string): Promise<WorkerStore> {
 				.orderBy(workers.createdAt);
 			return rows.map(castRow);
 		},
+
 		async listByParent(parentSessionKey, limit = 50): Promise<WorkerRow[]> {
 			const rows = await db
 				.select()
@@ -295,25 +182,29 @@ async function createPgStore(url: string): Promise<WorkerStore> {
 				.limit(limit);
 			return rows.map(castRow);
 		},
+
 		async setStatus(id, status, error = null): Promise<void> {
 			await db
 				.update(workers)
 				.set({ status, error, updatedAt: Date.now() })
 				.where(eq(workers.id, id));
 		},
+
 		async setMessages(id, messagesJson, turnCount): Promise<void> {
 			await db
 				.update(workers)
 				.set({ messagesJson, turnCount, updatedAt: Date.now() })
 				.where(eq(workers.id, id));
 		},
+
 		async markStarted(id): Promise<void> {
 			const now = Date.now();
 			await db
 				.update(workers)
 				.set({ status: "running", startedAt: now, updatedAt: now })
-				.where(eq(workers.id, id));
+				.where(and(eq(workers.id, id)));
 		},
+
 		async markIdle(id, messagesJson): Promise<void> {
 			const now = Date.now();
 			await db
@@ -321,6 +212,7 @@ async function createPgStore(url: string): Promise<WorkerStore> {
 				.set({ status: "idle", messagesJson, updatedAt: now })
 				.where(eq(workers.id, id));
 		},
+
 		async markCompleted(id, messagesJson): Promise<void> {
 			const now = Date.now();
 			await db
@@ -334,6 +226,7 @@ async function createPgStore(url: string): Promise<WorkerStore> {
 				})
 				.where(eq(workers.id, id));
 		},
+
 		async markFailed(id, error): Promise<void> {
 			const now = Date.now();
 			await db
@@ -341,43 +234,36 @@ async function createPgStore(url: string): Promise<WorkerStore> {
 				.set({ status: "failed", error, completedAt: now, updatedAt: now })
 				.where(eq(workers.id, id));
 		},
+
 		async close(): Promise<void> {
-			await sql.end({ timeout: 5 });
+			await sql.close();
 		},
 	};
 }
 
-// ── Row casting ─────────────────────────────────────────────────────────
-
-function castRow(row: {
-	id: string;
-	kind: string;
-	lifetime: string;
-	parentSessionKey: string;
-	sourceChannel: string;
-	sourceChatId: string;
-	sourceReplyTo: string | null;
-	name: string;
-	initialPrompt: string | null;
-	systemPrompt: string;
-	modelProvider: string;
-	modelId: string;
-	status: string;
-	messagesJson: string;
-	containerName: string;
-	createdAt: number;
-	startedAt: number | null;
-	updatedAt: number;
-	completedAt: number | null;
-	error: string | null;
-	turnCount: number;
-	sendPolicy: string;
-}): WorkerRow {
+function castRow(row: typeof schema.workers.$inferSelect): WorkerRow {
 	return {
-		...row,
+		id: row.id,
 		kind: row.kind as WorkerKind,
 		lifetime: row.lifetime as WorkerLifetime,
+		parentSessionKey: row.parentSessionKey,
+		sourceChannel: row.sourceChannel,
+		sourceChatId: row.sourceChatId,
+		sourceReplyTo: row.sourceReplyTo,
+		name: row.name,
+		initialPrompt: row.initialPrompt,
+		systemPrompt: row.systemPrompt,
+		modelProvider: row.modelProvider,
+		modelId: row.modelId,
 		status: row.status as WorkerStatus,
+		messagesJson: row.messagesJson,
+		containerName: row.containerName,
+		createdAt: row.createdAt,
+		startedAt: row.startedAt,
+		updatedAt: row.updatedAt,
+		completedAt: row.completedAt,
+		error: row.error,
+		turnCount: row.turnCount,
 		sendPolicy: row.sendPolicy as SendPolicy,
 	};
 }

@@ -20,6 +20,7 @@ use uuid::Uuid;
 
 use crate::agent_conn::{AgentConn, AgentConnError, AgentNotification};
 use crate::backend::{BackendError, ContainerHandle, ContainerSpec, SharedBackend};
+use crate::proxy::SharedProxyRegistry;
 
 pub type AgentId = String;
 
@@ -51,6 +52,9 @@ pub struct AgentRegistry {
     /// Notifications coming from any agent are broadcast to every
     /// frontend session subscribed via `subscribe_notifications`.
     notify_tx: broadcast::Sender<TaggedNotification>,
+    /// Shared proxy registry — the agent registry owns lifecycle
+    /// cleanup (when an agent is killed, all its proxies are dropped).
+    pub proxies: SharedProxyRegistry,
 }
 
 #[derive(Clone)]
@@ -73,13 +77,18 @@ pub struct TaggedNotification {
 }
 
 impl AgentRegistry {
-    pub fn new(backend: SharedBackend, spawn_defaults: SpawnDefaults) -> Self {
+    pub fn new(
+        backend: SharedBackend,
+        spawn_defaults: SpawnDefaults,
+        proxies: SharedProxyRegistry,
+    ) -> Self {
         let (notify_tx, _) = broadcast::channel(256);
         Self {
             backend,
             spawn_defaults,
             inner: Mutex::new(HashMap::new()),
             notify_tx,
+            proxies,
         }
     }
 
@@ -191,12 +200,19 @@ impl AgentRegistry {
         }
     }
 
-    /// Stop + remove the container.
+    /// Stop + remove the container. Also cleans up any proxies
+    /// registered for this agent.
     pub async fn kill(&self, agent_id: &str) -> Result<(), RegistryError> {
         let entry = {
             let mut map = self.inner.lock().await;
             map.remove(agent_id)
         };
+        // Proxy cleanup runs even if the agent_id isn't in our map
+        // (idempotent, and lets a dangling registration get cleaned).
+        let dropped = self.proxies.cleanup_for_agent(agent_id).await;
+        if dropped > 0 {
+            tracing::debug!("kill {agent_id}: dropped {dropped} proxy registration(s)");
+        }
         match entry {
             Some(entry) => {
                 entry.conn.close().await;

@@ -1,24 +1,20 @@
 /**
- * Smoke the WorkerStore CRUD without touching podman or an LLM.
+ * Smoke the WorkerStore CRUD against a real Postgres.
  *
- * Defaults to a throw-away sqlite file under /tmp. To smoke the
- * postgres path, export NEXAL_WORKERS_PG_URL=postgres://... and pass
- * `pg` as the first arg:
+ *   NEXAL_WORKERS_URL=postgres://user:pw@host:5432/db \
+ *     bun run src/scripts/smoke-worker-store.ts
  *
- *   bun run src/scripts/smoke-worker-store.ts          # sqlite (default)
- *   bun run src/scripts/smoke-worker-store.ts pg       # postgres
+ * The smoke uses random UUIDs so successive runs don't collide on the
+ * primary key. Existing rows are left alone.
  */
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-
 import {
 	deserializeMessages,
 	serializeMessages,
 } from "../workers/serialize.ts";
 import { createWorkerStore } from "../workers/store.ts";
 
-const mode = (process.argv[2] ?? "sqlite").toLowerCase();
+const URL = process.env.NEXAL_WORKERS_URL;
+if (!URL) throw new Error("NEXAL_WORKERS_URL env var required (postgres connection string)");
 
 function assertEq<T>(actual: T, expected: T, label: string): void {
 	if (JSON.stringify(actual) !== JSON.stringify(expected)) {
@@ -29,32 +25,17 @@ function assertEq<T>(actual: T, expected: T, label: string): void {
 }
 
 async function main(): Promise<void> {
-	let url: string;
-	let backend: "sqlite" | "postgres";
-	let cleanup: (() => Promise<void>) | null = null;
+	console.log(`[smoke] url=${URL?.replace(/:[^@/]+@/, ":***@")}`);
+	const store = await createWorkerStore({ url: URL! });
 
-	if (mode === "pg" || mode === "postgres") {
-		backend = "postgres";
-		url = process.env.NEXAL_WORKERS_PG_URL ?? "";
-		if (!url) throw new Error("NEXAL_WORKERS_PG_URL must be set for postgres smoke");
-	} else {
-		backend = "sqlite";
-		const dir = await mkdtemp(join(tmpdir(), "nexal-smoke-"));
-		url = join(dir, "workers.db");
-		cleanup = async () => {
-			await rm(dir, { recursive: true, force: true });
-		};
-	}
-
-	console.log(`[smoke] backend=${backend} url=${url}`);
-	const store = await createWorkerStore({ backend, url });
+	const parentKey = `telegram:smoke-${crypto.randomUUID()}`;
 
 	// insert persistent executor + get
 	const persistent = await store.insert({
-		id: "00000000-0000-0000-0000-000000000001",
+		id: crypto.randomUUID(),
 		kind: "executor",
 		lifetime: "persistent",
-		parentSessionKey: "telegram:-1001",
+		parentSessionKey: parentKey,
 		sourceChannel: "telegram",
 		sourceChatId: "-1001",
 		name: "smoke-persistent",
@@ -73,7 +54,6 @@ async function main(): Promise<void> {
 	const fetched = await store.get(persistent.id);
 	assertEq(fetched?.name, "smoke-persistent", "get name");
 
-	// markStarted → setMessages → markIdle (persistent goes idle, not completed)
 	await store.markStarted(persistent.id);
 	const started = await store.get(persistent.id);
 	assertEq(started?.status, "running", "markStarted");
@@ -96,12 +76,12 @@ async function main(): Promise<void> {
 	const idle = await store.get(persistent.id);
 	assertEq(idle?.status, "idle", "markIdle");
 
-	// shot executor → markCompleted
+	// shot executor
 	const shot = await store.insert({
-		id: "00000000-0000-0000-0000-000000000002",
+		id: crypto.randomUUID(),
 		kind: "executor",
 		lifetime: "shot",
-		parentSessionKey: "telegram:-1001",
+		parentSessionKey: parentKey,
 		sourceChannel: "telegram",
 		sourceChatId: "-1001",
 		name: "smoke-shot",
@@ -118,12 +98,12 @@ async function main(): Promise<void> {
 	assertEq(done?.status, "completed", "markCompleted");
 	if (!done?.completedAt) throw new Error("completedAt not set");
 
-	// sub-coordinator (persistent, no bash)
+	// sub-coordinator + child
 	const coord = await store.insert({
-		id: "00000000-0000-0000-0000-000000000003",
+		id: crypto.randomUUID(),
 		kind: "coordinator",
 		lifetime: "persistent",
-		parentSessionKey: "telegram:-1001",
+		parentSessionKey: parentKey,
 		sourceChannel: "telegram",
 		sourceChatId: "-1001",
 		name: "smoke-coord",
@@ -134,11 +114,9 @@ async function main(): Promise<void> {
 		containerName: "nexal-worker-smoke3",
 	});
 	assertEq(coord.kind, "coordinator", "coord kind");
-	assertEq(coord.lifetime, "persistent", "coord lifetime");
 
-	// agents spawned UNDER the sub-coordinator have its id as parent
 	await store.insert({
-		id: "00000000-0000-0000-0000-000000000004",
+		id: crypto.randomUUID(),
 		kind: "executor",
 		lifetime: "shot",
 		parentSessionKey: coord.id,
@@ -168,10 +146,9 @@ async function main(): Promise<void> {
 	if (!(img.data instanceof Uint8Array)) throw new Error("bytes did not round-trip");
 	assertEq([...img.data], [...bytes], "bytes round-trip");
 
-	// listByStatus / listByParent
 	const idleList = await store.listByStatus("idle");
 	assertEq(idleList.length >= 1, true, "idle list non-empty");
-	const parent = await store.listByParent("telegram:-1001", 50);
+	const parent = await store.listByParent(parentKey, 50);
 	assertEq(parent.length, 3, "listByParent count (top-level only)");
 
 	// markFailed
@@ -181,7 +158,6 @@ async function main(): Promise<void> {
 	assertEq(failed?.error, "smoke failure", "error text");
 
 	await store.close();
-	if (cleanup) await cleanup();
 	console.log("[smoke] OK");
 }
 

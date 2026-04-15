@@ -44,6 +44,11 @@ export interface RunCommandResult {
  * What the bash tool consumes. Concrete impls today: `GatewayAgentClient`.
  */
 export interface AgentClient {
+	/**
+	 * Backend-specific stable id for this agent. Gateway-backed clients
+	 * set it; local/file-based backends may leave it undefined.
+	 */
+	readonly agentId?: string;
 	/** Run a command and accumulate output until exit. */
 	runCommand(argv: string[], opts?: RunCommandOptions): Promise<RunCommandResult>;
 	/** Close any per-client resources. Does NOT kill the underlying sandbox. */

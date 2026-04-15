@@ -21,6 +21,8 @@ pub const METHOD_DETACH_AGENT: &str = "gateway/detach_agent";
 pub const METHOD_ATTACH_AGENT: &str = "gateway/attach_agent";
 pub const METHOD_LIST_AGENTS: &str = "gateway/list_agents";
 pub const METHOD_AGENT_INVOKE: &str = "agent/invoke";
+pub const METHOD_REGISTER_PROXY: &str = "gateway/register_proxy";
+pub const METHOD_UNREGISTER_PROXY: &str = "gateway/unregister_proxy";
 
 /// Notification carrying an in-band notification from a specific agent.
 pub const NOTIFY_AGENT: &str = "agent/notify";
@@ -210,4 +212,37 @@ pub struct AgentNotifyParams {
     pub method: String,
     #[serde(default)]
     pub params: Option<Value>,
+}
+
+// ── gateway/register_proxy / unregister_proxy ───────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct RegisterProxyParams {
+    /// Owning agent. When the agent is killed, this proxy is dropped.
+    pub agent_id: String,
+    /// Frontend-chosen label, unique within `agent_id`. Re-registering
+    /// with the same `(agent_id, name)` replaces the previous entry.
+    pub name: String,
+    /// Base URL — the agent's request path is appended to this.
+    pub upstream_url: String,
+    /// Headers injected on every forwarded request (typically auth).
+    #[serde(default)]
+    pub headers: HashMap<String, String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct RegisterProxyResponse {
+    /// Opaque identifier baked into the URL the agent should hit.
+    pub token: String,
+    /// Full URL the agent should target. Path is appended after this.
+    pub url: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct UnregisterProxyParams {
+    pub agent_id: String,
+    pub name: String,
 }

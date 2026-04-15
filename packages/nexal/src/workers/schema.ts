@@ -1,8 +1,5 @@
 /**
- * SQLite schema for the `workers` table (Drizzle).
- *
- * Mirror of `schema-pg.ts` — column shape must stay identical so the
- * driver-agnostic `WorkerStore` queries work either way.
+ * Postgres schema for the `workers` table (Drizzle).
  *
  * Two orthogonal axes:
  *
@@ -24,10 +21,12 @@
  *   - `completed`— shot executor finished cleanly
  *   - `cancelled`— explicit cancel
  *   - `failed`   — agent.errorMessage was set or runner.start threw
+ *
+ * `bigint` is used for unix-ms timestamps to avoid 32-bit overflow.
  */
-import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { bigint, index, integer, pgTable, text } from "drizzle-orm/pg-core";
 
-export const workers = sqliteTable(
+export const workers = pgTable(
 	"workers",
 	{
 		id: text("id").primaryKey(),
@@ -45,10 +44,10 @@ export const workers = sqliteTable(
 		status: text("status").notNull(),
 		messagesJson: text("messages_json").notNull().default("[]"),
 		containerName: text("container_name").notNull(),
-		createdAt: integer("created_at").notNull(),
-		startedAt: integer("started_at"),
-		updatedAt: integer("updated_at").notNull(),
-		completedAt: integer("completed_at"),
+		createdAt: bigint("created_at", { mode: "number" }).notNull(),
+		startedAt: bigint("started_at", { mode: "number" }),
+		updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+		completedAt: bigint("completed_at", { mode: "number" }),
 		error: text("error"),
 		turnCount: integer("turn_count").notNull().default(0),
 		sendPolicy: text("send_policy").notNull().default("explicit"),
@@ -79,10 +78,10 @@ CREATE TABLE IF NOT EXISTS workers (
   status TEXT NOT NULL CHECK (status IN ('spawning','idle','running','completed','cancelled','failed')),
   messages_json TEXT NOT NULL DEFAULT '[]',
   container_name TEXT NOT NULL,
-  created_at INTEGER NOT NULL,
-  started_at INTEGER,
-  updated_at INTEGER NOT NULL,
-  completed_at INTEGER,
+  created_at BIGINT NOT NULL,
+  started_at BIGINT,
+  updated_at BIGINT NOT NULL,
+  completed_at BIGINT,
   error TEXT,
   turn_count INTEGER NOT NULL DEFAULT 0,
   send_policy TEXT NOT NULL DEFAULT 'explicit'

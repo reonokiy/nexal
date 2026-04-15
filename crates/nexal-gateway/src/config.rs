@@ -36,6 +36,18 @@ pub struct GatewayConfig {
     pub token: Option<String>,
     pub defaults: SpawnDefaultsConfig,
     pub backend: BackendConfig,
+    pub proxy: ProxyConfig,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+#[serde(default, rename_all = "snake_case")]
+pub struct ProxyConfig {
+    /// Listen address for the reverse-proxy HTTP server.
+    /// Default: `0.0.0.0:5501`.
+    pub listen: Option<String>,
+    /// Base URL given to agents in `register_proxy` responses.
+    /// Default: `http://host.containers.internal:5501`.
+    pub external_base: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]

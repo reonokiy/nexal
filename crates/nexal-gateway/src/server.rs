@@ -31,9 +31,11 @@ use tracing::{debug, error, info, warn};
 use crate::protocol::{
     error_code, notification, AgentInvokeParams, AgentNotifyParams, AgentSummary, AttachAgentParams,
     HelloParams, HelloResponse, JsonRpcError, JsonRpcRequest, JsonRpcResponse, ListAgentsResponse,
-    OkResponse, SpawnAgentParams, SpawnAgentResponse, AgentIdParams, JSONRPC_VERSION,
-    METHOD_AGENT_INVOKE, METHOD_ATTACH_AGENT, METHOD_DETACH_AGENT, METHOD_HELLO,
-    METHOD_KILL_AGENT, METHOD_LIST_AGENTS, METHOD_SPAWN_AGENT, NOTIFY_AGENT,
+    OkResponse, RegisterProxyParams, RegisterProxyResponse, SpawnAgentParams, SpawnAgentResponse,
+    UnregisterProxyParams, AgentIdParams, JSONRPC_VERSION, METHOD_AGENT_INVOKE,
+    METHOD_ATTACH_AGENT, METHOD_DETACH_AGENT, METHOD_HELLO, METHOD_KILL_AGENT,
+    METHOD_LIST_AGENTS, METHOD_REGISTER_PROXY, METHOD_SPAWN_AGENT, METHOD_UNREGISTER_PROXY,
+    NOTIFY_AGENT,
 };
 use crate::registry::AgentRegistry;
 
@@ -43,6 +45,10 @@ pub const GATEWAY_VERSION: &str = env!("CARGO_PKG_VERSION");
 pub struct ServerConfig {
     pub listen: String,
     pub token: String,
+    /// Base URL handed to agents in `register_proxy` responses, e.g.
+    /// `http://host.containers.internal:5501`. Agents append
+    /// `/p/<token>/<rest>` themselves.
+    pub proxy_external_base: String,
 }
 
 /// Run the frontend server until the TCP listener errors out.
@@ -291,6 +297,38 @@ impl Session {
                     .invoke(&p.method, p.params)
                     .await
                     .map_err(JsonRpcError::from)
+            }
+            METHOD_REGISTER_PROXY => {
+                let p: RegisterProxyParams = parse_params(params)?;
+                // Validate the agent_id exists so we don't accumulate
+                // dangling proxy entries from typos.
+                if self.registry.get(&p.agent_id).await.is_none() {
+                    return Err(JsonRpcError {
+                        code: error_code::UNKNOWN_AGENT,
+                        message: format!("no agent {}", p.agent_id),
+                        data: None,
+                    });
+                }
+                let entry = self
+                    .registry
+                    .proxies
+                    .register(p.agent_id, p.name, p.upstream_url, p.headers)
+                    .await;
+                let url = format!(
+                    "{}/p/{}",
+                    self.cfg.proxy_external_base.trim_end_matches('/'),
+                    entry.token
+                );
+                Ok(serde_json::to_value(RegisterProxyResponse {
+                    token: entry.token,
+                    url,
+                })
+                .unwrap_or(Value::Null))
+            }
+            METHOD_UNREGISTER_PROXY => {
+                let p: UnregisterProxyParams = parse_params(params)?;
+                let removed = self.registry.proxies.unregister(&p.agent_id, &p.name).await;
+                Ok(serde_json::to_value(OkResponse { ok: removed }).unwrap_or(Value::Null))
             }
             other => Err(JsonRpcError {
                 code: error_code::METHOD_NOT_FOUND,

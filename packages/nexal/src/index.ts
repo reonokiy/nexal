@@ -56,6 +56,7 @@ const DEFAULT_EXECUTOR_PROMPT = [
 	"Filesystem layout:",
 	"  - /workspace        — user-facing project area. Put files the user expects to see here.",
 	"  - /workspace/.nexal — your HOME and scratch space (logs, lockfiles, dotfiles, internal state). $HOME and $NEXAL_DATA_DIR both point here.",
+	"  - /workspace/.nexal/proxies/<name>.url — pre-registered upstream API proxies. The file contains the full URL to call; the gateway injects auth headers for you, so you NEVER see or need API keys. Append paths to that URL (e.g. `curl \"$(cat $NEXAL_DATA_DIR/proxies/jina.url)/v1/search?q=foo\"`).",
 	"Do the work assigned to you. Use bash freely. Call send_update for milestones, when you need clarification, and to deliver final results.",
 	"Do NOT echo every intermediate thought — each send_update call becomes a separate Telegram message.",
 ].join("\n");
@@ -143,15 +144,17 @@ async function main(): Promise<void> {
 	}
 
 	// Worker registry — long-lived persistent workers + one-shot tasks
-	// spawned by the dispatcher. Persistence via Drizzle (SQLite or
-	// Postgres); containers survive nexal process restart so live
-	// workers resume automatically.
-	const workerStore = await createWorkerStore({
-		backend: cfg.workers.backend,
-		url: cfg.workers.url,
-	});
+	// spawned by the dispatcher. Persistence via Drizzle on Postgres
+	// (Bun.sql native driver); containers survive nexal process restart
+	// so live workers resume automatically.
+	if (!cfg.workers.url) {
+		throw new Error(
+			"workers.url is required: set [workers].url in config or NEXAL_WORKERS_URL env to a postgres connection string",
+		);
+	}
+	const workerStore = await createWorkerStore({ url: cfg.workers.url });
 	console.log(
-		`[nexal] worker store: ${workerStore.backend} (maxConcurrent=${cfg.workers.maxConcurrent})`,
+		`[nexal] worker store: postgres (maxConcurrent=${cfg.workers.maxConcurrent})`,
 	);
 	// `WorkerRegistry` is constructed BEFORE the factories close over it
 	// because the coordinator factory recursively builds dispatcher
@@ -172,6 +175,8 @@ async function main(): Promise<void> {
 		maxConcurrent: cfg.workers.maxConcurrent,
 		executorSystemPromptDefault: executorPrompt,
 		coordinatorSystemPromptDefault: coordinatorPrompt,
+		gateway,
+		executorProxies: cfg.executor.proxies,
 		executorTools: (runner) => {
 			const client = runner.execClient;
 			const tools: AgentTool<any>[] = [

@@ -17,9 +17,6 @@
  *   NEXAL_MODEL_PROVIDER (default openrouter)
  *   NEXAL_MODEL          (default openai/gpt-4o-mini)
  */
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { getModel } from "@mariozechner/pi-ai";
 
 import type { Channel, OutgoingReply } from "../channels/types.ts";
@@ -51,12 +48,10 @@ async function main(): Promise<void> {
 	if (!GATEWAY_TOKEN) {
 		throw new Error("NEXAL_GATEWAY_TOKEN env var is required");
 	}
-	const dir = await mkdtemp(join(tmpdir(), "nexal-smoke-worker-"));
-	const store = await createWorkerStore({
-		backend: "sqlite",
-		url: join(dir, "workers.db"),
-	});
-	console.log(`[smoke] db=${join(dir, "workers.db")} gateway=${GATEWAY_URL}`);
+	const dbUrl = process.env.NEXAL_WORKERS_URL;
+	if (!dbUrl) throw new Error("NEXAL_WORKERS_URL env var required (postgres connection string)");
+	const store = await createWorkerStore({ url: dbUrl });
+	console.log(`[smoke] gateway=${GATEWAY_URL}`);
 
 	const gateway = new GatewayClient({
 		url: GATEWAY_URL,
@@ -125,7 +120,6 @@ async function main(): Promise<void> {
 	await registry.shutdown();
 	await sandbox.releaseAll();
 	await gateway.close();
-	await rm(dir, { recursive: true, force: true });
 	console.log("[smoke] OK");
 }
 

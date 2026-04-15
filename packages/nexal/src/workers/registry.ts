@@ -28,6 +28,8 @@ import type { AgentTool } from "@mariozechner/pi-agent-core";
 import type { Model } from "@mariozechner/pi-ai";
 
 import type { Channel } from "../channels/types.ts";
+import type { ProxySpec } from "../config.ts";
+import type { GatewayClient } from "../gateway/client.ts";
 import type { SandboxBackend } from "../sandbox/types.ts";
 import { WorkerRunner } from "./runner.ts";
 import type {
@@ -54,6 +56,18 @@ export interface WorkerRegistryConfig {
 	executorTools: (runner: WorkerRunner) => AgentTool<any>[];
 	/** Tool factory for sub-coordinators (dispatcher tools + report_to_parent). */
 	coordinatorTools: (runner: WorkerRunner) => AgentTool<any>[];
+	/**
+	 * Optional gateway handle used to register per-executor HTTP
+	 * proxies. If undefined, proxy setup is skipped (e.g. running
+	 * against a non-gateway sandbox in tests).
+	 */
+	gateway?: GatewayClient;
+	/**
+	 * Upstream API proxies registered for every executor on spawn.
+	 * Each becomes a `<NEXAL_DATA_DIR>/proxies/<name>.url` file the
+	 * executor reads at runtime.
+	 */
+	executorProxies?: ProxySpec[];
 	/**
 	 * Wake up the top-level coordinator (no DB row, lives in AgentPool)
 	 * with a message from one of its direct children. `sessionKey` is
@@ -280,6 +294,8 @@ export class WorkerRegistry {
 			channels: this.cfg.channels,
 			toolsForKind,
 			resumed,
+			gateway: this.cfg.gateway,
+			executorProxies: this.cfg.executorProxies,
 			onTerminal: (tid) => {
 				this.runners.delete(tid);
 				this.pump();

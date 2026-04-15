@@ -34,6 +34,8 @@ import { Agent, type AgentMessage, type AgentTool } from "@mariozechner/pi-agent
 import type { Model } from "@mariozechner/pi-ai";
 
 import type { Channel } from "../channels/types.ts";
+import type { ProxySpec } from "../config.ts";
+import type { GatewayClient } from "../gateway/client.ts";
 import type { AgentClient, SandboxBackend } from "../sandbox/types.ts";
 import { createBashTool } from "../tools/bash.ts";
 import { deserializeMessages, serializeMessages } from "./serialize.ts";
@@ -63,6 +65,10 @@ export interface WorkerRunnerDeps {
 	 */
 	toolsForKind: (runner: WorkerRunner) => AgentTool<any>[];
 	resumed: boolean;
+	/** Optional gateway handle for per-executor proxy registration. */
+	gateway?: GatewayClient;
+	/** Proxies to register for executors on spawn. */
+	executorProxies?: ProxySpec[];
 	/** Called once a shot executor reaches a terminal state. */
 	onTerminal: (id: string) => void;
 }
@@ -103,6 +109,7 @@ export class WorkerRunner {
 		// once sub-coordinators are common.
 		if (this.kind === "executor") {
 			this.client = await sandbox.acquire(this.sandboxKey);
+			await this.setupProxies();
 		}
 
 		const initialMessages = deserializeMessages(row.messagesJson);
@@ -228,6 +235,60 @@ export class WorkerRunner {
 	}
 
 	// ── Internals ─────────────────────────────────────────────────────
+
+	/**
+	 * Register every configured proxy with the gateway and write the
+	 * resulting URLs into `/workspace/.nexal/proxies/<name>.url` so the
+	 * executor can read them at runtime. No-op when there's no gateway,
+	 * no proxies configured, or the client has no `agentId` (e.g. a
+	 * future non-gateway sandbox backend).
+	 */
+	private async setupProxies(): Promise<void> {
+		const client = this.client;
+		const gateway = this.deps.gateway;
+		const proxies = this.deps.executorProxies ?? [];
+		if (!client || !gateway || proxies.length === 0) return;
+		const agentId = client.agentId;
+		if (!agentId) return;
+
+		// Reset the proxies dir so dropped registrations don't linger.
+		await client
+			.runCommand(
+				[
+					"/bin/sh",
+					"-c",
+					"rm -rf /workspace/.nexal/proxies && mkdir -p /workspace/.nexal/proxies",
+				],
+				{ timeoutMs: 5_000 },
+			)
+			.catch((err) => console.error(`[worker:${this.id}] reset proxies dir`, err));
+
+		for (const spec of proxies) {
+			try {
+				const { url } = await gateway.invoke("gateway/register_proxy", {
+					agent_id: agentId,
+					name: spec.name,
+					upstream_url: spec.upstreamUrl,
+					headers: spec.headers ?? {},
+				});
+				const safeName = spec.name.replace(/[^A-Za-z0-9_.-]/g, "_");
+				const safeUrl = url.replace(/'/g, "'\\''");
+				await client.runCommand(
+					[
+						"/bin/sh",
+						"-c",
+						`printf '%s\\n' '${safeUrl}' > /workspace/.nexal/proxies/${safeName}.url`,
+					],
+					{ timeoutMs: 3_000 },
+				);
+			} catch (err) {
+				console.error(
+					`[worker:${this.id}] proxy ${spec.name} setup failed`,
+					err,
+				);
+			}
+		}
+	}
 
 	private wireEvents(agent: Agent): void {
 		agent.subscribe(async (event) => {

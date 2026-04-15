@@ -66,6 +66,28 @@ export interface ListAgentsResponse {
 	agents: AgentSummary[];
 }
 
+// ─── gateway/register_proxy / unregister_proxy ──────────────────────
+
+export interface RegisterProxyParams {
+	/** Owning agent. When the agent is killed, this proxy is dropped. */
+	agent_id: string;
+	/** Frontend-chosen label, unique within `agent_id`. */
+	name: string;
+	/** Base URL — agent's request path is appended. */
+	upstream_url: string;
+	/** Headers injected on every forwarded request (typically auth). */
+	headers?: Record<string, string>;
+}
+export interface RegisterProxyResponse {
+	token: string;
+	url: string;
+}
+
+export interface UnregisterProxyParams {
+	agent_id: string;
+	name: string;
+}
+
 /** Discriminated map used by `GatewayClient.invoke` for type inference. */
 export interface GatewayMethods {
 	"gateway/hello": { params: HelloParams; result: HelloResponse };
@@ -74,6 +96,8 @@ export interface GatewayMethods {
 	"gateway/detach_agent": { params: AgentIdParams; result: OkResponse };
 	"gateway/attach_agent": { params: AttachAgentParams; result: SpawnAgentResponse };
 	"gateway/list_agents": { params: Record<string, never>; result: ListAgentsResponse };
+	"gateway/register_proxy": { params: RegisterProxyParams; result: RegisterProxyResponse };
+	"gateway/unregister_proxy": { params: UnregisterProxyParams; result: OkResponse };
 }
 
 // ─── agent/* params + responses ─────────────────────────────────────

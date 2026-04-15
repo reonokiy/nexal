@@ -16,9 +16,14 @@ workspace = true
 
 [dependencies]
 async-trait = { workspace = true }
+axum = { workspace = true }
+bytes = { workspace = true }
 clap = { workspace = true, features = ["derive", "env"] }
 dirs = { workspace = true }
 futures = { workspace = true }
+http = { workspace = true }
+http-body-util = { workspace = true }
+reqwest = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
