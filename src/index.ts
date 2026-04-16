@@ -38,7 +38,6 @@ import { HeartbeatChannel } from "./channels/heartbeat.ts";
 import { CronChannel } from "./channels/cron.ts";
 import { loadConfig } from "./config.ts";
 import { GatewayClient } from "./gateway/client.ts";
-import { createSandboxBackend } from "./sandbox/index.ts";
 import { createBashTool } from "./tools/bash.ts";
 import { createReportToParentTool } from "./tools/report_to_parent.ts";
 import { createSendUpdateTool } from "./tools/send_update.ts";
@@ -47,25 +46,13 @@ import { WorkerRegistry } from "./workers/registry.ts";
 import { loadAuth, loadModelConfig, closeSettings } from "./settings.ts";
 import { createWorkerStore } from "./workers/store.ts";
 
-const DEFAULT_COORDINATOR_PROMPT = [
-	"You are a nexal coordinator. You DO NOT execute tasks yourself — you have no shell, no filesystem, no network.",
-	"You schedule work onto agents below you and route messages between them.",
-	"For every incoming message, decide:",
-	"  1. Does an existing agent (use list_agents) already own this domain? If yes, route_to_agent(id, message).",
-	"  2. Is this an ongoing project / role / area? Spawn an executor (spawn_executor) with a clear system_prompt that defines its identity.",
-	"  3. Is this a one-shot job (single command, single fetch, single build)? Use spawn_shot_task.",
-	"  4. Is the domain large enough to deserve its own scheduling layer? Spawn a sub-coordinator (spawn_coordinator) and route work to it.",
-	"Executors reply to the user directly via send_update — you don't need to summarize their output. Keep your own replies short: announce routing decisions, ask for clarification when ambiguous, but never try to do the work yourself.",
-].join("\n");
+const DEFAULT_COORDINATOR_PROMPT = await Bun.file(
+	join(import.meta.dir, "prompts/coordinator.md"),
+).text();
 
-const DEFAULT_EXECUTOR_PROMPT = [
-	"You are a nexal executor agent. You have bash inside a Podman sandbox at /workspace and one tool to talk to the user: send_update.",
-	"Filesystem layout:",
-	"  - /workspace — user-facing project area (empty by default).",
-	"  - /run/nexal/proxy/<name>.socket — pre-registered upstream API proxies as Unix sockets. The gateway injects auth headers for you, so you NEVER see or need API keys. Use the socket directly, e.g. `curl --unix-socket /run/nexal/proxy/jina.socket http://x/v1/search?q=foo` (the host part of the URL is ignored).",
-	"Do the work assigned to you. Use bash freely. Call send_update for milestones, when you need clarification, and to deliver final results.",
-	"Do NOT echo every intermediate thought — each send_update call becomes a separate Telegram message.",
-].join("\n");
+const DEFAULT_EXECUTOR_PROMPT = await Bun.file(
+	join(import.meta.dir, "prompts/executor.md"),
+).text();
 
 // ── Saved auth bootstrap ────────────────────────────────────────────
 
@@ -104,7 +91,7 @@ async function applySavedAuth(): Promise<void> {
 							refresh: result.newCredentials.refresh,
 							expires: result.newCredentials.expires,
 						});
-						log.info(`refreshed ${providerName} OAuth token`);
+						log.info(`${providerName} OAuth token was expired, refreshed and persisted new credentials`);
 					}
 				} else {
 					process.env[envKey] = auth.access;
@@ -119,7 +106,7 @@ async function applySavedAuth(): Promise<void> {
 			}
 		}
 	} catch (err) {
-		log.error("failed to load saved auth (continuing):", err);
+		log.error("failed to load saved auth, continuing without credentials:", err);
 	}
 }
 
@@ -160,7 +147,7 @@ async function launchGateway(): Promise<{
 		);
 	}
 
-	log.info("no gateway token configured — auto-starting embedded gateway");
+	log.info(`no gateway token configured, auto-starting embedded gateway from ${gatewayBin}`);
 
 	// Kill any stale gateway from a previous run (e.g. bun --watch restart).
 	try {
@@ -196,7 +183,7 @@ async function launchGateway(): Promise<{
 				ws.addEventListener("open", () => { clearTimeout(t); ws.close(); resolve(); });
 				ws.addEventListener("error", () => { clearTimeout(t); reject(); });
 			});
-			log.success(`embedded gateway ready: ${url}`);
+			log.success(`embedded gateway ready at ${url}`);
 			return { url, token, proc };
 		} catch {
 			await new Promise((r) => setTimeout(r, 300));
@@ -218,7 +205,7 @@ async function main(): Promise<void> {
 
 	const provider = process.env.NEXAL_MODEL_PROVIDER ?? "openrouter";
 	const modelId = process.env.NEXAL_MODEL ?? "openai/gpt-4o";
-	log.info(`model: ${provider} / ${modelId}`);
+	log.info(`using model ${modelId} via ${provider}`);
 	const coordinatorPrompt =
 		process.env.NEXAL_COORDINATOR_SYSTEM_PROMPT ?? DEFAULT_COORDINATOR_PROMPT;
 	const executorPrompt =
@@ -244,13 +231,7 @@ async function main(): Promise<void> {
 		clientName: cfg.gateway.clientName,
 	});
 	await gateway.hello();
-	log.info(`gateway connected: ${gatewayUnix ? `unix:${gatewayUnix}` : gatewayUrl}`);
-
-	const sandbox = createSandboxBackend({
-		gatewayClient: gateway,
-		gatewayOptions: {},
-	});
-	log.info(`sandbox backend: ${sandbox.name} (workers only)`);
+	log.info(`connected to gateway at ${gatewayUnix ? gatewayUnix : gatewayUrl} as "${cfg.gateway.clientName}"`);
 
 	const model = getModel(provider as any, modelId);
 
@@ -314,7 +295,7 @@ async function main(): Promise<void> {
 	// (Bun.sql native driver); containers survive nexal process restart
 	// so live workers resume automatically.
 	const workerStore = await createWorkerStore({ url: cfg.workers.url });
-	log.info(`worker store ready (maxConcurrent=${cfg.workers.maxConcurrent})`);
+	log.info(`worker store ready, up to ${cfg.workers.maxConcurrent} concurrent workers`);
 	// `WorkerRegistry` is constructed BEFORE the factories close over it
 	// because the coordinator factory recursively builds dispatcher
 	// tools that reference the same registry — sub-coordinators can
@@ -326,7 +307,7 @@ async function main(): Promise<void> {
 
 	const workers: WorkerRegistry = new WorkerRegistry({
 		store: workerStore,
-		sandbox,
+		gateway,
 		model,
 		modelProvider: provider,
 		modelId,
@@ -334,7 +315,6 @@ async function main(): Promise<void> {
 		maxConcurrent: cfg.workers.maxConcurrent,
 		executorSystemPromptDefault: executorPrompt,
 		coordinatorSystemPromptDefault: coordinatorPrompt,
-		gateway,
 		executorProxies: cfg.executor.proxies,
 		executorTools: (runner) => {
 			const client = runner.execClient;
@@ -343,7 +323,7 @@ async function main(): Promise<void> {
 				createReportToParentTool(workers, runner),
 			];
 			if (client) tools.unshift(createBashTool(client));
-			else log.error(`executor ${runner.id} has no exec client`);
+			else log.error(`executor "${runner.row.name}" has no exec client, bash tool will be unavailable`);
 			return tools;
 		},
 		coordinatorTools: (runner) => [
@@ -363,7 +343,7 @@ async function main(): Promise<void> {
 		],
 		deliverToTopLevel: (sessionKey, sender, message) => {
 			if (!pool) {
-				log.error("deliverToTopLevel before pool ready");
+				log.error(`cannot deliver message from "${sender}" to top-level coordinator, agent pool is not ready yet`);
 				return;
 			}
 			pool.injectMessage(sessionKey, sender, message);
@@ -402,21 +382,21 @@ async function main(): Promise<void> {
 	const shutdown = async (sig: string) => {
 		if (shuttingDown) return;
 		shuttingDown = true;
-		log.error(`${sig} received, shutting down`);
+		log.info(`${sig} received, shutting down gracefully`);
 		stop.abort();
 		await pool.shutdown();
 		// Suspend workers BEFORE releaseAll: suspend calls sandbox.detach()
 		// which keeps worker containers running so they resume on next
 		// startup; releaseAll then has nothing left to clean up.
 		await workers.shutdown().catch((err) =>
-			log.error("worker registry shutdown", err),
+			log.error("worker registry shutdown failed, some workers may not have been suspended cleanly", err),
 		);
 		await Promise.all([...channels.values()].map((c) => c.stop().catch(() => undefined)));
-		await sandbox.releaseAll();
+		await gateway.releaseAllAgents();
 		await closeSettings().catch(() => undefined);
 		if (gatewayProc) {
 			gatewayProc.kill("SIGTERM");
-			log.error("embedded gateway stopped");
+			log.info("stopped embedded gateway");
 		}
 		process.exit(0);
 	};
@@ -429,7 +409,7 @@ async function main(): Promise<void> {
 				try {
 					pool.handle(msg);
 				} catch (err) {
-					log.error(`channel=${channel.name} dispatch error`, err);
+					log.error(`failed to dispatch incoming message from ${channel.name} channel`, err);
 				}
 			}),
 		),
@@ -438,7 +418,7 @@ async function main(): Promise<void> {
 	// Resume non-terminal workers after channels are up so their
 	// send_update calls can land on the right destination.
 	await workers.resumePending().catch((err: unknown) =>
-		log.error("resumePending failed", err),
+		log.error("failed to resume workers from previous process", err),
 	);
 
 	await new Promise<void>((resolve) => {
@@ -453,6 +433,6 @@ function splitCsv(v: string | undefined): string[] | undefined {
 }
 
 main().catch((err) => {
-	log.error("fatal", err);
+	log.error("fatal error, exiting", err);
 	process.exit(1);
 });

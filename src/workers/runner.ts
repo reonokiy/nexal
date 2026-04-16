@@ -2,7 +2,7 @@
  * WorkerRunner — one sub-agent instance (coordinator or executor).
  *
  * Owns:
- *   - a Podman container (via `SandboxBackend.acquire("worker:<id>")`)
+ *   - a Podman container (via `GatewayClient.acquireAgent("worker:<id>")`)
  *   - an `AgentClient` (gateway-mediated) for that container
  *   - one `Agent` (from pi-agent-core)
  *
@@ -37,7 +37,7 @@ import type { Model } from "@mariozechner/pi-ai";
 import type { Channel } from "../channels/types.ts";
 import type { ProxySpec } from "../config.ts";
 import type { GatewayClient } from "../gateway/client.ts";
-import type { AgentClient, SandboxBackend } from "../sandbox/types.ts";
+import type { AgentClient } from "../gateway/agent_client.ts";
 import { createBashTool } from "../tools/bash.ts";
 import { deserializeMessages, serializeMessages } from "./serialize.ts";
 import type { SendPolicy, WorkerKind, WorkerLifetime, WorkerRow, WorkerStore } from "./store.ts";
@@ -55,7 +55,7 @@ const RESUME_NUDGE = [
 export interface WorkerRunnerDeps {
 	row: WorkerRow;
 	store: WorkerStore;
-	sandbox: SandboxBackend;
+	gateway: GatewayClient;
 	model: Model<any>;
 	channels: Map<string, Channel>;
 	/**
@@ -66,8 +66,6 @@ export interface WorkerRunnerDeps {
 	 */
 	toolsForKind: (runner: WorkerRunner) => AgentTool<any>[];
 	resumed: boolean;
-	/** Optional gateway handle for per-executor proxy registration. */
-	gateway?: GatewayClient;
 	/** Proxies to register for executors on spawn. */
 	executorProxies?: ProxySpec[];
 	/** Called once a shot executor reaches a terminal state. */
@@ -104,14 +102,14 @@ export class WorkerRunner {
 	 * for shot workers it resolves once the run terminates.
 	 */
 	async start(): Promise<void> {
-		const { row, sandbox, model, store } = this.deps;
+		const { row, gateway, model, store } = this.deps;
 
-		// Coordinators don't need a bash sandbox at all (they only call
+		// Coordinators don't need a container at all (they only call
 		// dispatcher tools that talk to the registry). Skipping the
 		// container for coordinators saves real resources, especially
 		// once sub-coordinators are common.
 		if (this.kind === "executor") {
-			this.client = await sandbox.acquire(this.sandboxKey);
+			this.client = await gateway.acquireAgent(this.sandboxKey);
 			await this.setupProxies();
 		}
 
@@ -200,7 +198,7 @@ export class WorkerRunner {
 		await this.dispose(false);
 	}
 
-	async dispose(releaseSandbox: boolean): Promise<void> {
+	async dispose(releaseContainer: boolean): Promise<void> {
 		if (this.disposed) return;
 		this.disposed = true;
 		if (this.persistTimer) {
@@ -210,10 +208,10 @@ export class WorkerRunner {
 		try {
 			await this.client?.close();
 		} catch {}
-		if (releaseSandbox) {
-			await this.deps.sandbox.release(this.sandboxKey).catch(() => undefined);
-		} else if (this.deps.sandbox.detach) {
-			await this.deps.sandbox.detach(this.sandboxKey).catch(() => undefined);
+		if (releaseContainer) {
+			await this.deps.gateway.releaseAgent(this.sandboxKey).catch(() => undefined);
+		} else {
+			await this.deps.gateway.detachAgent(this.sandboxKey).catch(() => undefined);
 		}
 	}
 
@@ -222,7 +220,7 @@ export class WorkerRunner {
 		const ch = this.deps.channels.get(this.deps.row.sourceChannel);
 		if (!ch) {
 			this.log.error(
-				`source channel "${this.deps.row.sourceChannel}" not registered`,
+				`source channel "${this.deps.row.sourceChannel}" is not registered, cannot send message`,
 			);
 			return;
 		}
@@ -233,7 +231,7 @@ export class WorkerRunner {
 				replyTo: opts?.replyTo ?? this.deps.row.sourceReplyTo ?? undefined,
 			});
 		} catch (err) {
-			this.log.error("send failed", err);
+			this.log.error(`failed to send message via ${this.deps.row.sourceChannel} to chat ${this.deps.row.sourceChatId}`, err);
 		}
 	}
 
@@ -252,9 +250,8 @@ export class WorkerRunner {
 	 */
 	private async setupProxies(): Promise<void> {
 		const client = this.client;
-		const gateway = this.deps.gateway;
 		const proxies = this.deps.executorProxies ?? [];
-		if (!client || !gateway || proxies.length === 0) return;
+		if (!client || proxies.length === 0) return;
 		const agentId = client.agentId;
 		if (!agentId) return;
 
@@ -265,11 +262,11 @@ export class WorkerRunner {
 			.runCommand(["/bin/sh", "-c", "mkdir -p /run/nexal/proxy"], {
 				timeoutMs: 5_000,
 			})
-			.catch((err) => this.log.error("mkdir proxies dir", err));
+			.catch((err) => this.log.error("failed to create proxy socket directory in container", err));
 
 		for (const spec of proxies) {
 			try {
-				await gateway.invoke("gateway/register_proxy", {
+				await this.deps.gateway.invoke("gateway/register_proxy", {
 					agent_id: agentId,
 					name: spec.name,
 					upstream_url: spec.upstreamUrl,
@@ -277,7 +274,7 @@ export class WorkerRunner {
 				});
 			} catch (err) {
 				this.log.error(
-					`proxy ${spec.name} setup failed`,
+					`failed to register proxy "${spec.name}" -> ${spec.upstreamUrl}`,
 					err,
 				);
 			}
@@ -303,7 +300,7 @@ export class WorkerRunner {
 					await this.handleAgentEnd(agent, event.messages);
 				}
 			} catch (err) {
-				this.log.error(`event handler ${event.type}`, err);
+				this.log.error(`error handling "${event.type}" event`, err);
 			}
 		});
 	}
@@ -363,7 +360,7 @@ export class WorkerRunner {
 				this.latestTurnCount,
 			);
 		} catch (err) {
-			this.log.error("persist failed", err);
+			this.log.error(`failed to persist messages after turn ${this.latestTurnCount}`, err);
 		}
 	}
 }

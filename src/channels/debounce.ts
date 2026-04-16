@@ -210,7 +210,7 @@ export class SessionRunner {
 		try {
 			await this.handler(merged);
 		} catch (err) {
-			log.error(`[${this.sessionId}] handler threw`, err);
+			log.error(`handler threw for session ${this.sessionId}, batch of ${batch.length} message(s)`, err);
 		}
 	}
 }

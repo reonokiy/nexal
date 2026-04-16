@@ -26,9 +26,17 @@ import type {
 	GatewayMethods,
 	UnknownAgentNotification,
 } from "./protocol.ts";
+import type { AgentClient } from "./agent_client.ts";
+import { GatewayAgentClient } from "./agent_client.ts";
 import { createLog } from "../log.ts";
 
 const log = createLog("gateway-client");
+
+interface AgentEntry {
+	agentId: string;
+	containerName: string;
+	client: AgentClient;
+}
 
 type JsonRpcId = string | number;
 
@@ -89,6 +97,10 @@ export class GatewayClient {
 	private readyPromise: Promise<void> | null = null;
 	private helloPromise: Promise<void> | null = null;
 	private readonly handlers = new Set<NotificationHandler>();
+
+	// ── Agent session management ──────────────────────────────────────
+	private readonly agents = new Map<string, AgentEntry>();
+	private readonly agentInflight = new Map<string, Promise<AgentEntry>>();
 
 	constructor(private readonly options: GatewayClientOptions) {}
 
@@ -234,6 +246,82 @@ export class GatewayClient {
 		return () => this.handlers.delete(handler);
 	}
 
+	// ── Agent lifecycle ───────────────────────────────────────────────
+
+	/**
+	 * Acquire (or reuse) a sandboxed agent container keyed by
+	 * `sessionKey`. Idempotent — calling twice with the same key returns
+	 * the cached `AgentClient`. Concurrent calls for the same key are
+	 * deduplicated.
+	 */
+	async acquireAgent(
+		sessionKey: string,
+		opts?: { env?: Record<string, string> },
+	): Promise<AgentClient> {
+		const cached = this.agents.get(sessionKey);
+		if (cached) return cached.client;
+
+		const inflight = this.agentInflight.get(sessionKey);
+		if (inflight) return (await inflight).client;
+
+		const promise = this.spawnAgent(sessionKey, opts).finally(() =>
+			this.agentInflight.delete(sessionKey),
+		);
+		this.agentInflight.set(sessionKey, promise);
+		const entry = await promise;
+		this.agents.set(sessionKey, entry);
+		return entry.client;
+	}
+
+	/** Kill and remove the container for `sessionKey`. */
+	async releaseAgent(sessionKey: string): Promise<void> {
+		const entry = this.agents.get(sessionKey);
+		if (!entry) return;
+		this.agents.delete(sessionKey);
+		try {
+			await this.invoke("gateway/kill_agent", { agent_id: entry.agentId });
+		} catch (err) {
+			log.error(`failed to kill agent for session "${sessionKey}", container may still be running`, err);
+		}
+		await entry.client.close();
+	}
+
+	/** Detach the container (keep it alive) and forget the mapping. */
+	async detachAgent(sessionKey: string): Promise<void> {
+		const entry = this.agents.get(sessionKey);
+		if (!entry) return;
+		this.agents.delete(sessionKey);
+		try {
+			await this.invoke("gateway/detach_agent", { agent_id: entry.agentId });
+		} catch (err) {
+			log.error(`failed to detach agent for session "${sessionKey}"`, err);
+		}
+		await entry.client.close();
+	}
+
+	/** Release all tracked agents (shutdown path). */
+	async releaseAllAgents(): Promise<void> {
+		await Promise.all([...this.agents.keys()].map((k) => this.releaseAgent(k)));
+	}
+
+	private async spawnAgent(
+		sessionKey: string,
+		opts?: { env?: Record<string, string> },
+	): Promise<AgentEntry> {
+		await this.hello();
+		const result = await this.invoke("gateway/spawn_agent", {
+			name: sessionKey,
+			env: opts?.env ?? {},
+			labels: { "nexal.session_key": sessionKey },
+		});
+		const client = new GatewayAgentClient(this, result.agent_id);
+		return {
+			agentId: result.agent_id,
+			containerName: result.container_name,
+			client,
+		};
+	}
+
 	async close(): Promise<void> {
 		this.ws?.close();
 		this.ws = null;
@@ -255,7 +343,7 @@ export class GatewayClient {
 		try {
 			msg = JSON.parse(line);
 		} catch {
-			log.error("non-JSON frame dropped:", line.slice(0, 120));
+			log.error(`received non-JSON frame from gateway, dropping: ${line.slice(0, 120)}`);
 			return;
 		}
 		if ("id" in msg && msg.id !== undefined) {
@@ -297,7 +385,7 @@ export class GatewayClient {
 			try {
 				h(event);
 			} catch (err) {
-				log.error("notification handler threw", err);
+				log.error(`notification handler threw for ${event.method} on agent ${event.agentId}`, err);
 			}
 		}
 	}

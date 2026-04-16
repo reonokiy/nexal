@@ -266,7 +266,7 @@ async function openDb(cfg: WorkerStoreConfig): Promise<{ db: Db; close: () => Pr
 	await db.execute(dsql`CREATE INDEX IF NOT EXISTS workers_status_idx ON workers (status)`);
 	await db.execute(dsql`CREATE INDEX IF NOT EXISTS workers_parent_idx ON workers (parent_session_key)`);
 
-	log.success(`embedded postgres ready: ${dataDir}`);
+	log.success(`embedded PGlite database ready at ${dataDir}`);
 	return { db, close: () => client.close() };
 }
 

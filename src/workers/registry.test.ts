@@ -1,7 +1,7 @@
 import { describe, expect, mock, test } from "bun:test";
 
 import type { Channel } from "../channels/types.ts";
-import type { SandboxBackend } from "../sandbox/types.ts";
+import type { GatewayClient } from "../gateway/client.ts";
 import { WorkerRegistry } from "./registry.ts";
 import type {
 	SendPolicy,
@@ -137,7 +137,7 @@ function buildRegistry(opts?: {
 }) {
 	return new WorkerRegistry({
 		store: opts?.store ?? mockStore(),
-		sandbox: {} as SandboxBackend,
+		gateway: {} as GatewayClient,
 		model: {} as any,
 		modelProvider: "openrouter",
 		modelId: "openai/gpt-4o",
@@ -489,12 +489,14 @@ describe("WorkerRegistry.shutdown", () => {
 			const suspended: string[] = [];
 			(reg as any).runners.set("r1", {
 				id: "r1",
+				row: { name: "r1" },
 				async suspend() {
 					throw new Error("r1 broken");
 				},
 			});
 			(reg as any).runners.set("r2", {
 				id: "r2",
+				row: { name: "r2" },
 				async suspend() {
 					suspended.push("r2");
 				},

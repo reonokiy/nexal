@@ -12,7 +12,6 @@
  *   NEXAL_GATEWAY_TOKEN  (REQUIRED)
  */
 import { GatewayClient } from "../gateway/client.ts";
-import { GatewayBackend } from "../sandbox/gateway.ts";
 
 const URL = process.env.NEXAL_GATEWAY_URL ?? "ws://127.0.0.1:5500";
 const TOKEN = process.env.NEXAL_GATEWAY_TOKEN;
@@ -26,10 +25,9 @@ console.log("[smoke] hello ok");
 const list1 = await gateway.invoke("gateway/list_agents", {});
 console.log(`[smoke] list before spawn: ${list1.agents.length} agents`);
 
-const sandbox = new GatewayBackend(gateway);
 const sessionKey = "worker:smoke-gateway-bun";
 
-const client = await sandbox.acquire(sessionKey);
+const client = await gateway.acquireAgent(sessionKey);
 console.log(`[smoke] acquired client for ${sessionKey}`);
 
 const r = await client.runCommand(
@@ -46,7 +44,7 @@ if (!r.stdout.includes("HOME=")) {
 const list2 = await gateway.invoke("gateway/list_agents", {});
 console.log(`[smoke] list after spawn: ${list2.agents.length} agents`);
 
-await sandbox.release(sessionKey);
+await gateway.releaseAgent(sessionKey);
 console.log("[smoke] release ok");
 
 const list3 = await gateway.invoke("gateway/list_agents", {});

@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { Channel } from "../channels/types.ts";
-import type { AgentClient, SandboxBackend } from "../sandbox/types.ts";
+import type { AgentClient } from "../gateway/agent_client.ts";
+import type { GatewayClient } from "../gateway/client.ts";
 
 // Stubbing Agent at module scope — see the "Agent lifecycle paths" note
 // below. The real Agent lives in @mariozechner/pi-agent-core; we replace
@@ -164,19 +165,18 @@ function makeStore(): StoreSpy {
 	return spy;
 }
 
-interface SandboxSpy {
-	sandbox: SandboxBackend;
+interface GatewaySpy {
+	gateway: GatewayClient;
 	releaseCalls: string[];
 	detachCalls: string[];
 	acquireCalls: string[];
 }
 
-function makeSandbox(opts?: {
-	withDetach?: boolean;
+function makeGateway(opts?: {
 	client?: AgentClient;
-}): SandboxSpy {
-	const spy: SandboxSpy = {
-		sandbox: null as any,
+}): GatewaySpy {
+	const spy: GatewaySpy = {
+		gateway: null as any,
 		releaseCalls: [],
 		detachCalls: [],
 		acquireCalls: [],
@@ -191,22 +191,20 @@ function makeSandbox(opts?: {
 				return { exitCode: 0, stdout: "", stderr: "" };
 			},
 		} as any);
-	const base: SandboxBackend = {
-		async acquire(key: string) {
+	spy.gateway = {
+		async acquireAgent(key: string) {
 			spy.acquireCalls.push(key);
 			return client;
 		},
-		async release(key: string) {
+		async releaseAgent(key: string) {
 			spy.releaseCalls.push(key);
 		},
-		async releaseAll() {},
-	} as SandboxBackend;
-	if (opts?.withDetach) {
-		(base as any).detach = async (key: string) => {
+		async detachAgent(key: string) {
 			spy.detachCalls.push(key);
-		};
-	}
-	spy.sandbox = base;
+		},
+		async releaseAllAgents() {},
+		async invoke() { return {} as any; },
+	} as any;
 	return spy;
 }
 
@@ -216,23 +214,23 @@ function makeRunner(over?: {
 	tools?: WorkerRunnerDeps["toolsForKind"];
 	onTerminal?: WorkerRunnerDeps["onTerminal"];
 	store?: StoreSpy;
-	sandbox?: SandboxSpy;
+	gateway?: GatewaySpy;
 	resumed?: boolean;
 }) {
 	const store = over?.store ?? makeStore();
-	const sandbox = over?.sandbox ?? makeSandbox({ withDetach: true });
+	const gw = over?.gateway ?? makeGateway();
 	const terminalSeen: string[] = [];
 	const runner = new WorkerRunner({
 		row: fakeRow(over?.row),
 		store: store.store,
-		sandbox: sandbox.sandbox,
+		gateway: gw.gateway,
 		model: {} as any,
 		channels: over?.channels ?? new Map<string, Channel>(),
 		toolsForKind: over?.tools ?? (() => []),
 		resumed: over?.resumed ?? false,
 		onTerminal: over?.onTerminal ?? ((id) => terminalSeen.push(id)),
 	});
-	return { runner, store, sandbox, terminalSeen };
+	return { runner, store, gateway: gw, terminalSeen };
 }
 
 // ─── pre-Agent paths (no start()) ────────────────────────────────────
@@ -271,36 +269,27 @@ describe("WorkerRunner.route()", () => {
 });
 
 describe("WorkerRunner.dispose()", () => {
-	test("release=true calls sandbox.release and skips detach", async () => {
-		const { runner, sandbox } = makeRunner();
+	test("release=true calls gateway.releaseAgent and skips detach", async () => {
+		const { runner, gateway } = makeRunner();
 		await runner.dispose(true);
-		expect(sandbox.releaseCalls).toEqual(["worker:w-1"]);
-		expect(sandbox.detachCalls).toEqual([]);
+		expect(gateway.releaseCalls).toEqual(["worker:w-1"]);
+		expect(gateway.detachCalls).toEqual([]);
 	});
 
-	test("release=false prefers detach when the backend supports it", async () => {
-		const { runner, sandbox } = makeRunner({
-			sandbox: makeSandbox({ withDetach: true }),
+	test("release=false calls detachAgent", async () => {
+		const { runner, gateway } = makeRunner({
+			gateway: makeGateway(),
 		});
 		await runner.dispose(false);
-		expect(sandbox.releaseCalls).toEqual([]);
-		expect(sandbox.detachCalls).toEqual(["worker:w-1"]);
-	});
-
-	test("release=false silently no-ops when backend has no detach", async () => {
-		const { runner, sandbox } = makeRunner({
-			sandbox: makeSandbox({ withDetach: false }),
-		});
-		await runner.dispose(false);
-		expect(sandbox.releaseCalls).toEqual([]);
-		expect(sandbox.detachCalls).toEqual([]);
+		expect(gateway.releaseCalls).toEqual([]);
+		expect(gateway.detachCalls).toEqual(["worker:w-1"]);
 	});
 
 	test("second dispose() is a no-op (guards against double-teardown)", async () => {
-		const { runner, sandbox } = makeRunner();
+		const { runner, gateway } = makeRunner();
 		await runner.dispose(true);
 		await runner.dispose(true);
-		expect(sandbox.releaseCalls).toEqual(["worker:w-1"]);
+		expect(gateway.releaseCalls).toEqual(["worker:w-1"]);
 	});
 
 	test("swallows client.close() errors so teardown continues", async () => {
@@ -316,44 +305,42 @@ describe("WorkerRunner.dispose()", () => {
 		} as any;
 		// Assign the private `client` via cast so we can exercise the
 		// error path without booting Agent.
-		const { runner, sandbox } = makeRunner({
-			sandbox: makeSandbox({ withDetach: false, client }),
+		const { runner, gateway } = makeRunner({
+			gateway: makeGateway({ client }),
 		});
 		(runner as any).client = client;
 		await runner.dispose(true);
-		expect(sandbox.releaseCalls).toEqual(["worker:w-1"]);
+		expect(gateway.releaseCalls).toEqual(["worker:w-1"]);
 	});
 });
 
 describe("WorkerRunner.cancel() / suspend() — pre-Agent", () => {
 	test("cancel() on not-started runner: setStatus 'cancelled' + release + onTerminal", async () => {
-		const { runner, store, sandbox, terminalSeen } = makeRunner();
+		const { runner, store, gateway, terminalSeen } = makeRunner();
 		await runner.cancel("user asked");
 		expect(store.setStatusCalls).toEqual([["w-1", "cancelled", "user asked"]]);
-		expect(sandbox.releaseCalls).toEqual(["worker:w-1"]);
+		expect(gateway.releaseCalls).toEqual(["worker:w-1"]);
 		expect(terminalSeen).toEqual(["w-1"]);
 	});
 
 	test("cancel() after dispose() is a full no-op (disposed-guard bails early)", async () => {
-		const { runner, store, sandbox, terminalSeen } = makeRunner();
+		const { runner, store, gateway, terminalSeen } = makeRunner();
 		await runner.dispose(true);
 		await runner.cancel();
 		// `cancel()`'s first line is `if (this.disposed) return` — no status
-		// change, no second sandbox release, no onTerminal notification.
+		// change, no second release, no onTerminal notification.
 		expect(store.setStatusCalls).toEqual([]);
-		expect(sandbox.releaseCalls).toEqual(["worker:w-1"]); // from dispose only
+		expect(gateway.releaseCalls).toEqual(["worker:w-1"]); // from dispose only
 		expect(terminalSeen).toEqual([]);
 	});
 
-	test("suspend() does NOT release or call onTerminal — row stays non-terminal", async () => {
-		const { runner, store, sandbox, terminalSeen } = makeRunner({
-			sandbox: makeSandbox({ withDetach: true }),
-		});
+	test("suspend() detaches but does NOT release or call onTerminal", async () => {
+		const { runner, store, gateway, terminalSeen } = makeRunner();
 		await runner.suspend();
 		expect(store.setStatusCalls).toEqual([]); // no status change
 		expect(store.markIdleCalls).toEqual([]);
-		expect(sandbox.releaseCalls).toEqual([]);
-		expect(sandbox.detachCalls).toEqual(["worker:w-1"]);
+		expect(gateway.releaseCalls).toEqual([]);
+		expect(gateway.detachCalls).toEqual(["worker:w-1"]);
 		expect(terminalSeen).toEqual([]);
 	});
 });
@@ -508,12 +495,12 @@ async function startAndGetAgent(runner: WorkerRunner): Promise<FakeAgent> {
 }
 
 describe("WorkerRunner.start() — executor paths", () => {
-	test("executor acquires the sandbox and marks the row started", async () => {
-		const { runner, store, sandbox } = makeRunner({
+	test("executor acquires a container and marks the row started", async () => {
+		const { runner, store, gateway } = makeRunner({
 			row: { initialPrompt: "do stuff" },
 		});
 		await runner.start();
-		expect(sandbox.acquireCalls).toEqual(["worker:w-1"]);
+		expect(gateway.acquireCalls).toEqual(["worker:w-1"]);
 		expect(store.markStartedCalls).toEqual(["w-1"]);
 		expect(FakeAgent.lastPrompted).toBe("do stuff");
 	});
@@ -544,8 +531,8 @@ describe("WorkerRunner.start() — executor paths", () => {
 });
 
 describe("WorkerRunner.start() — coordinator paths", () => {
-	test("coordinator does NOT acquire a sandbox (no bash container)", async () => {
-		const { runner, sandbox } = makeRunner({
+	test("coordinator does NOT acquire a container (no bash)", async () => {
+		const { runner, gateway } = makeRunner({
 			row: {
 				kind: "coordinator",
 				lifetime: "persistent",
@@ -553,7 +540,7 @@ describe("WorkerRunner.start() — coordinator paths", () => {
 			},
 		});
 		await runner.start();
-		expect(sandbox.acquireCalls).toEqual([]); // no bash container
+		expect(gateway.acquireCalls).toEqual([]); // no bash container
 		expect(FakeAgent.lastPrompted).toBe("dispatch work");
 	});
 });
@@ -660,7 +647,7 @@ describe("WorkerRunner event wiring", () => {
 
 describe("WorkerRunner.handleAgentEnd (via agent_end event)", () => {
 	test("shot executor → markCompleted + release + onTerminal", async () => {
-		const { runner, store, sandbox, terminalSeen } = makeRunner({
+		const { runner, store, gateway, terminalSeen } = makeRunner({
 			row: { lifetime: "shot" as WorkerLifetime, sendPolicy: "explicit" as SendPolicy },
 		});
 		const agent = await startAndGetAgent(runner);
@@ -670,12 +657,12 @@ describe("WorkerRunner.handleAgentEnd (via agent_end event)", () => {
 		});
 		expect(store.markCompletedCalls).toHaveLength(1);
 		expect(store.markCompletedCalls[0]![0]).toBe("w-1");
-		expect(sandbox.releaseCalls).toEqual(["worker:w-1"]);
+		expect(gateway.releaseCalls).toEqual(["worker:w-1"]);
 		expect(terminalSeen).toEqual(["w-1"]);
 	});
 
 	test("persistent executor → markIdle, NO release, NO onTerminal", async () => {
-		const { runner, store, sandbox, terminalSeen } = makeRunner({
+		const { runner, store, gateway, terminalSeen } = makeRunner({
 			row: {
 				lifetime: "persistent",
 				sendPolicy: "explicit" as SendPolicy,
@@ -692,7 +679,7 @@ describe("WorkerRunner.handleAgentEnd (via agent_end event)", () => {
 		});
 		expect(store.markIdleCalls).toHaveLength(1);
 		// acquire once on start, no release on idle
-		expect(sandbox.releaseCalls).toEqual([]);
+		expect(gateway.releaseCalls).toEqual([]);
 		expect(terminalSeen).toEqual([]);
 	});
 
@@ -769,7 +756,7 @@ describe("WorkerRunner.handleAgentEnd (via agent_end event)", () => {
 				} as any,
 			],
 		]);
-		const { runner, store, sandbox, terminalSeen } = makeRunner({
+		const { runner, store, gateway, terminalSeen } = makeRunner({
 			channels,
 			row: { sendPolicy: "explicit" as SendPolicy, name: "bot", lifetime: "shot" },
 		});
@@ -783,7 +770,7 @@ describe("WorkerRunner.handleAgentEnd (via agent_end event)", () => {
 		expect(sent).toEqual([
 			{ chatId: "-1", text: "[bot] ❌ failed: model returned 500", replyTo: undefined },
 		]);
-		expect(sandbox.releaseCalls).toEqual(["worker:w-1"]);
+		expect(gateway.releaseCalls).toEqual(["worker:w-1"]);
 		expect(terminalSeen).toEqual(["w-1"]);
 		// markCompleted NOT called on failure path.
 		expect(store.markCompletedCalls).toEqual([]);

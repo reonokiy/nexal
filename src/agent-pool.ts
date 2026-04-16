@@ -83,7 +83,7 @@ export class AgentPool {
 	injectMessage(sessionKeyStr: string, sender: string, text: string): void {
 		const sepIdx = sessionKeyStr.indexOf(":");
 		if (sepIdx === -1) {
-			log.error(`injectMessage: malformed sessionKey ${sessionKeyStr}`);
+			log.error(`malformed session key "${sessionKeyStr}", expected "channel:chatId" format`);
 			return;
 		}
 		const channel = sessionKeyStr.slice(0, sepIdx);
@@ -118,7 +118,7 @@ export class AgentPool {
 		try {
 			await session.agent.prompt(msg.text);
 		} catch (err: any) {
-			log.error(`prompt failed for ${key}:`, err);
+			log.error(`prompt failed for session ${key}, sender "${msg.sender}":`, err);
 			const channel = this.config.channels.get(session.channelName);
 			if (channel) {
 				await channel.send({
@@ -187,7 +187,7 @@ export class AgentPool {
 			try {
 				await channel.send(reply);
 			} catch (err) {
-				log.error(`send failed for ${session.channelName}:${last.chatId}`, err);
+				log.error(`failed to send reply via ${session.channelName} to chat ${last.chatId}`, err);
 			}
 		});
 

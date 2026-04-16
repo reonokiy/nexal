@@ -85,7 +85,7 @@ export class HttpChannel implements Channel {
 				return new Response("not found", { status: 404 });
 			},
 		});
-		log.info(`listening on ${this.server.hostname}:${this.server.port}`);
+		log.info(`listening on http://${this.server.hostname}:${this.server.port}`);
 
 		// Run forever (until stop()).
 		return new Promise<void>((resolve) => {

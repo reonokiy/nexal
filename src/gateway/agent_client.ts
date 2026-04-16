@@ -7,8 +7,35 @@
  * but polling matches the existing `nexal-agent` exec semantics and
  * keeps this layer simple.
  */
-import type { AgentClient, RunCommandOptions, RunCommandResult } from "../sandbox/types.ts";
 import type { GatewayClient } from "./client.ts";
+
+export interface RunCommandOptions {
+	cwd?: string;
+	env?: Record<string, string>;
+	timeoutMs?: number;
+	processId?: string;
+}
+
+export interface RunCommandResult {
+	stdout: string;
+	stderr: string;
+	exitCode: number;
+	timedOut: boolean;
+}
+
+/**
+ * What the bash tool consumes. Concrete impl: `GatewayAgentClient`.
+ */
+export interface AgentClient {
+	/**
+	 * Stable id for this agent on the gateway.
+	 */
+	readonly agentId?: string;
+	/** Run a command and accumulate output until exit. */
+	runCommand(argv: string[], opts?: RunCommandOptions): Promise<RunCommandResult>;
+	/** Close any per-client resources. Does NOT kill the underlying container. */
+	close(): Promise<void>;
+}
 
 export class GatewayAgentClient implements AgentClient {
 	constructor(

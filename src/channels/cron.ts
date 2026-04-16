@@ -59,7 +59,7 @@ export class CronChannel implements Channel {
 
 	async start(onMessage: (msg: IncomingMessage) => void): Promise<void> {
 		const tickSecs = this.config.tickIntervalSecs ?? 15;
-		log.info(`ticking every ${tickSecs}s`);
+		log.info(`checking job schedules every ${tickSecs}s`);
 		this.timer = setInterval(() => {
 			if (this.stopped) return;
 			this.tick(onMessage);
@@ -139,5 +139,5 @@ const warned = new Set<string>();
 function warnOnce(expr: string): void {
 	if (warned.has(expr)) return;
 	warned.add(expr);
-	log.warn(`skipping crontab-style schedule '${expr}' — install a cron parser to enable`);
+	log.warn(`crontab expression "${expr}" is not supported yet, install a cron parser to enable`);
 }

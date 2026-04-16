@@ -21,7 +21,6 @@ import { getModel } from "@mariozechner/pi-ai";
 
 import type { Channel, OutgoingReply } from "../channels/types.ts";
 import { GatewayClient } from "../gateway/client.ts";
-import { GatewayBackend } from "../sandbox/gateway.ts";
 import { createBashTool } from "../tools/bash.ts";
 import { createSendUpdateTool } from "../tools/send_update.ts";
 import { WorkerRegistry } from "../workers/registry.ts";
@@ -59,7 +58,6 @@ async function main(): Promise<void> {
 		clientName: "smoke-worker",
 	});
 	await gateway.hello();
-	const sandbox = new GatewayBackend(gateway);
 
 	const stub = new StubChannel();
 	const channels = new Map<string, Channel>([["stub", stub]]);
@@ -67,7 +65,7 @@ async function main(): Promise<void> {
 
 	const registry = new WorkerRegistry({
 		store,
-		sandbox,
+		gateway,
 		model,
 		modelProvider: PROVIDER,
 		modelId: MODEL_ID,
@@ -118,7 +116,7 @@ async function main(): Promise<void> {
 	}
 
 	await registry.shutdown();
-	await sandbox.releaseAll();
+	await gateway.releaseAllAgents();
 	await gateway.close();
 	console.log("[smoke] OK");
 }

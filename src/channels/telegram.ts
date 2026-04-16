@@ -122,7 +122,7 @@ export class TelegramChannel implements Channel {
 		if (!this.config.botToken) throw new Error("telegram: botToken is required");
 
 		this.botUsername = (await this.getMe()).username ?? "";
-		log.info(`logged in as @${this.botUsername || "<unknown>"}`);
+		log.info(`logged in as @${this.botUsername || "<unknown>"}, polling for updates`);
 
 		this.loopTask = this.longPollLoop(onMessage);
 		await this.loopTask;
@@ -178,7 +178,7 @@ export class TelegramChannel implements Channel {
 					allowed_updates: ["message", "channel_post", "edited_message"],
 				});
 			} catch (err) {
-				log.error("getUpdates error", err);
+				log.error("getUpdates failed, retrying in 2s", err);
 				await new Promise((r) => setTimeout(r, 2_000));
 				continue;
 			}

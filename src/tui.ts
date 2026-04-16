@@ -113,6 +113,22 @@ editor.setAutocompleteProvider(
 {
 	const origHandleInput = editor.handleInput.bind(editor);
 	editor.handleInput = (data: string) => {
+		if (matchesKey(data, Key.ctrl("c"))) {
+			if (ctrlCPending) {
+				shutdown();
+				return;
+			}
+			ctrlCPending = true;
+			setStatus("Press Ctrl+C again to exit");
+			if (ctrlCTimer) clearTimeout(ctrlCTimer);
+			ctrlCTimer = setTimeout(() => {
+				ctrlCPending = false;
+				setStatus(`nexal-tui  chat_id=${args.chatId}  ws://${args.host}:${args.port}  connected`);
+			}, 2_000);
+			return;
+		}
+		ctrlCPending = false;
+		if (ctrlCTimer) { clearTimeout(ctrlCTimer); ctrlCTimer = null; }
 		if (matchesKey(data, Key.escape) && waiting) {
 			hideLoader();
 			addSystemNote("Cancelled");
@@ -123,10 +139,21 @@ editor.setAutocompleteProvider(
 	};
 }
 tui.addChild(editor);
+
+const statusLine = new Text(chalk.dim(""), 0, 0);
+tui.addChild(statusLine);
+
 tui.setFocus(editor);
 
 let waiting = false;
 let loader: Loader | null = null;
+let ctrlCPending = false;
+let ctrlCTimer: ReturnType<typeof setTimeout> | null = null;
+
+function setStatus(text: string): void {
+	statusLine.text = chalk.dim(text);
+	tui.requestRender();
+}
 
 function addUserMessage(text: string): void {
 	history.addChild(new Spacer(1));
@@ -183,8 +210,7 @@ function connect(): void {
 	ws = createWs();
 
 	ws.on("open", () => {
-		addSystemNote("Connected");
-		tui.requestRender();
+		setStatus(`nexal-tui  chat_id=${args.chatId}  ws://${args.host}:${args.port}  connected`);
 	});
 
 	ws.on("message", (raw: WS.RawData) => {
@@ -208,8 +234,7 @@ function connect(): void {
 	ws.on("close", () => {
 		hideLoader();
 		if (waiting) finishReply();
-		addSystemNote("Disconnected — reconnecting...");
-		tui.requestRender();
+		setStatus(`nexal-tui  chat_id=${args.chatId}  ws://${args.host}:${args.port}  disconnected — reconnecting...`);
 		ws = null;
 		setTimeout(connect, 2_000);
 	});
@@ -386,7 +411,6 @@ process.on("SIGINT", shutdown);
 process.on("SIGTERM", shutdown);
 
 // Go
-addSystemNote(`nexal-tui  (chat_id=${args.chatId})`);
-addSystemNote(`Connecting to ws://${args.host}:${args.port}`);
+setStatus(`nexal-tui  chat_id=${args.chatId}  ws://${args.host}:${args.port}  connecting...`);
 tui.start();
 connect();

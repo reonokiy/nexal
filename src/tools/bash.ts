@@ -8,7 +8,7 @@
 import type { AgentTool, AgentToolResult } from "@mariozechner/pi-agent-core";
 import { type Static, Type } from "@mariozechner/pi-ai";
 
-import type { AgentClient } from "../sandbox/types.ts";
+import type { AgentClient } from "../gateway/agent_client.ts";
 
 export const BashParams = Type.Object({
 	command: Type.String({ description: "Shell command to run inside the sandbox (passed to bash -c)." }),

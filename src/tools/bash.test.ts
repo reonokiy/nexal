@@ -4,7 +4,7 @@ import type {
 	AgentClient,
 	RunCommandOptions,
 	RunCommandResult,
-} from "../sandbox/types.ts";
+} from "../gateway/agent_client.ts";
 import { createBashTool } from "./bash.ts";
 
 function stubClient(

@@ -33,7 +33,6 @@ import type { Model } from "@mariozechner/pi-ai";
 import type { Channel } from "../channels/types.ts";
 import type { ProxySpec } from "../config.ts";
 import type { GatewayClient } from "../gateway/client.ts";
-import type { SandboxBackend } from "../sandbox/types.ts";
 import { WorkerRunner } from "./runner.ts";
 import type {
 	SendPolicy,
@@ -45,7 +44,7 @@ import type {
 
 export interface WorkerRegistryConfig {
 	store: WorkerStore;
-	sandbox: SandboxBackend;
+	gateway: GatewayClient;
 	model: Model<any>;
 	modelProvider: string;
 	modelId: string;
@@ -59,12 +58,6 @@ export interface WorkerRegistryConfig {
 	executorTools: (runner: WorkerRunner) => AgentTool<any>[];
 	/** Tool factory for sub-coordinators (dispatcher tools + report_to_parent). */
 	coordinatorTools: (runner: WorkerRunner) => AgentTool<any>[];
-	/**
-	 * Optional gateway handle used to register per-executor HTTP
-	 * proxies. If undefined, proxy setup is skipped (e.g. running
-	 * against a non-gateway sandbox in tests).
-	 */
-	gateway?: GatewayClient;
 	/**
 	 * Upstream API proxies registered for every executor on spawn.
 	 * Each becomes a `<NEXAL_DATA_DIR>/proxies/<name>.url` file the
@@ -241,7 +234,7 @@ export class WorkerRegistry {
 			if (!this.queue.includes(row.id)) this.queue.push(row.id);
 		}
 		if (rows.length > 0) {
-			log.info(`resuming ${rows.length} worker(s)`);
+			log.info(`resuming ${rows.length} worker(s) from previous process`);
 		}
 		this.pump();
 	}
@@ -252,7 +245,7 @@ export class WorkerRegistry {
 		await Promise.all(
 			[...this.runners.values()].map((r) =>
 				r.suspend().catch((err) =>
-					log.error(`suspend ${r.id}`, err),
+					log.error(`failed to suspend worker "${r.row.name}", container may still be running`, err),
 				),
 			),
 		);
@@ -278,7 +271,7 @@ export class WorkerRegistry {
 		try {
 			row = await this.cfg.store.get(id);
 		} catch (err) {
-			log.error(`store.get(${id}) failed`, err);
+			log.error(`failed to fetch worker ${id} from store, skipping spawn`, err);
 			return;
 		}
 		if (!row) return;
@@ -292,12 +285,11 @@ export class WorkerRegistry {
 		const runner = new WorkerRunner({
 			row,
 			store: this.cfg.store,
-			sandbox: this.cfg.sandbox,
+			gateway: this.cfg.gateway,
 			model: this.cfg.model,
 			channels: this.cfg.channels,
 			toolsForKind,
 			resumed,
-			gateway: this.cfg.gateway,
 			executorProxies: this.cfg.executorProxies,
 			onTerminal: (tid) => {
 				this.runners.delete(tid);
@@ -308,7 +300,7 @@ export class WorkerRegistry {
 		try {
 			await runner.start();
 		} catch (err) {
-			log.error(`runner ${id} start failed`, err);
+			log.error(`failed to start ${row!.kind} worker "${row!.name}", marking as failed`, err);
 			await this.cfg.store
 				.markFailed(id, err instanceof Error ? err.message : String(err))
 				.catch(() => undefined);
