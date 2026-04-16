@@ -151,9 +151,7 @@ async fn forward(token: String, rest: String, state: ProxyState, req: Request) -
         }
     }
 
-    let stream = upstream_resp
-        .bytes_stream()
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e));
+    let stream = upstream_resp.bytes_stream().map_err(std::io::Error::other);
     let body = Body::from_stream(stream);
 
     let mut resp = Response::builder()
@@ -216,4 +214,110 @@ fn is_hop_by_hop(name: &str) -> bool {
 /// `SharedProxyRegistry` is expected.
 pub fn shared(registry: super::registry::ProxyRegistry) -> SharedProxyRegistry {
     Arc::new(registry)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{build_upstream_url, is_hop_by_hop};
+    use axum::http::Uri;
+
+    fn uri(s: &str) -> Uri {
+        s.parse().expect("test uri parses")
+    }
+
+    #[test]
+    fn build_url_appends_rest_to_upstream() {
+        assert_eq!(
+            build_upstream_url("https://api.jina.ai", "v1/search", &uri("/p/tok/v1/search"))
+                .expect("build_upstream_url should succeed"),
+            "https://api.jina.ai/v1/search"
+        );
+    }
+
+    #[test]
+    fn build_url_preserves_query_string() {
+        assert_eq!(
+            build_upstream_url(
+                "https://api.jina.ai",
+                "v1/search",
+                &uri("/p/tok/v1/search?q=foo&k=v")
+            )
+            .expect("build_upstream_url should succeed"),
+            "https://api.jina.ai/v1/search?q=foo&k=v"
+        );
+    }
+
+    #[test]
+    fn build_url_handles_empty_rest() {
+        assert_eq!(
+            build_upstream_url("https://api.jina.ai", "", &uri("/p/tok")).expect("build_upstream_url should succeed"),
+            "https://api.jina.ai"
+        );
+    }
+
+    #[test]
+    fn build_url_handles_rest_with_leading_slash() {
+        // `rest` after axum's `*rest` matcher normally has no leading
+        // slash, but defensive code accepts one.
+        assert_eq!(
+            build_upstream_url("https://api.jina.ai", "/v1/search", &uri("/p/tok/v1/search"))
+                .expect("build_upstream_url should succeed"),
+            "https://api.jina.ai/v1/search"
+        );
+    }
+
+    #[test]
+    fn build_url_strips_trailing_slash_on_upstream_base() {
+        assert_eq!(
+            build_upstream_url("https://api.jina.ai/", "v1/x", &uri("/p/tok/v1/x")).expect("build_upstream_url should succeed"),
+            "https://api.jina.ai/v1/x"
+        );
+    }
+
+    #[test]
+    fn build_url_passes_through_empty_query() {
+        assert_eq!(
+            build_upstream_url("https://api", "x", &uri("/p/tok/x?")).expect("build_upstream_url should succeed"),
+            "https://api/x?"
+        );
+    }
+
+    #[test]
+    fn hop_by_hop_matches_rfc7230_list_plus_content_length() {
+        for h in [
+            "Connection",
+            "keep-alive",
+            "Proxy-Authenticate",
+            "proxy-authorization",
+            "TE",
+            "Trailers",
+            "Transfer-Encoding",
+            "Upgrade",
+            "Content-Length",
+        ] {
+            assert!(is_hop_by_hop(h), "{h} should be hop-by-hop");
+        }
+    }
+
+    #[test]
+    fn hop_by_hop_is_case_insensitive() {
+        assert!(is_hop_by_hop("CONNECTION"));
+        assert!(is_hop_by_hop("Connection"));
+        assert!(is_hop_by_hop("connection"));
+    }
+
+    #[test]
+    fn hop_by_hop_lets_normal_headers_through() {
+        for h in [
+            "Accept",
+            "Authorization",
+            "Content-Type",
+            "User-Agent",
+            "X-Custom-Header",
+            "Cookie",
+            "Set-Cookie",
+        ] {
+            assert!(!is_hop_by_hop(h), "{h} should NOT be hop-by-hop");
+        }
+    }
 }

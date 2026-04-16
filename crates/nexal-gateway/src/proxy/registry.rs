@@ -136,7 +136,10 @@ mod tests {
             reg.lookup(&first.token).await.is_none(),
             "old token should 404"
         );
-        let looked_up = reg.lookup(&second.token).await.unwrap();
+        let looked_up = reg
+            .lookup(&second.token)
+            .await
+            .expect("new token should resolve");
         assert_eq!(looked_up.upstream_url, "https://jina2");
     }
 
@@ -202,7 +205,10 @@ mod tests {
                 hdrs.clone(),
             )
             .await;
-        let got = reg.lookup(&entry.token).await.unwrap();
+        let got = reg
+            .lookup(&entry.token)
+            .await
+            .expect("token should resolve to its entry");
         assert_eq!(got.agent_id, "a");
         assert_eq!(got.name, "jina");
         assert_eq!(got.upstream_url, "https://api.jina.ai");

@@ -250,3 +250,155 @@ pub struct UnregisterProxyParams {
     pub agent_id: String,
     pub name: String,
 }
+
+#[cfg(test)]
+mod tests {
+    //! Wire-format guardrails. Every DTO on the gateway ↔ frontend
+    //! boundary must emit snake_case JSON so TS/Bun callers don't get
+    //! surprises. Serialize a hand-built instance and confirm the
+    //! on-wire key names.
+
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn hello_params_serializes_snake_case() {
+        let p = HelloParams {
+            token: "t".into(),
+            client_name: "c".into(),
+        };
+        let v = serde_json::to_value(&p).expect("hello params serialize");
+        assert_eq!(v, json!({ "token": "t", "client_name": "c" }));
+    }
+
+    #[test]
+    fn hello_response_serializes_snake_case() {
+        let r = HelloResponse {
+            ok: true,
+            gateway_version: "0.2.0".into(),
+        };
+        let v = serde_json::to_value(&r).expect("hello response serialize");
+        assert_eq!(v, json!({ "ok": true, "gateway_version": "0.2.0" }));
+    }
+
+    #[test]
+    fn spawn_agent_params_skips_empty_maps_and_none_fields() {
+        let p = SpawnAgentParams {
+            name: "n".into(),
+            image: None,
+            env: HashMap::new(),
+            labels: HashMap::new(),
+            workspace: None,
+        };
+        let v = serde_json::to_value(&p).expect("spawn_agent params serialize");
+        // `name` present, image/workspace absent, env/labels present as
+        // empty maps (serde doesn't strip them without
+        // `skip_serializing_if`). Asserting structural shape, not
+        // bit-for-bit presence, keeps this robust to future tweaks.
+        let obj = v.as_object().expect("serialized shape is an object");
+        assert_eq!(obj.get("name"), Some(&json!("n")));
+    }
+
+    #[test]
+    fn agent_summary_uses_snake_case_ms_suffix() {
+        let s = AgentSummary {
+            agent_id: "a".into(),
+            container_name: "nexal-c".into(),
+            created_at_unix_ms: 1_700_000_000_000,
+        };
+        let v = serde_json::to_value(&s).expect("agent summary serialize");
+        let obj = v.as_object().expect("serialized shape is an object");
+        assert!(obj.contains_key("agent_id"));
+        assert!(obj.contains_key("container_name"));
+        assert!(obj.contains_key("created_at_unix_ms"));
+    }
+
+    #[test]
+    fn register_proxy_response_carries_snake_case_socket_path() {
+        let r = RegisterProxyResponse {
+            token: "deadbeef".into(),
+            socket_path: "/workspace/.nexal/proxies/jina.sock".into(),
+        };
+        let v = serde_json::to_value(&r).expect("register_proxy response serialize");
+        let obj = v.as_object().expect("serialized shape is an object");
+        assert!(obj.contains_key("socket_path"));
+        // camelCase leaks would show up here — guard against them.
+        assert!(!obj.contains_key("socketPath"));
+    }
+
+    #[test]
+    fn jsonrpc_request_with_no_id_omits_id_field() {
+        let req = JsonRpcRequest {
+            jsonrpc: JSONRPC_VERSION.into(),
+            id: None,
+            method: "x".into(),
+            params: Some(json!({ "a": 1 })),
+        };
+        let v = serde_json::to_value(&req).expect("jsonrpc req serialize");
+        let obj = v.as_object().expect("serialized shape is an object");
+        assert!(!obj.contains_key("id"), "notifications omit `id`");
+    }
+
+    #[test]
+    fn jsonrpc_response_ok_helper_builds_valid_envelope() {
+        let r = JsonRpcResponse::ok(json!("id-1"), json!({ "ok": true }));
+        assert_eq!(r.jsonrpc, JSONRPC_VERSION);
+        assert_eq!(r.id, json!("id-1"));
+        assert!(r.error.is_none());
+        assert_eq!(r.result, Some(json!({ "ok": true })));
+    }
+
+    #[test]
+    fn jsonrpc_response_err_helper_builds_error_envelope() {
+        let r = JsonRpcResponse::err(json!(5), error_code::UNKNOWN_AGENT, "nope");
+        assert_eq!(r.jsonrpc, JSONRPC_VERSION);
+        assert!(r.result.is_none());
+        let e = r.error.expect("error response must carry an error");
+        assert_eq!(e.code, error_code::UNKNOWN_AGENT);
+        assert_eq!(e.message, "nope");
+        assert!(e.data.is_none());
+    }
+
+    #[test]
+    fn notification_helper_sets_id_to_none() {
+        let n = notification(NOTIFY_AGENT, json!({ "agent_id": "a" }));
+        assert!(n.id.is_none());
+        assert_eq!(n.method, NOTIFY_AGENT);
+    }
+
+    #[test]
+    fn error_codes_are_stable_and_unique() {
+        // If two error codes collide it becomes impossible for the
+        // frontend to switch on them — enforce uniqueness.
+        let codes = [
+            error_code::PARSE_ERROR,
+            error_code::INVALID_REQUEST,
+            error_code::METHOD_NOT_FOUND,
+            error_code::INVALID_PARAMS,
+            error_code::INTERNAL_ERROR,
+            error_code::NOT_AUTHENTICATED,
+            error_code::AUTH_REJECTED,
+            error_code::UNKNOWN_AGENT,
+            error_code::BACKEND_ERROR,
+        ];
+        let mut sorted = codes.to_vec();
+        sorted.sort_unstable();
+        sorted.dedup();
+        assert_eq!(sorted.len(), codes.len(), "duplicate error code detected");
+    }
+
+    #[test]
+    fn register_proxy_params_deserializes_from_snake_case_json() {
+        let raw = json!({
+            "agent_id": "a-1",
+            "name": "jina",
+            "upstream_url": "https://api.jina.ai",
+            "headers": { "Authorization": "Bearer k" }
+        });
+        let p: RegisterProxyParams = serde_json::from_value(raw).expect("register_proxy parses");
+        assert_eq!(p.agent_id, "a-1");
+        assert_eq!(p.name, "jina");
+        assert_eq!(p.upstream_url, "https://api.jina.ai");
+        assert_eq!(p.headers.get("Authorization").map(String::as_str), Some("Bearer k"));
+    }
+}

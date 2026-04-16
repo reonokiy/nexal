@@ -101,7 +101,7 @@ impl ProxyManager {
 }
 
 /// Parsed upstream connection info.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct UpstreamInfo {
     /// Host for TCP connection (e.g. "s.jina.ai")
     host: String,
@@ -227,10 +227,10 @@ async fn handle_connection(
         if line.is_empty() {
             continue;
         }
-        if let Some((key, _)) = line.split_once(':') {
-            if key.trim().eq_ignore_ascii_case("host") {
-                continue;
-            }
+        if let Some((key, _)) = line.split_once(':')
+            && key.trim().eq_ignore_ascii_case("host")
+        {
+            continue;
         }
         rewritten.push_str(line);
         rewritten.push_str("\r\n");
@@ -321,4 +321,90 @@ fn tokio_rustls_connector(
     .with_root_certificates(root_store)
     .with_no_client_auth();
     Ok(tokio_rustls::TlsConnector::from(Arc::new(config)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{find_subsequence, parse_upstream};
+
+    #[test]
+    fn parse_upstream_https_default_port() {
+        let info = parse_upstream("https://api.jina.ai").expect("parse");
+        assert_eq!(info.host, "api.jina.ai");
+        assert_eq!(info.port, 443);
+        assert!(info.tls);
+        assert_eq!(info.path_prefix, "");
+    }
+
+    #[test]
+    fn parse_upstream_http_default_port() {
+        let info = parse_upstream("http://localhost").expect("parse");
+        assert_eq!(info.host, "localhost");
+        assert_eq!(info.port, 80);
+        assert!(!info.tls);
+    }
+
+    #[test]
+    fn parse_upstream_explicit_port_wins_over_default() {
+        let info = parse_upstream("https://example.com:8443").expect("parse");
+        assert_eq!(info.port, 8443);
+        assert!(info.tls);
+    }
+
+    #[test]
+    fn parse_upstream_captures_path_prefix() {
+        let info = parse_upstream("https://api.tg.org/bot12345:token").expect("parse");
+        assert_eq!(info.host, "api.tg.org");
+        assert_eq!(info.path_prefix, "/bot12345:token");
+    }
+
+    #[test]
+    fn parse_upstream_rejects_url_without_scheme() {
+        let err = parse_upstream("api.jina.ai").expect_err("missing scheme");
+        assert!(err.contains("missing scheme"));
+    }
+
+    #[test]
+    fn parse_upstream_rejects_non_numeric_port() {
+        let err = parse_upstream("http://host:not-a-number").expect_err("bad port");
+        assert!(err.contains("invalid port"));
+    }
+
+    #[test]
+    fn parse_upstream_handles_trailing_slash_as_path() {
+        let info = parse_upstream("https://api/").expect("parse");
+        assert_eq!(info.host, "api");
+        assert_eq!(info.path_prefix, "/");
+    }
+
+    #[test]
+    fn find_subsequence_found_at_start() {
+        assert_eq!(find_subsequence(b"hello world", b"hello"), Some(0));
+    }
+
+    #[test]
+    fn find_subsequence_found_in_middle() {
+        assert_eq!(find_subsequence(b"hello world", b"wor"), Some(6));
+    }
+
+    #[test]
+    fn find_subsequence_not_found_returns_none() {
+        assert!(find_subsequence(b"hello", b"xyz").is_none());
+    }
+
+    #[test]
+    fn find_subsequence_needle_longer_than_haystack_is_none() {
+        assert!(find_subsequence(b"hi", b"hello").is_none());
+    }
+
+    // NOTE: empty-needle behavior is undefined — `slice::windows(0)`
+    // panics. Callers must pass a non-empty needle. Test omitted.
+
+    #[test]
+    fn find_subsequence_across_http_header_boundary() {
+        // The real caller uses this to locate the CRLFCRLF end-of-headers marker.
+        let buf = b"GET /x HTTP/1.1\r\nHost: x\r\n\r\nbody";
+        let end = find_subsequence(buf, b"\r\n\r\n").expect("CRLF CRLF present");
+        assert_eq!(&buf[end..end + 4], b"\r\n\r\n");
+    }
 }

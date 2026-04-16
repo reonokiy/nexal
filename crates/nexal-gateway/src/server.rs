@@ -439,7 +439,75 @@ fn _ensure_json_used() -> Value {
 
 #[cfg(test)]
 mod tests {
-    use super::container_socket_path;
+    use super::{container_socket_path, parse_params, registry_err};
+    use crate::agent_conn::AgentConnError;
+    use crate::backend::BackendError;
+    use crate::protocol::error_code;
+    use crate::registry::RegistryError;
+    use serde::Deserialize;
+    use serde_json::json;
+
+    #[derive(Debug, Deserialize)]
+    struct Sample {
+        agent_id: String,
+        count: u32,
+    }
+
+    #[test]
+    fn parse_params_succeeds_on_well_formed_json() {
+        let s: Sample = parse_params(json!({ "agent_id": "a", "count": 7 }))
+            .expect("well-formed params should deserialize");
+        assert_eq!(s.agent_id, "a");
+        assert_eq!(s.count, 7);
+    }
+
+    #[test]
+    fn parse_params_wraps_serde_error_as_invalid_params() {
+        // Missing a required field.
+        let err = parse_params::<Sample>(json!({ "agent_id": "a" }))
+            .expect_err("should reject missing fields");
+        assert_eq!(err.code, error_code::INVALID_PARAMS);
+        assert!(err.message.contains("invalid params"));
+    }
+
+    #[test]
+    fn parse_params_rejects_wrong_shape() {
+        let err = parse_params::<Sample>(json!([1, 2, 3]))
+            .expect_err("array is not an object");
+        assert_eq!(err.code, error_code::INVALID_PARAMS);
+    }
+
+    #[test]
+    fn registry_err_maps_unknown_agent_to_unknown_agent_code() {
+        let err = registry_err(RegistryError::UnknownAgent("abc".into()));
+        assert_eq!(err.code, error_code::UNKNOWN_AGENT);
+        assert!(err.message.contains("abc"));
+    }
+
+    #[test]
+    fn registry_err_maps_unknown_container_to_unknown_agent_code() {
+        let err = registry_err(RegistryError::UnknownContainer("nexal-x".into()));
+        assert_eq!(err.code, error_code::UNKNOWN_AGENT);
+        assert!(err.message.contains("nexal-x"));
+    }
+
+    #[test]
+    fn registry_err_maps_backend_errors_to_backend_code() {
+        let err = registry_err(RegistryError::Backend(BackendError::Cli(
+            "podman exited 1".into(),
+        )));
+        assert_eq!(err.code, error_code::BACKEND_ERROR);
+        assert!(err.message.contains("podman exited 1"));
+    }
+
+    #[test]
+    fn registry_err_maps_agent_conn_errors_to_backend_code() {
+        let err = registry_err(RegistryError::AgentConn(AgentConnError::BadFrame(
+            "bad frame".into(),
+        )));
+        assert_eq!(err.code, error_code::BACKEND_ERROR);
+        assert!(err.message.contains("bad frame"));
+    }
 
     #[test]
     fn socket_path_uses_convention() {

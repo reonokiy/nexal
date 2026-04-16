@@ -177,25 +177,25 @@ async fn dispatch_frame(
     pending: &Arc<Mutex<Pending>>,
     notify_tx: &mpsc::Sender<AgentNotification>,
 ) -> Result<(), AgentConnError> {
-    if let Some(id_val) = value.get("id") {
-        if let Some(id) = id_val.as_u64() {
-            let mut map = pending.lock().await;
-            if let Some(tx) = map.remove(&id) {
-                if let Some(err) = value.get("error") {
-                    let code = err.get("code").and_then(Value::as_i64).unwrap_or(-32603) as i32;
-                    let msg = err
-                        .get("message")
-                        .and_then(Value::as_str)
-                        .unwrap_or("agent error")
-                        .to_string();
-                    let _ = tx.send(Err(AgentConnError::AgentError { code, message: msg }));
-                } else {
-                    let result = value.get("result").cloned().unwrap_or(Value::Null);
-                    let _ = tx.send(Ok(result));
-                }
+    if let Some(id_val) = value.get("id")
+        && let Some(id) = id_val.as_u64()
+    {
+        let mut map = pending.lock().await;
+        if let Some(tx) = map.remove(&id) {
+            if let Some(err) = value.get("error") {
+                let code = err.get("code").and_then(Value::as_i64).unwrap_or(-32603) as i32;
+                let msg = err
+                    .get("message")
+                    .and_then(Value::as_str)
+                    .unwrap_or("agent error")
+                    .to_string();
+                let _ = tx.send(Err(AgentConnError::AgentError { code, message: msg }));
+            } else {
+                let result = value.get("result").cloned().unwrap_or(Value::Null);
+                let _ = tx.send(Ok(result));
             }
-            return Ok(());
         }
+        return Ok(());
     }
 
     let method = value
@@ -235,9 +235,27 @@ fn wrap_params_positional(params: Option<Value>) -> Value {
     }
 }
 
+impl From<AgentConnError> for JsonRpcError {
+    fn from(e: AgentConnError) -> Self {
+        let (code, message) = match &e {
+            AgentConnError::AgentError { code, message } => (*code, message.clone()),
+            AgentConnError::Closed => (-32000, "agent connection closed".into()),
+            AgentConnError::Connect(m) => (-32020, format!("agent connect: {m}")),
+            AgentConnError::Send(m) => (-32020, format!("agent send: {m}")),
+            AgentConnError::BadFrame(m) => (-32603, format!("agent frame: {m}")),
+        };
+        JsonRpcError {
+            code,
+            message,
+            data: None,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::wrap_params_positional;
+    use super::{wrap_params_positional, AgentConnError};
+    use crate::protocol::JsonRpcError;
     use serde_json::{json, Value};
 
     #[test]
@@ -275,21 +293,45 @@ mod tests {
         assert_eq!(wrap_params_positional(Some(json!("hi"))), json!(["hi"]));
         assert_eq!(wrap_params_positional(Some(json!(true))), json!([true]));
     }
-}
 
-impl From<AgentConnError> for JsonRpcError {
-    fn from(e: AgentConnError) -> Self {
-        let (code, message) = match &e {
-            AgentConnError::AgentError { code, message } => (*code, message.clone()),
-            AgentConnError::Closed => (-32000, "agent connection closed".into()),
-            AgentConnError::Connect(m) => (-32020, format!("agent connect: {m}")),
-            AgentConnError::Send(m) => (-32020, format!("agent send: {m}")),
-            AgentConnError::BadFrame(m) => (-32603, format!("agent frame: {m}")),
+    // ── AgentConnError → JsonRpcError mapping ──────────────────────
+
+    #[test]
+    fn agent_error_preserves_code_and_message() {
+        let err = AgentConnError::AgentError {
+            code: -32042,
+            message: "bad param".into(),
         };
-        JsonRpcError {
-            code,
-            message,
-            data: None,
-        }
+        let rpc: JsonRpcError = err.into();
+        assert_eq!(rpc.code, -32042);
+        assert_eq!(rpc.message, "bad param");
+    }
+
+    #[test]
+    fn closed_maps_to_neg32000() {
+        let rpc: JsonRpcError = AgentConnError::Closed.into();
+        assert_eq!(rpc.code, -32000);
+        assert!(rpc.message.contains("closed"));
+    }
+
+    #[test]
+    fn connect_error_maps_to_neg32020() {
+        let rpc: JsonRpcError = AgentConnError::Connect("timeout".into()).into();
+        assert_eq!(rpc.code, -32020);
+        assert!(rpc.message.contains("timeout"));
+    }
+
+    #[test]
+    fn send_error_maps_to_neg32020() {
+        let rpc: JsonRpcError = AgentConnError::Send("broken pipe".into()).into();
+        assert_eq!(rpc.code, -32020);
+        assert!(rpc.message.contains("broken pipe"));
+    }
+
+    #[test]
+    fn bad_frame_maps_to_neg32603() {
+        let rpc: JsonRpcError = AgentConnError::BadFrame("not json".into()).into();
+        assert_eq!(rpc.code, -32603);
+        assert!(rpc.message.contains("not json"));
     }
 }

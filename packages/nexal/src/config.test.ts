@@ -1,9 +1,9 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { loadConfig } from "./config.ts";
+import { isAdmin, loadConfig } from "./config.ts";
 
 // Every test creates its own config file + sets NEXAL_CONFIG_PATH.
 // Because loadConfig() also reads NEXAL_* env vars, tests carefully
@@ -24,6 +24,16 @@ function setEnv(k: string, v: string | undefined): void {
 	if (v === undefined) delete process.env[k];
 	else process.env[k] = v;
 }
+
+// Developer machines have `/home/<user>/i/nexal/.env` on disk (Bun
+// auto-loads it), which injects e.g. `NEXAL_ADMINS=reonokiy`. Clear
+// every NEXAL_* key at the start of each test so the overlay we're
+// actually testing isn't contaminated by ambient dev config.
+beforeEach(() => {
+	for (const k of Object.keys(process.env)) {
+		if (k.startsWith("NEXAL_")) setEnv(k, undefined);
+	}
+});
 
 afterEach(async () => {
 	for (const k of Object.keys(envBackup)) setEnv(k, envBackup[k]);
@@ -171,5 +181,50 @@ url = "postgres://file"
 		setEnv("NEXAL_ADMINS", "alice,bob, carol ");
 		const cfg = await loadConfig();
 		expect(cfg.admins).toEqual(["alice", "bob", "carol"]);
+	});
+
+	test("env-provided executor.proxies via NEXAL_EXECUTOR__PROXIES is silently ignored (not a scalar)", async () => {
+		// The env handler only supports scalars / CSV lists; complex
+		// nested arrays like executor.proxies need to come from TOML.
+		// Verify that a stray env var for this path doesn't crash.
+		setEnv("NEXAL_CONFIG_PATH", "/nonexistent");
+		setEnv("NEXAL_EXECUTOR__PROXIES", "something");
+		const cfg = await loadConfig();
+		expect(cfg.executor.proxies).toEqual([]);
+	});
+
+	test("unknown NEXAL_* env vars are coerced but ignored silently", async () => {
+		setEnv("NEXAL_CONFIG_PATH", "/nonexistent");
+		setEnv("NEXAL_COMPLETELY_MADE_UP_KEY", "42");
+		// Shouldn't affect any documented field; shouldn't throw.
+		const cfg = await loadConfig();
+		expect(cfg.debounceSecs).toBe(1); // default still wins
+	});
+
+	test("NEXAL_CHANNEL__TELEGRAM__BOT_TOKEN populates channel.telegram.botToken", async () => {
+		setEnv("NEXAL_CONFIG_PATH", "/nonexistent");
+		setEnv("NEXAL_CHANNEL__TELEGRAM__BOT_TOKEN", "abc123");
+		const cfg = await loadConfig();
+		// env handler snake→camelCases leaf keys under `channel`.
+		expect(cfg.channel.telegram?.botToken).toBe("abc123");
+	});
+});
+
+describe("isAdmin", () => {
+	test("returns true when the username is in the admins list", () => {
+		expect(isAdmin({ admins: ["alice", "bob"] } as any, "alice")).toBe(true);
+	});
+
+	test("returns false when not in the list", () => {
+		expect(isAdmin({ admins: ["alice"] } as any, "bob")).toBe(false);
+	});
+
+	test("is case-sensitive (matches exact string)", () => {
+		expect(isAdmin({ admins: ["Alice"] } as any, "alice")).toBe(false);
+		expect(isAdmin({ admins: ["Alice"] } as any, "Alice")).toBe(true);
+	});
+
+	test("empty admins list → nobody is an admin", () => {
+		expect(isAdmin({ admins: [] } as any, "anyone")).toBe(false);
 	});
 });

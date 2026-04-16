@@ -74,12 +74,12 @@ impl PodmanBackend {
     async fn discover_ws_url(&self, container_name: &str) -> Result<String, BackendError> {
         let port_arg = format!("{CONTAINER_WS_PORT}/tcp");
         for _ in 0..30u32 {
-            if let Ok(out) = self.podman(&["port", container_name, &port_arg]).await {
-                if let Some(line) = out.lines().next() {
-                    let trimmed = line.trim();
-                    if !trimmed.is_empty() {
-                        return Ok(format!("ws://{trimmed}"));
-                    }
+            if let Ok(out) = self.podman(&["port", container_name, &port_arg]).await
+                && let Some(line) = out.lines().next()
+            {
+                let trimmed = line.trim();
+                if !trimmed.is_empty() {
+                    return Ok(format!("ws://{trimmed}"));
                 }
             }
             sleep(Duration::from_millis(200)).await;
@@ -253,4 +253,55 @@ fn days_to_ymd(days: i64) -> (i32, u32, u32) {
     let m = if mp < 10 { mp + 3 } else { mp - 9 };
     let y = if m <= 2 { y + 1 } else { y };
     (y as i32, m as u32, d as u32)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{days_to_ymd, iso_now};
+
+    #[test]
+    fn unix_epoch_is_1970_01_01() {
+        assert_eq!(days_to_ymd(0), (1970, 1, 1));
+    }
+
+    #[test]
+    fn crosses_month_and_year_boundaries() {
+        assert_eq!(days_to_ymd(30), (1970, 1, 31));
+        assert_eq!(days_to_ymd(31), (1970, 2, 1));
+        assert_eq!(days_to_ymd(365), (1971, 1, 1));
+    }
+
+    #[test]
+    fn known_millennial_days() {
+        // 2000-01-01 is 30 years * 365 + 7 leap days = 10957 days after epoch.
+        assert_eq!(days_to_ymd(10_957), (2000, 1, 1));
+        // 2020-02-29 — 2020 is a leap year, Feb 29 is day 18_321 from epoch.
+        assert_eq!(days_to_ymd(18_321), (2020, 2, 29));
+    }
+
+    #[test]
+    fn handles_leap_day_after_not_leap() {
+        // 1972-02-29 exists (1972 IS a leap year).
+        // Day index: 1970..1972 = 2*365 + 1 (1972 comes after non-leap 1970/1971)
+        // + Feb 29 offset (31 for Jan + 28 = 59 already, so Jan31 = 31-1 = 30, Feb29 = 30+29=59).
+        // Easier: compute from end of Jan 1972 and walk.
+        assert_eq!(days_to_ymd(365 + 365 + 31 + 28), (1972, 2, 29));
+        assert_eq!(days_to_ymd(365 + 365 + 31 + 29), (1972, 3, 1));
+    }
+
+    #[test]
+    fn iso_now_has_expected_format_and_plausible_year() {
+        let s = iso_now();
+        // RFC3339 UTC second-precision: YYYY-MM-DDTHH:MM:SSZ (20 chars).
+        assert_eq!(s.len(), 20);
+        assert!(s.ends_with('Z'));
+        assert_eq!(s.chars().nth(4), Some('-'));
+        assert_eq!(s.chars().nth(7), Some('-'));
+        assert_eq!(s.chars().nth(10), Some('T'));
+        assert_eq!(s.chars().nth(13), Some(':'));
+        assert_eq!(s.chars().nth(16), Some(':'));
+        // Sanity: year component is between 2020 and 2100 for any realistic test run.
+        let year: i32 = s[0..4].parse().expect("first 4 chars should be a year");
+        assert!((2020..2100).contains(&year), "implausible year: {year}");
+    }
 }

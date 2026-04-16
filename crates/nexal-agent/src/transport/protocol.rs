@@ -393,3 +393,136 @@ mod base64_bytes {
             .map_err(serde::de::Error::custom)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    // ── RequestId round-trip ──────────────────────────────────────
+
+    #[test]
+    fn request_id_string_round_trips() {
+        let id = RequestId::String("abc-123".into());
+        let v = serde_json::to_value(&id).expect("serialize");
+        assert_eq!(v, json!("abc-123"));
+        let back: RequestId = serde_json::from_value(v).expect("deserialize");
+        assert_eq!(back, id);
+    }
+
+    #[test]
+    fn request_id_integer_round_trips() {
+        let id = RequestId::Integer(42);
+        let v = serde_json::to_value(&id).expect("serialize");
+        assert_eq!(v, json!(42));
+        let back: RequestId = serde_json::from_value(v).expect("deserialize");
+        assert_eq!(back, id);
+    }
+
+    #[test]
+    fn request_id_null_round_trips() {
+        let id = RequestId::Null;
+        let v = serde_json::to_value(&id).expect("serialize");
+        assert_eq!(v, json!(null));
+        let back: RequestId = serde_json::from_value(v).expect("deserialize");
+        assert_eq!(back, id);
+    }
+
+    #[test]
+    fn request_id_display_formats_correctly() {
+        assert_eq!(RequestId::String("x".into()).to_string(), "x");
+        assert_eq!(RequestId::Integer(99).to_string(), "99");
+        assert_eq!(RequestId::Null.to_string(), "null");
+    }
+
+    // ── JSONRPCMessage discriminated parse ─────────────────────────
+
+    #[test]
+    fn parses_request_with_id_and_method() {
+        let raw = json!({
+            "jsonrpc": "2.0",
+            "id": "req-1",
+            "method": "process/start",
+            "params": { "process_id": "p1" }
+        });
+        let msg: JSONRPCMessage = serde_json::from_value(raw).expect("parse request");
+        match msg {
+            JSONRPCMessage::Request(req) => {
+                assert_eq!(req.id, RequestId::String("req-1".into()));
+                assert_eq!(req.method, "process/start");
+            }
+            other => panic!("expected Request, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_notification_without_id() {
+        let raw = json!({
+            "jsonrpc": "2.0",
+            "method": "process/output",
+            "params": { "chunk": "data" }
+        });
+        let msg: JSONRPCMessage = serde_json::from_value(raw).expect("parse notification");
+        match msg {
+            JSONRPCMessage::Notification(n) => {
+                assert_eq!(n.method, "process/output");
+            }
+            other => panic!("expected Notification, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_response_with_result() {
+        let raw = json!({
+            "jsonrpc": "2.0",
+            "id": 7,
+            "result": { "ok": true }
+        });
+        let msg: JSONRPCMessage = serde_json::from_value(raw).expect("parse response");
+        match msg {
+            JSONRPCMessage::Response(r) => {
+                assert_eq!(r.id, RequestId::Integer(7));
+                assert_eq!(r.result, json!({ "ok": true }));
+            }
+            other => panic!("expected Response, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_error_response_with_null_id() {
+        let raw = json!({
+            "jsonrpc": "2.0",
+            "id": null,
+            "error": { "code": -32700, "message": "parse error" }
+        });
+        let msg: JSONRPCMessage = serde_json::from_value(raw).expect("parse error response");
+        match msg {
+            JSONRPCMessage::Error(e) => {
+                assert_eq!(e.id, RequestId::Null);
+                assert_eq!(e.error.code, -32700);
+                assert_eq!(e.error.message, "parse error");
+            }
+            other => panic!("expected Error, got {other:?}"),
+        }
+    }
+
+    // ── Proxy wire types ──────────────────────────────────────────
+
+    #[test]
+    fn proxy_register_params_snake_case() {
+        let p = ProxyRegisterParams {
+            socket_path: "/ws/.nexal/proxies/jina.sock".into(),
+            upstream_url: "https://api.jina.ai".into(),
+            headers: [("Authorization".into(), "Bearer k".into())]
+                .into_iter()
+                .collect(),
+        };
+        let v = serde_json::to_value(&p).expect("serialize");
+        let obj = v.as_object().expect("is object");
+        assert!(obj.contains_key("socket_path"));
+        assert!(obj.contains_key("upstream_url"));
+        // No camelCase leak.
+        assert!(!obj.contains_key("socketPath"));
+        assert!(!obj.contains_key("upstreamUrl"));
+    }
+}

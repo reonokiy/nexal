@@ -38,19 +38,33 @@ interface Slot {
 }
 
 /**
- * Minimal unbounded async queue. `push` is O(1); `take` awaits a value
- * and returns `null` once the queue is closed and drained.
+ * Minimal unbounded async queue.
+ *
+ * `push` is O(1). Consumers can pick between:
+ *   - `take()` — await a value (or `null` once the queue is closed
+ *     and drained). Registers a waiter that gets exclusive delivery
+ *     of the next push.
+ *   - `whenReady()` + `tryTake()` — peek-style: `whenReady` resolves
+ *     whenever the queue becomes non-empty or closes, without
+ *     reserving the next push. Use when racing against a timer — the
+ *     orphan-waiter problem of `take()` (a lost race leaves a waiter
+ *     that silently steals the next push) is avoided entirely.
  */
 class AsyncQueue<T> {
 	private readonly items: T[] = [];
 	private readonly waiters: Array<(v: T | null) => void> = [];
+	private readonly readyWakers: Array<() => void> = [];
 	private closed = false;
 
 	push(v: T): void {
 		if (this.closed) return;
 		const w = this.waiters.shift();
-		if (w) w(v);
-		else this.items.push(v);
+		if (w) {
+			w(v);
+			return;
+		}
+		this.items.push(v);
+		for (const wake of this.readyWakers.splice(0)) wake();
 	}
 
 	take(): Promise<T | null> {
@@ -60,9 +74,29 @@ class AsyncQueue<T> {
 		return new Promise((resolve) => this.waiters.push(resolve));
 	}
 
+	/** Non-blocking variant. Returns `null` if nothing is buffered. */
+	tryTake(): T | null {
+		return this.items.shift() ?? null;
+	}
+
+	/**
+	 * Resolves the instant the queue has something buffered OR has
+	 * been closed. Does NOT reserve the next push — safe to use inside
+	 * `Promise.race` against a timer.
+	 */
+	whenReady(): Promise<void> {
+		if (this.items.length > 0 || this.closed) return Promise.resolve();
+		return new Promise((resolve) => this.readyWakers.push(resolve));
+	}
+
+	isClosed(): boolean {
+		return this.closed;
+	}
+
 	close(): void {
 		this.closed = true;
 		for (const w of this.waiters.splice(0)) w(null);
+		for (const wake of this.readyWakers.splice(0)) wake();
 	}
 }
 
@@ -112,22 +146,35 @@ export class SessionRunner {
 			const timer = new Promise<"timeout">((resolve) =>
 				setTimeout(() => resolve("timeout"), remaining),
 			);
+			// IMPORTANT: use whenReady+tryTake, not take(). A losing
+			// take() in the race leaves a waiter on the queue that
+			// silently steals the next push — debugged by the
+			// "unmentioned within active window" test.
 			const race = await Promise.race([
-				this.queue.take().then((m) => ({ kind: "msg", msg: m }) as const),
-				timer.then(() => ({ kind: "timeout" }) as const),
+				this.queue.whenReady().then(() => "ready" as const),
+				timer.then(() => "timeout" as const),
 			]);
 
-			if (race.kind === "msg") {
-				if (race.msg === null) {
-					// Closed. Flush anything pending, then exit.
-					if (pending.length > 0) await this.dispatch(pending);
-					return;
+			if (race === "ready") {
+				const msg = this.queue.tryTake();
+				if (msg === null) {
+					// whenReady can also fire on close — drain pending + exit.
+					if (this.queue.isClosed()) {
+						if (pending.length > 0) await this.dispatch(pending);
+						return;
+					}
+					// Spurious wake (shouldn't happen in practice); loop.
+					continue;
 				}
-				const wait = this.nextDelayMs(race.msg, () => {
-					lastMentionedAt = Date.now();
-				}, lastMentionedAt);
+				const wait = this.nextDelayMs(
+					msg,
+					() => {
+						lastMentionedAt = Date.now();
+					},
+					lastMentionedAt,
+				);
 				deadline = Date.now() + wait;
-				pending.push(race.msg);
+				pending.push(msg);
 				continue;
 			}
 

@@ -665,12 +665,11 @@ async fn maybe_emit_closed(process_id: ProcessId, inner: Arc<Inner>) {
         return;
     };
 
-    if inner
+    // Ignore notify errors — send_closed below always fires regardless.
+    let _ = inner
         .notifications
         .notify(EXEC_CLOSED_METHOD, &notification)
-        .await
-        .is_err()
-    {}
+        .await;
     inner.process_events.send_closed(notification);
 }
 
