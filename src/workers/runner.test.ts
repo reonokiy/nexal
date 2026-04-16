@@ -378,7 +378,7 @@ describe("WorkerRunner.sendToSourceChat()", () => {
 		});
 		await runner.sendToSourceChat("step done");
 		expect(sent).toEqual([
-			{ chatId: "-42", text: "[refactor-bot] step done", replyTo: undefined },
+			{ chatId: "-42", text: "step done", replyTo: undefined, meta: { worker: { name: "refactor-bot", kind: "executor", lifetime: "persistent" } } },
 		]);
 	});
 
@@ -615,7 +615,7 @@ describe("WorkerRunner event wiring", () => {
 			message: { role: "assistant", content: "interim update" },
 		});
 		expect(sent).toEqual([
-			{ chatId: "-1", text: "[bot] interim update", replyTo: undefined },
+			{ chatId: "-1", text: "interim update", replyTo: undefined, meta: { worker: { name: "bot", kind: "executor", lifetime: "persistent" } } },
 		]);
 	});
 
@@ -710,7 +710,7 @@ describe("WorkerRunner.handleAgentEnd (via agent_end event)", () => {
 			],
 		});
 		expect(sent).toEqual([
-			{ chatId: "-1", text: "[bot] final word", replyTo: undefined },
+			{ chatId: "-1", text: "final word", replyTo: undefined, meta: { worker: { name: "bot", kind: "executor", lifetime: "shot" } } },
 		]);
 	});
 
@@ -768,7 +768,7 @@ describe("WorkerRunner.handleAgentEnd (via agent_end event)", () => {
 		});
 		expect(store.markFailedCalls).toEqual([["w-1", "model returned 500"]]);
 		expect(sent).toEqual([
-			{ chatId: "-1", text: "[bot] ❌ failed: model returned 500", replyTo: undefined },
+			{ chatId: "-1", text: "❌ failed: model returned 500", replyTo: undefined, meta: { worker: { name: "bot", kind: "executor", lifetime: "shot" } } },
 		]);
 		expect(gateway.releaseCalls).toEqual(["worker:w-1"]);
 		expect(terminalSeen).toEqual(["w-1"]);

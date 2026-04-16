@@ -173,6 +173,7 @@ export class WsChannel implements Channel {
 			type: "reply",
 			chat_id: reply.chatId,
 			text: reply.text,
+			...(reply.meta ? { meta: reply.meta } : {}),
 		});
 		for (const ws of set) {
 			ws.send(frame);

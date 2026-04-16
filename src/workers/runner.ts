@@ -227,8 +227,15 @@ export class WorkerRunner {
 		try {
 			await ch.send({
 				chatId: this.deps.row.sourceChatId,
-				text: `[${this.deps.row.kind}:${this.deps.row.lifetime}:${this.deps.row.name}] ${text}`,
+				text,
 				replyTo: opts?.replyTo ?? this.deps.row.sourceReplyTo ?? undefined,
+				meta: {
+					worker: {
+						name: this.deps.row.name,
+						kind: this.deps.row.kind,
+						lifetime: this.deps.row.lifetime,
+					},
+				},
 			});
 		} catch (err) {
 			this.log.error(`failed to send message via ${this.deps.row.sourceChannel} to chat ${this.deps.row.sourceChatId}`, err);

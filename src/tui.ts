@@ -193,23 +193,24 @@ function addUserMessage(text: string): void {
 	history.addChild(new Text(chalk.dim("└ ") + text, 0, 0));
 }
 
-const WORKER_PREFIX_RE = /^\[(?:([^:\]]+):(?:([^:\]]+):)?)?([^\]]+)\]\s*/;
+interface WorkerMeta {
+	name?: string;
+	kind?: string;
+	lifetime?: string;
+}
 
-function addBotReply(text: string): void {
-	const m = text.match(WORKER_PREFIX_RE);
-	if (m) {
-		const kind = m[1] ?? "worker";
-		const lifetime = m[2] ?? "";
-		const name = m[3];
-		const body = text.slice(m[0].length);
+function addBotReply(text: string, worker?: WorkerMeta): void {
+	if (worker?.name) {
+		const kind = worker.kind ?? "worker";
+		const lifetime = worker.lifetime ?? "";
 		const tag = lifetime ? `${kind} · ${lifetime}` : kind;
-		const label = chalk.bold.cyan(name) + chalk.dim(` (${tag})`);
+		const label = chalk.bold.cyan(worker.name) + chalk.dim(` (${tag})`);
 
-		if (name === currentWorkerName) {
+		if (worker.name === currentWorkerName) {
 			// Same worker — separate with a dim line
 			workerMsgCount++;
 			history.addChild(new Text(chalk.dim("   ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌"), 0, 0));
-			history.addChild(new Markdown(body, 3, 0, markdownTheme));
+			history.addChild(new Markdown(text, 3, 0, markdownTheme));
 			return;
 		}
 
@@ -223,9 +224,9 @@ function addBotReply(text: string): void {
 			widget,
 			sealedText: chalk.dim("├─ ") + label,
 		};
-		currentWorkerName = name;
+		currentWorkerName = worker.name;
 		workerMsgCount = 1;
-		history.addChild(new Markdown(body, 3, 0, markdownTheme));
+		history.addChild(new Markdown(text, 3, 0, markdownTheme));
 	} else {
 		// Coordinator direct message
 		sealBranch();
@@ -288,7 +289,12 @@ function connect(): void {
 
 	ws.on("message", (raw: WS.RawData) => {
 		const text = typeof raw === "string" ? raw : raw.toString("utf-8");
-		let msg: { type?: string; chat_id?: string; text?: string };
+		let msg: {
+			type?: string;
+			chat_id?: string;
+			text?: string;
+			meta?: { worker?: { name?: string; kind?: string; lifetime?: string } };
+		};
 		try {
 			msg = JSON.parse(text);
 		} catch {
@@ -297,7 +303,7 @@ function connect(): void {
 
 		if (msg.type === "reply" && typeof msg.text === "string") {
 			hideLoader();
-			addBotReply(msg.text);
+			addBotReply(msg.text, msg.meta?.worker);
 			finishReply();
 		} else if (msg.type === "typing") {
 			showLoader();
