@@ -19,11 +19,13 @@
 //! the order they arrive. This keeps the response order deterministic
 //! for the frontend, which simplifies its dispatcher.
 
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use nexal_utils_json_transport::{JsonMessageConnection, JsonMessageConnectionEvent};
 use serde_json::{Value, json};
-use tokio::net::{TcpListener, TcpStream};
+use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::net::{TcpListener, UnixListener};
 use tokio::sync::{Mutex, mpsc};
 use tokio_tungstenite::accept_async;
 use tracing::{debug, error, info, warn};
@@ -43,44 +45,72 @@ pub const GATEWAY_VERSION: &str = env!("CARGO_PKG_VERSION");
 #[derive(Clone)]
 pub struct ServerConfig {
     pub listen: String,
+    /// If set, listen on this Unix domain socket instead of TCP.
+    pub unix: Option<PathBuf>,
     pub token: String,
     pub proxy_external_base: String,
 }
 
 pub async fn serve(cfg: ServerConfig, registry: Arc<AgentRegistry>) -> std::io::Result<()> {
-    let listener = TcpListener::bind(&cfg.listen).await?;
-    info!("nexal-gateway listening on ws://{}", cfg.listen);
-    loop {
-        let (stream, peer) = match listener.accept().await {
-            Ok(v) => v,
-            Err(err) => {
-                error!("accept failed: {err}");
-                continue;
-            }
-        };
-        let cfg = cfg.clone();
-        let registry = registry.clone();
-        tokio::spawn(async move {
-            if let Err(err) = handle_connection(stream, peer, cfg, registry).await {
-                warn!("session for {peer} ended: {err}");
-            }
-        });
+    if let Some(ref path) = cfg.unix {
+        // Remove stale socket file from a previous run.
+        let _ = std::fs::remove_file(path);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let listener = UnixListener::bind(path)?;
+        info!("nexal-gateway listening on unix:{}", path.display());
+        loop {
+            let (stream, _addr) = match listener.accept().await {
+                Ok(v) => v,
+                Err(err) => {
+                    error!("accept failed: {err}");
+                    continue;
+                }
+            };
+            let label = format!("unix-{}", _addr.as_pathname().map(|p| p.display().to_string()).unwrap_or_default());
+            let cfg = cfg.clone();
+            let registry = registry.clone();
+            tokio::spawn(async move {
+                if let Err(err) = handle_stream(stream, &label, cfg, registry).await {
+                    warn!("session for {label} ended: {err}");
+                }
+            });
+        }
+    } else {
+        let listener = TcpListener::bind(&cfg.listen).await?;
+        info!("nexal-gateway listening on ws://{}", cfg.listen);
+        loop {
+            let (stream, peer) = match listener.accept().await {
+                Ok(v) => v,
+                Err(err) => {
+                    error!("accept failed: {err}");
+                    continue;
+                }
+            };
+            let label = peer.to_string();
+            let cfg = cfg.clone();
+            let registry = registry.clone();
+            tokio::spawn(async move {
+                if let Err(err) = handle_stream(stream, &label, cfg, registry).await {
+                    warn!("session for {label} ended: {err}");
+                }
+            });
+        }
     }
 }
 
-async fn handle_connection(
-    stream: TcpStream,
-    peer: std::net::SocketAddr,
-    cfg: ServerConfig,
-    registry: Arc<AgentRegistry>,
-) -> Result<(), String> {
+async fn handle_stream<S>(stream: S, label: &str, cfg: ServerConfig, registry: Arc<AgentRegistry>) -> Result<(), String>
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
     let ws = accept_async(stream)
         .await
         .map_err(|e| format!("ws handshake: {e}"))?;
-    info!("frontend session opened: {peer}");
-    let session = Session::new(ws, cfg, registry, format!("frontend websocket {peer}"));
+    info!("frontend session opened: {label}");
+    let session = Session::new(ws, cfg, registry, format!("frontend websocket {label}"));
     session.run().await;
-    info!("frontend session closed: {peer}");
+    info!("frontend session closed: {label}");
     Ok(())
 }
 
@@ -94,8 +124,8 @@ struct Session {
 }
 
 impl Session {
-    fn new(
-        ws: tokio_tungstenite::WebSocketStream<TcpStream>,
+    fn new<S: AsyncRead + AsyncWrite + Unpin + Send + 'static>(
+        ws: tokio_tungstenite::WebSocketStream<S>,
         cfg: ServerConfig,
         registry: Arc<AgentRegistry>,
         connection_label: String,
@@ -230,7 +260,7 @@ impl Session {
                 let p: SpawnAgentParams = parse_params(params)?;
                 let entry = self
                     .registry
-                    .spawn(p.name, p.image, p.env, p.labels, p.workspace)
+                    .spawn(p.name, p.image, p.env, p.labels)
                     .await
                     .map_err(registry_err)?;
                 Ok(serde_json::to_value(SpawnAgentResponse {
@@ -429,7 +459,7 @@ fn container_socket_path(name: &str) -> String {
             sanitized.push('_');
         }
     }
-    format!("/workspace/.nexal/proxies/{sanitized}.sock")
+    format!("/run/nexal/proxy/{sanitized}.socket")
 }
 
 #[allow(dead_code)]
@@ -513,7 +543,7 @@ mod tests {
     fn socket_path_uses_convention() {
         assert_eq!(
             container_socket_path("jina"),
-            "/workspace/.nexal/proxies/jina.sock"
+            "/run/nexal/proxy/jina.socket"
         );
     }
 
@@ -521,7 +551,7 @@ mod tests {
     fn socket_path_preserves_safe_chars() {
         assert_eq!(
             container_socket_path("api-v2.0_final"),
-            "/workspace/.nexal/proxies/api-v2.0_final.sock"
+            "/run/nexal/proxy/api-v2.0_final.socket"
         );
     }
 
@@ -529,11 +559,11 @@ mod tests {
     fn socket_path_sanitizes_unsafe_chars() {
         assert_eq!(
             container_socket_path("foo/bar baz"),
-            "/workspace/.nexal/proxies/foo_bar_baz.sock"
+            "/run/nexal/proxy/foo_bar_baz.socket"
         );
         assert_eq!(
             container_socket_path("has:colon"),
-            "/workspace/.nexal/proxies/has_colon.sock"
+            "/run/nexal/proxy/has_colon.socket"
         );
     }
 
@@ -542,7 +572,7 @@ mod tests {
         // An empty name shouldn't produce a traversable path.
         assert_eq!(
             container_socket_path(""),
-            "/workspace/.nexal/proxies/.sock"
+            "/run/nexal/proxy/.socket"
         );
     }
 
@@ -551,7 +581,7 @@ mod tests {
         // Non-ascii collapses to underscore, keeping paths POSIX-safe.
         assert_eq!(
             container_socket_path("测试"),
-            "/workspace/.nexal/proxies/__.sock"
+            "/run/nexal/proxy/__.socket"
         );
     }
 }

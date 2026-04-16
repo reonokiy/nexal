@@ -39,8 +39,6 @@ pub struct ContainerSpec {
     pub env: HashMap<String, String>,
     /// Labels to attach (gateway adds its own `app=nexal` family on top).
     pub labels: HashMap<String, String>,
-    /// Optional host directory bind-mounted at `/workspace` in the container.
-    pub workspace: Option<String>,
     /// Host path to the `nexal-agent` binary (copied into the container at
     /// `/usr/local/bin/nexal-agent` on first creation).
     pub agent_bin: PathBuf,
@@ -49,6 +47,8 @@ pub struct ContainerSpec {
     pub pids_limit: Option<u32>,
     /// Allow outbound DNS / network from inside the container.
     pub network: bool,
+    /// Host path bind-mounted at `/workspace`. None = no mount.
+    pub workspace_volume: Option<String>,
 }
 
 /// Result of `ensure_container`: enough for the gateway to dial the

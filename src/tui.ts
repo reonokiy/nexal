@@ -1,16 +1,12 @@
 /**
- * Nexal TUI — terminal chat client that connects to the WsChannel
+ * nexal TUI — terminal chat client that connects to the WsChannel
  * over a Unix domain socket (default) or TCP WebSocket.
  *
  * Usage:
- *   bun run src/tui.ts                          # Unix socket ~/.nexal/nexal.sock
- *   bun run src/tui.ts --unix /tmp/nexal.sock   # Custom Unix socket
- *   bun run src/tui.ts --port 3001              # TCP mode
+ *   bun run src/tui.ts                          # ws://127.0.0.1:3001
+ *   bun run src/tui.ts --port 4000              # Custom port
  *   bun run src/tui.ts --chat-id myChat         # Custom chat ID
  */
-import { createConnection } from "node:net";
-import { homedir } from "node:os";
-import { join } from "node:path";
 import WS from "ws";
 import chalk from "chalk";
 import { saveAuth, saveModelConfig, loadAuth, loadModelConfig } from "./settings.ts";
@@ -34,35 +30,29 @@ import {
 // ── CLI args ────────────────────────────────────────────────────────
 
 function parseArgs(argv: string[]): {
-	unix: string | null;
 	host: string;
 	port: number;
 	chatId: string;
 } {
-	let unix: string | null = join(homedir(), ".nexal", "nexal.sock");
 	let host = "127.0.0.1";
-	let port = 0;
+	let port = 3001;
 	let chatId = "tui";
 
 	for (let i = 2; i < argv.length; i++) {
 		const arg = argv[i];
 		const next = argv[i + 1];
-		if (arg === "--unix" && next) {
-			unix = next;
-			i++;
-		} else if (arg === "--host" && next) {
+		if (arg === "--host" && next) {
 			host = next;
 			i++;
 		} else if (arg === "--port" && next) {
 			port = Number(next);
-			unix = null; // TCP mode
 			i++;
 		} else if (arg === "--chat-id" && next) {
 			chatId = next;
 			i++;
 		}
 	}
-	return { unix, host, port, chatId };
+	return { host, port, chatId };
 }
 
 const args = parseArgs(process.argv);
@@ -146,7 +136,7 @@ function addUserMessage(text: string): void {
 
 function addBotReply(text: string): void {
 	history.addChild(new Spacer(1));
-	history.addChild(new Text(chalk.bold.magenta("Nexal"), 1, 0));
+	history.addChild(new Text(chalk.bold.magenta("nexal"), 1, 0));
 	history.addChild(new Markdown(text, 1, 0, markdownTheme));
 }
 
@@ -186,12 +176,6 @@ function finishReply(): void {
 let ws: WS | null = null;
 
 function createWs(): WS {
-	if (args.unix) {
-		// Connect via Unix domain socket using a raw TCP socket.
-		return new WS("ws://localhost/ws", {
-			createConnection: () => createConnection(args.unix!),
-		});
-	}
 	return new WS(`ws://${args.host}:${args.port}/ws`);
 }
 
@@ -403,10 +387,6 @@ process.on("SIGTERM", shutdown);
 
 // Go
 addSystemNote(`nexal-tui  (chat_id=${args.chatId})`);
-addSystemNote(
-	args.unix
-		? `Connecting to unix:${args.unix}`
-		: `Connecting to ws://${args.host}:${args.port}`,
-);
+addSystemNote(`Connecting to ws://${args.host}:${args.port}`);
 tui.start();
 connect();

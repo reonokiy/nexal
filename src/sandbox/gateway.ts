@@ -34,8 +34,6 @@ interface Entry {
 }
 
 export interface GatewayBackendOptions {
-	/** Workspace bind-mount applied to every spawn unless overridden. */
-	defaultWorkspace?: string;
 }
 
 export class GatewayBackend implements SandboxBackend {
@@ -97,7 +95,6 @@ export class GatewayBackend implements SandboxBackend {
 		const result = await this.gateway.invoke("gateway/spawn_agent", {
 			name: sessionKey,
 			env: opts?.env ?? {},
-			workspace: opts?.workspace ?? this.options.defaultWorkspace,
 			labels: { "nexal.session_key": sessionKey },
 		});
 		const client = new GatewayAgentClient(this.gateway, result.agent_id);

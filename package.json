@@ -1,7 +1,7 @@
 {
   "name": "nexal",
   "version": "0.1.0",
-  "description": "Nexal multi-channel bot on top of pi-agent-core and pi-ai",
+  "description": "nexal multi-channel bot on top of pi-agent-core and pi-ai",
   "type": "module",
   "private": true,
   "bin": {

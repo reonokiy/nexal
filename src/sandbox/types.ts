@@ -58,8 +58,6 @@ export interface AgentClient {
 export interface AcquireOptions {
 	/** Extra env vars passed into the sandbox. */
 	env?: Record<string, string>;
-	/** Host workspace bind-mounted at `/workspace`. */
-	workspace?: string;
 }
 
 export interface SandboxBackend {

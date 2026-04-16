@@ -13,7 +13,7 @@ It currently provides:
 - a Rust client: `ExecServerClient`
 - a small protocol module with shared request/response types
 
-This crate is intentionally narrow. It is not wired into the main Nexal CLI or
+This crate is intentionally narrow. It is not wired into the main nexal CLI or
 unified-exec in this PR; it is only the standalone transport layer.
 
 ## Transport

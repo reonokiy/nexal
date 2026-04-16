@@ -23,6 +23,10 @@ struct Args {
     #[arg(long, env = "NEXAL_GATEWAY_LISTEN")]
     listen: Option<String>,
 
+    /// Listen on a Unix domain socket instead of TCP.
+    #[arg(long, env = "NEXAL_GATEWAY_UNIX")]
+    unix: Option<PathBuf>,
+
     /// Override the proxy HTTP listen address (e.g. `0.0.0.0:5501`).
     #[arg(long = "proxy-listen", env = "NEXAL_GATEWAY_PROXY_LISTEN")]
     proxy_listen: Option<String>,
@@ -99,17 +103,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let defaults = SpawnDefaults {
         image,
         agent_bin,
-        workspace: cfg.defaults.workspace.clone(),
         memory: cfg.defaults.memory.clone().or(Some("512m".into())),
         cpus: cfg.defaults.cpus.clone().or(Some("1.0".into())),
         pids_limit: cfg.defaults.pids_limit.or(Some(256)),
         network: cfg.defaults.network.unwrap_or(true),
+        workspace_volume: cfg.defaults.workspace_volume.clone().or_else(|| {
+            dirs::home_dir().map(|h| h.join(".nexal").join("workspace").to_string_lossy().into_owned())
+        }),
         container_name_prefix: cfg
             .defaults
             .container_name_prefix
             .clone()
             .unwrap_or_else(|| "nexal-worker-".into()),
     };
+
+    // Ensure workspace_volume directory exists.
+    if let Some(vol) = &defaults.workspace_volume {
+        std::fs::create_dir_all(vol)?;
+    }
 
     let proxies = Arc::new(ProxyRegistry::new());
     let registry = Arc::new(AgentRegistry::new(backend, defaults, proxies.clone()));
@@ -136,6 +147,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     nexal_gateway::serve(
         ServerConfig {
             listen,
+            unix: args.unix,
             token,
             proxy_external_base,
         },

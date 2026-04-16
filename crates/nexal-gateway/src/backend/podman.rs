@@ -7,8 +7,7 @@
 //! - Container reuse by name (no `rm -f` on `ensure`).
 //! - Labels: `app=nexal`, `nexal.kind=worker`, `nexal.session=<name>`,
 //!   `nexal.created=<ISO time>`.
-//! - HOME = `/workspace/.nexal`, NEXAL_DATA_DIR = `/workspace/.nexal`,
-//!   workdir = `/workspace`.
+//! - workdir = `/workspace`.
 //! - `--userns=keep-id`, `--cap-drop=ALL`, `--security-opt=no-new-privileges`.
 //! - WS port 9100 inside container, published to a random host port,
 //!   discovered via `podman port`.
@@ -115,10 +114,6 @@ impl ContainerBackend for PodmanBackend {
             "--userns=keep-id".into(),
             "--security-opt=no-new-privileges".into(),
             "--cap-drop=ALL".into(),
-            // /workspace is the user-facing project area; /workspace/.nexal
-            // is HOME and scratch space.
-            "--env=HOME=/workspace/.nexal".into(),
-            "--env=NEXAL_DATA_DIR=/workspace/.nexal".into(),
             "--workdir=/workspace".into(),
             // Default labels — frontend-supplied labels are appended below.
             "--label=app=nexal".into(),
@@ -159,8 +154,9 @@ impl ContainerBackend for PodmanBackend {
             args.push("--dns=8.8.8.8".into());
         }
 
-        if let Some(ws) = &spec.workspace {
-            args.push(format!("--volume={ws}:/workspace"));
+
+        if let Some(vol) = &spec.workspace_volume {
+            args.push(format!("--volume={vol}:/workspace"));
         }
 
         args.push(spec.image.clone());
@@ -181,16 +177,9 @@ impl ContainerBackend for PodmanBackend {
 
         self.podman(&["start", &spec.name]).await?;
 
-        // Ensure /workspace/.nexal exists and is writable by the
-        // keep-id mapped user. Done as root inside the container so it
-        // works even when the image's /workspace is root-owned (the
-        // common case when no host bind-mount is provided).
-        //
-        // When a bind-mount IS present we still mkdir+chmod — the
-        // operations are no-ops if the dir already exists with the
-        // right perms, and the host-side workspace is per-session so
-        // any chmod we do is contained to that session's directory.
-        let setup_cmd = "mkdir -p /workspace/.nexal && chmod 1777 /workspace /workspace/.nexal";
+        // Ensure /nexal and /workspace exist and are writable by the
+        // keep-id mapped user.
+        let setup_cmd = "mkdir -p /workspace /run/nexal/proxy && chmod 1777 /workspace /run/nexal/proxy";
         if let Err(err) = self
             .podman(&[
                 "exec", "--user", "0", &spec.name, "/bin/sh", "-c", setup_cmd,

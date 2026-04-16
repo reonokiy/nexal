@@ -1,12 +1,12 @@
-# Nexal crates
+# nexal crates
 
 ## Two-tier architecture
 
 The workspace is split into two tiers:
 
-### Tier 1 — Nexal-own crates (~5,600 LOC)
+### Tier 1 — nexal-own crates (~5,600 LOC)
 
-These crates are written specifically for Nexal. They own the product
+These crates are written specifically for nexal. They own the product
 layer: channel adapters, config, agent orchestration, and the binary.
 
 | Crate | Package | Purpose |
@@ -35,14 +35,14 @@ Key crates in this tier: `core`, `tui`, `tui-render`, `app-server`,
 
 #### Important: `crates/core/src/nexal.rs`
 
-This file is **not** Nexal-product code. It is the session engine that
+This file is **not** nexal-product code. It is the session engine that
 was originally `crates/core/src/codex.rs` in the upstream repo — renamed
-to `nexal.rs` at fork commit `315e7d6`. The `Nexal` struct is the upstream
-`Codex` struct under a different name. Do not add Nexal-product logic here.
+to `nexal.rs` at fork commit `315e7d6`. The `nexal` struct is the upstream
+`Codex` struct under a different name. Do not add nexal-product logic here.
 
 ## Crate boundaries
 
-- **Tier 1 → Tier 2**: Allowed. Nexal channels use `nexal-core` types
+- **Tier 1 → Tier 2**: Allowed. nexal channels use `nexal-core` types
   (e.g. `Config`) only through `nexal-agent`, which uses
   `nexal-app-server-client` for in-process RPC.
 - **Tier 2 → Tier 1**: Not allowed. Forked crates must not import

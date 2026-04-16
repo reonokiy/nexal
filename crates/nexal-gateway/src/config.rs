@@ -11,7 +11,6 @@
 //! [defaults]
 //! image       = "ghcr.io/reonokiy/nexal-sandbox:python3.13-debian13"
 //! agent_bin   = "/home/lean/i/nexal/target/release/nexal-agent"
-//! workspace   = "/home/lean/scratch"
 //! memory      = "512m"
 //! cpus        = "1.0"
 //! pids_limit  = 256
@@ -55,12 +54,13 @@ pub struct ProxyConfig {
 pub struct SpawnDefaultsConfig {
     pub image: Option<String>,
     pub agent_bin: Option<PathBuf>,
-    pub workspace: Option<String>,
     pub memory: Option<String>,
     pub cpus: Option<String>,
     pub pids_limit: Option<u32>,
     pub network: Option<bool>,
     pub container_name_prefix: Option<String>,
+    /// Host path bind-mounted at `/workspace` in every container.
+    pub workspace_volume: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -118,7 +118,6 @@ token  = "shared"
 
 [defaults]
 image       = "ghcr.io/nexal:latest"
-workspace   = "/tmp/ws"
 memory      = "256m"
 cpus        = "0.5"
 pids_limit  = 64

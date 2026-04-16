@@ -19,7 +19,7 @@ import { GatewayAgentClient } from "../gateway/agent_client.ts";
 
 // ── Paths ───────────────────────────────────────────────────────────
 
-const ROOT = join(import.meta.dir, "../../../..");
+const ROOT = join(import.meta.dir, "../..");
 const GATEWAY_BIN = join(ROOT, "target/release/nexal-gateway");
 const AGENT_BIN = join(ROOT, "target/release/nexal-agent");
 const TOKEN = `e2e-${crypto.randomUUID()}`;

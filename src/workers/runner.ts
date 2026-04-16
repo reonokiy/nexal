@@ -242,10 +242,10 @@ export class WorkerRunner {
 	/**
 	 * Register every configured proxy with the gateway. Gateway in turn
 	 * tells nexal-agent (in this container) to bring up a unix socket
-	 * under `/workspace/.nexal/proxies/<name>.sock` that forwards to
+	 * under `/run/nexal/proxy/<name>.socket` that forwards to
 	 * the gateway, which adds auth headers and proxies to the real
 	 * upstream. The executor uses the socket directly:
-	 *   `curl --unix-socket /workspace/.nexal/proxies/jina.sock http://x/v1/search`
+	 *   `curl --unix-socket /run/nexal/proxy/jina.socket http://x/v1/search`
 	 *
 	 * No-op when there's no gateway, no proxies configured, or the
 	 * client has no `agentId`.
@@ -262,7 +262,7 @@ export class WorkerRunner {
 		// nexal-agent during gateway/register_proxy itself; we just
 		// need the parent dir present.
 		await client
-			.runCommand(["/bin/sh", "-c", "mkdir -p /workspace/.nexal/proxies"], {
+			.runCommand(["/bin/sh", "-c", "mkdir -p /run/nexal/proxy"], {
 				timeoutMs: 5_000,
 			})
 			.catch((err) => this.log.error("mkdir proxies dir", err));

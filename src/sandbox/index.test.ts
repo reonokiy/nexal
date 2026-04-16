@@ -55,12 +55,10 @@ describe("createSandboxBackend", () => {
 		} as any;
 		const backend = createSandboxBackend({
 			gatewayClient: gw,
-			gatewayOptions: { defaultWorkspace: "/opt/ws" },
+			gatewayOptions: {},
 		});
 		await backend.acquire("worker:w");
-		// acquire calls spawn_agent; that's the second call after hello
-		// (hello is a no-op in our stub), so we just verify workspace
-		// made it into the payload.
-		expect((observed as any).workspace).toBe("/opt/ws");
+		// acquire calls spawn_agent; verify session label made it.
+		expect((observed as any).labels["nexal.session_key"]).toBe("worker:w");
 	});
 });

@@ -84,7 +84,7 @@ export interface RegisterProxyResponse {
 	/**
 	 * Path of the unix socket the gateway asked nexal-agent to create
 	 * inside the container. Container code uses this socket directly,
-	 * e.g. `curl --unix-socket /workspace/.nexal/proxies/jina.sock http://x/v1/search`.
+	 * e.g. `curl --unix-socket /run/nexal/proxy/jina.socket http://x/v1/search`.
 	 */
 	socket_path: string;
 }

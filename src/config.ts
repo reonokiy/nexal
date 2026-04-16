@@ -1,5 +1,5 @@
 /**
- * Nexal config loader — slimmed TS port of `crates/nexal-config`.
+ * nexal config loader — slimmed TS port of `crates/nexal-config`.
  *
  * Sources (lowest → highest priority):
  *   1. Built-in defaults

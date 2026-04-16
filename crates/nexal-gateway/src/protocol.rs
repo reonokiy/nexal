@@ -142,9 +142,6 @@ pub struct SpawnAgentParams {
     /// Extra labels merged with the default `app=nexal` set.
     #[serde(default)]
     pub labels: HashMap<String, String>,
-    /// Optional host workspace bind-mounted at `/workspace` inside the container.
-    #[serde(default)]
-    pub workspace: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -239,7 +236,7 @@ pub struct RegisterProxyResponse {
     pub token: String,
     /// Unix socket path inside the container. The gateway told
     /// `nexal-agent` to create it; container code uses it directly,
-    /// e.g. `curl --unix-socket /workspace/.nexal/proxies/jina.sock http://x/v1/search`
+    /// e.g. `curl --unix-socket /run/nexal/proxy/jina.socket http://x/v1/search`
     /// (the URL's host part is ignored).
     pub socket_path: String,
 }
@@ -288,10 +285,9 @@ mod tests {
             image: None,
             env: HashMap::new(),
             labels: HashMap::new(),
-            workspace: None,
         };
         let v = serde_json::to_value(&p).expect("spawn_agent params serialize");
-        // `name` present, image/workspace absent, env/labels present as
+        // `name` present, image absent, env/labels present as
         // empty maps (serde doesn't strip them without
         // `skip_serializing_if`). Asserting structural shape, not
         // bit-for-bit presence, keeps this robust to future tweaks.
@@ -317,7 +313,7 @@ mod tests {
     fn register_proxy_response_carries_snake_case_socket_path() {
         let r = RegisterProxyResponse {
             token: "deadbeef".into(),
-            socket_path: "/workspace/.nexal/proxies/jina.sock".into(),
+            socket_path: "/run/nexal/proxy/jina.socket".into(),
         };
         let v = serde_json::to_value(&r).expect("register_proxy response serialize");
         let obj = v.as_object().expect("serialized shape is an object");

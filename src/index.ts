@@ -1,5 +1,5 @@
 /**
- * Nexal entry — load config, connect to nexal-gateway, start channels,
+ * nexal entry — load config, connect to nexal-gateway, start channels,
  * wire them into the AgentPool. The per-chat main agent is a
  * **dispatcher only**:
  *
@@ -48,7 +48,7 @@ import { loadAuth, loadModelConfig, closeSettings } from "./settings.ts";
 import { createWorkerStore } from "./workers/store.ts";
 
 const DEFAULT_COORDINATOR_PROMPT = [
-	"You are a Nexal coordinator. You DO NOT execute tasks yourself — you have no shell, no filesystem, no network.",
+	"You are a nexal coordinator. You DO NOT execute tasks yourself — you have no shell, no filesystem, no network.",
 	"You schedule work onto agents below you and route messages between them.",
 	"For every incoming message, decide:",
 	"  1. Does an existing agent (use list_agents) already own this domain? If yes, route_to_agent(id, message).",
@@ -59,11 +59,10 @@ const DEFAULT_COORDINATOR_PROMPT = [
 ].join("\n");
 
 const DEFAULT_EXECUTOR_PROMPT = [
-	"You are a Nexal executor agent. You have bash inside a Podman sandbox at /workspace and one tool to talk to the user: send_update.",
+	"You are a nexal executor agent. You have bash inside a Podman sandbox at /workspace and one tool to talk to the user: send_update.",
 	"Filesystem layout:",
-	"  - /workspace        — user-facing project area. Put files the user expects to see here.",
-	"  - /workspace/.nexal — your HOME and scratch space (logs, lockfiles, dotfiles, internal state). $HOME and $NEXAL_DATA_DIR both point here.",
-	"  - /workspace/.nexal/proxies/<name>.sock — pre-registered upstream API proxies as Unix sockets. The gateway injects auth headers for you, so you NEVER see or need API keys. Use the socket directly, e.g. `curl --unix-socket /workspace/.nexal/proxies/jina.sock http://x/v1/search?q=foo` (the host part of the URL is ignored).",
+	"  - /workspace — user-facing project area (empty by default).",
+	"  - /run/nexal/proxy/<name>.socket — pre-registered upstream API proxies as Unix sockets. The gateway injects auth headers for you, so you NEVER see or need API keys. Use the socket directly, e.g. `curl --unix-socket /run/nexal/proxy/jina.socket http://x/v1/search?q=foo` (the host part of the URL is ignored).",
 	"Do the work assigned to you. Use bash freely. Call send_update for milestones, when you need clarification, and to deliver final results.",
 	"Do NOT echo every intermediate thought — each send_update call becomes a separate Telegram message.",
 ].join("\n");
@@ -144,14 +143,14 @@ function apiKeyEnvKey(provider: string): string | null {
 
 // ── Embedded gateway for local dev ──────────────────────────────────
 
-async function launchGateway(_workspace: string): Promise<{
+async function launchGateway(): Promise<{
 	url: string;
 	token: string;
 	proc: Subprocess;
 }> {
 	const token = crypto.randomUUID();
 	const url = "ws://127.0.0.1:15500";
-	const projectRoot = join(import.meta.dir, "../../..");
+	const projectRoot = join(import.meta.dir, "..");
 	const gatewayBin = join(projectRoot, "target/release/nexal-gateway");
 	const agentBin = join(projectRoot, "target/release/nexal-agent");
 
@@ -232,7 +231,7 @@ async function main(): Promise<void> {
 
 	if (!gatewayToken) {
 		// Auto-start an embedded gateway for local dev.
-		const launched = await launchGateway(cfg.workspace);
+		const launched = await launchGateway();
 		gatewayUrl = launched.url;
 		gatewayToken = launched.token;
 		gatewayProc = launched.proc;
@@ -249,7 +248,7 @@ async function main(): Promise<void> {
 
 	const sandbox = createSandboxBackend({
 		gatewayClient: gateway,
-		gatewayOptions: { defaultWorkspace: cfg.workspace },
+		gatewayOptions: {},
 	});
 	log.info(`sandbox backend: ${sandbox.name} (workers only)`);
 
@@ -259,16 +258,11 @@ async function main(): Promise<void> {
 	channels.set("http", new HttpChannel({ port: httpPort }));
 
 	const wsBucket = cfg.channel.ws ?? {};
-	const wsUnix =
-		(wsBucket.unix as string | undefined) ??
-		process.env.NEXAL_WS_UNIX ??
-		join(homedir(), ".nexal", "nexal.sock");
-	const wsPort = Number(wsBucket.port ?? process.env.NEXAL_WS_PORT ?? "0");
+	const wsPort = Number(wsBucket.port ?? process.env.NEXAL_WS_PORT ?? "3001");
 	channels.set(
 		"ws",
 		new WsChannel({
-			unix: wsPort > 0 ? undefined : wsUnix,
-			port: wsPort > 0 ? wsPort : undefined,
+			port: wsPort,
 			host: (wsBucket.host as string | undefined) ?? "127.0.0.1",
 		}),
 	);
@@ -404,7 +398,10 @@ async function main(): Promise<void> {
 	});
 
 	const stop = new AbortController();
+	let shuttingDown = false;
 	const shutdown = async (sig: string) => {
+		if (shuttingDown) return;
+		shuttingDown = true;
 		log.error(`${sig} received, shutting down`);
 		stop.abort();
 		await pool.shutdown();

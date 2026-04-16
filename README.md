@@ -1,6 +1,6 @@
 # nexal
 
-Nexal's multi-channel bot runtime, rewritten in TypeScript on top of
+nexal's multi-channel bot runtime, rewritten in TypeScript on top of
 [`pi-agent-core`](https://github.com/badlogic/pi-mono/tree/main/packages/agent)
 and [`pi-ai`](https://github.com/badlogic/pi-mono/tree/main/packages/ai).
 

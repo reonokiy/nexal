@@ -61,12 +61,12 @@ pub struct AgentRegistry {
 pub struct SpawnDefaults {
     pub image: String,
     pub agent_bin: PathBuf,
-    pub workspace: Option<String>,
     pub memory: Option<String>,
     pub cpus: Option<String>,
     pub pids_limit: Option<u32>,
     pub network: bool,
     pub container_name_prefix: String,
+    pub workspace_volume: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -106,7 +106,6 @@ impl AgentRegistry {
         image: Option<String>,
         env: HashMap<String, String>,
         labels: HashMap<String, String>,
-        workspace: Option<String>,
     ) -> Result<AgentEntry, RegistryError> {
         let container_name = self.derive_container_name(&name);
         let spec = ContainerSpec {
@@ -114,12 +113,12 @@ impl AgentRegistry {
             image: image.unwrap_or_else(|| self.spawn_defaults.image.clone()),
             env,
             labels,
-            workspace: workspace.or_else(|| self.spawn_defaults.workspace.clone()),
             agent_bin: self.spawn_defaults.agent_bin.clone(),
             memory: self.spawn_defaults.memory.clone(),
             cpus: self.spawn_defaults.cpus.clone(),
             pids_limit: self.spawn_defaults.pids_limit,
             network: self.spawn_defaults.network,
+            workspace_volume: self.spawn_defaults.workspace_volume.clone(),
         };
         let handle = self.backend.ensure(spec).await?;
         let entry = self.dial_and_register(handle).await?;
@@ -140,12 +139,12 @@ impl AgentRegistry {
                 image: self.spawn_defaults.image.clone(), // unused on the reuse path
                 env: Default::default(),
                 labels: Default::default(),
-                workspace: self.spawn_defaults.workspace.clone(),
                 agent_bin: self.spawn_defaults.agent_bin.clone(),
                 memory: self.spawn_defaults.memory.clone(),
                 cpus: self.spawn_defaults.cpus.clone(),
                 pids_limit: self.spawn_defaults.pids_limit,
                 network: self.spawn_defaults.network,
+                workspace_volume: self.spawn_defaults.workspace_volume.clone(),
             })
             .await?;
         let ws_url = self.backend.ws_url(&container_name).await?;

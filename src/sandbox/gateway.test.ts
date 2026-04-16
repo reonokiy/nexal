@@ -58,16 +58,14 @@ describe("GatewayBackend", () => {
 		expect(spawns.map((s) => (s.params as any).name)).toEqual(["worker:a", "worker:b"]);
 	});
 
-	test("spawn passes env + workspace + session label", async () => {
+	test("spawn passes env + session label", async () => {
 		const gw = stubGateway();
-		const backend = new GatewayBackend(gw, { defaultWorkspace: "/host/default" });
+		const backend = new GatewayBackend(gw, {});
 		await backend.acquire("worker:x", {
 			env: { K: "v" },
-			workspace: "/host/override",
 		});
 		const spawn = gw.calls.find((c) => c.method === "gateway/spawn_agent")!.params as any;
 		expect(spawn.env).toEqual({ K: "v" });
-		expect(spawn.workspace).toBe("/host/override");
 		expect(spawn.labels["nexal.session_key"]).toBe("worker:x");
 	});
 
@@ -100,14 +98,6 @@ describe("GatewayBackend", () => {
 		expect(c1).toBe(c2);
 		const spawns = gw.calls.filter((c) => c.method === "gateway/spawn_agent");
 		expect(spawns).toHaveLength(1);
-	});
-
-	test("acquire falls back to defaultWorkspace when opts.workspace omitted", async () => {
-		const gw = stubGateway();
-		const backend = new GatewayBackend(gw, { defaultWorkspace: "/host/workspace" });
-		await backend.acquire("worker:ws");
-		const spawn = gw.calls.find((c) => c.method === "gateway/spawn_agent")!.params as any;
-		expect(spawn.workspace).toBe("/host/workspace");
 	});
 
 	test("release calls kill_agent with stored agent_id and drops the entry", async () => {

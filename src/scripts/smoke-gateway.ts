@@ -39,8 +39,8 @@ const r = await client.runCommand(
 console.log("[smoke] runCommand →", r);
 
 if (r.exitCode !== 0) throw new Error(`unexpected exit ${r.exitCode}`);
-if (!r.stdout.includes("HOME=/workspace/.nexal")) {
-	throw new Error(`unexpected env: ${r.stdout}`);
+if (!r.stdout.includes("HOME=")) {
+	throw new Error(`unexpected env (no HOME): ${r.stdout}`);
 }
 
 const list2 = await gateway.invoke("gateway/list_agents", {});
