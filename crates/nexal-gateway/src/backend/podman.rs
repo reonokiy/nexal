@@ -177,17 +177,18 @@ impl ContainerBackend for PodmanBackend {
 
         self.podman(&["start", &spec.name]).await?;
 
-        // Ensure /nexal and /workspace exist and are writable by the
-        // keep-id mapped user.
-        let setup_cmd = "mkdir -p /workspace /run/nexal/proxy && chmod 1777 /workspace /run/nexal/proxy";
+        // Create /run/nexal/proxy for unix-socket proxies.
+        // /workspace is either a bind mount (already writable via keep-id)
+        // or created by the image — no chmod needed.
+        let setup_cmd = "mkdir -p /run/nexal/proxy";
         if let Err(err) = self
             .podman(&[
-                "exec", "--user", "0", &spec.name, "/bin/sh", "-c", setup_cmd,
+                "exec", &spec.name, "/bin/sh", "-c", setup_cmd,
             ])
             .await
         {
             warn!(
-                "podman exec workspace setup failed for {}: {err}",
+                "podman exec setup failed for {}: {err}",
                 spec.name
             );
         }

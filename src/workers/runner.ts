@@ -227,7 +227,7 @@ export class WorkerRunner {
 		try {
 			await ch.send({
 				chatId: this.deps.row.sourceChatId,
-				text: `[${this.deps.row.name}] ${text}`,
+				text: `[${this.deps.row.kind}:${this.deps.row.lifetime}:${this.deps.row.name}] ${text}`,
 				replyTo: opts?.replyTo ?? this.deps.row.sourceReplyTo ?? undefined,
 			});
 		} catch (err) {

@@ -123,7 +123,7 @@ editor.setAutocompleteProvider(
 			if (ctrlCTimer) clearTimeout(ctrlCTimer);
 			ctrlCTimer = setTimeout(() => {
 				ctrlCPending = false;
-				setStatus(`nexal-tui  chat_id=${args.chatId}  ws://${args.host}:${args.port}  connected`);
+				setStatus(`nexal-tui  chat_id=${args.chatId}  ws://${args.host}:${args.port}  ●`);
 			}, 2_000);
 			return;
 		}
@@ -155,20 +155,93 @@ function setStatus(text: string): void {
 	tui.requestRender();
 }
 
-function addUserMessage(text: string): void {
-	history.addChild(new Spacer(1));
-	history.addChild(new Text(chalk.bold.green("You"), 1, 0));
-	history.addChild(new Markdown(text, 1, 0, markdownTheme));
+// ── Tree-style chat rendering ──────────────────────────────────────
+
+let inNexalGroup = false;
+let currentWorkerName: string | null = null;
+let workerMsgCount = 0;
+let lastBranch: { widget: Text; sealedText: string } | null = null;
+
+function sealBranch(): void {
+	if (!lastBranch) return;
+	lastBranch.widget.text = lastBranch.sealedText;
+	history.addChild(new Text(chalk.dim("│"), 0, 0));
+	lastBranch = null;
+	currentWorkerName = null;
+	workerMsgCount = 0;
 }
 
-function addBotReply(text: string): void {
+function closeNexalGroup(): void {
+	lastBranch = null;
+	currentWorkerName = null;
+	workerMsgCount = 0;
+	inNexalGroup = false;
+}
+
+function ensureNexalHeader(): void {
+	if (!inNexalGroup) {
+		history.addChild(new Spacer(1));
+		history.addChild(new Text(chalk.bold.magenta("nexal") + chalk.dim(" (coordinator)"), 0, 0));
+		inNexalGroup = true;
+	}
+}
+
+function addUserMessage(text: string): void {
+	closeNexalGroup();
 	history.addChild(new Spacer(1));
-	history.addChild(new Text(chalk.bold.magenta("nexal"), 1, 0));
-	history.addChild(new Markdown(text, 1, 0, markdownTheme));
+	history.addChild(new Text(chalk.bold.green("you"), 0, 0));
+	history.addChild(new Text(chalk.dim("└ ") + text, 0, 0));
+}
+
+const WORKER_PREFIX_RE = /^\[(?:([^:\]]+):(?:([^:\]]+):)?)?([^\]]+)\]\s*/;
+
+function addBotReply(text: string): void {
+	const m = text.match(WORKER_PREFIX_RE);
+	if (m) {
+		const kind = m[1] ?? "worker";
+		const lifetime = m[2] ?? "";
+		const name = m[3];
+		const body = text.slice(m[0].length);
+		const tag = lifetime ? `${kind} · ${lifetime}` : kind;
+		const label = chalk.bold.cyan(name) + chalk.dim(` (${tag})`);
+
+		if (name === currentWorkerName) {
+			// Same worker — separate with a dim line
+			workerMsgCount++;
+			history.addChild(new Text(chalk.dim("   ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌"), 0, 0));
+			history.addChild(new Markdown(body, 3, 0, markdownTheme));
+			return;
+		}
+
+		// Different worker or first worker
+		sealBranch();
+		ensureNexalHeader();
+
+		const widget = new Text(chalk.dim("└─ ") + label, 0, 0);
+		history.addChild(widget);
+		lastBranch = {
+			widget,
+			sealedText: chalk.dim("├─ ") + label,
+		};
+		currentWorkerName = name;
+		workerMsgCount = 1;
+		history.addChild(new Markdown(body, 3, 0, markdownTheme));
+	} else {
+		// Coordinator direct message
+		sealBranch();
+		ensureNexalHeader();
+
+		const widget = new Text(chalk.dim("└ ") + text, 0, 0);
+		history.addChild(widget);
+		lastBranch = {
+			widget,
+			sealedText: chalk.dim("├ ") + text,
+		};
+	}
 }
 
 function addSystemNote(text: string): void {
-	history.addChild(new Text(chalk.dim(`--- ${text} ---`), 1, 0));
+	history.addChild(new Text(chalk.dim(text), 1, 0));
 }
 
 function showLoader(): void {
@@ -210,7 +283,7 @@ function connect(): void {
 	ws = createWs();
 
 	ws.on("open", () => {
-		setStatus(`nexal-tui  chat_id=${args.chatId}  ws://${args.host}:${args.port}  connected`);
+		setStatus(`nexal-tui  chat_id=${args.chatId}  ws://${args.host}:${args.port}  ●`);
 	});
 
 	ws.on("message", (raw: WS.RawData) => {
@@ -234,7 +307,7 @@ function connect(): void {
 	ws.on("close", () => {
 		hideLoader();
 		if (waiting) finishReply();
-		setStatus(`nexal-tui  chat_id=${args.chatId}  ws://${args.host}:${args.port}  disconnected — reconnecting...`);
+		setStatus(`nexal-tui  chat_id=${args.chatId}  ws://${args.host}:${args.port}  ○ reconnecting...`);
 		ws = null;
 		setTimeout(connect, 2_000);
 	});
@@ -411,6 +484,6 @@ process.on("SIGINT", shutdown);
 process.on("SIGTERM", shutdown);
 
 // Go
-setStatus(`nexal-tui  chat_id=${args.chatId}  ws://${args.host}:${args.port}  connecting...`);
+setStatus(`nexal-tui  chat_id=${args.chatId}  ws://${args.host}:${args.port}  ○`);
 tui.start();
 connect();
