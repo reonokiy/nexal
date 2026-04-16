@@ -6,6 +6,9 @@
  * proactively review pending tasks and follow-ups.
  */
 import type { Channel, IncomingMessage, OutgoingReply } from "./types.ts";
+import { createLog } from "../log.ts";
+
+const log = createLog("heartbeat");
 
 export interface HeartbeatChannelConfig {
 	/** Default 30 minutes. */
@@ -29,7 +32,7 @@ export class HeartbeatChannel implements Channel {
 	async start(onMessage: (msg: IncomingMessage) => void): Promise<void> {
 		const minutes = this.config.intervalMinutes ?? 30;
 		const text = this.config.text ?? DEFAULT_TEXT;
-		console.log(`[heartbeat] firing every ${minutes} minute(s)`);
+		log.info(`firing every ${minutes} minute(s)`);
 
 		const fire = () => {
 			if (this.stopped) return;

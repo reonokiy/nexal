@@ -31,6 +31,7 @@
  *     (in practice, dispatcher tools don't talk to the chat directly).
  */
 import { Agent, type AgentMessage, type AgentTool } from "@mariozechner/pi-agent-core";
+import { createLog } from "../log.ts";
 import type { Model } from "@mariozechner/pi-ai";
 
 import type { Channel } from "../channels/types.ts";
@@ -79,6 +80,7 @@ export class WorkerRunner {
 	readonly lifetime: WorkerLifetime;
 	readonly row: WorkerRow;
 	readonly sandboxKey: string;
+	private readonly log;
 	private agent?: Agent;
 	private client?: AgentClient;
 	private disposed = false;
@@ -92,6 +94,7 @@ export class WorkerRunner {
 		this.row = deps.row;
 		this.sandboxKey = `worker:${deps.row.id}`;
 		this.latestTurnCount = deps.row.turnCount;
+		this.log = createLog(`worker:${this.id}`);
 	}
 
 	/**
@@ -218,8 +221,8 @@ export class WorkerRunner {
 		if (!text.trim()) return;
 		const ch = this.deps.channels.get(this.deps.row.sourceChannel);
 		if (!ch) {
-			console.error(
-				`[worker:${this.id}] source channel "${this.deps.row.sourceChannel}" not registered`,
+			this.log.error(
+				`source channel "${this.deps.row.sourceChannel}" not registered`,
 			);
 			return;
 		}
@@ -230,7 +233,7 @@ export class WorkerRunner {
 				replyTo: opts?.replyTo ?? this.deps.row.sourceReplyTo ?? undefined,
 			});
 		} catch (err) {
-			console.error(`[worker:${this.id}] send failed`, err);
+			this.log.error("send failed", err);
 		}
 	}
 
@@ -262,7 +265,7 @@ export class WorkerRunner {
 			.runCommand(["/bin/sh", "-c", "mkdir -p /workspace/.nexal/proxies"], {
 				timeoutMs: 5_000,
 			})
-			.catch((err) => console.error(`[worker:${this.id}] mkdir proxies dir`, err));
+			.catch((err) => this.log.error("mkdir proxies dir", err));
 
 		for (const spec of proxies) {
 			try {
@@ -273,8 +276,8 @@ export class WorkerRunner {
 					headers: spec.headers ?? {},
 				});
 			} catch (err) {
-				console.error(
-					`[worker:${this.id}] proxy ${spec.name} setup failed`,
+				this.log.error(
+					`proxy ${spec.name} setup failed`,
 					err,
 				);
 			}
@@ -300,7 +303,7 @@ export class WorkerRunner {
 					await this.handleAgentEnd(agent, event.messages);
 				}
 			} catch (err) {
-				console.error(`[worker:${this.id}] event handler ${event.type}`, err);
+				this.log.error(`event handler ${event.type}`, err);
 			}
 		});
 	}
@@ -360,7 +363,7 @@ export class WorkerRunner {
 				this.latestTurnCount,
 			);
 		} catch (err) {
-			console.error(`[worker:${this.id}] persist failed`, err);
+			this.log.error("persist failed", err);
 		}
 	}
 }

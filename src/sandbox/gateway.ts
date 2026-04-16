@@ -21,6 +21,9 @@ import type {
 	AgentClient,
 	SandboxBackend,
 } from "./types.ts";
+import { createLog } from "../log.ts";
+
+const log = createLog("gateway");
 import { GatewayAgentClient } from "../gateway/agent_client.ts";
 import type { GatewayClient } from "../gateway/client.ts";
 
@@ -68,7 +71,7 @@ export class GatewayBackend implements SandboxBackend {
 		try {
 			await this.gateway.invoke("gateway/kill_agent", { agent_id: entry.agentId });
 		} catch (err) {
-			console.error(`[gateway-backend] kill_agent ${sessionKey} failed`, err);
+			log.error(`kill_agent ${sessionKey} failed`, err);
 		}
 		await entry.client.close();
 	}
@@ -84,7 +87,7 @@ export class GatewayBackend implements SandboxBackend {
 		try {
 			await this.gateway.invoke("gateway/detach_agent", { agent_id: entry.agentId });
 		} catch (err) {
-			console.error(`[gateway-backend] detach_agent ${sessionKey} failed`, err);
+			log.error(`detach_agent ${sessionKey} failed`, err);
 		}
 		await entry.client.close();
 	}

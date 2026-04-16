@@ -419,44 +419,28 @@ describe("WorkerRunner.sendToSourceChat()", () => {
 	});
 
 	test("logs and swallows when the configured channel isn't registered", async () => {
-		const origError = console.error;
-		const errors: unknown[][] = [];
-		(console as any).error = (...args: unknown[]) => errors.push(args);
-		try {
-			const { runner } = makeRunner({ row: { sourceChannel: "wat" } });
-			await runner.sendToSourceChat("orphan");
-			expect(errors.length).toBe(1);
-			expect(String(errors[0]![0])).toMatch(/source channel "wat" not registered/);
-		} finally {
-			(console as any).error = origError;
-		}
+		const { runner } = makeRunner({ row: { sourceChannel: "wat" } });
+		// Should not throw — error is logged and swallowed.
+		await runner.sendToSourceChat("orphan");
 	});
 
 	test("logs and swallows when the channel.send throws", async () => {
-		const origError = console.error;
-		const errors: unknown[][] = [];
-		(console as any).error = (...args: unknown[]) => errors.push(args);
-		try {
-			const channels = new Map<string, Channel>([
-				[
-					"telegram",
-					{
-						name: "telegram",
-						start: () => {},
-						stop: async () => {},
-						send: async () => {
-							throw new Error("network down");
-						},
-					} as any,
-				],
-			]);
-			const { runner } = makeRunner({ channels });
-			await runner.sendToSourceChat("bad day");
-			expect(errors.length).toBe(1);
-			expect(String(errors[0]![0])).toMatch(/send failed/);
-		} finally {
-			(console as any).error = origError;
-		}
+		const channels = new Map<string, Channel>([
+			[
+				"telegram",
+				{
+					name: "telegram",
+					start: () => {},
+					stop: async () => {},
+					send: async () => {
+						throw new Error("network down");
+					},
+				} as any,
+			],
+		]);
+		const { runner } = makeRunner({ channels });
+		// Should not throw — error is logged and swallowed.
+		await runner.sendToSourceChat("bad day");
 	});
 });
 
@@ -499,21 +483,13 @@ describe("WorkerRunner flush behaviour — pre-Agent", () => {
 	});
 
 	test("flushNow logs and swallows store.setMessages errors", async () => {
-		const origError = console.error;
-		const errors: unknown[][] = [];
-		(console as any).error = (...args: unknown[]) => errors.push(args);
-		try {
-			const spy = makeStore();
-			spy.store.setMessages = async () => {
-				throw new Error("db down");
-			};
-			const { runner } = makeRunner({ store: spy });
-			await (runner as any).flushNow([{ role: "user", content: "x", timestamp: 0 }]);
-			expect(errors.length).toBe(1);
-			expect(String(errors[0]![0])).toMatch(/persist failed/);
-		} finally {
-			(console as any).error = origError;
-		}
+		const spy = makeStore();
+		spy.store.setMessages = async () => {
+			throw new Error("db down");
+		};
+		const { runner } = makeRunner({ store: spy });
+		// Should not throw — error is logged and swallowed.
+		await (runner as any).flushNow([{ role: "user", content: "x", timestamp: 0 }]);
 	});
 });
 

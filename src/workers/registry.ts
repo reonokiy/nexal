@@ -24,6 +24,9 @@
  * `cancel_worker` calls.
  */
 import { randomUUID } from "node:crypto";
+import { createLog } from "../log.ts";
+
+const log = createLog("registry");
 import type { AgentTool } from "@mariozechner/pi-agent-core";
 import type { Model } from "@mariozechner/pi-ai";
 
@@ -238,7 +241,7 @@ export class WorkerRegistry {
 			if (!this.queue.includes(row.id)) this.queue.push(row.id);
 		}
 		if (rows.length > 0) {
-			console.log(`[worker-registry] resuming ${rows.length} worker(s)`);
+			log.info(`resuming ${rows.length} worker(s)`);
 		}
 		this.pump();
 	}
@@ -249,7 +252,7 @@ export class WorkerRegistry {
 		await Promise.all(
 			[...this.runners.values()].map((r) =>
 				r.suspend().catch((err) =>
-					console.error(`[worker-registry] suspend ${r.id}`, err),
+					log.error(`suspend ${r.id}`, err),
 				),
 			),
 		);
@@ -275,7 +278,7 @@ export class WorkerRegistry {
 		try {
 			row = await this.cfg.store.get(id);
 		} catch (err) {
-			console.error(`[worker-registry] store.get(${id}) failed`, err);
+			log.error(`store.get(${id}) failed`, err);
 			return;
 		}
 		if (!row) return;
@@ -305,7 +308,7 @@ export class WorkerRegistry {
 		try {
 			await runner.start();
 		} catch (err) {
-			console.error(`[worker-registry] runner ${id} start failed`, err);
+			log.error(`runner ${id} start failed`, err);
 			await this.cfg.store
 				.markFailed(id, err instanceof Error ? err.message : String(err))
 				.catch(() => undefined);

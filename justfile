@@ -23,12 +23,16 @@ clean:
 
 # Run the Bun frontend in dev mode (watch).
 nexal:
-    cd packages/nexal && bun run dev
+    bun run dev
 
 # Run Bun frontend once (no watch).
 nexal-start:
-    cd packages/nexal && bun run start
+    bun run start
 
 # Typecheck Bun frontend.
 nexal-typecheck:
-    cd packages/nexal && bun run typecheck
+    bun run typecheck
+
+# Run the TUI client.
+tui:
+    bun run src/tui.ts

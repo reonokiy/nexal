@@ -1,48 +1,45 @@
 # nexal
 
-A minimal AI agent framework built on the OpenAI-compatible Chat Completions API with sandboxed tool execution.
+Nexal's multi-channel bot runtime, rewritten in TypeScript on top of
+[`pi-agent-core`](https://github.com/badlogic/pi-mono/tree/main/packages/agent)
+and [`pi-ai`](https://github.com/badlogic/pi-mono/tree/main/packages/ai).
 
-## Requirements
+## Layout
 
-- `LLM_API_KEY`
-- Optional: `LLM_ENDPOINT` (defaults to `https://openrouter.ai/api/v1`)
-- Optional: `LLM_MODEL` (defaults to `openai/gpt-4o`)
-- `TAVILY_API_KEY`
-
-## Run
-
-```bash
-uv run nexal --query "OpenAI latest developer updates"
+```
+src/
+  index.ts            — entry: load config, start channels, run forever
+  agent-pool.ts       — one pi-agent-core Agent per (chat_id); lifecycle + debounce
+  channels/
+    types.ts          — Channel interface, IncomingMessage, OutgoingReply
+    telegram.ts       — Telegram channel (mirrors crates/channel-telegram)
+    http.ts           — HTTP test channel (mirrors crates/channel-http)
+    heartbeat.ts      — Periodic tick (mirrors crates/channel-heartbeat)
+    cron.ts           — Agent-scheduled cron (mirrors crates/channel-cron)
+  tools/
+    bash.ts           — bash tool proxied to nexal-agent over WebSocket
+    (read/write/edit — likely added as AgentTool definitions)
+  exec-client.ts      — WebSocket client for crates/nexal-agent
+  config.ts           — TOML + env config loader
 ```
 
-Or run the package directly:
+## Design
 
-```bash
-uv run python -m nexal --query "OpenAI latest developer updates"
-```
+- Each incoming message is keyed by channel+chat_id → routed to an `Agent`
+  in the pool. If none exists, a new one is constructed with the session
+  system prompt + any persisted messages.
+- `Agent.prompt(userMsg)` drives one turn; tool calls inside the turn hit
+  the bash tool, which opens a WebSocket to a per-session `nexal-agent`
+  instance (running inside a sandbox container).
+- Mid-turn messages (same chat, user typed again) are injected via
+  `agent.steer(...)` so the model sees them on the next LLM hop.
+- Replies flow back out via `Channel.send`.
 
-## Architecture
+## Runtime
 
-- ReAct loop (Thought → Action → Observation) with configurable max turns.
-- Built-in tools: `web_search`, `web_fetch`, `exec`, `todo`, `get_current_datetime`.
-- `web_search` uses Tavily. Search providers live under `nexal/tools/search/`.
-- `exec` runs commands in a rootless Podman container with persistent bash state.
-- Sandbox abstraction in `nexal/sandbox/base.py`, default backend under `nexal/sandbox/backends/podman/`.
-- Each agent run gets a UUID-based host directory mounted at `/workspace`.
-- Reuse a sandbox session with `--session-id` or `SANDBOX_SESSION_ID`.
-- `/workspace` mount can be made read-only globally or per `exec` call.
-- Network is enabled by default; disable with `--disable-network` or `SANDBOX_NETWORK_ENABLED=false`.
+- Bun ≥ 1.3 (for native TS + WebSocket client)
+- `crates/nexal-agent` must be built (default path `target/release/nexal-agent`)
 
-## Benchmark
+## Status
 
-To generate benchmark-compatible raw outputs for `benchmarks/deep_research_bench/`:
-
-```bash
-uv run python benchmarks/run_deepresearch_bench.py --model-name my-agent
-```
-
-Output:
-
-```text
-benchmarks/deep_research_bench/data/test_data/raw_data/my-agent.jsonl
-```
+Scaffolding. Not functional yet.

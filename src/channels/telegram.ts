@@ -26,6 +26,9 @@ import type {
 	OutgoingReply,
 	TypingHandle,
 } from "./types.ts";
+import { createLog } from "../log.ts";
+
+const log = createLog("telegram");
 
 const TG = "https://api.telegram.org";
 
@@ -119,7 +122,7 @@ export class TelegramChannel implements Channel {
 		if (!this.config.botToken) throw new Error("telegram: botToken is required");
 
 		this.botUsername = (await this.getMe()).username ?? "";
-		console.log(`[telegram] logged in as @${this.botUsername || "<unknown>"}`);
+		log.info(`logged in as @${this.botUsername || "<unknown>"}`);
 
 		this.loopTask = this.longPollLoop(onMessage);
 		await this.loopTask;
@@ -175,7 +178,7 @@ export class TelegramChannel implements Channel {
 					allowed_updates: ["message", "channel_post", "edited_message"],
 				});
 			} catch (err) {
-				console.error("[telegram] getUpdates error", err);
+				log.error("getUpdates error", err);
 				await new Promise((r) => setTimeout(r, 2_000));
 				continue;
 			}

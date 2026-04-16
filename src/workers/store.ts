@@ -1,15 +1,20 @@
 /**
  * WorkerStore — Drizzle-backed persistence for sub-agent workers.
  *
- * Postgres-only via `drizzle-orm/bun-sql` (uses Bun's native
- * `Bun.sql` driver, no extra npm deps). Earlier dual-driver design
- * was dropped after confirming Drizzle has no plan to support
- * dialect-agnostic schemas — see https://github.com/drizzle-team/drizzle-orm/discussions/2469.
+ * Two driver modes:
+ *   1. External Postgres via `drizzle-orm/bun-sql` (Bun.sql native)
+ *      — set `url` to a postgres:// connection string.
+ *   2. Embedded PGlite via `drizzle-orm/pglite` (WASM, zero-deps)
+ *      — leave `url` empty; data persists to `~/.nexal/data/`.
  */
-import { and, desc, eq, inArray } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/bun-sql";
+import { and, desc, eq, inArray, sql as dsql } from "drizzle-orm";
+import { drizzle as drizzleBun } from "drizzle-orm/bun-sql";
+import { drizzle as drizzlePglite } from "drizzle-orm/pglite";
 
+import { createLog } from "../log.ts";
 import * as schema from "./schema.ts";
+
+const log = createLog("store");
 
 export type WorkerKind = "coordinator" | "executor";
 export type WorkerLifetime = "persistent" | "shot";
@@ -79,14 +84,15 @@ export interface WorkerStore {
 }
 
 export interface WorkerStoreConfig {
-	/** Postgres connection string, e.g. `postgres://user:pw@host:5432/db`. */
+	/**
+	 * Postgres connection string, e.g. `postgres://user:pw@host:5432/db`.
+	 * Leave empty to use embedded PGlite (data at `~/.nexal/data/`).
+	 */
 	url: string;
 }
 
 export async function createWorkerStore(cfg: WorkerStoreConfig): Promise<WorkerStore> {
-	if (!cfg.url) throw new Error("workers.url (postgres connection string) required");
-	const sql = new (Bun as any).SQL(cfg.url);
-	const db = drizzle(sql, { schema });
+	const { db, close } = await openDb(cfg);
 	const { workers } = schema;
 
 	return {
@@ -201,9 +207,67 @@ export async function createWorkerStore(cfg: WorkerStoreConfig): Promise<WorkerS
 		},
 
 		async close(): Promise<void> {
-			await sql.close();
+			await close();
 		},
 	};
+}
+
+// ── Driver bootstrap ────────────────────────────────────────────────
+
+type Db = ReturnType<typeof drizzleBun> | ReturnType<typeof drizzlePglite>;
+
+async function openDb(cfg: WorkerStoreConfig): Promise<{ db: Db; close: () => Promise<void> }> {
+	if (cfg.url) {
+		// External Postgres via Bun.sql
+		const sql = new (Bun as any).SQL(cfg.url);
+		const db = drizzleBun(sql, { schema });
+		return { db, close: () => sql.close() };
+	}
+
+	// Embedded PGlite — persist under ~/.nexal/data/
+	const { mkdirSync } = await import("node:fs");
+	const { join } = await import("node:path");
+	const { homedir } = await import("node:os");
+	const dataDir = join(homedir(), ".nexal", "data");
+	mkdirSync(dataDir, { recursive: true });
+
+	const { PGlite } = await import("@electric-sql/pglite");
+	const client = new PGlite(dataDir);
+	await client.waitReady;
+	const db = drizzlePglite({ client, schema });
+
+	// Auto-create the workers table if it doesn't exist.
+	await db.execute(dsql`
+		CREATE TABLE IF NOT EXISTS workers (
+			id TEXT PRIMARY KEY,
+			kind TEXT NOT NULL,
+			lifetime TEXT NOT NULL,
+			parent_session_key TEXT NOT NULL,
+			source_channel TEXT NOT NULL,
+			source_chat_id TEXT NOT NULL,
+			source_reply_to TEXT,
+			name TEXT NOT NULL,
+			initial_prompt TEXT,
+			system_prompt TEXT NOT NULL,
+			model_provider TEXT NOT NULL,
+			model_id TEXT NOT NULL,
+			status TEXT NOT NULL,
+			messages_json TEXT NOT NULL DEFAULT '[]',
+			container_name TEXT NOT NULL,
+			created_at BIGINT NOT NULL,
+			started_at BIGINT,
+			updated_at BIGINT NOT NULL,
+			completed_at BIGINT,
+			error TEXT,
+			turn_count INTEGER NOT NULL DEFAULT 0,
+			send_policy TEXT NOT NULL DEFAULT 'explicit'
+		)
+	`);
+	await db.execute(dsql`CREATE INDEX IF NOT EXISTS workers_status_idx ON workers (status)`);
+	await db.execute(dsql`CREATE INDEX IF NOT EXISTS workers_parent_idx ON workers (parent_session_key)`);
+
+	log.success(`embedded postgres ready: ${dataDir}`);
+	return { db, close: () => client.close() };
 }
 
 function castRow(row: typeof schema.workers.$inferSelect): WorkerRow {

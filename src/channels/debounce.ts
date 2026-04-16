@@ -16,6 +16,9 @@
  * mutable state, no locks — mirrors the Rust mpsc+select! version.
  */
 import type { IncomingMessage } from "./types.ts";
+import { createLog } from "../log.ts";
+
+const log = createLog("debounce");
 
 const UNMENTIONED_DELAY_MS = 100;
 
@@ -207,7 +210,7 @@ export class SessionRunner {
 		try {
 			await this.handler(merged);
 		} catch (err) {
-			console.error(`[debounce:${this.sessionId}] handler threw`, err);
+			log.error(`[${this.sessionId}] handler threw`, err);
 		}
 	}
 }

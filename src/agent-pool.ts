@@ -16,6 +16,9 @@
  *    `OutgoingReply`s and dispatched through the source channel.
  */
 import { Agent, type AgentMessage, type AgentTool } from "@mariozechner/pi-agent-core";
+import { createLog } from "./log.ts";
+
+const log = createLog("pool");
 import type { Model } from "@mariozechner/pi-ai";
 
 import type { Channel, IncomingMessage, OutgoingReply } from "./channels/types.ts";
@@ -80,7 +83,7 @@ export class AgentPool {
 	injectMessage(sessionKeyStr: string, sender: string, text: string): void {
 		const sepIdx = sessionKeyStr.indexOf(":");
 		if (sepIdx === -1) {
-			console.error(`[agent-pool] injectMessage: malformed sessionKey ${sessionKeyStr}`);
+			log.error(`injectMessage: malformed sessionKey ${sessionKeyStr}`);
 			return;
 		}
 		const channel = sessionKeyStr.slice(0, sepIdx);
@@ -112,7 +115,18 @@ export class AgentPool {
 			return;
 		}
 
-		await session.agent.prompt(msg.text);
+		try {
+			await session.agent.prompt(msg.text);
+		} catch (err: any) {
+			log.error(`prompt failed for ${key}:`, err);
+			const channel = this.config.channels.get(session.channelName);
+			if (channel) {
+				await channel.send({
+					chatId: session.lastIncoming.chatId,
+					text: `Error: ${err?.message ?? String(err)}`,
+				}).catch(() => undefined);
+			}
+		}
 	}
 
 	private async getOrCreate(key: string, msg: IncomingMessage): Promise<Session> {
@@ -173,7 +187,7 @@ export class AgentPool {
 			try {
 				await channel.send(reply);
 			} catch (err) {
-				console.error(`[agent-pool] send failed for ${session.channelName}:${last.chatId}`, err);
+				log.error(`send failed for ${session.channelName}:${last.chatId}`, err);
 			}
 		});
 

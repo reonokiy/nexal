@@ -21,12 +21,18 @@
  *   NEXAL_GATEWAY_TOKEN             (override [gateway].token; required if not in config)
  *   OPENROUTER_API_KEY etc. — per provider (see @mariozechner/pi-ai env-api-keys)
  */
+import { spawn, type Subprocess } from "bun";
+import { existsSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import type { AgentTool } from "@mariozechner/pi-agent-core";
+import { log } from "./log.ts";
 import { getModel } from "@mariozechner/pi-ai";
 
 import { AgentPool } from "./agent-pool.ts";
 import type { Channel } from "./channels/types.ts";
 import { HttpChannel } from "./channels/http.ts";
+import { WsChannel } from "./channels/ws.ts";
 import { TelegramChannel } from "./channels/telegram.ts";
 import { HeartbeatChannel } from "./channels/heartbeat.ts";
 import { CronChannel } from "./channels/cron.ts";
@@ -38,6 +44,7 @@ import { createReportToParentTool } from "./tools/report_to_parent.ts";
 import { createSendUpdateTool } from "./tools/send_update.ts";
 import { createDispatcherTools } from "./tools/worker.ts";
 import { WorkerRegistry } from "./workers/registry.ts";
+import { loadAuth, loadModelConfig, closeSettings } from "./settings.ts";
 import { createWorkerStore } from "./workers/store.ts";
 
 const DEFAULT_COORDINATOR_PROMPT = [
@@ -61,6 +68,145 @@ const DEFAULT_EXECUTOR_PROMPT = [
 	"Do NOT echo every intermediate thought — each send_update call becomes a separate Telegram message.",
 ].join("\n");
 
+// ── Saved auth bootstrap ────────────────────────────────────────────
+
+async function applySavedAuth(): Promise<void> {
+	try {
+		// Restore model config if not overridden by env.
+		const saved = await loadModelConfig();
+		if (saved) {
+			if (!process.env.NEXAL_MODEL_PROVIDER) process.env.NEXAL_MODEL_PROVIDER = saved.provider;
+			if (!process.env.NEXAL_MODEL) process.env.NEXAL_MODEL = saved.modelId;
+		}
+
+		// Restore OAuth/API key credentials.
+		const providerName = process.env.NEXAL_MODEL_PROVIDER ?? saved?.provider;
+		if (!providerName) return;
+
+		const auth = await loadAuth(providerName);
+		if (!auth) return;
+
+		if (auth.type === "oauth" && auth.access) {
+			const envKey = oauthEnvKey(providerName);
+			if (envKey && !process.env[envKey]) {
+				// Check if token is expired and refresh if needed.
+				if (auth.expires && Date.now() >= auth.expires && auth.refresh) {
+					const { getOAuthApiKey } = await import("@mariozechner/pi-ai/oauth");
+					const result = await getOAuthApiKey(providerName, {
+						[providerName]: { refresh: auth.refresh, access: auth.access, expires: auth.expires },
+					});
+					if (result) {
+						process.env[envKey] = result.apiKey;
+						// Persist refreshed credentials.
+						const { saveAuth } = await import("./settings.ts");
+						await saveAuth({
+							...auth,
+							access: result.newCredentials.access,
+							refresh: result.newCredentials.refresh,
+							expires: result.newCredentials.expires,
+						});
+						log.info(`refreshed ${providerName} OAuth token`);
+					}
+				} else {
+					process.env[envKey] = auth.access;
+				}
+				log.info(`loaded saved ${providerName} OAuth credentials`);
+			}
+		} else if (auth.type === "apikey" && auth.apiKey) {
+			const envKey = apiKeyEnvKey(providerName);
+			if (envKey && !process.env[envKey]) {
+				process.env[envKey] = auth.apiKey;
+				log.info(`loaded saved ${providerName} API key`);
+			}
+		}
+	} catch (err) {
+		log.error("failed to load saved auth (continuing):", err);
+	}
+}
+
+function oauthEnvKey(provider: string): string | null {
+	switch (provider) {
+		case "anthropic": return "ANTHROPIC_OAUTH_TOKEN";
+		default: return null;
+	}
+}
+
+function apiKeyEnvKey(provider: string): string | null {
+	switch (provider) {
+		case "anthropic": return "ANTHROPIC_API_KEY";
+		case "openai": return "OPENAI_API_KEY";
+		case "openrouter": return "OPENROUTER_API_KEY";
+		case "google": return "GOOGLE_API_KEY";
+		case "mistral": return "MISTRAL_API_KEY";
+		default: return null;
+	}
+}
+
+// ── Embedded gateway for local dev ──────────────────────────────────
+
+async function launchGateway(_workspace: string): Promise<{
+	url: string;
+	token: string;
+	proc: Subprocess;
+}> {
+	const token = crypto.randomUUID();
+	const url = "ws://127.0.0.1:15500";
+	const projectRoot = join(import.meta.dir, "../../..");
+	const gatewayBin = join(projectRoot, "target/release/nexal-gateway");
+	const agentBin = join(projectRoot, "target/release/nexal-agent");
+
+	if (!existsSync(gatewayBin)) {
+		throw new Error(
+			`nexal-gateway binary not found at ${gatewayBin} — run 'cargo build --release -p nexal-gateway' first`,
+		);
+	}
+
+	log.info("no gateway token configured — auto-starting embedded gateway");
+
+	// Kill any stale gateway from a previous run (e.g. bun --watch restart).
+	try {
+		const stale = Bun.spawnSync(["lsof", "-ti", ":15500"]);
+		for (const pid of stale.stdout.toString().trim().split("\n").filter(Boolean)) {
+			process.kill(Number(pid), "SIGTERM");
+		}
+	} catch { /* ok */ }
+
+	const proc = spawn({
+		cmd: [
+			gatewayBin,
+			"--token", token,
+			"--listen", "127.0.0.1:15500",
+			"--proxy-listen", "127.0.0.1:15501",
+			...(existsSync(agentBin) ? ["--agent-bin", agentBin] : []),
+		],
+		stdout: "inherit",
+		stderr: "inherit",
+		env: {
+			...process.env,
+			NEXAL_LOG: process.env.NEXAL_LOG ?? "info",
+		},
+	});
+
+	// Poll until the TCP port accepts WS connections.
+	const deadline = Date.now() + 10_000;
+	while (Date.now() < deadline) {
+		try {
+			await new Promise<void>((resolve, reject) => {
+				const ws = new WebSocket(url);
+				const t = setTimeout(() => { ws.close(); reject(); }, 1_000);
+				ws.addEventListener("open", () => { clearTimeout(t); ws.close(); resolve(); });
+				ws.addEventListener("error", () => { clearTimeout(t); reject(); });
+			});
+			log.success(`embedded gateway ready: ${url}`);
+			return { url, token, proc };
+		} catch {
+			await new Promise((r) => setTimeout(r, 300));
+		}
+	}
+	proc.kill("SIGTERM");
+	throw new Error("nexal-gateway did not start within 10s");
+}
+
 async function main(): Promise<void> {
 	const cfg = await loadConfig();
 	const httpPort = Number(
@@ -68,38 +214,64 @@ async function main(): Promise<void> {
 			process.env.NEXAL_HTTP_PORT ??
 			"3000",
 	);
+	// Load saved auth & model config from settings DB (PGlite).
+	await applySavedAuth();
+
 	const provider = process.env.NEXAL_MODEL_PROVIDER ?? "openrouter";
 	const modelId = process.env.NEXAL_MODEL ?? "openai/gpt-4o";
+	log.info(`model: ${provider} / ${modelId}`);
 	const coordinatorPrompt =
 		process.env.NEXAL_COORDINATOR_SYSTEM_PROMPT ?? DEFAULT_COORDINATOR_PROMPT;
 	const executorPrompt =
 		process.env.NEXAL_EXECUTOR_SYSTEM_PROMPT ?? DEFAULT_EXECUTOR_PROMPT;
 
-	const gatewayUrl = process.env.NEXAL_GATEWAY_URL ?? cfg.gateway.url;
-	const gatewayToken = process.env.NEXAL_GATEWAY_TOKEN ?? cfg.gateway.token;
+	let gatewayUrl = process.env.NEXAL_GATEWAY_URL ?? cfg.gateway.url;
+	let gatewayUnix: string | undefined = process.env.NEXAL_GATEWAY_UNIX ?? (cfg.gateway as any).unix;
+	let gatewayToken = process.env.NEXAL_GATEWAY_TOKEN ?? cfg.gateway.token;
+	let gatewayProc: Subprocess | null = null;
+
 	if (!gatewayToken) {
-		throw new Error(
-			"no nexal-gateway token configured; set [gateway].token in ~/.nexal/config.toml or NEXAL_GATEWAY_TOKEN",
-		);
+		// Auto-start an embedded gateway for local dev.
+		const launched = await launchGateway(cfg.workspace);
+		gatewayUrl = launched.url;
+		gatewayToken = launched.token;
+		gatewayProc = launched.proc;
 	}
+
 	const gateway = new GatewayClient({
 		url: gatewayUrl,
+		unix: gatewayUnix,
 		token: gatewayToken,
 		clientName: cfg.gateway.clientName,
 	});
 	await gateway.hello();
-	console.log(`[nexal] gateway connected: ${gatewayUrl}`);
+	log.info(`gateway connected: ${gatewayUnix ? `unix:${gatewayUnix}` : gatewayUrl}`);
 
 	const sandbox = createSandboxBackend({
 		gatewayClient: gateway,
 		gatewayOptions: { defaultWorkspace: cfg.workspace },
 	});
-	console.log(`[nexal] sandbox backend: ${sandbox.name} (workers only)`);
+	log.info(`sandbox backend: ${sandbox.name} (workers only)`);
 
 	const model = getModel(provider as any, modelId);
 
 	const channels = new Map<string, Channel>();
 	channels.set("http", new HttpChannel({ port: httpPort }));
+
+	const wsBucket = cfg.channel.ws ?? {};
+	const wsUnix =
+		(wsBucket.unix as string | undefined) ??
+		process.env.NEXAL_WS_UNIX ??
+		join(homedir(), ".nexal", "nexal.sock");
+	const wsPort = Number(wsBucket.port ?? process.env.NEXAL_WS_PORT ?? "0");
+	channels.set(
+		"ws",
+		new WsChannel({
+			unix: wsPort > 0 ? undefined : wsUnix,
+			port: wsPort > 0 ? wsPort : undefined,
+			host: (wsBucket.host as string | undefined) ?? "127.0.0.1",
+		}),
+	);
 
 	const tgBucket = cfg.channel.telegram ?? {};
 	const tgToken =
@@ -147,15 +319,8 @@ async function main(): Promise<void> {
 	// spawned by the dispatcher. Persistence via Drizzle on Postgres
 	// (Bun.sql native driver); containers survive nexal process restart
 	// so live workers resume automatically.
-	if (!cfg.workers.url) {
-		throw new Error(
-			"workers.url is required: set [workers].url in config or NEXAL_WORKERS_URL env to a postgres connection string",
-		);
-	}
 	const workerStore = await createWorkerStore({ url: cfg.workers.url });
-	console.log(
-		`[nexal] worker store: postgres (maxConcurrent=${cfg.workers.maxConcurrent})`,
-	);
+	log.info(`worker store ready (maxConcurrent=${cfg.workers.maxConcurrent})`);
 	// `WorkerRegistry` is constructed BEFORE the factories close over it
 	// because the coordinator factory recursively builds dispatcher
 	// tools that reference the same registry — sub-coordinators can
@@ -184,7 +349,7 @@ async function main(): Promise<void> {
 				createReportToParentTool(workers, runner),
 			];
 			if (client) tools.unshift(createBashTool(client));
-			else console.error(`[nexal] executor ${runner.id} has no exec client`);
+			else log.error(`executor ${runner.id} has no exec client`);
 			return tools;
 		},
 		coordinatorTools: (runner) => [
@@ -204,7 +369,7 @@ async function main(): Promise<void> {
 		],
 		deliverToTopLevel: (sessionKey, sender, message) => {
 			if (!pool) {
-				console.error("[nexal] deliverToTopLevel before pool ready");
+				log.error("deliverToTopLevel before pool ready");
 				return;
 			}
 			pool.injectMessage(sessionKey, sender, message);
@@ -240,17 +405,22 @@ async function main(): Promise<void> {
 
 	const stop = new AbortController();
 	const shutdown = async (sig: string) => {
-		console.error(`[nexal] ${sig} received, shutting down`);
+		log.error(`${sig} received, shutting down`);
 		stop.abort();
 		await pool.shutdown();
 		// Suspend workers BEFORE releaseAll: suspend calls sandbox.detach()
 		// which keeps worker containers running so they resume on next
 		// startup; releaseAll then has nothing left to clean up.
 		await workers.shutdown().catch((err) =>
-			console.error("[nexal] worker registry shutdown", err),
+			log.error("worker registry shutdown", err),
 		);
 		await Promise.all([...channels.values()].map((c) => c.stop().catch(() => undefined)));
 		await sandbox.releaseAll();
+		await closeSettings().catch(() => undefined);
+		if (gatewayProc) {
+			gatewayProc.kill("SIGTERM");
+			log.error("embedded gateway stopped");
+		}
 		process.exit(0);
 	};
 	process.on("SIGINT", () => void shutdown("SIGINT"));
@@ -262,7 +432,7 @@ async function main(): Promise<void> {
 				try {
 					pool.handle(msg);
 				} catch (err) {
-					console.error(`[nexal] channel=${channel.name} dispatch error`, err);
+					log.error(`channel=${channel.name} dispatch error`, err);
 				}
 			}),
 		),
@@ -271,7 +441,7 @@ async function main(): Promise<void> {
 	// Resume non-terminal workers after channels are up so their
 	// send_update calls can land on the right destination.
 	await workers.resumePending().catch((err: unknown) =>
-		console.error("[nexal] resumePending failed", err),
+		log.error("resumePending failed", err),
 	);
 
 	await new Promise<void>((resolve) => {
@@ -286,6 +456,6 @@ function splitCsv(v: string | undefined): string[] | undefined {
 }
 
 main().catch((err) => {
-	console.error("[nexal] fatal", err);
+	log.error("fatal", err);
 	process.exit(1);
 });

@@ -17,6 +17,9 @@
  */
 
 import type { Channel, IncomingMessage, OutgoingReply } from "./types.ts";
+import { createLog } from "../log.ts";
+
+const log = createLog("cron");
 
 export interface CronJob {
 	id: string;
@@ -56,7 +59,7 @@ export class CronChannel implements Channel {
 
 	async start(onMessage: (msg: IncomingMessage) => void): Promise<void> {
 		const tickSecs = this.config.tickIntervalSecs ?? 15;
-		console.log(`[cron] ticking every ${tickSecs}s`);
+		log.info(`ticking every ${tickSecs}s`);
 		this.timer = setInterval(() => {
 			if (this.stopped) return;
 			this.tick(onMessage);
@@ -136,5 +139,5 @@ const warned = new Set<string>();
 function warnOnce(expr: string): void {
 	if (warned.has(expr)) return;
 	warned.add(expr);
-	console.warn(`[cron] skipping crontab-style schedule '${expr}' — install a cron parser to enable`);
+	log.warn(`skipping crontab-style schedule '${expr}' — install a cron parser to enable`);
 }

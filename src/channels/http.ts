@@ -18,6 +18,9 @@
  * here.
  */
 import type { Channel, IncomingMessage, OutgoingReply } from "./types.ts";
+import { createLog } from "../log.ts";
+
+const log = createLog("http");
 
 type BunServer = ReturnType<typeof Bun.serve>;
 
@@ -82,7 +85,7 @@ export class HttpChannel implements Channel {
 				return new Response("not found", { status: 404 });
 			},
 		});
-		console.log(`[http] listening on ${this.server.hostname}:${this.server.port}`);
+		log.info(`listening on ${this.server.hostname}:${this.server.port}`);
 
 		// Run forever (until stop()).
 		return new Promise<void>((resolve) => {

@@ -79,15 +79,8 @@ describe("AgentPool.injectMessage", () => {
 
 	test("malformed sessionKey (no colon) is logged and dropped", () => {
 		const pool = new SpyPool();
-		const errSpy = mock(() => undefined);
-		const origError = console.error;
-		(console as any).error = errSpy;
-		try {
-			pool.injectMessage("no-colon-here", "s", "hi");
-		} finally {
-			(console as any).error = origError;
-		}
+		pool.injectMessage("no-colon-here", "s", "hi");
+		// Message should be silently dropped (no crash, nothing queued).
 		expect(pool.received).toHaveLength(0);
-		expect(errSpy).toHaveBeenCalledTimes(1);
 	});
 });

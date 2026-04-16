@@ -26,6 +26,9 @@ import type {
 	GatewayMethods,
 	UnknownAgentNotification,
 } from "./protocol.ts";
+import { createLog } from "../log.ts";
+
+const log = createLog("gateway-client");
 
 type JsonRpcId = string | number;
 
@@ -61,6 +64,8 @@ export class GatewayError extends Error {
 export interface GatewayClientOptions {
 	/** WebSocket URL, e.g. `"ws://127.0.0.1:5500"`. */
 	url: string;
+	/** Unix domain socket path. When set, `url` is ignored for transport. */
+	unix?: string;
 	/** Shared auth token. */
 	token: string;
 	/** Identifier sent in `gateway/hello`. */
@@ -89,7 +94,14 @@ export class GatewayClient {
 
 	async connect(): Promise<void> {
 		if (this.readyPromise) return this.readyPromise;
-		this.readyPromise = new Promise<void>((resolve, reject) => {
+		this.readyPromise = this.options.unix
+			? this.connectUnix()
+			: this.connectTcp();
+		return this.readyPromise;
+	}
+
+	private connectTcp(): Promise<void> {
+		return new Promise<void>((resolve, reject) => {
 			const ws = new WebSocket(this.options.url);
 			this.ws = ws;
 			const timer = setTimeout(() => {
@@ -104,24 +116,67 @@ export class GatewayClient {
 				clearTimeout(timer);
 				reject(new Error(`gateway WS error: ${ev?.message ?? this.options.url}`));
 			});
-			ws.addEventListener("close", () => {
-				const closed = new Error("gateway WS closed");
-				for (const p of this.pending.values()) p.reject(closed);
-				this.pending.clear();
-				this.ws = null;
-				this.readyPromise = null;
-				this.helloPromise = null;
-			});
-			ws.addEventListener("message", (ev) => {
-				const data = ev.data;
-				const text =
-					typeof data === "string"
-						? data
-						: new TextDecoder().decode(new Uint8Array(data as ArrayBuffer));
-				this.dispatch(text);
-			});
+			this.wireEvents(ws);
 		});
-		return this.readyPromise;
+	}
+
+	private async connectUnix(): Promise<void> {
+		const { createConnection } = await import("node:net");
+		const WS = (await import("ws")).default;
+		return new Promise<void>((resolve, reject) => {
+			const ws = new WS("ws://localhost/", {
+				createConnection: () => createConnection(this.options.unix!),
+			});
+			const timer = setTimeout(() => {
+				reject(new Error(`gateway WS connect timed out: unix:${this.options.unix}`));
+				ws.close();
+			}, this.options.connectTimeoutMs ?? 5_000);
+			ws.on("open", () => {
+				clearTimeout(timer);
+				resolve();
+			});
+			ws.on("error", (err: Error) => {
+				clearTimeout(timer);
+				reject(new Error(`gateway WS error: ${err?.message ?? this.options.unix}`));
+			});
+			// Wrap ws package instance to match the WebSocket interface we use.
+			const wrapper = ws as unknown as WebSocket;
+			this.ws = wrapper;
+			this.wireEvents(wrapper, ws);
+		});
+	}
+
+	private wireEvents(ws: WebSocket, rawWs?: import("ws").WebSocket): void {
+		const onClose = () => {
+			const closed = new Error("gateway WS closed");
+			for (const p of this.pending.values()) p.reject(closed);
+			this.pending.clear();
+			this.ws = null;
+			this.readyPromise = null;
+			this.helloPromise = null;
+		};
+		const onMessage = (data: unknown) => {
+			const text =
+				typeof data === "string"
+					? data
+					: data instanceof MessageEvent
+						? (typeof data.data === "string"
+							? data.data
+							: new TextDecoder().decode(new Uint8Array(data.data as ArrayBuffer)))
+						: String(data);
+			this.dispatch(text);
+		};
+		if (rawWs) {
+			// ws package — Node EventEmitter API.
+			rawWs.on("close", onClose);
+			rawWs.on("message", (d: import("ws").RawData) => {
+				onMessage(typeof d === "string" ? d : d.toString("utf-8"));
+			});
+		} else {
+			// Bun native WebSocket — DOM EventTarget API.
+			ws.addEventListener("close", onClose);
+			ws.addEventListener("message", (ev) => onMessage(ev));
+		}
 	}
 
 	/** Send `gateway/hello`. Idempotent — calling twice is safe. */
@@ -200,7 +255,7 @@ export class GatewayClient {
 		try {
 			msg = JSON.parse(line);
 		} catch {
-			console.error("[gateway-client] non-JSON frame dropped:", line.slice(0, 120));
+			log.error("non-JSON frame dropped:", line.slice(0, 120));
 			return;
 		}
 		if ("id" in msg && msg.id !== undefined) {
@@ -242,7 +297,7 @@ export class GatewayClient {
 			try {
 				h(event);
 			} catch (err) {
-				console.error("[gateway-client] notification handler threw", err);
+				log.error("notification handler threw", err);
 			}
 		}
 	}
