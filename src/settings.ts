@@ -13,21 +13,43 @@ import { join } from "node:path";
 import { mkdirSync } from "node:fs";
 
 let _db: import("@electric-sql/pglite").PGlite | null = null;
+let _dbPromise: Promise<import("@electric-sql/pglite").PGlite> | null = null;
+
+/**
+ * Shared PGlite instance for the process. Both settings and worker
+ * store use the same `~/.nexal/data/` directory — PGlite only allows
+ * one connection per directory, so we share the instance.
+ */
+export async function getSharedPglite(): Promise<import("@electric-sql/pglite").PGlite> {
+	if (_db) return _db;
+	if (_dbPromise) return _dbPromise;
+	_dbPromise = (async () => {
+		const { PGlite } = await import("@electric-sql/pglite");
+		const dataDir = join(homedir(), ".nexal", "data");
+		mkdirSync(dataDir, { recursive: true });
+		const client = new PGlite(dataDir);
+		await client.waitReady;
+		_db = client;
+		_dbPromise = null;
+		return client;
+	})();
+	return _dbPromise;
+}
+
+let _settingsReady = false;
 
 async function db(): Promise<import("@electric-sql/pglite").PGlite> {
-	if (_db) return _db;
-	const { PGlite } = await import("@electric-sql/pglite");
-	const dataDir = join(homedir(), ".nexal", "data");
-	mkdirSync(dataDir, { recursive: true });
-	_db = new PGlite(dataDir);
-	await _db.waitReady;
-	await _db.exec(`
-		CREATE TABLE IF NOT EXISTS settings (
-			key TEXT PRIMARY KEY,
-			value TEXT NOT NULL
-		)
-	`);
-	return _db;
+	const pg = await getSharedPglite();
+	if (!_settingsReady) {
+		await pg.exec(`
+			CREATE TABLE IF NOT EXISTS settings (
+				key TEXT PRIMARY KEY,
+				value TEXT NOT NULL
+			)
+		`);
+		_settingsReady = true;
+	}
+	return pg;
 }
 
 export async function getSetting(key: string): Promise<string | null> {

@@ -224,16 +224,10 @@ async function openDb(cfg: WorkerStoreConfig): Promise<{ db: Db; close: () => Pr
 		return { db, close: () => sql.close() };
 	}
 
-	// Embedded PGlite — persist under ~/.nexal/data/
-	const { mkdirSync } = await import("node:fs");
-	const { join } = await import("node:path");
-	const { homedir } = await import("node:os");
-	const dataDir = join(homedir(), ".nexal", "data");
-	mkdirSync(dataDir, { recursive: true });
-
-	const { PGlite } = await import("@electric-sql/pglite");
-	const client = new PGlite(dataDir);
-	await client.waitReady;
+	// Embedded PGlite — share the process-wide instance from settings.ts
+	// (PGlite only allows one connection per data directory).
+	const { getSharedPglite } = await import("../settings.ts");
+	const client = await getSharedPglite();
 	const db = drizzlePglite({ client, schema });
 
 	// Auto-create the workers table if it doesn't exist.
@@ -266,8 +260,9 @@ async function openDb(cfg: WorkerStoreConfig): Promise<{ db: Db; close: () => Pr
 	await db.execute(dsql`CREATE INDEX IF NOT EXISTS workers_status_idx ON workers (status)`);
 	await db.execute(dsql`CREATE INDEX IF NOT EXISTS workers_parent_idx ON workers (parent_session_key)`);
 
-	log.success(`embedded PGlite database ready at ${dataDir}`);
-	return { db, close: () => client.close() };
+	log.success("embedded PGlite database ready (shared instance)");
+	// Don't close the shared client — closeSettings() handles that.
+	return { db, close: async () => {} };
 }
 
 function castRow(row: typeof schema.workers.$inferSelect): WorkerRow {
