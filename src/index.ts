@@ -253,7 +253,7 @@ async function main(): Promise<void> {
 		(tgBucket.botToken as string | undefined) ??
 		process.env.TELEGRAM_BOT_TOKEN ??
 		process.env.NEXAL_TELEGRAM_BOT_TOKEN;
-	if (tgToken) {
+	if (tgToken && tgBucket.enabled === true) {
 		channels.set(
 			"telegram",
 			new TelegramChannel({
@@ -269,7 +269,7 @@ async function main(): Promise<void> {
 	}
 
 	const hbCfg = cfg.channel.heartbeat ?? {};
-	if (hbCfg.enabled !== false) {
+	if (hbCfg.enabled === true) {
 		channels.set(
 			"heartbeat",
 			new HeartbeatChannel({
@@ -281,7 +281,7 @@ async function main(): Promise<void> {
 	}
 
 	const cronCfg = cfg.channel.cron ?? {};
-	if (cronCfg.enabled !== false) {
+	if (cronCfg.enabled === true) {
 		channels.set(
 			"cron",
 			new CronChannel({
