@@ -10,6 +10,11 @@
 import WS from "ws";
 import chalk from "chalk";
 import { saveAuth, saveModelConfig, loadAuth, loadModelConfig } from "./settings.ts";
+import type {
+	WsServerFrame,
+	WsSendFrame,
+	WsCommandFrame,
+} from "./channels/ws-protocol.ts";
 import {
 	TUI,
 	ProcessTerminal,
@@ -103,8 +108,9 @@ editor.setAutocompleteProvider(
 		[
 			{ name: "login", description: "OAuth login (e.g. /login anthropic)" },
 			{ name: "model", description: "Set model (e.g. /model anthropic claude-sonnet-4-6)" },
-			{ name: "clear", description: "Clear chat history" },
+			{ name: "status", description: "Show nexal system status" },
 			{ name: "help", description: "Show available commands" },
+			{ name: "clear", description: "Clear chat history" },
 			{ name: "quit", description: "Exit TUI" },
 		],
 		process.cwd(),
@@ -289,23 +295,22 @@ function connect(): void {
 
 	ws.on("message", (raw: WS.RawData) => {
 		const text = typeof raw === "string" ? raw : raw.toString("utf-8");
-		let msg: {
-			type?: string;
-			chat_id?: string;
-			text?: string;
-			meta?: { worker?: { name?: string; kind?: string; lifetime?: string } };
-		};
+		let frame: WsServerFrame;
 		try {
-			msg = JSON.parse(text);
+			frame = JSON.parse(text);
 		} catch {
 			return;
 		}
 
-		if (msg.type === "reply" && typeof msg.text === "string") {
+		if (frame.type === "reply") {
 			hideLoader();
-			addBotReply(msg.text, msg.meta?.worker);
+			addBotReply(frame.text, frame.meta?.worker);
 			finishReply();
-		} else if (msg.type === "typing") {
+		} else if (frame.type === "command_result") {
+			hideLoader();
+			addSystemNote(frame.error ?? frame.text ?? "");
+			finishReply();
+		} else if (frame.type === "typing") {
 			showLoader();
 		}
 	});
@@ -349,16 +354,26 @@ editor.onSubmit = (text: string) => {
 		return;
 	}
 
-	if (trimmed.startsWith("/model")) {
+	// Slash commands → send as structured command message.
+	if (trimmed.startsWith("/")) {
+		const parts = trimmed.slice(1).split(/\s+/);
+		const cmdName = parts[0]!;
+		const cmdArgs = parts.slice(1);
+		waiting = true;
+		editor.disableSubmit = true;
 		editor.setText("");
-		void handleModel(trimmed);
-		return;
-	}
-
-	if (trimmed === "/help") {
-		editor.setText("");
-		addSystemNote("Commands: /login <provider>, /model <provider> <model>, /clear, /quit");
+		showLoader();
 		tui.requestRender();
+		if (ws && ws.readyState === WS.OPEN) {
+			const frame: WsCommandFrame = {
+				type: "command",
+				chat_id: args.chatId,
+				sender: "tui-user",
+				name: cmdName,
+				args: cmdArgs,
+			};
+			ws.send(JSON.stringify(frame));
+		}
 		return;
 	}
 
@@ -370,14 +385,13 @@ editor.onSubmit = (text: string) => {
 	tui.requestRender();
 
 	if (ws && ws.readyState === WS.OPEN) {
-		ws.send(
-			JSON.stringify({
-				type: "send",
-				chat_id: args.chatId,
-				sender: "tui-user",
-				text: trimmed,
-			}),
-		);
+		const frame: WsSendFrame = {
+			type: "send",
+			chat_id: args.chatId,
+			sender: "tui-user",
+			text: trimmed,
+		};
+		ws.send(JSON.stringify(frame));
 	}
 };
 

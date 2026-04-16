@@ -45,6 +45,8 @@ import { createDispatcherTools } from "./tools/worker.ts";
 import { WorkerRegistry } from "./workers/registry.ts";
 import { loadAuth, loadModelConfig, closeSettings } from "./settings.ts";
 import { createWorkerStore } from "./workers/store.ts";
+import { CommandRegistry } from "./commands/registry.ts";
+import { registerBuiltins } from "./commands/builtin.ts";
 
 const DEFAULT_COORDINATOR_PROMPT = await Bun.file(
 	join(import.meta.dir, "prompts/coordinator.md"),
@@ -235,8 +237,11 @@ async function main(): Promise<void> {
 
 	const model = getModel(provider as any, modelId);
 
+	const commands = new CommandRegistry();
+	registerBuiltins(commands);
+
 	const channels = new Map<string, Channel>();
-	channels.set("http", new HttpChannel({ port: httpPort }));
+	channels.set("http", new HttpChannel({ port: httpPort, commands }));
 
 	const wsBucket = cfg.channel.ws ?? {};
 	const wsPort = Number(wsBucket.port ?? process.env.NEXAL_WS_PORT ?? "3001");
@@ -245,6 +250,7 @@ async function main(): Promise<void> {
 		new WsChannel({
 			port: wsPort,
 			host: (wsBucket.host as string | undefined) ?? "127.0.0.1",
+			commands,
 		}),
 	);
 
@@ -264,6 +270,7 @@ async function main(): Promise<void> {
 				allowChats:
 					(tgBucket.allowChats as string[] | undefined) ??
 					splitCsv(process.env.NEXAL_TELEGRAM_ALLOW_CHATS),
+				commands,
 			}),
 		);
 	}

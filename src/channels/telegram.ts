@@ -26,6 +26,7 @@ import type {
 	OutgoingReply,
 	TypingHandle,
 } from "./types.ts";
+import type { CommandRegistry } from "../commands/registry.ts";
 import { createLog } from "../log.ts";
 
 const log = createLog("telegram");
@@ -40,6 +41,8 @@ export interface TelegramChannelConfig {
 	allowChats?: string[];
 	/** Long-poll timeout in seconds (passed to getUpdates). */
 	longPollTimeoutSec?: number;
+	/** Shared command registry for slash commands. */
+	commands?: CommandRegistry;
 }
 
 interface TelegramChat {
@@ -123,6 +126,18 @@ export class TelegramChannel implements Channel {
 
 		this.botUsername = (await this.getMe()).username ?? "";
 		log.info(`logged in as @${this.botUsername || "<unknown>"}, polling for updates`);
+
+		// Register slash commands with Telegram so they appear in the
+		// bot command menu.
+		if (this.config.commands) {
+			const cmds = this.config.commands.list().map((c) => ({
+				command: c.name,
+				description: c.description.slice(0, 256),
+			}));
+			await this.apiCall("setMyCommands", { commands: cmds }).catch((err) =>
+				log.error("failed to register bot commands with Telegram", err),
+			);
+		}
 
 		this.loopTask = this.longPollLoop(onMessage);
 		await this.loopTask;
@@ -215,6 +230,33 @@ export class TelegramChannel implements Channel {
 
 		const { text, images } = await this.extractContent(msg);
 		if (!text && images.length === 0) return;
+
+		// Intercept slash commands — Telegram sends "/cmd" or "/cmd@botname".
+		const cmds = this.config.commands;
+		if (cmds && text.startsWith("/")) {
+			const cmdMatch = text.match(/^\/(\w+)(?:@\S+)?\s*(.*)/s);
+			if (cmdMatch) {
+				const name = cmdMatch[1]!;
+				const argStr = cmdMatch[2]?.trim() ?? "";
+				const args = argStr ? argStr.split(/\s+/) : [];
+				if (cmds.has(name)) {
+					const result = await cmds
+						.execute(name, { channel: "telegram", chatId, sender: username }, args)
+						.catch((err) => {
+							log.error(`command /${name} failed`, err);
+							return { text: `Command failed: ${err instanceof Error ? err.message : err}` };
+						});
+					if (result) {
+						await this.apiCall("sendMessage", {
+							chat_id: chatId,
+							text: result.text,
+							...(msg.message_id ? { reply_parameters: { message_id: msg.message_id } } : {}),
+						}).catch((err) => log.error(`failed to reply to /${name}`, err));
+					}
+					return;
+				}
+			}
+		}
 
 		// Media group (album) buffering.
 		if (msg.media_group_id) {

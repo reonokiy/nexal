@@ -18,6 +18,7 @@
  * here.
  */
 import type { Channel, IncomingMessage, OutgoingReply } from "./types.ts";
+import type { CommandRegistry } from "../commands/registry.ts";
 import { createLog } from "../log.ts";
 
 const log = createLog("http");
@@ -28,6 +29,8 @@ export interface HttpChannelConfig {
 	port: number;
 	/** Listen address; defaults to 127.0.0.1. Use 0.0.0.0 only for tests. */
 	host?: string;
+	/** Shared command registry for slash commands. */
+	commands?: CommandRegistry;
 }
 
 export class HttpChannel implements Channel {
@@ -51,13 +54,30 @@ export class HttpChannel implements Channel {
 					const chatId = body.chat_id ?? "default";
 					const sender = body.sender ?? "http-user";
 					const text = body.text ?? "";
+
+					// Slash command interception.
+					const cmds = self.config.commands;
+					if (cmds && text.trim().startsWith("/")) {
+						const parts = text.trim().slice(1).split(/\s+/);
+						const name = parts[0]!;
+						const args = parts.slice(1);
+						if (cmds.has(name)) {
+							const result = await cmds.execute(
+								name,
+								{ channel: "http", chatId, sender },
+								args,
+							);
+							return Response.json({ ok: true, command: name, result: result?.text ?? null });
+						}
+					}
+
 					const msg: IncomingMessage = {
 						channel: "http",
 						chatId,
 						sender,
 						text,
 						timestamp: Date.now(),
-						isMentioned: true, // HTTP POST is always explicit.
+						isMentioned: true,
 						metadata: {},
 						images: [],
 					};

@@ -5,13 +5,10 @@
  *   - Default: Unix domain socket at `~/.nexal/nexal.sock` (local dev)
  *   - Fallback: TCP on configurable host:port
  *
- * Wire protocol (JSON text frames):
- *   Client → Server:  { type: "send", chat_id?, sender?, text }
- *   Server → Client:  { type: "reply", chat_id, text }
- *   Server → Client:  { type: "typing", chat_id }
+ * Wire protocol: see `ws-protocol.ts` for typed frame definitions.
  *
  * The `fetch` handler also accepts `POST /send` for curl debugging,
- * same schema as the client→server WS frame.
+ * same schema as the WsSendFrame.
  */
 import { mkdirSync, unlinkSync } from "node:fs";
 import { dirname } from "node:path";
@@ -23,6 +20,13 @@ import type {
 	OutgoingReply,
 	TypingHandle,
 } from "./types.ts";
+import type { CommandRegistry } from "../commands/registry.ts";
+import type {
+	WsClientFrame,
+	WsReplyFrame,
+	WsTypingFrame,
+	WsCommandResultFrame,
+} from "./ws-protocol.ts";
 
 const log = createLog("ws");
 
@@ -35,6 +39,8 @@ export interface WsChannelConfig {
 	port?: number;
 	/** TCP bind address (default 127.0.0.1). */
 	host?: string;
+	/** Shared command registry for slash commands. */
+	commands?: CommandRegistry;
 }
 
 interface WsData {
@@ -115,32 +121,38 @@ export class WsChannel implements Channel {
 					raw: string | Buffer,
 				) {
 					const text = typeof raw === "string" ? raw : raw.toString("utf-8");
-					let parsed: {
-						type?: string;
-						chat_id?: string;
-						sender?: string;
-						text?: string;
-					};
+					let frame: WsClientFrame;
 					try {
-						parsed = JSON.parse(text);
+						frame = JSON.parse(text);
 					} catch {
-						return; // Ignore malformed frames.
+						return;
 					}
-					if (parsed.type !== "send") return;
 
-					// Re-key the connection if chat_id changed.
-					const chatId = parsed.chat_id ?? "default";
+					const chatId = frame.chat_id ?? "default";
 					if (chatId !== ws.data.chatId) {
 						self.removeClient(ws.data.chatId, ws);
 						ws.data.chatId = chatId;
 						self.addClient(chatId, ws);
 					}
 
-					self.fireIncoming(
-						chatId,
-						parsed.sender ?? "ws-user",
-						parsed.text ?? "",
-					);
+					if (frame.type === "command") {
+						self.handleCommand(
+							ws,
+							chatId,
+							frame.sender ?? "ws-user",
+							frame.name,
+							frame.args ?? [],
+						);
+						return;
+					}
+
+					if (frame.type === "send") {
+						self.fireIncoming(
+							chatId,
+							frame.sender ?? "ws-user",
+							frame.text ?? "",
+						);
+					}
 				},
 
 				close(ws: import("bun").ServerWebSocket<WsData>) {
@@ -169,25 +181,27 @@ export class WsChannel implements Channel {
 	async send(reply: OutgoingReply): Promise<void> {
 		const set = this.clients.get(reply.chatId);
 		if (!set || set.size === 0) return;
-		const frame = JSON.stringify({
+		const frame: WsReplyFrame = {
 			type: "reply",
 			chat_id: reply.chatId,
 			text: reply.text,
-			...(reply.meta ? { meta: reply.meta } : {}),
-		});
+			...(reply.meta ? { meta: reply.meta as WsReplyFrame["meta"] } : {}),
+		};
+		const json = JSON.stringify(frame);
 		for (const ws of set) {
-			ws.send(frame);
+			ws.send(json);
 		}
 	}
 
 	startTyping(chatId: string): TypingHandle | null {
 		const set = this.clients.get(chatId);
 		if (!set || set.size === 0) return null;
-		const frame = JSON.stringify({ type: "typing", chat_id: chatId });
+		const frame: WsTypingFrame = { type: "typing", chat_id: chatId };
+		const json = JSON.stringify(frame);
 		const send = () => {
 			const current = this.clients.get(chatId);
 			if (!current) return;
-			for (const ws of current) ws.send(frame);
+			for (const ws of current) ws.send(json);
 		};
 		send();
 		const timer = setInterval(send, 4_000);
@@ -227,6 +241,51 @@ export class WsChannel implements Channel {
 		if (!set) return;
 		set.delete(ws);
 		if (set.size === 0) this.clients.delete(chatId);
+	}
+
+	private sendCommandResult(
+		ws: import("bun").ServerWebSocket<WsData>,
+		frame: WsCommandResultFrame,
+	): void {
+		ws.send(JSON.stringify(frame));
+	}
+
+	private handleCommand(
+		ws: import("bun").ServerWebSocket<WsData>,
+		chatId: string,
+		sender: string,
+		name: string,
+		args: string[],
+	): void {
+		const cmds = this.config.commands;
+		if (!cmds || !cmds.has(name)) {
+			this.sendCommandResult(ws, {
+				type: "command_result",
+				chat_id: chatId,
+				name,
+				error: `unknown command: /${name}`,
+			});
+			return;
+		}
+		void cmds
+			.execute(name, { channel: "ws", chatId, sender }, args)
+			.then((result) => {
+				this.sendCommandResult(ws, {
+					type: "command_result",
+					chat_id: chatId,
+					name,
+					text: result?.text ?? "",
+				});
+			})
+			.catch((err) => {
+				log.error(`command /${name} failed`, err);
+				this.sendCommandResult(ws, {
+					type: "command_result",
+					chat_id: chatId,
+					name,
+					error: err instanceof Error ? err.message : String(err),
+				});
+			});
 	}
 
 	private fireIncoming(chatId: string, sender: string, text: string): void {
