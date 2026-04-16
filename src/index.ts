@@ -348,12 +348,12 @@ async function main(): Promise<void> {
 			// or the top-level coordinator).
 			createReportToParentTool(workers, runner),
 		],
-		deliverToTopLevel: (sessionKey, sender, message) => {
+		deliverToTopLevel: (sessionKey, sender, content) => {
 			if (!pool) {
 				log.error(`cannot deliver message from "${sender}" to top-level coordinator, agent pool is not ready yet`);
 				return;
 			}
-			pool.injectMessage(sessionKey, sender, message);
+			pool.injectMessage(sessionKey, sender, content);
 		},
 	});
 

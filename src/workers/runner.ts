@@ -33,6 +33,12 @@
 import { Agent, type AgentMessage, type AgentTool } from "@mariozechner/pi-agent-core";
 import { createLog } from "../log.ts";
 import type { Model } from "@mariozechner/pi-ai";
+import {
+	type UserContent,
+	extractImagesFromContent,
+	extractTextFromContent,
+	imageContentToAttachment,
+} from "../content.ts";
 
 import type { Channel } from "../channels/types.ts";
 import type { ProxySpec } from "../config.ts";
@@ -155,13 +161,20 @@ export class WorkerRunner {
 	 * executor). If mid-run, queue via `agent.steer`; else
 	 * `agent.prompt`. Throws for shot lifetime.
 	 */
-	async route(message: string): Promise<void> {
+	async route(content: UserContent): Promise<void> {
 		if (this.lifetime !== "persistent") {
 			throw new Error(`worker ${this.id} is one-shot; cannot accept route`);
 		}
 		const agent = this.agent;
 		if (!agent) throw new Error(`worker ${this.id} not started`);
-		const msg: AgentMessage = { role: "user", content: message, timestamp: Date.now() };
+
+		// For executors with a sandbox, write images to /workspace/ so
+		// the agent can access them with bash tools.
+		if (this.client && this.kind === "executor") {
+			content = await this.writeImagesToSandbox(content);
+		}
+
+		const msg: AgentMessage = { role: "user", content, timestamp: Date.now() };
 		if (agent.state.isStreaming) {
 			agent.steer(msg);
 			return;
@@ -215,8 +228,13 @@ export class WorkerRunner {
 		}
 	}
 
-	async sendToSourceChat(text: string, opts?: { replyTo?: string }): Promise<void> {
-		if (!text.trim()) return;
+	async sendToSourceChat(
+		content: UserContent,
+		opts?: { replyTo?: string },
+	): Promise<void> {
+		const text = typeof content === "string" ? content : extractTextFromContent(content);
+		const images = extractImagesFromContent(content);
+		if (!text.trim() && images.length === 0) return;
 		const ch = this.deps.channels.get(this.deps.row.sourceChannel);
 		if (!ch) {
 			this.log.error(
@@ -228,6 +246,7 @@ export class WorkerRunner {
 			await ch.send({
 				chatId: this.deps.row.sourceChatId,
 				text,
+				images: images.length > 0 ? images.map(imageContentToAttachment) : undefined,
 				replyTo: opts?.replyTo ?? this.deps.row.sourceReplyTo ?? undefined,
 				meta: {
 					worker: {
@@ -240,6 +259,47 @@ export class WorkerRunner {
 		} catch (err) {
 			this.log.error(`failed to send message via ${this.deps.row.sourceChannel} to chat ${this.deps.row.sourceChatId}`, err);
 		}
+	}
+
+	/**
+	 * Write image content blocks to `/workspace/` in the sandbox so the
+	 * agent can access them via bash. Returns updated content with a text
+	 * note listing the saved file paths.
+	 */
+	private async writeImagesToSandbox(content: UserContent): Promise<UserContent> {
+		const images = extractImagesFromContent(content);
+		if (images.length === 0) return content;
+
+		const paths: string[] = [];
+		for (let i = 0; i < images.length; i++) {
+			const img = images[i]!;
+			const ext = img.mimeType.split("/")[1] ?? "bin";
+			const name = `incoming_${Date.now()}_${i}.${ext}`;
+			const path = `/workspace/${name}`;
+			try {
+				// Use a heredoc to safely pipe base64 data without shell
+				// escaping issues (base64 only contains [A-Za-z0-9+/=\n]).
+				await this.client!.runCommand(
+					["/bin/sh", "-c", `base64 -d > ${path} <<'__IMG_EOF__'\n${img.data}\n__IMG_EOF__`],
+					{ timeoutMs: 10_000 },
+				);
+				paths.push(path);
+			} catch (err) {
+				this.log.error(`failed to write image to sandbox: ${path}`, err);
+			}
+		}
+
+		if (paths.length === 0) return content;
+
+		const note = `[Images saved to sandbox: ${paths.join(", ")}]`;
+		if (typeof content === "string") {
+			return [
+				{ type: "text", text: `${note}\n${content}` },
+				...images,
+			];
+		}
+		// Prepend the note to existing content blocks.
+		return [{ type: "text", text: note }, ...content];
 	}
 
 	// ── Internals ─────────────────────────────────────────────────────

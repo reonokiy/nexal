@@ -29,6 +29,7 @@ import { createLog } from "../log.ts";
 const log = createLog("registry");
 import type { AgentTool } from "@mariozechner/pi-agent-core";
 import type { Model } from "@mariozechner/pi-ai";
+import type { UserContent } from "../content.ts";
 
 import type { Channel } from "../channels/types.ts";
 import type { ProxySpec } from "../config.ts";
@@ -70,7 +71,7 @@ export interface WorkerRegistryConfig {
 	 * the chat session key (`"<channel>:<chatId>"`); `sender` identifies
 	 * the reporting child (typically `"worker:<id>"` or its name).
 	 */
-	deliverToTopLevel?: (sessionKey: string, sender: string, message: string) => void | Promise<void>;
+	deliverToTopLevel?: (sessionKey: string, sender: string, content: UserContent) => void | Promise<void>;
 }
 
 export interface SpawnRequest {
@@ -137,7 +138,7 @@ export class WorkerRegistry {
 	 * Internal — does NOT enforce parent/child relationship. Use
 	 * `routeFromCaller` from dispatcher-tool code paths.
 	 */
-	async route(id: string, message: string): Promise<void> {
+	async route(id: string, content: UserContent): Promise<void> {
 		const runner = this.runners.get(id);
 		if (!runner) {
 			const row = await this.cfg.store.get(id);
@@ -149,7 +150,7 @@ export class WorkerRegistry {
 		if (runner.lifetime !== "persistent") {
 			throw new Error(`agent ${id} is one-shot; cannot accept route`);
 		}
-		await runner.route(message);
+		await runner.route(content);
 	}
 
 	/**
@@ -162,7 +163,7 @@ export class WorkerRegistry {
 	async routeFromCaller(
 		callerKey: string,
 		targetId: string,
-		message: string,
+		content: UserContent,
 	): Promise<void> {
 		const target = await this.cfg.store.get(targetId);
 		if (!target) throw new Error(`agent ${targetId} not found`);
@@ -172,7 +173,7 @@ export class WorkerRegistry {
 					`You can only route to agents you spawned. To reach a deeper descendant, route through the intermediate coordinator.`,
 			);
 		}
-		await this.route(targetId, message);
+		await this.route(targetId, content);
 	}
 
 	/**
@@ -181,7 +182,7 @@ export class WorkerRegistry {
 	 *   - `"<channel>:<chatId>"` → top-level coordinator (AgentPool)
 	 *   - any other id            → another row in this registry
 	 */
-	async reportToParent(callerId: string, message: string): Promise<void> {
+	async reportToParent(callerId: string, content: UserContent): Promise<void> {
 		const caller = await this.cfg.store.get(callerId);
 		if (!caller) throw new Error(`agent ${callerId} not found`);
 		const parentKey = caller.parentSessionKey;
@@ -193,11 +194,16 @@ export class WorkerRegistry {
 					"top-level delivery not configured; report_to_parent unavailable for top-level children",
 				);
 			}
-			await this.cfg.deliverToTopLevel(parentKey, `worker:${caller.name}`, message);
+			await this.cfg.deliverToTopLevel(parentKey, `worker:${caller.name}`, content);
 			return;
 		}
-		// Parent is another worker (a sub-coordinator).
-		await this.route(parentKey, `[from child ${caller.name}] ${message}`);
+		// Parent is another worker (a sub-coordinator). Prepend the child
+		// name as a text prefix so the parent knows who sent it.
+		const prefixed: UserContent =
+			typeof content === "string"
+				? `[from child ${caller.name}] ${content}`
+				: [{ type: "text", text: `[from child ${caller.name}] ` }, ...content];
+		await this.route(parentKey, prefixed);
 	}
 
 	async cancel(id: string): Promise<void> {

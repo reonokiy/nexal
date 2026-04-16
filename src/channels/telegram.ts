@@ -144,11 +144,56 @@ export class TelegramChannel implements Channel {
 	}
 
 	async send(reply: OutgoingReply): Promise<void> {
-		await this.apiCall("sendMessage", {
-			chat_id: reply.chatId,
-			text: reply.text,
-			...(reply.replyTo ? { reply_parameters: { message_id: Number(reply.replyTo) } } : {}),
-		});
+		const replyParams = reply.replyTo
+			? { reply_parameters: { message_id: Number(reply.replyTo) } }
+			: {};
+
+		// Send images first (each as a separate sendPhoto call).
+		if (reply.images && reply.images.length > 0) {
+			for (let i = 0; i < reply.images.length; i++) {
+				const img = reply.images[i]!;
+				// Use the first image's caption for the text body.
+				const caption = i === 0 && reply.text ? reply.text : undefined;
+				await this.sendPhoto(reply.chatId, img, caption, replyParams);
+			}
+			// If we already sent the text as caption, we're done.
+			if (reply.text) return;
+		}
+
+		if (reply.text) {
+			await this.apiCall("sendMessage", {
+				chat_id: reply.chatId,
+				text: reply.text,
+				...replyParams,
+			});
+		}
+	}
+
+	private async sendPhoto(
+		chatId: string,
+		img: ImageAttachment,
+		caption?: string,
+		extra?: Record<string, unknown>,
+	): Promise<void> {
+		const url = `${TG}/bot${this.config.botToken}/sendPhoto`;
+		const form = new FormData();
+		form.append("chat_id", chatId);
+		const bytes =
+			img.data instanceof Uint8Array
+				? img.data
+				: Buffer.from(img.data, "base64");
+		form.append(
+			"photo",
+			new Blob([bytes], { type: img.mimeType }),
+			img.filename || "photo.jpg",
+		);
+		if (caption) form.append("caption", caption);
+		if (extra?.reply_parameters) {
+			form.append("reply_parameters", JSON.stringify(extra.reply_parameters));
+		}
+		const resp = await fetch(url, { method: "POST", body: form });
+		const body = (await resp.json()) as { ok: boolean; description?: string };
+		if (!body.ok) throw new Error(`telegram sendPhoto: ${body.description ?? resp.status}`);
 	}
 
 	startTyping(chatId: string): TypingHandle | null {

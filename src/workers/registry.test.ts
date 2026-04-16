@@ -133,7 +133,7 @@ function mockStore(rows: WorkerRow[] = []): TrackingStore {
 
 function buildRegistry(opts?: {
 	store?: WorkerStore;
-	deliverToTopLevel?: (key: string, sender: string, msg: string) => void | Promise<void>;
+	deliverToTopLevel?: (key: string, sender: string, content: import("../content.ts").UserContent) => void | Promise<void>;
 }) {
 	return new WorkerRegistry({
 		store: opts?.store ?? mockStore(),

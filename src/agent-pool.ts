@@ -24,6 +24,13 @@ import type { Model } from "@mariozechner/pi-ai";
 import type { Channel, IncomingMessage, OutgoingReply } from "./channels/types.ts";
 import { sessionKey } from "./channels/types.ts";
 import { DEFAULT_DEBOUNCE, type DebounceConfig, SessionRunner } from "./channels/debounce.ts";
+import {
+	type UserContent,
+	buildUserContent,
+	extractImagesFromContent,
+	extractTextFromContent,
+	imageContentToAttachment,
+} from "./content.ts";
 
 export interface AgentPoolConfig {
 	systemPrompt: string;
@@ -80,7 +87,7 @@ export class AgentPool {
 	 * IncomingMessage carries that channel/chatId so the dispatcher's
 	 * eventual reply still flows back to the correct chat.
 	 */
-	injectMessage(sessionKeyStr: string, sender: string, text: string): void {
+	injectMessage(sessionKeyStr: string, sender: string, content: UserContent): void {
 		const sepIdx = sessionKeyStr.indexOf(":");
 		if (sepIdx === -1) {
 			log.error(`malformed session key "${sessionKeyStr}", expected "channel:chatId" format`);
@@ -92,11 +99,11 @@ export class AgentPool {
 			channel,
 			chatId,
 			sender,
-			text,
+			text: extractTextFromContent(content),
 			timestamp: Date.now(),
 			isMentioned: true,
 			metadata: {},
-			images: [],
+			images: extractImagesFromContent(content).map(imageContentToAttachment),
 		});
 	}
 
@@ -106,17 +113,15 @@ export class AgentPool {
 		const session = await this.getOrCreate(key, msg);
 		session.lastIncoming = msg;
 
+		const content = buildUserContent(msg.text, msg.images);
+
 		if (session.agent.state.isStreaming) {
-			session.agent.steer({
-				role: "user",
-				content: msg.text,
-				timestamp: msg.timestamp,
-			});
+			session.agent.steer({ role: "user", content, timestamp: msg.timestamp });
 			return;
 		}
 
 		try {
-			await session.agent.prompt(msg.text);
+			await session.agent.prompt({ role: "user", content, timestamp: msg.timestamp });
 		} catch (err: any) {
 			log.error(`prompt failed for session ${key}, sender "${msg.sender}":`, err);
 			const channel = this.config.channels.get(session.channelName);

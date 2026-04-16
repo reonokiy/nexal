@@ -10,13 +10,10 @@ import type { AgentTool, AgentToolResult } from "@mariozechner/pi-agent-core";
 import { type Static, Type } from "@mariozechner/pi-ai";
 
 import type { WorkerRunner } from "../workers/runner.ts";
+import { UserContentSchema, type UserContent } from "../content.ts";
 
 const SendUpdateParams = Type.Object({
-	text: Type.String({
-		description:
-			"Message body. Plain text (lightweight Markdown works on Telegram). " +
-			"Keep concise — each call becomes a separate chat message.",
-	}),
+	content: UserContentSchema,
 });
 
 export function createSendUpdateTool(
@@ -28,16 +25,21 @@ export function createSendUpdateTool(
 		description:
 			"Send a progress message to the user's chat. Use for milestones, questions, " +
 			"or the final result. Each call is one chat message, so batch content and " +
-			"avoid spamming every intermediate thought.",
+			"avoid spamming every intermediate thought.\n" +
+			"content: a plain string (lightweight Markdown works on Telegram), or an array of " +
+			'content blocks [{type:"text",text:"..."},{type:"image",data:"<base64>",mimeType:"image/png"}] ' +
+			"when you need to send images.",
 		parameters: SendUpdateParams,
 		async execute(
 			_toolCallId: string,
 			params: Static<typeof SendUpdateParams>,
 		): Promise<AgentToolResult<{ bytes: number }>> {
-			await runner.sendToSourceChat(params.text);
+			const content = params.content as UserContent;
+			await runner.sendToSourceChat(content);
+			const len = typeof content === "string" ? content.length : JSON.stringify(content).length;
 			return {
 				content: [{ type: "text", text: "[sent]" }],
-				details: { bytes: params.text.length },
+				details: { bytes: len },
 			};
 		},
 	};

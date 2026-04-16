@@ -25,6 +25,7 @@ import { type Static, Type } from "@mariozechner/pi-ai";
 
 import type { WorkerRegistry } from "../workers/registry.ts";
 import type { SendPolicy, WorkerRow } from "../workers/store.ts";
+import { UserContentSchema, type UserContent } from "../content.ts";
 
 export interface DispatcherCtx {
 	/**
@@ -102,11 +103,7 @@ const SpawnCoordinatorParams = Type.Object({
 
 const RouteParams = Type.Object({
 	id: Type.String({ description: "Agent id from spawn_* / list_agents." }),
-	message: Type.String({
-		description:
-			"User instruction to feed to the agent as its next user message. Provide " +
-			"all necessary context — the agent doesn't see your conversation.",
-	}),
+	content: UserContentSchema,
 });
 
 const IdParams = Type.Object({
@@ -270,15 +267,19 @@ function routeToAgentTool(
 			"background.\n" +
 			"You can ONLY route to agents you spawned directly. To reach a deeper descendant, " +
 			"route through the intermediate coordinator. Only valid for persistent lifetime — " +
-			"shot tasks reject routes.",
+			"shot tasks reject routes.\n" +
+			"content: a plain string, or an array of content blocks " +
+			'[{type:"text",text:"..."},{type:"image",data:"<base64>",mimeType:"..."}] ' +
+			"to include images. Provide all necessary context — the agent doesn't see your conversation.",
 		parameters: RouteParams,
 		async execute(
 			_id: string,
 			params: Static<typeof RouteParams>,
 		): Promise<AgentToolResult<{ id: string }>> {
-			await registry.routeFromCaller(ctx.parentSessionKey, params.id, params.message);
+			const content = params.content as UserContent;
+			await registry.routeFromCaller(ctx.parentSessionKey, params.id, content);
 			return {
-				content: [{ type: "text", text: `routed message to ${params.id}` }],
+				content: [{ type: "text", text: `routed content to ${params.id}` }],
 				details: { id: params.id },
 			};
 		},
