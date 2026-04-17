@@ -151,6 +151,7 @@ export class WsChannel implements Channel {
 							chatId,
 							frame.sender ?? "ws-user",
 							frame.text ?? "",
+							frame.images,
 						);
 					}
 				},
@@ -288,7 +289,12 @@ export class WsChannel implements Channel {
 			});
 	}
 
-	private fireIncoming(chatId: string, sender: string, text: string): void {
+	private fireIncoming(
+		chatId: string,
+		sender: string,
+		text: string,
+		images?: { data: string; mimeType: string }[],
+	): void {
 		this.onMessage?.({
 			channel: "ws",
 			chatId,
@@ -297,7 +303,11 @@ export class WsChannel implements Channel {
 			timestamp: Date.now(),
 			isMentioned: true,
 			metadata: {},
-			images: [],
+			images: images?.map((img) => ({
+				data: img.data,
+				mimeType: img.mimeType,
+				filename: "clipboard.png",
+			})) ?? [],
 		});
 	}
 }

@@ -379,6 +379,16 @@ export class WorkerAgent {
 		await this.flushNow(messages);
 
 		if (errorMessage) {
+			// Distinguish intentional cancellation (abort()) from real errors.
+			const isAborted = /abort/i.test(errorMessage);
+			if (isAborted) {
+				// Cancelled by coordinator or process shutdown — quiet exit.
+				await this.sendToChat("(task cancelled)");
+				await this.deps.store.setStatus(this.id, "cancelled", errorMessage);
+				await this.dispose(true);
+				this.deps.onTerminal(this.id);
+				return;
+			}
 			await this.deps.store.markFailed(this.id, errorMessage);
 			await this.sendToChat(`❌ failed: ${errorMessage}`);
 			await this.dispose(true);

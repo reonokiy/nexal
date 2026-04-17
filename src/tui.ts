@@ -10,6 +10,7 @@ import type {
 	WsServerFrame,
 	WsSendFrame,
 	WsCommandFrame,
+	WsImageBlock,
 } from "./channels/ws-protocol.ts";
 import {
 	TUI,
@@ -27,6 +28,7 @@ import {
 	matchesKey,
 	Key,
 } from "@mariozechner/pi-tui";
+import { readClipboardImage } from "./clipboard.ts";
 
 // ── CLI args ────────────────────────────────────────────────────────
 
@@ -106,6 +108,26 @@ const history = new Container();
 tui.addChild(history);
 
 const editor = new Editor(tui, editorTheme);
+{
+	const PROMPT_PREFIX = "> ";
+	const PROMPT_WIDTH = 2;
+	const origRender = editor.render.bind(editor);
+	editor.render = (width: number): string[] => {
+		// Render editor in a narrower width, then prepend "> " to content lines.
+		const lines = origRender(width - PROMPT_WIDTH);
+		// lines[0] = top border, lines[last] = bottom border, middle = content.
+		if (lines.length > 2) {
+			// Extend borders to full width.
+			lines[0] = chalk.gray("─".repeat(PROMPT_WIDTH)) + lines[0];
+			lines[lines.length - 1] = chalk.gray("─".repeat(PROMPT_WIDTH)) + lines[lines.length - 1];
+			// Prepend prompt to content lines.
+			for (let i = 1; i < lines.length - 1; i++) {
+				lines[i] = chalk.bold.green(PROMPT_PREFIX) + lines[i];
+			}
+		}
+		return lines;
+	};
+}
 editor.setAutocompleteProvider(
 	new CombinedAutocompleteProvider(
 		[
@@ -144,6 +166,16 @@ editor.setAutocompleteProvider(
 			finishReply();
 			return;
 		}
+		// Ctrl+V — check clipboard for image before normal paste.
+		if (matchesKey(data, Key.ctrl("v"))) {
+			handleClipboardPaste().then((found) => {
+				if (!found) {
+					// No image — forward to editor for normal text handling.
+					origHandleInput(data);
+				}
+			});
+			return;
+		}
 		origHandleInput(data);
 	};
 }
@@ -158,6 +190,33 @@ let waiting = false;
 let loader: Loader | null = null;
 let ctrlCPending = false;
 let ctrlCTimer: ReturnType<typeof setTimeout> | null = null;
+
+// ── Clipboard image paste state ────────────────────────────────────
+
+/** Pending images attached via Ctrl+V, sent with the next message. */
+const pendingImages: WsImageBlock[] = [];
+
+function updateImageIndicator(): void {
+	if (pendingImages.length > 0) {
+		setStatus(
+			`nexal-tui  chat_id=${args.chatId}  ` +
+			chalk.yellow(`📎 ${pendingImages.length} image(s)`) +
+			`  ws://${args.host}:${args.port}  ●`,
+		);
+	}
+}
+
+async function handleClipboardPaste(): Promise<boolean> {
+	const png = await readClipboardImage();
+	if (!png) return false;
+
+	const b64 = Buffer.from(png).toString("base64");
+	pendingImages.push({ data: b64, mimeType: "image/png" });
+	editor.insertTextAtCursor(`[image ${pendingImages.length}]`);
+	updateImageIndicator();
+	tui.requestRender();
+	return true;
+}
 
 function setStatus(text: string): void {
 	statusLine.text = chalk.dim(text);
@@ -198,7 +257,7 @@ function ensureNexalHeader(): void {
 function addUserMessage(text: string): void {
 	closeNexalGroup();
 	history.addChild(new Spacer(1));
-	history.addChild(new Text(chalk.bold.green("you"), 0, 0));
+	history.addChild(new Text(chalk.bold.green("user"), 0, 0));
 	history.addChild(new Text(chalk.dim("└ ") + text, 0, 0));
 }
 
@@ -237,16 +296,11 @@ function addBotReply(text: string, worker?: WorkerMeta): void {
 		workerMsgCount = 1;
 		history.addChild(new Markdown(text, 3, 0, markdownTheme));
 	} else {
-		// Coordinator direct message
+		// Coordinator direct message — use Markdown for rich formatting.
 		sealBranch();
 		ensureNexalHeader();
 
-		const widget = new Text(chalk.dim("└ ") + text, 0, 0);
-		history.addChild(widget);
-		lastBranch = {
-			widget,
-			sealedText: chalk.dim("├ ") + text,
-		};
+		history.addChild(new Markdown(text, 1, 0, markdownTheme));
 	}
 }
 
@@ -344,6 +398,7 @@ editor.onSubmit = (text: string) => {
 
 	if (trimmed === "/clear") {
 		history.clear();
+		closeNexalGroup();
 		editor.setText("");
 		tui.requestRender();
 		return;
@@ -357,6 +412,12 @@ editor.onSubmit = (text: string) => {
 		return;
 	}
 
+	if (trimmed.startsWith("/model")) {
+		editor.setText("");
+		void handleModel(trimmed);
+		return;
+	}
+
 	// Slash commands → send as structured command message.
 	if (trimmed.startsWith("/")) {
 		const parts = trimmed.slice(1).split(/\s+/);
@@ -364,6 +425,7 @@ editor.onSubmit = (text: string) => {
 		const cmdArgs = parts.slice(1);
 		waiting = true;
 		editor.disableSubmit = true;
+		editor.addToHistory(trimmed);
 		editor.setText("");
 		showLoader();
 		tui.requestRender();
@@ -380,22 +442,33 @@ editor.onSubmit = (text: string) => {
 		return;
 	}
 
+	if (!ws || ws.readyState !== WS.OPEN) {
+		addSystemNote("Not connected — message not sent.");
+		tui.requestRender();
+		return;
+	}
+
 	waiting = true;
 	editor.disableSubmit = true;
+	editor.addToHistory(trimmed);
 	editor.setText("");
-	addUserMessage(trimmed);
+
+	const hasImages = pendingImages.length > 0;
+	const label = hasImages ? `${trimmed} (+ ${pendingImages.length} image)` : trimmed;
+	addUserMessage(label);
 	showLoader();
 	tui.requestRender();
 
-	if (ws && ws.readyState === WS.OPEN) {
-		const frame: WsSendFrame = {
-			type: "send",
-			chat_id: args.chatId,
-			sender: "tui-user",
-			text: trimmed,
-		};
-		ws.send(JSON.stringify(frame));
-	}
+	const frame: WsSendFrame = {
+		type: "send",
+		chat_id: args.chatId,
+		sender: "tui-user",
+		text: trimmed,
+		...(hasImages && { images: [...pendingImages] }),
+	};
+	pendingImages.length = 0;
+	setStatus(`nexal-tui  chat_id=${args.chatId}  ws://${args.host}:${args.port}  ●`);
+	ws.send(JSON.stringify(frame));
 };
 
 // ── Slash commands ──────────────────────────────────────────────────

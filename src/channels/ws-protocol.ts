@@ -14,11 +14,17 @@
 
 // ── Client → Server ────────────────────────────────────────────────
 
+export interface WsImageBlock {
+	data: string;       // base64-encoded image bytes
+	mimeType: string;   // e.g. "image/png"
+}
+
 export interface WsSendFrame {
 	type: "send";
 	chat_id?: string;
 	sender?: string;
 	text?: string;
+	images?: WsImageBlock[];
 }
 
 export interface WsCommandFrame {
