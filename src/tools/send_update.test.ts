@@ -36,7 +36,7 @@ describe("createSendUpdateTool", () => {
 	test("returns [sent] + byte count details", async () => {
 		const tool = createSendUpdateTool(runnerWithSend(() => undefined));
 		const r = await tool.execute("c", { content: "hello" } as any);
-		expect((r.content[0] as { content: string }).text).toBe("[sent]");
+		expect((r.content[0] as { text: string }).text).toBe("[sent]");
 		expect(r.details.bytes).toBe(5);
 	});
 

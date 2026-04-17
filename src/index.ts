@@ -1,26 +1,8 @@
 /**
  * nexal entry — load config, connect to nexal-gateway, start channels,
- * wire them into the AgentPool. The per-chat main agent is a
- * **dispatcher only**:
- *
- *   - it has NO bash and NO sandbox of its own
- *   - its only tools are the dispatcher set: spawn_executor,
- *     spawn_oneshot, spawn_coordinator, route_to_agent, list_agents,
- *     get_agent, cancel_agent (see `tools/worker.ts`)
- *   - all real work happens inside spawned executors, each of which
- *     lives in a Podman container managed by `nexal-gateway`, and
- *     gets bash + send_update + report_to_parent
- *
- * Env:
- *   NEXAL_HTTP_PORT                 (default 3000)
- *   NEXAL_MODEL_PROVIDER            (default "openrouter")
- *   NEXAL_MODEL                     (default "openai/gpt-4o")
- *   NEXAL_COORDINATOR_SYSTEM_PROMPT (override the default coordinator prompt)
- *   NEXAL_EXECUTOR_SYSTEM_PROMPT    (override the default executor prompt)
- *   NEXAL_GATEWAY_URL               (override [gateway].url)
- *   NEXAL_GATEWAY_TOKEN             (override [gateway].token; required if not in config)
- *   OPENROUTER_API_KEY etc. — per provider (see @mariozechner/pi-ai env-api-keys)
+ * wire them into the AgentPool.
  */
+import { parseArgs } from "node:util";
 import { spawn, type Subprocess } from "bun";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
@@ -438,6 +420,43 @@ function splitCsv(v: string | undefined): string[] | undefined {
 	const parts = v.split(",").map((s) => s.trim()).filter(Boolean);
 	return parts.length > 0 ? parts : undefined;
 }
+
+// ── CLI ──────────────────────────────────────────────────────────────
+
+const { values: cli } = parseArgs({
+	options: {
+		config:   { type: "string", short: "c" },
+		provider: { type: "string", short: "p" },
+		model:    { type: "string", short: "m" },
+		port:     { type: "string" },
+		help:     { type: "boolean", short: "h" },
+	},
+	strict: true,
+	allowPositionals: false,
+});
+
+if (cli.help) {
+	console.log(`nexal — multi-channel AI agent orchestrator
+
+Usage: nexal [options]
+
+Options:
+  -c, --config <path>     Config file path   (env: NEXAL_CONFIG_PATH)
+  -p, --provider <name>   Model provider     (env: NEXAL_MODEL_PROVIDER, default: openrouter)
+  -m, --model <id>        Model id           (env: NEXAL_MODEL, default: openai/gpt-4o)
+      --port <number>     HTTP listen port   (env: NEXAL_HTTP_PORT, default: 3000)
+  -h, --help              Show this help
+
+All options can also be set via environment variables or ~/.nexal/config.toml.
+Priority: CLI flags > env vars > config file > defaults.`);
+	process.exit(0);
+}
+
+// CLI flags override env vars so existing env-based logic keeps working.
+if (cli.config)   process.env.NEXAL_CONFIG_PATH = cli.config;
+if (cli.provider) process.env.NEXAL_MODEL_PROVIDER = cli.provider;
+if (cli.model)    process.env.NEXAL_MODEL = cli.model;
+if (cli.port)     process.env.NEXAL_HTTP_PORT = cli.port;
 
 main().catch((err) => {
 	log.error("fatal error, exiting", err);

@@ -41,7 +41,7 @@ describe("createReportToParentTool", () => {
 			RUNNER,
 		);
 		const r = await tool.execute("c", { content: "finished" } as any);
-		expect((r.content[0] as { content: string }).text).toBe("[reported]");
+		expect((r.content[0] as { text: string }).text).toBe("[reported]");
 		expect(r.details.bytes).toBe(8);
 	});
 

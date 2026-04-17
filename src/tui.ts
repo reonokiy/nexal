@@ -1,12 +1,8 @@
 /**
  * nexal TUI — terminal chat client that connects to the WsChannel
  * over a Unix domain socket (default) or TCP WebSocket.
- *
- * Usage:
- *   bun run src/tui.ts                          # ws://127.0.0.1:3001
- *   bun run src/tui.ts --port 4000              # Custom port
- *   bun run src/tui.ts --chat-id myChat         # Custom chat ID
  */
+import { parseArgs } from "node:util";
 import WS from "ws";
 import chalk from "chalk";
 import { saveAuth, saveModelConfig, loadAuth, loadModelConfig } from "./settings.ts";
@@ -34,33 +30,35 @@ import {
 
 // ── CLI args ────────────────────────────────────────────────────────
 
-function parseArgs(argv: string[]): {
-	host: string;
-	port: number;
-	chatId: string;
-} {
-	let host = "127.0.0.1";
-	let port = 3001;
-	let chatId = "tui";
+const { values: cli } = parseArgs({
+	options: {
+		host:    { type: "string", default: "127.0.0.1" },
+		port:    { type: "string", short: "p", default: "3001" },
+		"chat-id": { type: "string", default: "tui" },
+		help:    { type: "boolean", short: "h" },
+	},
+	strict: true,
+	allowPositionals: false,
+});
 
-	for (let i = 2; i < argv.length; i++) {
-		const arg = argv[i];
-		const next = argv[i + 1];
-		if (arg === "--host" && next) {
-			host = next;
-			i++;
-		} else if (arg === "--port" && next) {
-			port = Number(next);
-			i++;
-		} else if (arg === "--chat-id" && next) {
-			chatId = next;
-			i++;
-		}
-	}
-	return { host, port, chatId };
+if (cli.help) {
+	console.log(`nexal-tui — terminal chat client
+
+Usage: nexal-tui [options]
+
+Options:
+      --host <addr>       WebSocket host (default: 127.0.0.1)
+  -p, --port <number>     WebSocket port (default: 3001)
+      --chat-id <id>      Chat session ID (default: tui)
+  -h, --help              Show this help`);
+	process.exit(0);
 }
 
-const args = parseArgs(process.argv);
+const args = {
+	host: cli.host!,
+	port: Number(cli.port!),
+	chatId: cli["chat-id"]!,
+};
 
 // ── Theme ───────────────────────────────────────────────────────────
 
