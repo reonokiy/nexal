@@ -24,7 +24,7 @@ import { GatewayClient } from "../gateway/client.ts";
 import { createBashTool } from "../tools/bash.ts";
 import { createSendUpdateTool } from "../tools/send_update.ts";
 import { WorkerRegistry } from "../workers/registry.ts";
-import type { WorkerRunner } from "../workers/runner.ts";
+import type { WorkerAgent } from "../workers/agent.ts";
 import { createWorkerStore } from "../workers/store.ts";
 
 const GATEWAY_URL = process.env.NEXAL_GATEWAY_URL ?? "ws://127.0.0.1:5500";
@@ -74,7 +74,7 @@ async function main(): Promise<void> {
 		executorSystemPromptDefault:
 			"You are a test executor. Do exactly what the user asks using bash, then call send_update with a short confirmation.",
 		coordinatorSystemPromptDefault: "You are a test coordinator (unused in this smoke).",
-		executorTools: (runner: WorkerRunner) => {
+		executorTools: (runner: WorkerAgent) => {
 			const client = runner.execClient;
 			if (!client) return [createSendUpdateTool(runner)];
 			return [createBashTool(client), createSendUpdateTool(runner)];
@@ -84,7 +84,7 @@ async function main(): Promise<void> {
 
 	const row = await registry.spawn({
 		kind: "executor",
-		lifetime: "shot",
+		lifetime: "oneshot",
 		parentSessionKey: "stub:smoke",
 		sourceChannel: "stub",
 		sourceChatId: "smoke-chat",

@@ -185,7 +185,7 @@ export class WsChannel implements Channel {
 			type: "reply",
 			chat_id: reply.chatId,
 			text: reply.text,
-			...(reply.meta ? { meta: reply.meta as WsReplyFrame["meta"] } : {}),
+			...(reply.metadata ? { metadata: reply.metadata as WsReplyFrame["metadata"] } : {}),
 		};
 		const json = JSON.stringify(frame);
 		for (const ws of set) {

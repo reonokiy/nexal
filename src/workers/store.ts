@@ -17,7 +17,7 @@ import * as schema from "./schema.ts";
 const log = createLog("store");
 
 export type WorkerKind = "coordinator" | "executor";
-export type WorkerLifetime = "persistent" | "shot";
+export type WorkerLifetime = "persistent" | "oneshot";
 export type WorkerStatus =
 	| "spawning"
 	| "idle"
@@ -257,6 +257,8 @@ async function openDb(cfg: WorkerStoreConfig): Promise<{ db: Db; close: () => Pr
 			send_policy TEXT NOT NULL DEFAULT 'explicit'
 		)
 	`);
+	// Migrate legacy "shot" → "oneshot" lifetime values.
+	await db.execute(dsql`UPDATE workers SET lifetime = 'oneshot' WHERE lifetime = 'shot'`);
 	await db.execute(dsql`CREATE INDEX IF NOT EXISTS workers_status_idx ON workers (status)`);
 	await db.execute(dsql`CREATE INDEX IF NOT EXISTS workers_parent_idx ON workers (parent_session_key)`);
 

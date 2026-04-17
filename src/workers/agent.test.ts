@@ -55,9 +55,9 @@ mock.module("@mariozechner/pi-agent-core", () => ({
 }));
 
 // Dynamic import so the mock is in place first.
-const { WorkerRunner } = (await import("./runner.ts")) as typeof import("./runner.ts");
-type WorkerRunner = InstanceType<typeof WorkerRunner>;
-type WorkerRunnerDeps = ConstructorParameters<typeof WorkerRunner>[0];
+const { WorkerAgent } = (await import("./agent.ts")) as typeof import("./agent.ts");
+type WorkerAgent = InstanceType<typeof WorkerAgent>;
+type WorkerAgentDeps = ConstructorParameters<typeof WorkerAgent>[0];
 
 import type {
 	SendPolicy,
@@ -73,7 +73,7 @@ import type {
  *
  *   - "pre-Agent paths" — methods that don't require start() to have
  *     booted a pi-agent-core Agent. Covers route() / cancel() /
- *     suspend() / dispose() / sendToSourceChat() / getters.
+ *     suspend() / dispose() / sendToChat() / getters.
  *   - "Agent lifecycle paths" (see `runner-agent.test.ts`) — uses
  *     mock.module to stub the Agent class and drive the full
  *     wire-events / handleAgentEnd flow.
@@ -211,8 +211,8 @@ function makeGateway(opts?: {
 function makeRunner(over?: {
 	row?: Partial<WorkerRow>;
 	channels?: Map<string, Channel>;
-	tools?: WorkerRunnerDeps["toolsForKind"];
-	onTerminal?: WorkerRunnerDeps["onTerminal"];
+	tools?: WorkerAgentDeps["toolsForKind"];
+	onTerminal?: WorkerAgentDeps["onTerminal"];
 	store?: StoreSpy;
 	gateway?: GatewaySpy;
 	resumed?: boolean;
@@ -220,7 +220,7 @@ function makeRunner(over?: {
 	const store = over?.store ?? makeStore();
 	const gw = over?.gateway ?? makeGateway();
 	const terminalSeen: string[] = [];
-	const runner = new WorkerRunner({
+	const runner = new WorkerAgent({
 		row: fakeRow(over?.row),
 		store: store.store,
 		gateway: gw.gateway,
@@ -235,7 +235,7 @@ function makeRunner(over?: {
 
 // ─── pre-Agent paths (no start()) ────────────────────────────────────
 
-describe("WorkerRunner constructor", () => {
+describe("WorkerAgent constructor", () => {
 	test("derives id / kind / lifetime / sandboxKey from row", () => {
 		const { runner } = makeRunner({
 			row: { id: "abc", kind: "coordinator", lifetime: "persistent" },
@@ -256,9 +256,9 @@ describe("WorkerRunner constructor", () => {
 	});
 });
 
-describe("WorkerRunner.route()", () => {
-	test("throws when lifetime is 'shot'", async () => {
-		const { runner } = makeRunner({ row: { lifetime: "shot" } });
+describe("WorkerAgent.route()", () => {
+	test("throws when lifetime is 'oneshot'", async () => {
+		const { runner } = makeRunner({ row: { lifetime: "oneshot" } });
 		await expect(runner.route("hi")).rejects.toThrow(/one-shot/);
 	});
 
@@ -268,7 +268,7 @@ describe("WorkerRunner.route()", () => {
 	});
 });
 
-describe("WorkerRunner.dispose()", () => {
+describe("WorkerAgent.dispose()", () => {
 	test("release=true calls gateway.releaseAgent and skips detach", async () => {
 		const { runner, gateway } = makeRunner();
 		await runner.dispose(true);
@@ -314,7 +314,7 @@ describe("WorkerRunner.dispose()", () => {
 	});
 });
 
-describe("WorkerRunner.cancel() / suspend() — pre-Agent", () => {
+describe("WorkerAgent.cancel() / suspend() — pre-Agent", () => {
 	test("cancel() on not-started runner: setStatus 'cancelled' + release + onTerminal", async () => {
 		const { runner, store, gateway, terminalSeen } = makeRunner();
 		await runner.cancel("user asked");
@@ -345,15 +345,15 @@ describe("WorkerRunner.cancel() / suspend() — pre-Agent", () => {
 	});
 });
 
-describe("WorkerRunner.sendToSourceChat()", () => {
+describe("WorkerAgent.sendToChat()", () => {
 	test("no-op for empty / whitespace text", async () => {
 		const sendSpy = mock(() => Promise.resolve());
 		const channels = new Map<string, Channel>([
 			["telegram", { name: "telegram", start: () => {}, stop: async () => {}, send: sendSpy } as any],
 		]);
 		const { runner } = makeRunner({ channels });
-		await runner.sendToSourceChat("");
-		await runner.sendToSourceChat("   \n  ");
+		await runner.sendToChat("");
+		await runner.sendToChat("   \n  ");
 		expect(sendSpy).not.toHaveBeenCalled();
 	});
 
@@ -376,9 +376,9 @@ describe("WorkerRunner.sendToSourceChat()", () => {
 			channels,
 			row: { name: "refactor-bot", sourceChatId: "-42" },
 		});
-		await runner.sendToSourceChat("step done");
+		await runner.sendToChat("step done");
 		expect(sent).toEqual([
-			{ chatId: "-42", text: "step done", replyTo: undefined, meta: { worker: { name: "refactor-bot", kind: "executor", lifetime: "persistent" } } },
+			{ chatId: "-42", text: "step done", replyTo: undefined, metadata: { worker: { name: "refactor-bot", kind: "executor", lifetime: "persistent" } } },
 		]);
 	});
 
@@ -399,8 +399,8 @@ describe("WorkerRunner.sendToSourceChat()", () => {
 			channels,
 			row: { sourceReplyTo: "default-msg-id" },
 		});
-		await runner.sendToSourceChat("a");
-		await runner.sendToSourceChat("b", { replyTo: "other-id" });
+		await runner.sendToChat("a");
+		await runner.sendToChat("b", { replyTo: "other-id" });
 		expect(sent[0].replyTo).toBe("default-msg-id");
 		expect(sent[1].replyTo).toBe("other-id");
 	});
@@ -408,7 +408,7 @@ describe("WorkerRunner.sendToSourceChat()", () => {
 	test("logs and swallows when the configured channel isn't registered", async () => {
 		const { runner } = makeRunner({ row: { sourceChannel: "wat" } });
 		// Should not throw — error is logged and swallowed.
-		await runner.sendToSourceChat("orphan");
+		await runner.sendToChat("orphan");
 	});
 
 	test("logs and swallows when the channel.send throws", async () => {
@@ -427,11 +427,11 @@ describe("WorkerRunner.sendToSourceChat()", () => {
 		]);
 		const { runner } = makeRunner({ channels });
 		// Should not throw — error is logged and swallowed.
-		await runner.sendToSourceChat("bad day");
+		await runner.sendToChat("bad day");
 	});
 });
 
-describe("WorkerRunner flush behaviour — pre-Agent", () => {
+describe("WorkerAgent flush behaviour — pre-Agent", () => {
 	test("flushNow with no agent and no override is a safe no-op", async () => {
 		const { runner, store } = makeRunner();
 		await (runner as any).flushNow();
@@ -489,12 +489,12 @@ beforeEach(() => {
 	FakeAgent.reset();
 });
 
-async function startAndGetAgent(runner: WorkerRunner): Promise<FakeAgent> {
+async function startAndGetAgent(runner: WorkerAgent): Promise<FakeAgent> {
 	await runner.start();
 	return (runner as any).agent as FakeAgent;
 }
 
-describe("WorkerRunner.start() — executor paths", () => {
+describe("WorkerAgent.start() — executor paths", () => {
 	test("executor acquires a container and marks the row started", async () => {
 		const { runner, store, gateway } = makeRunner({
 			row: { initialPrompt: "do stuff" },
@@ -530,7 +530,7 @@ describe("WorkerRunner.start() — executor paths", () => {
 	});
 });
 
-describe("WorkerRunner.start() — coordinator paths", () => {
+describe("WorkerAgent.start() — coordinator paths", () => {
 	test("coordinator does NOT acquire a container (no bash)", async () => {
 		const { runner, gateway } = makeRunner({
 			row: {
@@ -545,7 +545,7 @@ describe("WorkerRunner.start() — coordinator paths", () => {
 	});
 });
 
-describe("WorkerRunner.route() — with live Agent", () => {
+describe("WorkerAgent.route() — with live Agent", () => {
 	test("streaming agent → steer (no new markStarted, no prompt)", async () => {
 		const { runner, store } = makeRunner({ row: { lifetime: "persistent" } });
 		const agent = await startAndGetAgent(runner);
@@ -571,7 +571,7 @@ describe("WorkerRunner.route() — with live Agent", () => {
 	});
 });
 
-describe("WorkerRunner event wiring", () => {
+describe("WorkerAgent event wiring", () => {
 	test("turn_end schedules a flush (debounced)", async () => {
 		const { runner } = makeRunner();
 		const agent = await startAndGetAgent(runner);
@@ -615,7 +615,7 @@ describe("WorkerRunner event wiring", () => {
 			message: { role: "assistant", content: "interim update" },
 		});
 		expect(sent).toEqual([
-			{ chatId: "-1", text: "interim update", replyTo: undefined, meta: { worker: { name: "bot", kind: "executor", lifetime: "persistent" } } },
+			{ chatId: "-1", text: "interim update", replyTo: undefined, metadata: { worker: { name: "bot", kind: "executor", lifetime: "persistent" } } },
 		]);
 	});
 
@@ -645,10 +645,10 @@ describe("WorkerRunner event wiring", () => {
 	});
 });
 
-describe("WorkerRunner.handleAgentEnd (via agent_end event)", () => {
+describe("WorkerAgent.handleAgentEnd (via agent_end event)", () => {
 	test("shot executor → markCompleted + release + onTerminal", async () => {
 		const { runner, store, gateway, terminalSeen } = makeRunner({
-			row: { lifetime: "shot" as WorkerLifetime, sendPolicy: "explicit" as SendPolicy },
+			row: { lifetime: "oneshot" as WorkerLifetime, sendPolicy: "explicit" as SendPolicy },
 		});
 		const agent = await startAndGetAgent(runner);
 		await agent.emit({
@@ -698,7 +698,7 @@ describe("WorkerRunner.handleAgentEnd (via agent_end event)", () => {
 		]);
 		const { runner } = makeRunner({
 			channels,
-			row: { sendPolicy: "final" as SendPolicy, name: "bot", lifetime: "shot" },
+			row: { sendPolicy: "final" as SendPolicy, name: "bot", lifetime: "oneshot" },
 		});
 		const agent = await startAndGetAgent(runner);
 		await agent.emit({
@@ -710,7 +710,7 @@ describe("WorkerRunner.handleAgentEnd (via agent_end event)", () => {
 			],
 		});
 		expect(sent).toEqual([
-			{ chatId: "-1", text: "final word", replyTo: undefined, meta: { worker: { name: "bot", kind: "executor", lifetime: "shot" } } },
+			{ chatId: "-1", text: "final word", replyTo: undefined, metadata: { worker: { name: "bot", kind: "executor", lifetime: "oneshot" } } },
 		]);
 	});
 
@@ -758,7 +758,7 @@ describe("WorkerRunner.handleAgentEnd (via agent_end event)", () => {
 		]);
 		const { runner, store, gateway, terminalSeen } = makeRunner({
 			channels,
-			row: { sendPolicy: "explicit" as SendPolicy, name: "bot", lifetime: "shot" },
+			row: { sendPolicy: "explicit" as SendPolicy, name: "bot", lifetime: "oneshot" },
 		});
 		const agent = await startAndGetAgent(runner);
 		agent.state.errorMessage = "model returned 500";
@@ -768,7 +768,7 @@ describe("WorkerRunner.handleAgentEnd (via agent_end event)", () => {
 		});
 		expect(store.markFailedCalls).toEqual([["w-1", "model returned 500"]]);
 		expect(sent).toEqual([
-			{ chatId: "-1", text: "❌ failed: model returned 500", replyTo: undefined, meta: { worker: { name: "bot", kind: "executor", lifetime: "shot" } } },
+			{ chatId: "-1", text: "❌ failed: model returned 500", replyTo: undefined, metadata: { worker: { name: "bot", kind: "executor", lifetime: "oneshot" } } },
 		]);
 		expect(gateway.releaseCalls).toEqual(["worker:w-1"]);
 		expect(terminalSeen).toEqual(["w-1"]);

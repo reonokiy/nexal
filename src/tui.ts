@@ -304,7 +304,7 @@ function connect(): void {
 
 		if (frame.type === "reply") {
 			hideLoader();
-			addBotReply(frame.text, frame.meta?.worker);
+			addBotReply(frame.text, frame.metadata?.worker);
 			finishReply();
 		} else if (frame.type === "command_result") {
 			hideLoader();

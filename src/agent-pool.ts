@@ -3,9 +3,9 @@
  * per-session debouncer sitting in front.
  *
  * Ports the semantics of `crates/agent/src/pool.rs` + the
- * `SessionRunner` debouncer in `crates/channel-core/src/debounce.rs`:
+ * `SessionDebouncer` debouncer in `crates/channel-core/src/debounce.rs`:
  *
- *  - Incoming messages go to `SessionRunner.process`; the debouncer
+ *  - Incoming messages go to `SessionDebouncer.process`; the debouncer
  *    batches follow-ups before handing a single merged
  *    `IncomingMessage` to `handleMerged`.
  *  - `handleMerged` fetches (or lazily constructs) the chat's Agent
@@ -23,7 +23,7 @@ import type { Model } from "@mariozechner/pi-ai";
 
 import type { Channel, IncomingMessage, OutgoingReply } from "./channels/types.ts";
 import { sessionKey } from "./channels/types.ts";
-import { DEFAULT_DEBOUNCE, type DebounceConfig, SessionRunner } from "./channels/debounce.ts";
+import { DEFAULT_DEBOUNCE, type DebounceConfig, SessionDebouncer } from "./channels/debounce.ts";
 import {
 	type UserContent,
 	buildUserContent,
@@ -61,21 +61,21 @@ interface Session {
 export class AgentPool {
 	private readonly sessions = new Map<string, Session>();
 	private readonly pending = new Map<string, Promise<Session>>();
-	private readonly runners = new Map<string, SessionRunner>();
+	private readonly debouncers = new Map<string, SessionDebouncer>();
 
 	constructor(private readonly config: AgentPoolConfig) {}
 
 	/** Entry from channels: hand a message to the per-session debouncer. */
 	handle(msg: IncomingMessage): void {
 		const key = sessionKey(msg);
-		let runner = this.runners.get(key);
-		if (!runner) {
-			runner = new SessionRunner(key, this.config.debounce ?? DEFAULT_DEBOUNCE, (m) =>
+		let debouncer = this.debouncers.get(key);
+		if (!debouncer) {
+			debouncer = new SessionDebouncer(key, this.config.debounce ?? DEFAULT_DEBOUNCE, (m) =>
 				this.handleMerged(m),
 			);
-			this.runners.set(key, runner);
+			this.debouncers.set(key, debouncer);
 		}
-		runner.process(msg);
+		debouncer.process(msg);
 	}
 
 	/**
@@ -87,7 +87,7 @@ export class AgentPool {
 	 * IncomingMessage carries that channel/chatId so the dispatcher's
 	 * eventual reply still flows back to the correct chat.
 	 */
-	injectMessage(sessionKeyStr: string, sender: string, content: UserContent): void {
+	forwardChildReport(sessionKeyStr: string, sender: string, content: UserContent): void {
 		const sepIdx = sessionKeyStr.indexOf(":");
 		if (sepIdx === -1) {
 			log.error(`malformed session key "${sessionKeyStr}", expected "channel:chatId" format`);
@@ -204,12 +204,12 @@ export class AgentPool {
 		await Promise.all(
 			[...this.sessions.values()].map((s) => s.agent.waitForIdle().catch(() => undefined)),
 		);
-		await Promise.all([...this.runners.values()].map((r) => r.shutdown()));
+		await Promise.all([...this.debouncers.values()].map((r) => r.shutdown()));
 		await Promise.all(
 			[...this.sessions.values()].map((s) => s.dispose?.().catch(() => undefined)),
 		);
 		this.sessions.clear();
-		this.runners.clear();
+		this.debouncers.clear();
 	}
 }
 

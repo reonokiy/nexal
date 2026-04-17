@@ -80,7 +80,7 @@ async function main(): Promise<void> {
 	const shot = await store.insert({
 		id: crypto.randomUUID(),
 		kind: "executor",
-		lifetime: "shot",
+		lifetime: "oneshot",
 		parentSessionKey: parentKey,
 		sourceChannel: "telegram",
 		sourceChatId: "-1001",
@@ -91,7 +91,7 @@ async function main(): Promise<void> {
 		modelId: "openai/gpt-4o",
 		containerName: "nexal-worker-smoke2",
 	});
-	assertEq(shot.lifetime, "shot", "shot lifetime");
+	assertEq(shot.lifetime, "oneshot", "shot lifetime");
 	await store.markStarted(shot.id);
 	await store.markCompleted(shot.id, msgs);
 	const done = await store.get(shot.id);
@@ -118,7 +118,7 @@ async function main(): Promise<void> {
 	await store.insert({
 		id: crypto.randomUUID(),
 		kind: "executor",
-		lifetime: "shot",
+		lifetime: "oneshot",
 		parentSessionKey: coord.id,
 		sourceChannel: "telegram",
 		sourceChatId: "-1001",

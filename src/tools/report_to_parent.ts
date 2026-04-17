@@ -9,8 +9,8 @@
  *
  * The destination is decided by the agent's `parent_session_key`:
  *   - looks like `"<channel>:<chatId>"` (contains `:`) → top-level
- *     coordinator: the registry calls `deliverToTopLevel`, which the
- *     entry point wires to `AgentPool.injectMessage`.
+ *     coordinator: the registry calls `forwardToCoordinator`, which the
+ *     entry point wires to `AgentPool.forwardChildReport`.
  *   - otherwise it's another worker's id → the registry calls its own
  *     `route(parentId, content)` to inject as the parent's next user
  *     message.
@@ -24,7 +24,7 @@ import type { AgentTool, AgentToolResult } from "@mariozechner/pi-agent-core";
 import { type Static, Type } from "@mariozechner/pi-ai";
 
 import type { WorkerRegistry } from "../workers/registry.ts";
-import type { WorkerRunner } from "../workers/runner.ts";
+import type { WorkerAgent } from "../workers/agent.ts";
 import { UserContentSchema, type UserContent } from "../content.ts";
 
 const ReportParams = Type.Object({
@@ -33,7 +33,7 @@ const ReportParams = Type.Object({
 
 export function createReportToParentTool(
 	registry: WorkerRegistry,
-	runner: WorkerRunner,
+	runner: WorkerAgent,
 ): AgentTool<typeof ReportParams, { bytes: number }> {
 	return {
 		name: "report_to_parent",

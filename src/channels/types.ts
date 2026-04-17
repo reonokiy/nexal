@@ -55,7 +55,7 @@ export interface OutgoingReply {
 	images?: ImageAttachment[];
 	/** If set, quote-reply to this upstream message id (channel-specific). */
 	replyTo?: string;
-	meta?: Record<string, unknown>;
+	metadata?: Record<string, unknown>;
 }
 
 /**

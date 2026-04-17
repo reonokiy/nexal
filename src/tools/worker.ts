@@ -1,12 +1,12 @@
 /**
- * Dispatcher tools — exposed to coordinators (top-level per-chat
+ * Coordinator tools — exposed to coordinators (top-level per-chat
  * dispatcher and recursively to sub-coordinators).
  *
  * A coordinator does NO work itself; it only schedules. The full
  * dispatching surface:
  *
  *   spawn_executor    — long-lived executor with bash + send_update
- *   spawn_shot_task   — one-shot executor (dies on agent_end)
+ *   spawn_oneshot     — one-shot executor (dies on agent_end)
  *   spawn_coordinator — long-lived sub-coordinator (recursive dispatcher)
  *   route_to_agent    — feed a new instruction to a persistent agent
  *                       (coordinator or executor)
@@ -17,7 +17,7 @@
  * `parentSessionKey`, `sourceChannel`, `sourceChatId` are pinned at
  * tool-creation time. For the top-level coordinator these come from
  * the chat session; for a sub-coordinator they come from its own
- * `WorkerRunner` (its id becomes parentSessionKey for its children, so
+ * `WorkerAgent` (its id becomes parentSessionKey for its children, so
  * each coordinator sees only its own subtree in `list_agents`).
  */
 import type { AgentTool, AgentToolResult } from "@mariozechner/pi-agent-core";
@@ -27,7 +27,7 @@ import type { WorkerRegistry } from "../workers/registry.ts";
 import type { SendPolicy, WorkerRow } from "../workers/store.ts";
 import { UserContentSchema, type UserContent } from "../content.ts";
 
-export interface DispatcherCtx {
+export interface CoordinatorCtx {
 	/**
 	 * Identifier used as the `parent_session_key` of agents spawned
 	 * here. For the top-level coordinator it's `"<channel>:<chatId>"`;
@@ -66,7 +66,7 @@ const SpawnExecutorParams = Type.Object({
 	),
 });
 
-const SpawnShotParams = Type.Object({
+const SpawnOneshotParams = Type.Object({
 	name: Type.String({ description: "Short kebab-case label (chat-message prefix)." }),
 	prompt: Type.String({
 		description: "Full instructions. The executor runs once and dies on completion.",
@@ -112,13 +112,13 @@ const IdParams = Type.Object({
 
 const ListParams = Type.Object({});
 
-export function createDispatcherTools(
+export function createCoordinatorTools(
 	registry: WorkerRegistry,
-	ctx: DispatcherCtx,
+	ctx: CoordinatorCtx,
 ): AgentTool<any>[] {
 	return [
 		spawnExecutorTool(registry, ctx),
-		spawnShotTaskTool(registry, ctx),
+		spawnOneshotTool(registry, ctx),
 		spawnCoordinatorTool(registry, ctx),
 		routeToAgentTool(registry, ctx),
 		listAgentsTool(registry, ctx),
@@ -129,7 +129,7 @@ export function createDispatcherTools(
 
 function spawnExecutorTool(
 	registry: WorkerRegistry,
-	ctx: DispatcherCtx,
+	ctx: CoordinatorCtx,
 ): AgentTool<typeof SpawnExecutorParams, { id: string; status: string }> {
 	return {
 		name: "spawn_executor",
@@ -169,25 +169,25 @@ function spawnExecutorTool(
 	};
 }
 
-function spawnShotTaskTool(
+function spawnOneshotTool(
 	registry: WorkerRegistry,
-	ctx: DispatcherCtx,
-): AgentTool<typeof SpawnShotParams, { id: string; status: string }> {
+	ctx: CoordinatorCtx,
+): AgentTool<typeof SpawnOneshotParams, { id: string; status: string }> {
 	return {
-		name: "spawn_shot_task",
-		label: "Spawn Shot Task",
+		name: "spawn_oneshot",
+		label: "Spawn Oneshot",
 		description:
 			"Create a one-shot executor that runs the given prompt once and terminates on " +
 			"completion. Use for self-contained jobs (a build, a single refactor, a data " +
 			"fetch) where no follow-up routing is expected.",
-		parameters: SpawnShotParams,
+		parameters: SpawnOneshotParams,
 		async execute(
 			_id: string,
-			params: Static<typeof SpawnShotParams>,
+			params: Static<typeof SpawnOneshotParams>,
 		): Promise<AgentToolResult<{ id: string; status: string }>> {
 			const row = await registry.spawn({
 				kind: "executor",
-				lifetime: "shot",
+				lifetime: "oneshot",
 				parentSessionKey: ctx.parentSessionKey,
 				sourceChannel: ctx.sourceChannel,
 				sourceChatId: ctx.sourceChatId,
@@ -201,7 +201,7 @@ function spawnShotTaskTool(
 				content: [
 					{
 						type: "text",
-						text: `spawned executor (shot) id=${row.id} name=${row.name} status=${row.status}`,
+						text: `spawned executor (oneshot) id=${row.id} name=${row.name} status=${row.status}`,
 					},
 				],
 				details: { id: row.id, status: row.status },
@@ -212,7 +212,7 @@ function spawnShotTaskTool(
 
 function spawnCoordinatorTool(
 	registry: WorkerRegistry,
-	ctx: DispatcherCtx,
+	ctx: CoordinatorCtx,
 ): AgentTool<typeof SpawnCoordinatorParams, { id: string; status: string }> {
 	return {
 		name: "spawn_coordinator",
@@ -256,7 +256,7 @@ function spawnCoordinatorTool(
 
 function routeToAgentTool(
 	registry: WorkerRegistry,
-	ctx: DispatcherCtx,
+	ctx: CoordinatorCtx,
 ): AgentTool<typeof RouteParams, { id: string }> {
 	return {
 		name: "route_to_agent",
@@ -267,7 +267,7 @@ function routeToAgentTool(
 			"background.\n" +
 			"You can ONLY route to agents you spawned directly. To reach a deeper descendant, " +
 			"route through the intermediate coordinator. Only valid for persistent lifetime — " +
-			"shot tasks reject routes.\n" +
+			"oneshot tasks reject routes.\n" +
 			"content: a plain string, or an array of content blocks " +
 			'[{type:"text",text:"..."},{type:"image",data:"<base64>",mimeType:"..."}] ' +
 			"to include images. Provide all necessary context — the agent doesn't see your conversation.",
@@ -288,7 +288,7 @@ function routeToAgentTool(
 
 function listAgentsTool(
 	registry: WorkerRegistry,
-	ctx: DispatcherCtx,
+	ctx: CoordinatorCtx,
 ): AgentTool<typeof ListParams, { count: number }> {
 	return {
 		name: "list_agents",

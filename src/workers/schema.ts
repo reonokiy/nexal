@@ -11,7 +11,7 @@
  *   `lifetime` — when the agent dies:
  *     - `"persistent"` — stays alive across many turns; accepts routes.
  *                        Coordinators are always persistent.
- *     - `"shot"`       — terminates on `agent_end`. Only valid for
+ *     - `"oneshot"`    — terminates on `agent_end`. Only valid for
  *                        executors.
  *
  * Status set:

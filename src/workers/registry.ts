@@ -1,5 +1,5 @@
 /**
- * WorkerRegistry — owns the live `WorkerRunner` set, manages the
+ * WorkerRegistry — owns the live `WorkerAgent` set, manages the
  * spawn/route/cancel surface, and drives startup resume + shutdown
  * suspend.
  *
@@ -34,7 +34,7 @@ import type { UserContent } from "../content.ts";
 import type { Channel } from "../channels/types.ts";
 import type { ProxySpec } from "../config.ts";
 import type { GatewayClient } from "../gateway/client.ts";
-import { WorkerRunner } from "./runner.ts";
+import { WorkerAgent } from "./agent.ts";
 import type {
 	SendPolicy,
 	WorkerKind,
@@ -56,9 +56,9 @@ export interface WorkerRegistryConfig {
 	/** Default system prompt for sub-coordinators with no override. */
 	coordinatorSystemPromptDefault: string;
 	/** Tool factory for executor workers (typically bash + send_update + report_to_parent). */
-	executorTools: (runner: WorkerRunner) => AgentTool<any>[];
+	executorTools: (runner: WorkerAgent) => AgentTool<any>[];
 	/** Tool factory for sub-coordinators (dispatcher tools + report_to_parent). */
-	coordinatorTools: (runner: WorkerRunner) => AgentTool<any>[];
+	coordinatorTools: (runner: WorkerAgent) => AgentTool<any>[];
 	/**
 	 * Upstream API proxies registered for every executor on spawn.
 	 * Each becomes a `<NEXAL_DATA_DIR>/proxies/<name>.url` file the
@@ -71,7 +71,7 @@ export interface WorkerRegistryConfig {
 	 * the chat session key (`"<channel>:<chatId>"`); `sender` identifies
 	 * the reporting child (typically `"worker:<id>"` or its name).
 	 */
-	deliverToTopLevel?: (sessionKey: string, sender: string, content: UserContent) => void | Promise<void>;
+	forwardToCoordinator?: (sessionKey: string, sender: string, content: UserContent) => void | Promise<void>;
 }
 
 export interface SpawnRequest {
@@ -89,7 +89,7 @@ export interface SpawnRequest {
 }
 
 export class WorkerRegistry {
-	private readonly runners = new Map<string, WorkerRunner>();
+	private readonly agents = new Map<string, WorkerAgent>();
 	private readonly queue: string[] = [];
 	private shuttingDown = false;
 
@@ -99,8 +99,8 @@ export class WorkerRegistry {
 		if (req.kind === "coordinator" && req.lifetime !== "persistent") {
 			throw new Error("coordinators must have persistent lifetime");
 		}
-		if (req.lifetime === "shot" && !req.initialPrompt) {
-			throw new Error("shot workers require an initial_prompt");
+		if (req.lifetime === "oneshot" && !req.initialPrompt) {
+			throw new Error("oneshot workers require an initial_prompt");
 		}
 		const id = randomUUID();
 		const containerName = `nexal-worker-${id.replace(/-/g, "").slice(0, 12)}`;
@@ -139,7 +139,7 @@ export class WorkerRegistry {
 	 * `routeFromCaller` from dispatcher-tool code paths.
 	 */
 	async route(id: string, content: UserContent): Promise<void> {
-		const runner = this.runners.get(id);
+		const runner = this.agents.get(id);
 		if (!runner) {
 			const row = await this.cfg.store.get(id);
 			if (!row) throw new Error(`agent ${id} not found`);
@@ -189,12 +189,12 @@ export class WorkerRegistry {
 		// Heuristic: chat session keys are `channel:chatId` and contain
 		// `:`. UUID worker ids do not.
 		if (parentKey.includes(":")) {
-			if (!this.cfg.deliverToTopLevel) {
+			if (!this.cfg.forwardToCoordinator) {
 				throw new Error(
 					"top-level delivery not configured; report_to_parent unavailable for top-level children",
 				);
 			}
-			await this.cfg.deliverToTopLevel(parentKey, `worker:${caller.name}`, content);
+			await this.cfg.forwardToCoordinator(parentKey, `worker:${caller.name}`, content);
 			return;
 		}
 		// Parent is another worker (a sub-coordinator). Prepend the child
@@ -207,7 +207,7 @@ export class WorkerRegistry {
 	}
 
 	async cancel(id: string): Promise<void> {
-		const running = this.runners.get(id);
+		const running = this.agents.get(id);
 		if (running) {
 			await running.cancel("cancelled by dispatcher");
 			return;
@@ -249,13 +249,13 @@ export class WorkerRegistry {
 		this.shuttingDown = true;
 		this.queue.length = 0;
 		await Promise.all(
-			[...this.runners.values()].map((r) =>
+			[...this.agents.values()].map((r) =>
 				r.suspend().catch((err) =>
 					log.error(`failed to suspend worker "${r.row.name}", container may still be running`, err),
 				),
 			),
 		);
-		this.runners.clear();
+		this.agents.clear();
 		await this.cfg.store.close();
 	}
 
@@ -264,15 +264,15 @@ export class WorkerRegistry {
 	private pump(): void {
 		while (
 			!this.shuttingDown &&
-			this.runners.size < this.cfg.maxConcurrent &&
+			this.agents.size < this.cfg.maxConcurrent &&
 			this.queue.length > 0
 		) {
 			const id = this.queue.shift()!;
-			void this.spawnRunner(id);
+			void this.startAgent(id);
 		}
 	}
 
-	private async spawnRunner(id: string): Promise<void> {
+	private async startAgent(id: string): Promise<void> {
 		let row: WorkerRow | null = null;
 		try {
 			row = await this.cfg.store.get(id);
@@ -288,7 +288,7 @@ export class WorkerRegistry {
 		const resumed = row.messagesJson !== "[]" && row.messagesJson.length > 2;
 		const toolsForKind =
 			row.kind === "coordinator" ? this.cfg.coordinatorTools : this.cfg.executorTools;
-		const runner = new WorkerRunner({
+		const runner = new WorkerAgent({
 			row,
 			store: this.cfg.store,
 			gateway: this.cfg.gateway,
@@ -298,11 +298,11 @@ export class WorkerRegistry {
 			resumed,
 			executorProxies: this.cfg.executorProxies,
 			onTerminal: (tid) => {
-				this.runners.delete(tid);
+				this.agents.delete(tid);
 				this.pump();
 			},
 		});
-		this.runners.set(id, runner);
+		this.agents.set(id, runner);
 		try {
 			await runner.start();
 		} catch (err) {
@@ -311,7 +311,7 @@ export class WorkerRegistry {
 				.markFailed(id, err instanceof Error ? err.message : String(err))
 				.catch(() => undefined);
 			await runner.dispose(true).catch(() => undefined);
-			this.runners.delete(id);
+			this.agents.delete(id);
 			this.pump();
 		}
 	}

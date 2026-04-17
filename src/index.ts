@@ -5,7 +5,7 @@
  *
  *   - it has NO bash and NO sandbox of its own
  *   - its only tools are the dispatcher set: spawn_executor,
- *     spawn_shot_task, spawn_coordinator, route_to_agent, list_agents,
+ *     spawn_oneshot, spawn_coordinator, route_to_agent, list_agents,
  *     get_agent, cancel_agent (see `tools/worker.ts`)
  *   - all real work happens inside spawned executors, each of which
  *     lives in a Podman container managed by `nexal-gateway`, and
@@ -41,7 +41,7 @@ import { GatewayClient } from "./gateway/client.ts";
 import { createBashTool } from "./tools/bash.ts";
 import { createReportToParentTool } from "./tools/report_to_parent.ts";
 import { createSendUpdateTool } from "./tools/send_update.ts";
-import { createDispatcherTools } from "./tools/worker.ts";
+import { createCoordinatorTools } from "./tools/worker.ts";
 import { WorkerRegistry } from "./workers/registry.ts";
 import { loadAuth, loadModelConfig, closeSettings } from "./settings.ts";
 import { createWorkerStore } from "./workers/store.ts";
@@ -308,7 +308,7 @@ async function main(): Promise<void> {
 	// tools that reference the same registry — sub-coordinators can
 	// spawn more agents through it. Explicit type annotation breaks
 	// the inference cycle.
-	// Forward decl so `pool` can be referenced from deliverToTopLevel
+	// Forward decl so `pool` can be referenced from forwardToCoordinator
 	// before it's constructed below.
 	let pool: AgentPool | undefined;
 
@@ -337,7 +337,7 @@ async function main(): Promise<void> {
 			// Sub-coordinator: same dispatcher surface as the top-level
 			// one, scoped to its own subtree (its row id becomes the
 			// parentSessionKey for any agents it spawns).
-			...createDispatcherTools(workers, {
+			...createCoordinatorTools(workers, {
 				parentSessionKey: runner.id,
 				sourceChannel: runner.row.sourceChannel,
 				sourceChatId: runner.row.sourceChatId,
@@ -348,12 +348,12 @@ async function main(): Promise<void> {
 			// or the top-level coordinator).
 			createReportToParentTool(workers, runner),
 		],
-		deliverToTopLevel: (sessionKey, sender, content) => {
+		forwardToCoordinator: (sessionKey, sender, content) => {
 			if (!pool) {
 				log.error(`cannot deliver message from "${sender}" to top-level coordinator, agent pool is not ready yet`);
 				return;
 			}
-			pool.injectMessage(sessionKey, sender, content);
+			pool.forwardChildReport(sessionKey, sender, content);
 		},
 	});
 
@@ -368,7 +368,7 @@ async function main(): Promise<void> {
 			const channelName = sepIdx === -1 ? key : key.slice(0, sepIdx);
 			const chatId = sepIdx === -1 ? "" : key.slice(sepIdx + 1);
 			return {
-				tools: createDispatcherTools(workers, {
+				tools: createCoordinatorTools(workers, {
 					parentSessionKey: key,
 					sourceChannel: channelName,
 					sourceChatId: chatId,

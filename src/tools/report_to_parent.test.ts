@@ -1,10 +1,10 @@
 import { describe, expect, mock, test } from "bun:test";
 
 import type { WorkerRegistry } from "../workers/registry.ts";
-import type { WorkerRunner } from "../workers/runner.ts";
+import type { WorkerAgent } from "../workers/agent.ts";
 import { createReportToParentTool } from "./report_to_parent.ts";
 
-const RUNNER = { id: "worker-42" } as unknown as WorkerRunner;
+const RUNNER = { id: "worker-42" } as unknown as WorkerAgent;
 
 function mockRegistry(
 	handler: (id: string, msg: string) => void | Promise<void>,
@@ -30,7 +30,7 @@ describe("createReportToParentTool", () => {
 	test("calls registry.reportToParent with caller id and message", async () => {
 		const spy = mock(async () => undefined);
 		const tool = createReportToParentTool(mockRegistry(spy), RUNNER);
-		await tool.execute("c", { text: "done" } as any);
+		await tool.execute("c", { content: "done" } as any);
 		expect(spy).toHaveBeenCalledTimes(1);
 		expect((spy as any).mock.calls[0]).toEqual(["worker-42", "done"]);
 	});
@@ -40,8 +40,8 @@ describe("createReportToParentTool", () => {
 			mockRegistry(() => undefined),
 			RUNNER,
 		);
-		const r = await tool.execute("c", { text: "finished" } as any);
-		expect((r.content[0] as { text: string }).text).toBe("[reported]");
+		const r = await tool.execute("c", { content: "finished" } as any);
+		expect((r.content[0] as { content: string }).text).toBe("[reported]");
 		expect(r.details.bytes).toBe(8);
 	});
 
@@ -53,7 +53,7 @@ describe("createReportToParentTool", () => {
 			RUNNER,
 		);
 		await expect(
-			tool.execute("c", { text: "hi" } as any),
+			tool.execute("c", { content: "hi" } as any),
 		).rejects.toThrow(/parent not found/);
 	});
 });

@@ -9,7 +9,7 @@
 import type { AgentTool, AgentToolResult } from "@mariozechner/pi-agent-core";
 import { type Static, Type } from "@mariozechner/pi-ai";
 
-import type { WorkerRunner } from "../workers/runner.ts";
+import type { WorkerAgent } from "../workers/agent.ts";
 import { UserContentSchema, type UserContent } from "../content.ts";
 
 const SendUpdateParams = Type.Object({
@@ -17,7 +17,7 @@ const SendUpdateParams = Type.Object({
 });
 
 export function createSendUpdateTool(
-	runner: WorkerRunner,
+	runner: WorkerAgent,
 ): AgentTool<typeof SendUpdateParams, { bytes: number }> {
 	return {
 		name: "send_update",
@@ -35,7 +35,7 @@ export function createSendUpdateTool(
 			params: Static<typeof SendUpdateParams>,
 		): Promise<AgentToolResult<{ bytes: number }>> {
 			const content = params.content as UserContent;
-			await runner.sendToSourceChat(content);
+			await runner.sendToChat(content);
 			const len = typeof content === "string" ? content.length : JSON.stringify(content).length;
 			return {
 				content: [{ type: "text", text: "[sent]" }],

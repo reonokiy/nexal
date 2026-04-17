@@ -1,5 +1,5 @@
 /**
- * WorkerRunner — one sub-agent instance (coordinator or executor).
+ * WorkerAgent — a single sub-agent instance (coordinator or executor).
  *
  * Owns:
  *   - a Podman container (via `GatewayClient.acquireAgent("worker:<id>")`)
@@ -17,7 +17,7 @@
  *                      `route(message)` feeds the next instruction (via
  *                      `Agent.steer` if streaming, else `Agent.prompt`).
  *                      Coordinators are always persistent.
- *   - `"shot"`       — on `agent_end`, mark `completed`, release the
+ *   - `"oneshot"`    — on `agent_end`, mark `completed`, release the
  *                      sandbox, notify the registry. Only valid for
  *                      executors.
  *
@@ -58,7 +58,7 @@ const RESUME_NUDGE = [
 	"and call send_update when you have progress to share.",
 ].join(" ");
 
-export interface WorkerRunnerDeps {
+export interface WorkerAgentDeps {
 	row: WorkerRow;
 	store: WorkerStore;
 	gateway: GatewayClient;
@@ -70,7 +70,7 @@ export interface WorkerRunnerDeps {
 	 *   - executor    → `[bash, send_update, …]`
 	 *   - coordinator → `[spawn_executor, spawn_coordinator, …]` (no bash)
 	 */
-	toolsForKind: (runner: WorkerRunner) => AgentTool<any>[];
+	toolsForKind: (runner: WorkerAgent) => AgentTool<any>[];
 	resumed: boolean;
 	/** Proxies to register for executors on spawn. */
 	executorProxies?: ProxySpec[];
@@ -78,7 +78,7 @@ export interface WorkerRunnerDeps {
 	onTerminal: (id: string) => void;
 }
 
-export class WorkerRunner {
+export class WorkerAgent {
 	readonly id: string;
 	readonly kind: WorkerKind;
 	readonly lifetime: WorkerLifetime;
@@ -91,7 +91,7 @@ export class WorkerRunner {
 	private persistTimer: ReturnType<typeof setTimeout> | null = null;
 	private latestTurnCount: number;
 
-	constructor(private readonly deps: WorkerRunnerDeps) {
+	constructor(private readonly deps: WorkerAgentDeps) {
 		this.id = deps.row.id;
 		this.kind = deps.row.kind;
 		this.lifetime = deps.row.lifetime;
@@ -228,7 +228,7 @@ export class WorkerRunner {
 		}
 	}
 
-	async sendToSourceChat(
+	async sendToChat(
 		content: UserContent,
 		opts?: { replyTo?: string },
 	): Promise<void> {
@@ -248,7 +248,7 @@ export class WorkerRunner {
 				text,
 				images: images.length > 0 ? images.map(imageContentToAttachment) : undefined,
 				replyTo: opts?.replyTo ?? this.deps.row.sourceReplyTo ?? undefined,
-				meta: {
+				metadata: {
 					worker: {
 						name: this.deps.row.name,
 						kind: this.deps.row.kind,
@@ -359,7 +359,7 @@ export class WorkerRunner {
 				if (event.type === "message_end" && event.message.role === "assistant") {
 					if (this.deps.row.sendPolicy === "all") {
 						const text = extractText(event.message);
-						if (text) await this.sendToSourceChat(text);
+						if (text) await this.sendToChat(text);
 					}
 					return;
 				}
@@ -380,7 +380,7 @@ export class WorkerRunner {
 
 		if (errorMessage) {
 			await this.deps.store.markFailed(this.id, errorMessage);
-			await this.sendToSourceChat(`❌ failed: ${errorMessage}`);
+			await this.sendToChat(`❌ failed: ${errorMessage}`);
 			await this.dispose(true);
 			this.deps.onTerminal(this.id);
 			return;
@@ -391,10 +391,10 @@ export class WorkerRunner {
 		// (their assistant text is dispatching prose, usually noise).
 		if (this.kind === "executor" && (policy === "final" || policy === "all")) {
 			const final = extractLastAssistantText(messages);
-			if (final) await this.sendToSourceChat(final);
+			if (final) await this.sendToChat(final);
 		}
 
-		if (this.lifetime === "shot") {
+		if (this.lifetime === "oneshot") {
 			await this.deps.store.markCompleted(this.id, serializeMessages(messages));
 			await this.dispose(true);
 			this.deps.onTerminal(this.id);

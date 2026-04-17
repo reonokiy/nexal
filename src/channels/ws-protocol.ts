@@ -37,7 +37,7 @@ export interface WsReplyFrame {
 	type: "reply";
 	chat_id: string;
 	text: string;
-	meta?: {
+	metadata?: {
 		worker?: {
 			name: string;
 			kind: string;

@@ -103,7 +103,7 @@ class AsyncQueue<T> {
 	}
 }
 
-export class SessionRunner {
+export class SessionDebouncer {
 	private readonly queue = new AsyncQueue<IncomingMessage>();
 	private readonly loop: Promise<void>;
 

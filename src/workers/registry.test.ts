@@ -133,7 +133,7 @@ function mockStore(rows: WorkerRow[] = []): TrackingStore {
 
 function buildRegistry(opts?: {
 	store?: WorkerStore;
-	deliverToTopLevel?: (key: string, sender: string, content: import("../content.ts").UserContent) => void | Promise<void>;
+	forwardToCoordinator?: (key: string, sender: string, content: import("../content.ts").UserContent) => void | Promise<void>;
 }) {
 	return new WorkerRegistry({
 		store: opts?.store ?? mockStore(),
@@ -147,7 +147,7 @@ function buildRegistry(opts?: {
 		coordinatorSystemPromptDefault: "coord prompt",
 		executorTools: () => [],
 		coordinatorTools: () => [],
-		deliverToTopLevel: opts?.deliverToTopLevel,
+		forwardToCoordinator: opts?.forwardToCoordinator,
 	});
 }
 
@@ -194,7 +194,7 @@ describe("WorkerRegistry.reportToParent", () => {
 		);
 	});
 
-	test("session-key parent goes through deliverToTopLevel callback", async () => {
+	test("session-key parent goes through forwardToCoordinator callback", async () => {
 		const caller = fakeRow({
 			id: "exec-1",
 			name: "refactor-agent",
@@ -203,7 +203,7 @@ describe("WorkerRegistry.reportToParent", () => {
 		const deliver = mock(async () => undefined);
 		const reg = buildRegistry({
 			store: mockStore([caller]),
-			deliverToTopLevel: deliver,
+			forwardToCoordinator: deliver,
 		});
 		await reg.reportToParent("exec-1", "done with refactor");
 		expect(deliver).toHaveBeenCalledTimes(1);
@@ -213,7 +213,7 @@ describe("WorkerRegistry.reportToParent", () => {
 		expect(args[2]).toBe("done with refactor");
 	});
 
-	test("session-key parent with no deliverToTopLevel throws a clear error", async () => {
+	test("session-key parent with no forwardToCoordinator throws a clear error", async () => {
 		const caller = fakeRow({ id: "exec-1", parentSessionKey: "telegram:-1" });
 		const reg = buildRegistry({ store: mockStore([caller]) });
 		await expect(reg.reportToParent("exec-1", "hi")).rejects.toThrow(
@@ -221,7 +221,7 @@ describe("WorkerRegistry.reportToParent", () => {
 		);
 	});
 
-	test("worker-id parent goes through route() (not through deliverToTopLevel)", async () => {
+	test("worker-id parent goes through route() (not through forwardToCoordinator)", async () => {
 		// parent = another worker (uuid-shaped id, no `:` in it)
 		const caller = fakeRow({
 			id: "exec-1",
@@ -231,10 +231,10 @@ describe("WorkerRegistry.reportToParent", () => {
 		const deliver = mock(async () => undefined);
 		const reg = buildRegistry({
 			store: mockStore([caller]),
-			deliverToTopLevel: deliver,
+			forwardToCoordinator: deliver,
 		});
 		// No runner registered for coord-parent-uuid → route() throws.
-		// That's fine; we only care that deliverToTopLevel was NOT called.
+		// That's fine; we only care that forwardToCoordinator was NOT called.
 		await expect(reg.reportToParent("exec-1", "hi")).rejects.toThrow();
 		expect(deliver).not.toHaveBeenCalled();
 	});
@@ -262,7 +262,7 @@ describe("WorkerRegistry.spawn", () => {
 		await expect(
 			reg.spawn({
 				kind: "coordinator",
-				lifetime: "shot",
+				lifetime: "oneshot",
 				parentSessionKey: "telegram:-1",
 				sourceChannel: "telegram",
 				sourceChatId: "-1",
@@ -277,7 +277,7 @@ describe("WorkerRegistry.spawn", () => {
 		await expect(
 			reg.spawn({
 				kind: "executor",
-				lifetime: "shot",
+				lifetime: "oneshot",
 				parentSessionKey: "telegram:-1",
 				sourceChannel: "telegram",
 				sourceChatId: "-1",
@@ -461,13 +461,13 @@ describe("WorkerRegistry.shutdown", () => {
 		const reg = buildRegistry({ store });
 		(reg as any).queue.push("q1", "q2");
 		const suspended: string[] = [];
-		(reg as any).runners.set("r1", {
+		(reg as any).agents.set("r1", {
 			id: "r1",
 			async suspend() {
 				suspended.push("r1");
 			},
 		});
-		(reg as any).runners.set("r2", {
+		(reg as any).agents.set("r2", {
 			id: "r2",
 			async suspend() {
 				suspended.push("r2");
@@ -475,7 +475,7 @@ describe("WorkerRegistry.shutdown", () => {
 		});
 		await reg.shutdown();
 		expect((reg as any).queue).toEqual([]);
-		expect((reg as any).runners.size).toBe(0);
+		expect((reg as any).agents.size).toBe(0);
 		expect(suspended.sort()).toEqual(["r1", "r2"]);
 		expect(store.closed).toBe(true);
 	});
@@ -487,14 +487,14 @@ describe("WorkerRegistry.shutdown", () => {
 			const store = mockStore();
 			const reg = buildRegistry({ store });
 			const suspended: string[] = [];
-			(reg as any).runners.set("r1", {
+			(reg as any).agents.set("r1", {
 				id: "r1",
 				row: { name: "r1" },
 				async suspend() {
 					throw new Error("r1 broken");
 				},
 			});
-			(reg as any).runners.set("r2", {
+			(reg as any).agents.set("r2", {
 				id: "r2",
 				row: { name: "r2" },
 				async suspend() {

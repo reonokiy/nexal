@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
 	type DebounceConfig,
 	mergeMessages,
-	SessionRunner,
+	SessionDebouncer,
 } from "./debounce.ts";
 import type { IncomingMessage } from "./types.ts";
 
@@ -70,7 +70,7 @@ describe("mergeMessages", () => {
 	});
 });
 
-describe("SessionRunner", () => {
+describe("SessionDebouncer", () => {
 	const FAST: DebounceConfig = {
 		debounceMs: 15,
 		delayMs: 80,
@@ -79,7 +79,7 @@ describe("SessionRunner", () => {
 
 	test("a mentioned message fires once after debounceMs", async () => {
 		const received: IncomingMessage[] = [];
-		const runner = new SessionRunner("s", FAST, async (m) => {
+		const runner = new SessionDebouncer("s", FAST, async (m) => {
 			received.push(m);
 		});
 		runner.process(msg({ text: "@bot hi", isMentioned: true }));
@@ -91,7 +91,7 @@ describe("SessionRunner", () => {
 
 	test("rapid mentioned messages collapse into one batch", async () => {
 		const received: IncomingMessage[] = [];
-		const runner = new SessionRunner("s", FAST, async (m) => {
+		const runner = new SessionDebouncer("s", FAST, async (m) => {
 			received.push(m);
 		});
 		runner.process(msg({ text: "one", isMentioned: true }));
@@ -105,7 +105,7 @@ describe("SessionRunner", () => {
 
 	test("unmentioned outside the active window uses a tiny delay", async () => {
 		const received: IncomingMessage[] = [];
-		const runner = new SessionRunner("s", FAST, async (m) => {
+		const runner = new SessionDebouncer("s", FAST, async (m) => {
 			received.push(m);
 		});
 		runner.process(msg({ text: "idle chatter", isMentioned: false }));
@@ -119,7 +119,7 @@ describe("SessionRunner", () => {
 
 	test("unmentioned within active window waits about delayMs", async () => {
 		const received: Array<{ text: string; at: number }> = [];
-		const runner = new SessionRunner("s", FAST, async (m) => {
+		const runner = new SessionDebouncer("s", FAST, async (m) => {
 			received.push({ text: m.text, at: Date.now() });
 		});
 		const t0 = Date.now();
@@ -143,7 +143,7 @@ describe("SessionRunner", () => {
 
 	test("shutdown flushes a pending batch before returning", async () => {
 		const received: IncomingMessage[] = [];
-		const runner = new SessionRunner(
+		const runner = new SessionDebouncer(
 			"s",
 			{ debounceMs: 2_000, delayMs: 2_000, activeWindowMs: 2_000 },
 			async (m) => {
@@ -159,7 +159,7 @@ describe("SessionRunner", () => {
 
 	test("shutdown without any messages is a no-op (no handler call)", async () => {
 		const received: IncomingMessage[] = [];
-		const runner = new SessionRunner("s", FAST, async (m) => {
+		const runner = new SessionDebouncer("s", FAST, async (m) => {
 			received.push(m);
 		});
 		await runner.shutdown();
@@ -169,7 +169,7 @@ describe("SessionRunner", () => {
 	test("handler exceptions are caught so the loop keeps dispatching", async () => {
 		const received: IncomingMessage[] = [];
 		let first = true;
-		const runner = new SessionRunner("s", FAST, async (m) => {
+		const runner = new SessionDebouncer("s", FAST, async (m) => {
 			if (first) {
 				first = false;
 				throw new Error("kaboom");

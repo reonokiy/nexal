@@ -2,9 +2,9 @@ import { describe, expect, mock, test } from "bun:test";
 
 import type { WorkerRegistry } from "../workers/registry.ts";
 import type { WorkerRow } from "../workers/store.ts";
-import { createDispatcherTools, type DispatcherCtx } from "./worker.ts";
+import { createCoordinatorTools, type CoordinatorCtx } from "./worker.ts";
 
-const CTX: DispatcherCtx = {
+const CTX: CoordinatorCtx = {
 	parentSessionKey: "telegram:-1001",
 	sourceChannel: "telegram",
 	sourceChatId: "-1001",
@@ -52,12 +52,12 @@ function mockRegistry(): WorkerRegistry & {
 	} as any;
 }
 
-describe("createDispatcherTools", () => {
+describe("createCoordinatorTools", () => {
 	test("returns the seven documented tools in stable order", () => {
-		const tools = createDispatcherTools(mockRegistry(), CTX);
+		const tools = createCoordinatorTools(mockRegistry(), CTX);
 		expect(tools.map((t) => t.name)).toEqual([
 			"spawn_executor",
-			"spawn_shot_task",
+			"spawn_oneshot",
 			"spawn_coordinator",
 			"route_to_agent",
 			"list_agents",
@@ -67,7 +67,7 @@ describe("createDispatcherTools", () => {
 	});
 
 	test("each tool has a non-empty description (helps the LLM pick)", () => {
-		const tools = createDispatcherTools(mockRegistry(), CTX);
+		const tools = createCoordinatorTools(mockRegistry(), CTX);
 		for (const t of tools) {
 			expect(t.description.length).toBeGreaterThan(20);
 		}
@@ -75,7 +75,7 @@ describe("createDispatcherTools", () => {
 
 	test("spawn_executor calls registry.spawn with kind=executor + lifetime=persistent", async () => {
 		const reg = mockRegistry();
-		const tools = createDispatcherTools(reg, CTX);
+		const tools = createCoordinatorTools(reg, CTX);
 		const spawn = tools.find((t) => t.name === "spawn_executor")!;
 		await spawn.execute("call-1", {
 			name: "refactor",
@@ -94,21 +94,21 @@ describe("createDispatcherTools", () => {
 		expect(req.sendPolicy).toBe("explicit");
 	});
 
-	test("spawn_shot_task calls registry.spawn with kind=executor + lifetime=shot", async () => {
+	test("spawn_oneshot calls registry.spawn with kind=executor + lifetime=oneshot", async () => {
 		const reg = mockRegistry();
-		const tools = createDispatcherTools(reg, CTX);
+		const tools = createCoordinatorTools(reg, CTX);
 		await tools
-			.find((t) => t.name === "spawn_shot_task")!
+			.find((t) => t.name === "spawn_oneshot")!
 			.execute("call-2", { name: "build", prompt: "go build" } as any);
 		const req = (reg.spawn as any).mock.calls[0][0];
 		expect(req.kind).toBe("executor");
-		expect(req.lifetime).toBe("shot");
+		expect(req.lifetime).toBe("oneshot");
 		expect(req.initialPrompt).toBe("go build");
 	});
 
 	test("spawn_coordinator calls registry.spawn with kind=coordinator + lifetime=persistent", async () => {
 		const reg = mockRegistry();
-		const tools = createDispatcherTools(reg, CTX);
+		const tools = createCoordinatorTools(reg, CTX);
 		await tools
 			.find((t) => t.name === "spawn_coordinator")!
 			.execute("call-3", { name: "subcoord", system_prompt: "lead" } as any);
@@ -120,10 +120,10 @@ describe("createDispatcherTools", () => {
 
 	test("route_to_agent enforces caller via routeFromCaller", async () => {
 		const reg = mockRegistry();
-		const tools = createDispatcherTools(reg, CTX);
+		const tools = createCoordinatorTools(reg, CTX);
 		await tools
 			.find((t) => t.name === "route_to_agent")!
-			.execute("call-4", { id: "child", message: "do thing" } as any);
+			.execute("call-4", { id: "child", content: "do thing" } as any);
 		expect(reg.routeFromCaller).toHaveBeenCalledWith(
 			CTX.parentSessionKey,
 			"child",
@@ -133,7 +133,7 @@ describe("createDispatcherTools", () => {
 
 	test("list_agents asks registry scoped to the caller's subtree", async () => {
 		const reg = mockRegistry();
-		const tools = createDispatcherTools(reg, CTX);
+		const tools = createCoordinatorTools(reg, CTX);
 		const result = await tools.find((t) => t.name === "list_agents")!.execute("call-5", {} as any);
 		expect(reg.listForParent).toHaveBeenCalledWith(CTX.parentSessionKey, 20);
 		expect(result.details.count).toBe(2);
@@ -141,7 +141,7 @@ describe("createDispatcherTools", () => {
 
 	test("get_agent returns null row for unknown id (no throw)", async () => {
 		const reg = mockRegistry();
-		const tools = createDispatcherTools(reg, CTX);
+		const tools = createCoordinatorTools(reg, CTX);
 		const result = await tools
 			.find((t) => t.name === "get_agent")!
 			.execute("call-6", { id: "unknown" } as any);
@@ -150,7 +150,7 @@ describe("createDispatcherTools", () => {
 
 	test("cancel_agent forwards id to registry.cancel", async () => {
 		const reg = mockRegistry();
-		const tools = createDispatcherTools(reg, CTX);
+		const tools = createCoordinatorTools(reg, CTX);
 		await tools
 			.find((t) => t.name === "cancel_agent")!
 			.execute("call-7", { id: "victim" } as any);
@@ -159,7 +159,7 @@ describe("createDispatcherTools", () => {
 
 	test("spawn_executor forwards initial_prompt and a custom send_policy", async () => {
 		const reg = mockRegistry();
-		const tools = createDispatcherTools(reg, CTX);
+		const tools = createCoordinatorTools(reg, CTX);
 		await tools
 			.find((t) => t.name === "spawn_executor")!
 			.execute("call", {
@@ -173,11 +173,11 @@ describe("createDispatcherTools", () => {
 		expect(req.sendPolicy).toBe("all");
 	});
 
-	test("spawn_shot_task forwards custom send_policy override", async () => {
+	test("spawn_oneshot forwards custom send_policy override", async () => {
 		const reg = mockRegistry();
-		const tools = createDispatcherTools(reg, CTX);
+		const tools = createCoordinatorTools(reg, CTX);
 		await tools
-			.find((t) => t.name === "spawn_shot_task")!
+			.find((t) => t.name === "spawn_oneshot")!
 			.execute("call", {
 				name: "one",
 				prompt: "do it",
@@ -189,7 +189,7 @@ describe("createDispatcherTools", () => {
 
 	test("spawn_coordinator hard-codes send_policy='explicit' regardless of input", async () => {
 		const reg = mockRegistry();
-		const tools = createDispatcherTools(reg, CTX);
+		const tools = createCoordinatorTools(reg, CTX);
 		await tools
 			.find((t) => t.name === "spawn_coordinator")!
 			.execute("call", {
@@ -204,7 +204,7 @@ describe("createDispatcherTools", () => {
 
 	test("spawn_executor text summary carries 'spawned executor (persistent)' + status", async () => {
 		const reg = mockRegistry();
-		const tools = createDispatcherTools(reg, CTX);
+		const tools = createCoordinatorTools(reg, CTX);
 		const result = await tools
 			.find((t) => t.name === "spawn_executor")!
 			.execute("c", { name: "refactor", system_prompt: "sp" } as any);
@@ -219,7 +219,7 @@ describe("createDispatcherTools", () => {
 	test("list_agents returns '(no agents)' when the registry is empty for this parent", async () => {
 		const reg = mockRegistry();
 		(reg as any).listForParent = mock(async () => []);
-		const tools = createDispatcherTools(reg, CTX);
+		const tools = createCoordinatorTools(reg, CTX);
 		const result = await tools
 			.find((t) => t.name === "list_agents")!
 			.execute("c", {} as any);
@@ -255,7 +255,7 @@ describe("createDispatcherTools", () => {
 				sendPolicy: "explicit",
 			},
 		]);
-		const tools = createDispatcherTools(reg, CTX);
+		const tools = createCoordinatorTools(reg, CTX);
 		const result = await tools
 			.find((t) => t.name === "list_agents")!
 			.execute("c", {} as any);
@@ -276,7 +276,7 @@ describe("createDispatcherTools", () => {
 			{
 				id: "e",
 				kind: "executor",
-				lifetime: "shot",
+				lifetime: "oneshot",
 				parentSessionKey: CTX.parentSessionKey,
 				sourceChannel: CTX.sourceChannel,
 				sourceChatId: CTX.sourceChatId,
@@ -298,7 +298,7 @@ describe("createDispatcherTools", () => {
 				sendPolicy: "explicit",
 			},
 		]);
-		const tools = createDispatcherTools(reg, CTX);
+		const tools = createCoordinatorTools(reg, CTX);
 		const result = await tools
 			.find((t) => t.name === "list_agents")!
 			.execute("c", {} as any);
@@ -315,7 +315,7 @@ describe("createDispatcherTools", () => {
 		(reg as any).get = mock(async () => ({
 			id: "known",
 			kind: "executor",
-			lifetime: "shot",
+			lifetime: "oneshot",
 			parentSessionKey: CTX.parentSessionKey,
 			sourceChannel: CTX.sourceChannel,
 			sourceChatId: CTX.sourceChatId,
@@ -336,14 +336,14 @@ describe("createDispatcherTools", () => {
 			turnCount: 3,
 			sendPolicy: "final",
 		}));
-		const tools = createDispatcherTools(reg, CTX);
+		const tools = createCoordinatorTools(reg, CTX);
 		const result = await tools.find((t) => t.name === "get_agent")!.execute("c", {
 			id: "known",
 		} as any);
 		const text = (result.content[0] as any).text;
 		expect(text).toContain("id=known");
 		expect(text).toContain("kind=executor");
-		expect(text).toContain("lifetime=shot");
+		expect(text).toContain("lifetime=oneshot");
 		expect(text).toContain("status=completed");
 		expect(text).toContain("turns=3");
 		expect(text).toContain("send_policy=final");
@@ -384,7 +384,7 @@ describe("createDispatcherTools", () => {
 			turnCount: 0,
 			sendPolicy: "explicit",
 		}));
-		const tools = createDispatcherTools(reg, CTX);
+		const tools = createCoordinatorTools(reg, CTX);
 		const result = await tools.find((t) => t.name === "get_agent")!.execute("c", {
 			id: "k",
 		} as any);
@@ -430,7 +430,7 @@ describe("createDispatcherTools", () => {
 			turnCount: 0,
 			sendPolicy: "explicit",
 		}));
-		const tools = createDispatcherTools(reg, CTX);
+		const tools = createCoordinatorTools(reg, CTX);
 		const result = await tools.find((t) => t.name === "get_agent")!.execute("c", {
 			id: "k",
 		} as any);
@@ -464,7 +464,7 @@ describe("createDispatcherTools", () => {
 			turnCount: 0,
 			sendPolicy: "explicit",
 		}));
-		const tools = createDispatcherTools(reg, CTX);
+		const tools = createCoordinatorTools(reg, CTX);
 		const result = await tools.find((t) => t.name === "get_agent")!.execute("c", {
 			id: "k",
 		} as any);
@@ -551,7 +551,7 @@ describe("createDispatcherTools", () => {
 				sendPolicy: "explicit",
 			},
 		]);
-		const tools = createDispatcherTools(reg, CTX);
+		const tools = createCoordinatorTools(reg, CTX);
 		const result = await tools.find((t) => t.name === "list_agents")!.execute("c", {} as any);
 		const text = (result.content[0] as any).text;
 		expect(text).toMatch(/m\s+executor.*age=5m/);
