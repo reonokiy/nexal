@@ -10,7 +10,8 @@
  */
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, readFileSync } from "node:fs";
+import { isCompiled, extractPgliteAssets } from "./embedded.ts";
 
 let _db: import("@electric-sql/pglite").PGlite | null = null;
 let _dbPromise: Promise<import("@electric-sql/pglite").PGlite> | null = null;
@@ -27,7 +28,27 @@ export async function getSharedPglite(): Promise<import("@electric-sql/pglite").
 		const { PGlite } = await import("@electric-sql/pglite");
 		const dataDir = join(homedir(), ".nexal", "data");
 		mkdirSync(dataDir, { recursive: true });
-		const client = new PGlite(dataDir);
+
+		// In compiled mode, PGlite can't resolve its WASM/data files from
+		// $bunfs. Extract them to disk and pass via constructor options.
+		let opts: Record<string, unknown> = {};
+		if (isCompiled) {
+			const libDir = await extractPgliteAssets();
+			if (libDir) {
+				const fsBundleBytes = readFileSync(join(libDir, "pglite.data"));
+				opts = {
+					fsBundle: new Blob([fsBundleBytes]),
+					pgliteWasmModule: await WebAssembly.compile(
+						readFileSync(join(libDir, "pglite.wasm")),
+					),
+					initdbWasmModule: await WebAssembly.compile(
+						readFileSync(join(libDir, "initdb.wasm")),
+					),
+				};
+			}
+		}
+
+		const client = new PGlite(dataDir, opts);
 		await client.waitReady;
 		_db = client;
 		_dbPromise = null;

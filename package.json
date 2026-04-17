@@ -5,12 +5,11 @@
   "type": "module",
   "private": true,
   "bin": {
-    "nexal": "./src/index.ts",
-    "nexal-tui": "./src/tui.ts"
+    "nexal": "./src/cli.ts"
   },
   "scripts": {
-    "start": "bun run src/index.ts",
-    "dev": "bun --watch run src/index.ts",
+    "start": "bun run src/cli.ts",
+    "dev": "bun --watch run src/cli.ts",
     "typecheck": "tsc --noEmit",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",

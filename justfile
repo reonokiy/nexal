@@ -33,6 +33,10 @@ dev: agent gateway
 start: agent gateway
     bun run start
 
+# Compile everything into a single native binary.
+compile: agent gateway
+    bun build --compile src/compile-entry.ts --outfile dist/nexal
+
 # Typecheck Bun frontend.
 typecheck:
     bun run typecheck

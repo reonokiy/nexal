@@ -29,14 +29,17 @@ import { loadAuth, loadModelConfig, closeSettings } from "./settings.ts";
 import { createWorkerStore } from "./workers/store.ts";
 import { CommandRegistry } from "./commands/registry.ts";
 import { registerBuiltins } from "./commands/builtin.ts";
+import {
+	isCompiled,
+	COORDINATOR_PROMPT,
+	EXECUTOR_PROMPT,
+	embeddedGatewayPath,
+	embeddedAgentPath,
+	extractEmbeddedBinaries,
+} from "./embedded.ts";
 
-const DEFAULT_COORDINATOR_PROMPT = await Bun.file(
-	join(import.meta.dir, "prompts/coordinator.md"),
-).text();
-
-const DEFAULT_EXECUTOR_PROMPT = await Bun.file(
-	join(import.meta.dir, "prompts/executor.md"),
-).text();
+const DEFAULT_COORDINATOR_PROMPT = COORDINATOR_PROMPT;
+const DEFAULT_EXECUTOR_PROMPT = EXECUTOR_PROMPT;
 
 // ── Saved auth bootstrap ────────────────────────────────────────────
 
@@ -121,14 +124,29 @@ async function launchGateway(): Promise<{
 }> {
 	const token = crypto.randomUUID();
 	const url = "ws://127.0.0.1:15500";
-	const projectRoot = join(import.meta.dir, "..");
-	const gatewayBin = join(projectRoot, "target/release/nexal-gateway");
-	const agentBin = join(projectRoot, "target/release/nexal-agent");
 
-	if (!existsSync(gatewayBin)) {
-		throw new Error(
-			`nexal-gateway binary not found at ${gatewayBin} — run 'cargo build --release -p nexal-gateway' first`,
-		);
+	// Resolve binary paths: compiled mode uses extracted embedded binaries,
+	// dev mode reads from target/release/.
+	let gatewayBin: string;
+	let agentBin: string | null;
+
+	if (isCompiled) {
+		const extracted = await extractEmbeddedBinaries();
+		if (!extracted.gatewayBin) {
+			throw new Error("nexal-gateway was not embedded in this binary — rebuild with `just compile`");
+		}
+		gatewayBin = extracted.gatewayBin;
+		agentBin = extracted.agentBin;
+	} else {
+		const projectRoot = join(import.meta.dir, "..");
+		gatewayBin = join(projectRoot, "target/release/nexal-gateway");
+		agentBin = join(projectRoot, "target/release/nexal-agent");
+		if (!existsSync(gatewayBin)) {
+			throw new Error(
+				`nexal-gateway binary not found at ${gatewayBin} — run 'cargo build --release -p nexal-gateway' first`,
+			);
+		}
+		if (!existsSync(agentBin)) agentBin = null;
 	}
 
 	log.info(`no gateway token configured, auto-starting embedded gateway from ${gatewayBin}`);
@@ -147,7 +165,7 @@ async function launchGateway(): Promise<{
 			"--token", token,
 			"--listen", "127.0.0.1:15500",
 			"--proxy-listen", "127.0.0.1:15501",
-			...(existsSync(agentBin) ? ["--agent-bin", agentBin] : []),
+			...(agentBin ? ["--agent-bin", agentBin] : []),
 		],
 		stdout: "inherit",
 		stderr: "inherit",
@@ -421,44 +439,4 @@ function splitCsv(v: string | undefined): string[] | undefined {
 	return parts.length > 0 ? parts : undefined;
 }
 
-// ── CLI ──────────────────────────────────────────────────────────────
-
-const { values: cli } = parseArgs({
-	options: {
-		config:   { type: "string", short: "c" },
-		provider: { type: "string", short: "p" },
-		model:    { type: "string", short: "m" },
-		port:     { type: "string" },
-		help:     { type: "boolean", short: "h" },
-	},
-	strict: true,
-	allowPositionals: false,
-});
-
-if (cli.help) {
-	console.log(`nexal — multi-channel AI agent orchestrator
-
-Usage: nexal [options]
-
-Options:
-  -c, --config <path>     Config file path   (env: NEXAL_CONFIG_PATH)
-  -p, --provider <name>   Model provider     (env: NEXAL_MODEL_PROVIDER, default: openrouter)
-  -m, --model <id>        Model id           (env: NEXAL_MODEL, default: openai/gpt-4o)
-      --port <number>     HTTP listen port   (env: NEXAL_HTTP_PORT, default: 3000)
-  -h, --help              Show this help
-
-All options can also be set via environment variables or ~/.nexal/config.toml.
-Priority: CLI flags > env vars > config file > defaults.`);
-	process.exit(0);
-}
-
-// CLI flags override env vars so existing env-based logic keeps working.
-if (cli.config)   process.env.NEXAL_CONFIG_PATH = cli.config;
-if (cli.provider) process.env.NEXAL_MODEL_PROVIDER = cli.provider;
-if (cli.model)    process.env.NEXAL_MODEL = cli.model;
-if (cli.port)     process.env.NEXAL_HTTP_PORT = cli.port;
-
-main().catch((err) => {
-	log.error("fatal error, exiting", err);
-	process.exit(1);
-});
+export { main };

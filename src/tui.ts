@@ -30,16 +30,21 @@ import {
 
 // ── CLI args ────────────────────────────────────────────────────────
 
-const { values: cli } = parseArgs({
-	options: {
-		host:    { type: "string", default: "127.0.0.1" },
-		port:    { type: "string", short: "p", default: "3001" },
-		"chat-id": { type: "string", default: "tui" },
-		help:    { type: "boolean", short: "h" },
-	},
-	strict: true,
-	allowPositionals: false,
-});
+// When launched via `nexal -i`, args come through env vars.
+// When launched directly, parseArgs handles them.
+const isEmbedded = !!process.env.NEXAL_TUI_EMBEDDED;
+const { values: cli } = isEmbedded
+	? { values: {} as Record<string, any> }
+	: parseArgs({
+		options: {
+			host:    { type: "string", default: "127.0.0.1" },
+			port:    { type: "string", short: "p", default: "3001" },
+			"chat-id": { type: "string", default: "tui" },
+			help:    { type: "boolean", short: "h" },
+		},
+		strict: true,
+		allowPositionals: false,
+	});
 
 if (cli.help) {
 	console.log(`nexal-tui — terminal chat client
@@ -55,9 +60,9 @@ Options:
 }
 
 const args = {
-	host: cli.host!,
-	port: Number(cli.port!),
-	chatId: cli["chat-id"]!,
+	host: process.env.NEXAL_TUI_HOST ?? cli.host ?? "127.0.0.1",
+	port: Number(process.env.NEXAL_TUI_PORT ?? cli.port ?? "3001"),
+	chatId: process.env.NEXAL_TUI_CHAT_ID ?? cli["chat-id"] ?? "tui",
 };
 
 // ── Theme ───────────────────────────────────────────────────────────
