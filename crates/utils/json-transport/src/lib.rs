@@ -222,6 +222,20 @@ where
         }
     }
 
+    /// Create a connection over a WebTransport bidirectional stream.
+    ///
+    /// Uses newline-delimited JSON framing (same as the stdio path).
+    /// The `BiStream` implements `AsyncRead + AsyncWrite`, so this is
+    /// a thin wrapper around `from_stdio`.
+    #[cfg(feature = "webtransport")]
+    pub fn from_webtransport(
+        stream: wtransport::stream::BiStream,
+        connection_label: String,
+    ) -> Self {
+        let (read_half, write_half) = tokio::io::split(stream);
+        Self::from_stdio(read_half, write_half, connection_label)
+    }
+
     pub fn into_parts(
         self,
     ) -> (

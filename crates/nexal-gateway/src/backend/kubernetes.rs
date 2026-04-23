@@ -284,7 +284,7 @@ impl ContainerBackend for KubernetesBackend {
                             .collect();
                         return Ok(ContainerHandle {
                             name: spec.name,
-                            ws_url: format!("ws://{ip}:{AGENT_WS_PORT}"),
+                            url: format!("https://{ip}:{AGENT_WS_PORT}"),
                             port_map,
                         });
                     }
@@ -323,7 +323,7 @@ impl ContainerBackend for KubernetesBackend {
             .collect();
         Ok(ContainerHandle {
             name: spec.name,
-            ws_url: format!("ws://{ip}:{AGENT_WS_PORT}"),
+            url: format!("https://{ip}:{AGENT_WS_PORT}"),
             port_map,
         })
     }
@@ -332,7 +332,6 @@ impl ContainerBackend for KubernetesBackend {
         let pods = self.pods();
         match pods.delete(name, &DeleteParams::default().grace_period(0)).await {
             Ok(_) => Ok(()),
-            // Already gone — idempotent.
             Err(kube::Error::Api(resp)) if resp.code == 404 => Ok(()),
             Err(e) => Err(BackendError::Cli(format!("delete pod {name}: {e}"))),
         }
@@ -346,9 +345,9 @@ impl ContainerBackend for KubernetesBackend {
         }
     }
 
-    async fn ws_url(&self, name: &str) -> Result<String, BackendError> {
+    async fn url(&self, name: &str) -> Result<String, BackendError> {
         let ip = self.wait_for_pod_ip(name).await?;
-        Ok(format!("ws://{ip}:{AGENT_WS_PORT}"))
+        Ok(format!("https://{ip}:{AGENT_WS_PORT}"))
     }
 }
 

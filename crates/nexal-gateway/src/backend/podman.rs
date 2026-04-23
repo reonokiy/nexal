@@ -72,9 +72,9 @@ impl PodmanBackend {
         Ok(status.success())
     }
 
-    async fn discover_ws_url(&self, container_name: &str) -> Result<String, BackendError> {
+    async fn discover_url(&self, container_name: &str) -> Result<String, BackendError> {
         let addr = self.discover_host_port(container_name, CONTAINER_WS_PORT).await?;
-        Ok(format!("ws://{addr}"))
+        Ok(format!("https://{addr}"))
     }
 
     async fn discover_host_port(&self, container_name: &str, port: u16) -> Result<String, BackendError> {
@@ -120,11 +120,11 @@ impl ContainerBackend for PodmanBackend {
         if self.container_exists(&spec.name).await? {
             // Best-effort start; ignore "already running" failures.
             let _ = self.podman(&["start", &spec.name]).await;
-            let ws_url = self.discover_ws_url(&spec.name).await?;
+            let url = self.discover_url(&spec.name).await?;
             let port_map = self.discover_extra_ports(&spec.name, &spec.extra_ports).await;
             return Ok(ContainerHandle {
                 name: spec.name,
-                ws_url,
+                url,
                 port_map,
             });
         }
@@ -222,11 +222,11 @@ impl ContainerBackend for PodmanBackend {
             );
         }
 
-        let ws_url = self.discover_ws_url(&spec.name).await?;
+        let url = self.discover_url(&spec.name).await?;
         let port_map = self.discover_extra_ports(&spec.name, &spec.extra_ports).await;
         Ok(ContainerHandle {
             name: spec.name,
-            ws_url,
+            url,
             port_map,
         })
     }
@@ -240,8 +240,8 @@ impl ContainerBackend for PodmanBackend {
         self.container_exists(name).await
     }
 
-    async fn ws_url(&self, name: &str) -> Result<String, BackendError> {
-        self.discover_ws_url(name).await
+    async fn url(&self, name: &str) -> Result<String, BackendError> {
+        self.discover_url(name).await
     }
 }
 

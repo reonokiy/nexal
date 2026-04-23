@@ -23,7 +23,7 @@ dirs = { workspace = true }
 futures = { workspace = true }
 http = { workspace = true }
 http-body-util = { workspace = true }
-nexal-utils-json-transport = { workspace = true }
+nexal-utils-json-transport = { workspace = true, features = ["webtransport"] }
 reqwest = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
@@ -46,3 +46,5 @@ tracing-subscriber = { workspace = true }
 uuid = { workspace = true }
 kube = { workspace = true }
 k8s-openapi = { workspace = true }
+wtransport = { workspace = true }
+nexal-utils-certs = { workspace = true }

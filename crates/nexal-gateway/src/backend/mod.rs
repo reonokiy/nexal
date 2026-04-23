@@ -63,8 +63,9 @@ pub struct ContainerSpec {
 #[derive(Debug, Clone)]
 pub struct ContainerHandle {
     pub name: String,
-    /// `ws://127.0.0.1:<host-port>` reachable from the gateway process.
-    pub ws_url: String,
+    /// Reachable URL from the gateway process. For WebTransport this
+    /// is `https://<host>:<port>`, for legacy WS `ws://<host>:<port>`.
+    pub url: String,
     /// Mappings for extra published ports: container_port → reachable address.
     /// e.g. `{ 3389 → "127.0.0.1:49201", 9222 → "127.0.0.1:49202" }`.
     /// For K8s this is `pod_ip:port`; for Podman it's the host-mapped address.
@@ -89,7 +90,7 @@ pub trait ContainerBackend: Send + Sync {
     async fn exists(&self, name: &str) -> Result<bool, BackendError>;
 
     /// Discover the host-mapped WS URL for an existing running container.
-    async fn ws_url(&self, name: &str) -> Result<String, BackendError>;
+    async fn url(&self, name: &str) -> Result<String, BackendError>;
 }
 
 pub type SharedBackend = Arc<dyn ContainerBackend>;

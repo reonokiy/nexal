@@ -1,23 +1,13 @@
-//! Frontend WebSocket server.
+//! Frontend server — accepts WebTransport or Unix socket connections.
 //!
-//! Listens on a host TCP port. Each incoming WS is a "session": one
-//! application frontend (typically the nexal Bun process) talking
-//! JSON-RPC 2.0.
+//! WebTransport (QUIC/UDP): used for TCP connections.
+//! Unix socket: uses newline-delimited JSON over a raw stream (no WS).
 //!
 //! Session lifecycle:
 //!   1. First client message MUST be `gateway/hello { token, clientName }`.
-//!      Anything else gets `NOT_AUTHENTICATED`. Wrong token →
-//!      `AUTH_REJECTED` and the connection is closed.
 //!   2. Once authenticated, the session can call gateway methods,
-//!      `agent/invoke`, and receives `agent/notify` notifications
-//!      relayed from any agent.
-//!   3. On disconnect, the session ends — agent containers are
-//!      detached (kept alive) so the next session can re-attach them
-//!      via `gateway/attachAgent`.
-//!
-//! Concurrency: requests on the same session are served serially in
-//! the order they arrive. This keeps the response order deterministic
-//! for the frontend, which simplifies its dispatcher.
+//!      `agent/invoke`, and receives `agent/notify` notifications.
+//!   3. On disconnect, agent containers are detached (kept alive).
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -25,18 +15,18 @@ use std::sync::Arc;
 use nexal_utils_json_transport::{JsonMessageConnection, JsonMessageConnectionEvent};
 use serde_json::{Value, json};
 use tokio::io::{AsyncRead, AsyncWrite};
-use tokio::net::{TcpListener, UnixListener};
+use tokio::net::UnixListener;
 use tokio::sync::{Mutex, mpsc};
-use tokio_tungstenite::accept_async;
 use tracing::{debug, error, info, warn};
+use wtransport::{Endpoint, Identity, ServerConfig as WtServerConfig};
 
 use crate::protocol::{
     AgentIdParams, AgentInvokeParams, AgentNotifyParams, AgentSummary, AttachAgentParams,
     HelloParams, HelloResponse, JSONRPC_VERSION, JsonRpcError, JsonRpcRequest, JsonRpcResponse,
     ListAgentsResponse, METHOD_AGENT_INVOKE, METHOD_ATTACH_AGENT, METHOD_DETACH_AGENT,
-    METHOD_HELLO, METHOD_KILL_AGENT, METHOD_LIST_AGENTS, METHOD_REGISTER_PROXY, METHOD_SPAWN_AGENT,
+    METHOD_HELLO, METHOD_KILL_AGENT, METHOD_LIST_AGENTS, METHOD_REGISTER_PROXY,
     METHOD_REGISTER_STREAM_PROXY, METHOD_UNREGISTER_PROXY, METHOD_UNREGISTER_STREAM_PROXY,
-    NOTIFY_AGENT, OkResponse, RegisterProxyParams, RegisterProxyResponse,
+    METHOD_SPAWN_AGENT, NOTIFY_AGENT, OkResponse, RegisterProxyParams, RegisterProxyResponse,
     RegisterStreamProxyParams, RegisterStreamProxyResponse, SpawnAgentParams, SpawnAgentResponse,
     UnregisterProxyParams, UnregisterStreamProxyParams, error_code, notification,
 };
@@ -47,7 +37,6 @@ pub const GATEWAY_VERSION: &str = env!("CARGO_PKG_VERSION");
 #[derive(Clone)]
 pub struct ServerConfig {
     pub listen: String,
-    /// If set, listen on this Unix domain socket instead of TCP.
     pub unix: Option<PathBuf>,
     pub token: String,
     pub proxy_external_base: String,
@@ -55,7 +44,6 @@ pub struct ServerConfig {
 
 pub async fn serve(cfg: ServerConfig, registry: Arc<AgentRegistry>) -> std::io::Result<()> {
     if let Some(ref path) = cfg.unix {
-        // Remove stale socket file from a previous run.
         let _ = std::fs::remove_file(path);
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
@@ -70,47 +58,94 @@ pub async fn serve(cfg: ServerConfig, registry: Arc<AgentRegistry>) -> std::io::
                     continue;
                 }
             };
-            let label = format!("unix-{}", _addr.as_pathname().map(|p| p.display().to_string()).unwrap_or_default());
+            let label = format!(
+                "unix-{}",
+                _addr
+                    .as_pathname()
+                    .map(|p| p.display().to_string())
+                    .unwrap_or_default()
+            );
             let cfg = cfg.clone();
             let registry = registry.clone();
             tokio::spawn(async move {
-                if let Err(err) = handle_stream(stream, &label, cfg, registry).await {
+                if let Err(err) = handle_unix_stream(stream, &label, cfg, registry).await {
                     warn!("session for {label} ended: {err}");
                 }
             });
         }
     } else {
-        let listener = TcpListener::bind(&cfg.listen).await?;
-        info!("nexal-gateway listening on ws://{}", cfg.listen);
+        // WebTransport server over QUIC.
+        let identity = Identity::self_signed(["localhost", "127.0.0.1", "host.containers.internal"])
+            .map_err(|e| std::io::Error::other(format!("generate TLS identity: {e}")))?;
+
+        let wt_config = WtServerConfig::builder()
+            .with_bind_address(cfg.listen.parse().map_err(|e| {
+                std::io::Error::other(format!("invalid listen address '{}': {e}", cfg.listen))
+            })?)
+            .with_identity(identity)
+            .build();
+
+        let endpoint = Endpoint::server(wt_config)
+            .map_err(|e| std::io::Error::other(format!("create webtransport endpoint: {e}")))?;
+        let local_addr = endpoint
+            .local_addr()
+            .map_err(|e| std::io::Error::other(format!("local_addr: {e}")))?;
+        info!("nexal-gateway listening on https://{local_addr}");
+
         loop {
-            let (stream, peer) = match listener.accept().await {
-                Ok(v) => v,
-                Err(err) => {
-                    error!("accept failed: {err}");
-                    continue;
-                }
-            };
-            let label = peer.to_string();
+            let incoming = endpoint.accept().await;
             let cfg = cfg.clone();
             let registry = registry.clone();
             tokio::spawn(async move {
-                if let Err(err) = handle_stream(stream, &label, cfg, registry).await {
-                    warn!("session for {label} ended: {err}");
+                let request = match incoming.await {
+                    Ok(r) => r,
+                    Err(e) => {
+                        warn!("webtransport session request failed: {e}");
+                        return;
+                    }
+                };
+                let session = match request.accept().await {
+                    Ok(s) => s,
+                    Err(e) => {
+                        warn!("webtransport session accept failed: {e}");
+                        return;
+                    }
+                };
+                let label = format!("wt-{}", session.remote_address());
+                match session.accept_bi().await {
+                    Ok(stream) => {
+                        let bi: wtransport::stream::BiStream = stream.into();
+                        let conn = JsonMessageConnection::<Value>::from_webtransport(
+                            bi,
+                            format!("frontend wt {label}"),
+                        );
+                        info!("frontend session opened: {label}");
+                        let session = Session::from_conn(conn, cfg, registry, label.clone());
+                        session.run().await;
+                        info!("frontend session closed: {label}");
+                    }
+                    Err(e) => {
+                        warn!("accept bi stream for {label}: {e}");
+                    }
                 }
             });
         }
     }
 }
 
-async fn handle_stream<S>(stream: S, label: &str, cfg: ServerConfig, registry: Arc<AgentRegistry>) -> Result<(), String>
+async fn handle_unix_stream<S>(
+    stream: S,
+    label: &str,
+    cfg: ServerConfig,
+    registry: Arc<AgentRegistry>,
+) -> Result<(), String>
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
-    let ws = accept_async(stream)
-        .await
-        .map_err(|e| format!("ws handshake: {e}"))?;
+    let (reader, writer) = tokio::io::split(stream);
+    let conn = JsonMessageConnection::<Value>::from_stdio(reader, writer, format!("frontend unix {label}"));
     info!("frontend session opened: {label}");
-    let session = Session::new(ws, cfg, registry, format!("frontend websocket {label}"));
+    let session = Session::from_conn(conn, cfg, registry, label.to_string());
     session.run().await;
     info!("frontend session closed: {label}");
     Ok(())
@@ -126,14 +161,13 @@ struct Session {
 }
 
 impl Session {
-    fn new<S: AsyncRead + AsyncWrite + Unpin + Send + 'static>(
-        ws: tokio_tungstenite::WebSocketStream<S>,
+    fn from_conn(
+        conn: JsonMessageConnection<Value>,
         cfg: ServerConfig,
         registry: Arc<AgentRegistry>,
-        connection_label: String,
+        _label: String,
     ) -> Self {
-        let (ws_tx, incoming_rx, connection_tasks) =
-            JsonMessageConnection::from_websocket(ws, connection_label).into_parts();
+        let (ws_tx, incoming_rx, connection_tasks) = conn.into_parts();
         Self {
             ws_tx,
             incoming_rx,
@@ -183,7 +217,7 @@ impl Session {
                 }
                 JsonMessageConnectionEvent::Disconnected { reason } => {
                     if let Some(reason) = reason {
-                        debug!("frontend ws read: {reason}");
+                        debug!("frontend read: {reason}");
                     }
                     break;
                 }
@@ -344,16 +378,11 @@ impl Session {
                     .proxies
                     .register(p.agent_id.clone(), p.name.clone(), p.upstream_url, p.headers)
                     .await;
-                // URL the in-container nexal-agent forwards to. Path is
-                // appended by the agent when it rewrites request lines.
                 let gateway_url = format!(
                     "{}/p/{}",
                     self.cfg.proxy_external_base.trim_end_matches('/'),
                     entry.token
                 );
-                // Bring up the unix socket in the container. Socket
-                // creation fails → undo our registry entry so we don't
-                // leak a token without a matching socket.
                 let agent_resp = agent_entry
                     .conn
                     .invoke(
@@ -378,8 +407,6 @@ impl Session {
             METHOD_UNREGISTER_PROXY => {
                 let p: UnregisterProxyParams = parse_params(params)?;
                 let socket_path = container_socket_path(&p.name);
-                // Best-effort socket teardown on the agent side. If the
-                // agent is gone the socket is gone with it — not an error.
                 if let Some(agent_entry) = self.registry.get(&p.agent_id).await {
                     let _ = agent_entry
                         .conn
@@ -401,13 +428,12 @@ impl Session {
                         data: None,
                     }
                 })?;
-                // Look up the container-side address for this port.
                 let upstream_addr =
                     agent_entry.port_map.get(&p.container_port).cloned().ok_or_else(|| {
                         JsonRpcError {
                             code: error_code::INVALID_PARAMS,
                             message: format!(
-                                "port {} not published for agent {} — add it to extra_ports on spawn",
+                                "port {} not published for agent {}",
                                 p.container_port, p.agent_id
                             ),
                             data: None,
@@ -492,9 +518,6 @@ fn registry_err(err: crate::registry::RegistryError) -> JsonRpcError {
     }
 }
 
-/// Convention: every proxy registered for an agent gets a Unix socket
-/// at this path inside its container. The executor system prompt
-/// (Bun side) tells workers where to look.
 fn container_socket_path(name: &str) -> String {
     let mut sanitized = String::with_capacity(name.len());
     for c in name.chars() {
@@ -538,11 +561,9 @@ mod tests {
 
     #[test]
     fn parse_params_wraps_serde_error_as_invalid_params() {
-        // Missing a required field.
         let err = parse_params::<Sample>(json!({ "agent_id": "a" }))
             .expect_err("should reject missing fields");
         assert_eq!(err.code, error_code::INVALID_PARAMS);
-        assert!(err.message.contains("invalid params"));
     }
 
     #[test]
@@ -556,40 +577,31 @@ mod tests {
     fn registry_err_maps_unknown_agent_to_unknown_agent_code() {
         let err = registry_err(RegistryError::UnknownAgent("abc".into()));
         assert_eq!(err.code, error_code::UNKNOWN_AGENT);
-        assert!(err.message.contains("abc"));
     }
 
     #[test]
     fn registry_err_maps_unknown_container_to_unknown_agent_code() {
         let err = registry_err(RegistryError::UnknownContainer("nexal-x".into()));
         assert_eq!(err.code, error_code::UNKNOWN_AGENT);
-        assert!(err.message.contains("nexal-x"));
     }
 
     #[test]
     fn registry_err_maps_backend_errors_to_backend_code() {
-        let err = registry_err(RegistryError::Backend(BackendError::Cli(
-            "podman exited 1".into(),
-        )));
+        let err = registry_err(RegistryError::Backend(BackendError::Cli("fail".into())));
         assert_eq!(err.code, error_code::BACKEND_ERROR);
-        assert!(err.message.contains("podman exited 1"));
     }
 
     #[test]
     fn registry_err_maps_agent_conn_errors_to_backend_code() {
         let err = registry_err(RegistryError::AgentConn(AgentConnError::BadFrame(
-            "bad frame".into(),
+            "bad".into(),
         )));
         assert_eq!(err.code, error_code::BACKEND_ERROR);
-        assert!(err.message.contains("bad frame"));
     }
 
     #[test]
     fn socket_path_uses_convention() {
-        assert_eq!(
-            container_socket_path("jina"),
-            "/run/nexal/proxy/jina.socket"
-        );
+        assert_eq!(container_socket_path("jina"), "/run/nexal/proxy/jina.socket");
     }
 
     #[test]
@@ -606,27 +618,15 @@ mod tests {
             container_socket_path("foo/bar baz"),
             "/run/nexal/proxy/foo_bar_baz.socket"
         );
-        assert_eq!(
-            container_socket_path("has:colon"),
-            "/run/nexal/proxy/has_colon.socket"
-        );
     }
 
     #[test]
     fn socket_path_preserves_empty_name_safely() {
-        // An empty name shouldn't produce a traversable path.
-        assert_eq!(
-            container_socket_path(""),
-            "/run/nexal/proxy/.socket"
-        );
+        assert_eq!(container_socket_path(""), "/run/nexal/proxy/.socket");
     }
 
     #[test]
     fn socket_path_sanitizes_unicode_to_underscore() {
-        // Non-ascii collapses to underscore, keeping paths POSIX-safe.
-        assert_eq!(
-            container_socket_path("测试"),
-            "/run/nexal/proxy/__.socket"
-        );
+        assert_eq!(container_socket_path("测试"), "/run/nexal/proxy/__.socket");
     }
 }

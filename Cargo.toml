@@ -4,6 +4,7 @@ members = [
     "crates/nexal-gateway",
     "crates/utils/absolute-path",
     "crates/utils/cargo-bin",
+    "crates/utils/certs",
     "crates/utils/json-transport",
     "crates/utils/pty",
 ]
@@ -20,6 +21,7 @@ nexal-agent = { path = "crates/nexal-agent" }
 nexal-gateway = { path = "crates/nexal-gateway" }
 nexal-utils-absolute-path = { path = "crates/utils/absolute-path" }
 nexal-utils-cargo-bin = { path = "crates/utils/cargo-bin" }
+nexal-utils-certs = { path = "crates/utils/certs" }
 nexal-utils-json-transport = { path = "crates/utils/json-transport" }
 nexal-utils-pty = { path = "crates/utils/pty" }
 
@@ -58,6 +60,8 @@ reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"
 uuid = { version = "1", features = ["v4"] }
 kube = { version = "0.98", features = ["client", "runtime", "rustls-tls"], default-features = false }
 k8s-openapi = { version = "0.24", features = ["v1_32"] }
+wtransport = "0.7"
+rcgen = "0.14"
 
 [workspace.lints]
 rust = {}

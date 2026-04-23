@@ -21,9 +21,11 @@ base64 = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 nexal-utils-absolute-path = { workspace = true }
 nexal-utils-pty = { workspace = true }
-nexal-utils-json-transport = { workspace = true }
+nexal-utils-certs = { workspace = true }
+nexal-utils-json-transport = { workspace = true, features = ["webtransport"] }
 futures = { workspace = true }
 jsonrpsee = { workspace = true }
+wtransport = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

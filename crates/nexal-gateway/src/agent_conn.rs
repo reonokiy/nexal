@@ -1,17 +1,17 @@
-//! `AgentConn` — one WebSocket connection between the gateway and a
+//! `AgentConn` — one WebTransport connection between the gateway and a
 //! single in-container `nexal-agent`.
 //!
 //! Lifecycle:
-//!   1. `AgentConn::connect(ws_url)` — open WS, do `initialize` +
-//!      `initialized` handshake.
+//!   1. `AgentConn::connect(url)` — open WebTransport session, open a
+//!      bidirectional stream, do `initialize` + `initialized` handshake.
 //!   2. `invoke(method, params)` — sends a JSON-RPC request, awaits
 //!      the matching response. Allocates its own request ids
 //!      independent from the frontend's ids.
 //!   3. Notifications received from the agent are forwarded into a
 //!      provided `mpsc::Sender<AgentNotification>` so the gateway can
 //!      relay them to the frontend wrapped as `agent/notify`.
-//!   4. `close()` — drops the WS; the background reader exits and
-//!      pending invocations resolve with `Closed`.
+//!   4. `close()` — drops the connection; the background reader exits
+//!      and pending invocations resolve with `Closed`.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -20,8 +20,8 @@ use nexal_utils_json_transport::{JsonMessageConnection, JsonMessageConnectionEve
 use serde_json::{Value, json};
 use thiserror::Error;
 use tokio::sync::{Mutex, mpsc, oneshot};
-use tokio_tungstenite::connect_async;
 use tracing::warn;
+use wtransport::{ClientConfig, Endpoint};
 
 use crate::protocol::{JSONRPC_VERSION, JsonRpcError};
 
@@ -29,9 +29,9 @@ use crate::protocol::{JSONRPC_VERSION, JsonRpcError};
 pub enum AgentConnError {
     #[error("connect to agent failed: {0}")]
     Connect(String),
-    #[error("agent ws send failed: {0}")]
+    #[error("agent send failed: {0}")]
     Send(String),
-    #[error("agent ws closed")]
+    #[error("agent connection closed")]
     Closed,
     #[error("agent returned error {code}: {message}")]
     AgentError { code: i32, message: String },
@@ -50,7 +50,6 @@ pub struct AgentConn {
     write_tx: mpsc::Sender<Value>,
     pending: Arc<Mutex<Pending>>,
     next_id: Arc<Mutex<u64>>,
-    /// Closed → reader task ended, all future invokes will error.
     closed: Arc<Mutex<bool>>,
     reader: tokio::task::JoinHandle<()>,
     transport_tasks: Vec<tokio::task::JoinHandle<()>>,
@@ -58,16 +57,36 @@ pub struct AgentConn {
 
 impl AgentConn {
     pub async fn connect(
-        ws_url: &str,
+        url: &str,
         client_name: &str,
         notify_tx: mpsc::Sender<AgentNotification>,
     ) -> Result<Self, AgentConnError> {
-        let (ws, _resp) = connect_async(ws_url)
+        let config = ClientConfig::builder()
+            .with_bind_default()
+            .with_native_certs()
+            .build();
+        let endpoint = Endpoint::client(config)
+            .map_err(|e| AgentConnError::Connect(format!("create endpoint: {e}")))?;
+
+        let session = endpoint
+            .connect(url)
             .await
-            .map_err(|e| AgentConnError::Connect(format!("{e}")))?;
-        let (write_tx, mut incoming_rx, transport_tasks) =
-            JsonMessageConnection::from_websocket(ws, format!("agent websocket {ws_url}"))
-                .into_parts();
+            .map_err(|e| AgentConnError::Connect(format!("connect {url}: {e}")))?;
+
+        let opening = session
+            .open_bi()
+            .await
+            .map_err(|e| AgentConnError::Connect(format!("open bi stream: {e}")))?;
+        let streams = opening
+            .await
+            .map_err(|e| AgentConnError::Connect(format!("await bi stream: {e}")))?;
+        let bi: wtransport::stream::BiStream = streams.into();
+        let conn = JsonMessageConnection::<Value>::from_webtransport(
+            bi,
+            format!("agent wt {url}"),
+        );
+
+        let (write_tx, incoming_rx, transport_tasks) = conn.into_parts();
 
         let pending: Arc<Mutex<Pending>> = Arc::new(Mutex::new(HashMap::new()));
         let next_id = Arc::new(Mutex::new(1u64));
@@ -77,31 +96,12 @@ impl AgentConn {
         let closed_for_reader = closed.clone();
 
         let reader = tokio::spawn(async move {
-            while let Some(event) = incoming_rx.recv().await {
-                match event {
-                    JsonMessageConnectionEvent::Message(value) => {
-                        if let Err(err) =
-                            dispatch_frame(value, &pending_for_reader, &notify_tx).await
-                        {
-                            warn!("agent frame dispatch error: {err}");
-                        }
-                    }
-                    JsonMessageConnectionEvent::MalformedMessage { reason } => {
-                        warn!("agent frame dispatch error: {reason}");
-                    }
-                    JsonMessageConnectionEvent::Disconnected { reason } => {
-                        if let Some(reason) = reason {
-                            warn!("agent ws read error: {reason}");
-                        }
-                        break;
-                    }
-                }
-            }
+            run_reader(incoming_rx, &pending_for_reader, &notify_tx).await;
             *closed_for_reader.lock().await = true;
             drain_pending(&pending_for_reader).await;
         });
 
-        let conn = Self {
+        let agent_conn = Self {
             write_tx,
             pending,
             next_id,
@@ -110,14 +110,11 @@ impl AgentConn {
             transport_tasks,
         };
 
-        let _init: Value = conn
+        let _init: Value = agent_conn
             .invoke("initialize", Some(json!({ "client_name": client_name })))
             .await?;
-        // `initialized` is declared as a no-arg METHOD in the jsonrpsee
-        // server (not a JSON-RPC notification), so send it as a request
-        // with an id and wait for the response.
-        let _ = conn.invoke("initialized", None).await?;
-        Ok(conn)
+        let _ = agent_conn.invoke("initialized", None).await?;
+        Ok(agent_conn)
     }
 
     pub async fn invoke(
@@ -141,7 +138,7 @@ impl AgentConn {
                 "jsonrpc": JSONRPC_VERSION,
                 "id": id,
                 "method": method,
-                "params": wrap_params_positional(params),
+                "params": params.unwrap_or(Value::Null),
             }))
             .await
             .map_err(|_| AgentConnError::Closed)?;
@@ -156,7 +153,7 @@ impl AgentConn {
             .send(json!({
                 "jsonrpc": JSONRPC_VERSION,
                 "method": method,
-                "params": wrap_params_positional(Some(params)),
+                "params": params,
             }))
             .await
             .map_err(|_| AgentConnError::Closed)
@@ -169,6 +166,31 @@ impl AgentConn {
             task.abort();
         }
         drain_pending(&self.pending).await;
+    }
+}
+
+async fn run_reader(
+    mut incoming_rx: mpsc::Receiver<JsonMessageConnectionEvent<Value>>,
+    pending: &Arc<Mutex<Pending>>,
+    notify_tx: &mpsc::Sender<AgentNotification>,
+) {
+    while let Some(event) = incoming_rx.recv().await {
+        match event {
+            JsonMessageConnectionEvent::Message(value) => {
+                if let Err(err) = dispatch_frame(value, pending, notify_tx).await {
+                    warn!("agent frame dispatch error: {err}");
+                }
+            }
+            JsonMessageConnectionEvent::MalformedMessage { reason } => {
+                warn!("agent frame malformed: {reason}");
+            }
+            JsonMessageConnectionEvent::Disconnected { reason } => {
+                if let Some(reason) = reason {
+                    warn!("agent disconnected: {reason}");
+                }
+                break;
+            }
+        }
     }
 }
 
@@ -215,26 +237,6 @@ async fn drain_pending(pending: &Arc<Mutex<Pending>>) {
     }
 }
 
-/// nexal-agent uses jsonrpsee, which serializes single-parameter
-/// methods as a positional array (`"params": [{...}]`). Frontend and
-/// our own internal callers pass a single object — wrap it before
-/// sending.
-///
-/// - `None` → `[]` (matches a zero-arg jsonrpsee method).
-/// - `Some(Value::Array(_))` → passed through unchanged (caller
-///   already prepared positional form, e.g. for multi-param methods).
-/// - `Some(Value::Null)` → `[]`.
-/// - anything else → `[value]` (single-arg wrap).
-fn wrap_params_positional(params: Option<Value>) -> Value {
-    match params {
-        None | Some(Value::Null) => Value::Array(Vec::new()),
-        Some(Value::Array(arr)) => Value::Array(arr),
-        // Empty `{}` means "no args" — common idiom on the Bun side.
-        Some(Value::Object(obj)) if obj.is_empty() => Value::Array(Vec::new()),
-        Some(other) => Value::Array(vec![other]),
-    }
-}
-
 impl From<AgentConnError> for JsonRpcError {
     fn from(e: AgentConnError) -> Self {
         let (code, message) = match &e {
@@ -254,47 +256,8 @@ impl From<AgentConnError> for JsonRpcError {
 
 #[cfg(test)]
 mod tests {
-    use super::{wrap_params_positional, AgentConnError};
+    use super::AgentConnError;
     use crate::protocol::JsonRpcError;
-    use serde_json::{json, Value};
-
-    #[test]
-    fn none_becomes_empty_array() {
-        assert_eq!(wrap_params_positional(None), json!([]));
-    }
-
-    #[test]
-    fn null_becomes_empty_array() {
-        assert_eq!(wrap_params_positional(Some(Value::Null)), json!([]));
-    }
-
-    #[test]
-    fn empty_object_becomes_empty_array() {
-        assert_eq!(wrap_params_positional(Some(json!({}))), json!([]));
-    }
-
-    #[test]
-    fn array_passes_through_unchanged() {
-        let arr = json!([{"a": 1}, 2, "three"]);
-        assert_eq!(wrap_params_positional(Some(arr.clone())), arr);
-    }
-
-    #[test]
-    fn single_object_wraps_in_array() {
-        assert_eq!(
-            wrap_params_positional(Some(json!({"client_name": "x"}))),
-            json!([{"client_name": "x"}])
-        );
-    }
-
-    #[test]
-    fn scalar_wraps_in_array() {
-        assert_eq!(wrap_params_positional(Some(json!(42))), json!([42]));
-        assert_eq!(wrap_params_positional(Some(json!("hi"))), json!(["hi"]));
-        assert_eq!(wrap_params_positional(Some(json!(true))), json!([true]));
-    }
-
-    // ── AgentConnError → JsonRpcError mapping ──────────────────────
 
     #[test]
     fn agent_error_preserves_code_and_message() {

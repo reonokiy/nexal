@@ -175,10 +175,10 @@ impl AgentRegistry {
                 extra_ports: Vec::new(),
             })
             .await?;
-        let ws_url = self.backend.ws_url(&container_name).await?;
+        let url = self.backend.url(&container_name).await?;
         let handle = ContainerHandle {
             name: container_name,
-            ws_url,
+            url,
             port_map: Default::default(),
         };
         self.dial_and_register(handle).await
@@ -207,7 +207,7 @@ impl AgentRegistry {
         });
 
         let conn = AgentConn::connect(
-            &handle.ws_url,
+            &handle.url,
             &format!("nexal-gateway/{agent_id}"),
             per_agent_tx,
         )
