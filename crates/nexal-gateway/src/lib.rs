@@ -43,6 +43,7 @@
 pub mod agent_conn;
 pub mod backend;
 pub mod config;
+pub mod pool;
 pub mod protocol;
 pub mod proxy;
 pub mod registry;

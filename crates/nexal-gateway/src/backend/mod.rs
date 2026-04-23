@@ -12,8 +12,10 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use thiserror::Error;
 
+pub mod kubernetes;
 pub mod podman;
 
+pub use kubernetes::{KubernetesBackend, KubernetesConfig};
 pub use podman::PodmanBackend;
 
 #[derive(Debug, Clone, Error)]

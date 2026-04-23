@@ -36,6 +36,7 @@ pub struct GatewayConfig {
     pub defaults: SpawnDefaultsConfig,
     pub backend: BackendConfig,
     pub proxy: ProxyConfig,
+    pub pool: PoolConfig,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -67,8 +68,25 @@ pub struct SpawnDefaultsConfig {
 #[serde(default, rename_all = "snake_case")]
 pub struct BackendConfig {
     pub kind: Option<String>,
+    // Podman-specific.
     pub podman_bin: Option<String>,
     pub runtime: Option<String>,
+    // Kubernetes-specific.
+    pub namespace: Option<String>,
+    pub kubeconfig: Option<PathBuf>,
+    /// Image that ships `/usr/local/bin/nexal-agent` for the initContainer.
+    pub agent_init_image: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+#[serde(default, rename_all = "snake_case")]
+pub struct PoolConfig {
+    /// Enable the warm container pool.
+    pub enabled: Option<bool>,
+    /// Number of warm containers to keep ready. Default: 0 (disabled).
+    pub size: Option<usize>,
+    /// Image for warm containers. Falls back to `defaults.image`.
+    pub image: Option<String>,
 }
 
 #[derive(Debug, Error)]
@@ -150,6 +168,40 @@ external_base = "http://host.containers.internal:5501"
     }
 
     #[test]
+    fn parses_kubernetes_backend_and_pool() {
+        let text = r#"
+[backend]
+kind = "kubernetes"
+namespace = "nexal"
+kubeconfig = "/home/user/.kube/config"
+agent_init_image = "ghcr.io/reonokiy/nexal-agent:latest"
+
+[pool]
+enabled = true
+size = 3
+image = "ghcr.io/reonokiy/nexal-sandbox:latest"
+"#;
+        let c: GatewayConfig =
+            toml::from_str(text).expect("k8s + pool config should parse");
+        assert_eq!(c.backend.kind.as_deref(), Some("kubernetes"));
+        assert_eq!(c.backend.namespace.as_deref(), Some("nexal"));
+        assert_eq!(
+            c.backend.kubeconfig.as_ref().and_then(|p| p.to_str()),
+            Some("/home/user/.kube/config")
+        );
+        assert_eq!(
+            c.backend.agent_init_image.as_deref(),
+            Some("ghcr.io/reonokiy/nexal-agent:latest")
+        );
+        assert_eq!(c.pool.enabled, Some(true));
+        assert_eq!(c.pool.size, Some(3));
+        assert_eq!(
+            c.pool.image.as_deref(),
+            Some("ghcr.io/reonokiy/nexal-sandbox:latest")
+        );
+    }
+
+    #[test]
     fn missing_optional_sections_are_filled_with_defaults() {
         // Only `listen` supplied — everything else takes default.
         let c: GatewayConfig =
@@ -158,6 +210,7 @@ external_base = "http://host.containers.internal:5501"
         assert!(c.backend.kind.is_none());
         assert!(c.defaults.image.is_none());
         assert!(c.proxy.external_base.is_none());
+        assert!(c.pool.enabled.is_none());
     }
 
     #[test]

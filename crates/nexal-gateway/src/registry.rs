@@ -20,6 +20,7 @@ use uuid::Uuid;
 
 use crate::agent_conn::{AgentConn, AgentConnError, AgentNotification};
 use crate::backend::{BackendError, ContainerHandle, ContainerSpec, SharedBackend};
+use crate::pool::WarmPool;
 use crate::proxy::SharedProxyRegistry;
 
 pub type AgentId = String;
@@ -55,6 +56,8 @@ pub struct AgentRegistry {
     /// Shared proxy registry — the agent registry owns lifecycle
     /// cleanup (when an agent is killed, all its proxies are dropped).
     pub proxies: SharedProxyRegistry,
+    /// Optional warm container pool.
+    warm_pool: Option<Arc<WarmPool>>,
 }
 
 #[derive(Clone)]
@@ -81,6 +84,7 @@ impl AgentRegistry {
         backend: SharedBackend,
         spawn_defaults: SpawnDefaults,
         proxies: SharedProxyRegistry,
+        warm_pool: Option<Arc<WarmPool>>,
     ) -> Self {
         let (notify_tx, _) = broadcast::channel(256);
         Self {
@@ -89,6 +93,7 @@ impl AgentRegistry {
             inner: Mutex::new(HashMap::new()),
             notify_tx,
             proxies,
+            warm_pool,
         }
     }
 
@@ -100,6 +105,10 @@ impl AgentRegistry {
 
     /// Create a new container + open its agent connection. Returns the
     /// fresh agentId.
+    ///
+    /// If a warm pool is configured and has an available container
+    /// (and the caller didn't request a custom image), the warm
+    /// container is used instead of cold-starting a new one.
     pub async fn spawn(
         &self,
         name: String,
@@ -107,6 +116,15 @@ impl AgentRegistry {
         env: HashMap<String, String>,
         labels: HashMap<String, String>,
     ) -> Result<AgentEntry, RegistryError> {
+        // Try the warm pool when no custom image is requested.
+        if image.is_none() {
+            if let Some(pool) = &self.warm_pool {
+                if let Some(handle) = pool.take().await {
+                    return self.dial_and_register(handle).await;
+                }
+            }
+        }
+
         let container_name = self.derive_container_name(&name);
         let spec = ContainerSpec {
             name: container_name.clone(),
@@ -239,6 +257,8 @@ impl AgentRegistry {
 
     /// Tear everything down (called on gateway shutdown). Containers
     /// survive — only the in-memory mapping + WS streams are cleared.
+    /// Warm pool containers are destroyed since they have no session
+    /// and nobody will re-attach them.
     pub async fn detach_all(&self) {
         let entries: Vec<AgentEntry> = {
             let mut map = self.inner.lock().await;
@@ -246,6 +266,9 @@ impl AgentRegistry {
         };
         for entry in entries {
             entry.conn.close().await;
+        }
+        if let Some(pool) = &self.warm_pool {
+            pool.drain().await;
         }
     }
 

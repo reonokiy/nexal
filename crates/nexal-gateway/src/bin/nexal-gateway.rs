@@ -2,8 +2,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use clap::Parser;
-use nexal_gateway::backend::PodmanBackend;
+use nexal_gateway::backend::{KubernetesBackend, KubernetesConfig, PodmanBackend, SharedBackend};
 use nexal_gateway::config::GatewayConfig;
+use nexal_gateway::pool::{self, WarmPool, WarmPoolConfig};
 use nexal_gateway::proxy::{ProxyRegistry, serve_proxy};
 use nexal_gateway::registry::SpawnDefaults;
 use nexal_gateway::{AgentRegistry, server::ServerConfig};
@@ -92,11 +93,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .or(cfg.proxy.external_base.clone())
         .unwrap_or_else(|| "http://host.containers.internal:5501".to_string());
 
-    let backend = match cfg.backend.kind.as_deref().unwrap_or("podman") {
+    let backend: SharedBackend = match cfg.backend.kind.as_deref().unwrap_or("podman") {
         "podman" => Arc::new(PodmanBackend::new(
             cfg.backend.podman_bin.clone(),
             cfg.backend.runtime.clone(),
-        )) as Arc<_>,
+        )),
+        "kubernetes" | "k8s" => {
+            let agent_init_image = cfg
+                .backend
+                .agent_init_image
+                .clone()
+                .ok_or("kubernetes backend requires backend.agent_init_image")?;
+            Arc::new(
+                KubernetesBackend::new(KubernetesConfig {
+                    namespace: cfg.backend.namespace.clone(),
+                    kubeconfig: cfg.backend.kubeconfig.clone(),
+                    agent_init_image,
+                })
+                .await?,
+            )
+        }
         other => return Err(format!("unknown backend kind: {other}").into()),
     };
 
@@ -122,8 +138,39 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         std::fs::create_dir_all(vol)?;
     }
 
+    // Warm pool (optional).
+    let warm_pool = if cfg.pool.enabled.unwrap_or(false) && cfg.pool.size.unwrap_or(0) > 0 {
+        let pool_image = cfg
+            .pool
+            .image
+            .clone()
+            .unwrap_or_else(|| defaults.image.clone());
+        let pool = Arc::new(WarmPool::new(
+            backend.clone(),
+            WarmPoolConfig {
+                size: cfg.pool.size.unwrap_or(0),
+                image: pool_image,
+            },
+            defaults.container_name_prefix.clone(),
+            defaults.agent_bin.clone(),
+            defaults.memory.clone(),
+            defaults.cpus.clone(),
+            defaults.pids_limit,
+            defaults.network,
+        ));
+        pool::start_replenish_loop(pool.clone());
+        Some(pool)
+    } else {
+        None
+    };
+
     let proxies = Arc::new(ProxyRegistry::new());
-    let registry = Arc::new(AgentRegistry::new(backend, defaults, proxies.clone()));
+    let registry = Arc::new(AgentRegistry::new(
+        backend,
+        defaults,
+        proxies.clone(),
+        warm_pool,
+    ));
 
     // Graceful shutdown — detach (not destroy) all agents on Ctrl-C.
     let registry_for_shutdown = registry.clone();

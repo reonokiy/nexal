@@ -44,3 +44,5 @@ toml = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 uuid = { workspace = true }
+kube = { workspace = true }
+k8s-openapi = { workspace = true }
