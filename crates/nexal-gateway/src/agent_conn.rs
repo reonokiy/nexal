@@ -53,6 +53,8 @@ pub struct AgentConn {
     closed: Arc<Mutex<bool>>,
     reader: tokio::task::JoinHandle<()>,
     transport_tasks: Vec<tokio::task::JoinHandle<()>>,
+    /// Keep QUIC endpoint + session alive for the connection lifetime.
+    _quic_handles: Vec<Box<dyn std::any::Any + Send + Sync>>,
 }
 
 impl AgentConn {
@@ -101,6 +103,10 @@ impl AgentConn {
             drain_pending(&pending_for_reader).await;
         });
 
+        let quic_handles: Vec<Box<dyn std::any::Any + Send + Sync>> = vec![
+            Box::new(endpoint),
+            Box::new(session),
+        ];
         let agent_conn = Self {
             write_tx,
             pending,
@@ -108,6 +114,7 @@ impl AgentConn {
             closed,
             reader,
             transport_tasks,
+            _quic_handles: quic_handles,
         };
 
         let _init: Value = agent_conn

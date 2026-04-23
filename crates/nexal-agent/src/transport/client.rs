@@ -95,10 +95,14 @@ struct RpcClient {
 
 struct Inner {
     rpc: RpcClient,
-    sessions: ArcSwap<HashMap<ProcessId, Arc<SessionState>>>,
+    sessions: Arc<ArcSwap<HashMap<ProcessId, Arc<SessionState>>>>,
     sessions_write_lock: Mutex<()>,
     reader_task: tokio::task::JoinHandle<()>,
     transport_tasks: Vec<tokio::task::JoinHandle<()>>,
+    /// Keep the QUIC endpoint + session alive so the underlying
+    /// connection isn't torn down when the local variables in
+    /// `connect_webtransport` go out of scope.
+    _quic_handles: Vec<Box<dyn std::any::Any + Send + Sync>>,
 }
 
 impl Drop for Inner {
@@ -148,6 +152,9 @@ impl ExecServerClient {
         let config = ClientConfig::builder()
             .with_bind_default()
             .with_no_cert_validation()
+            .keep_alive_interval(Some(std::time::Duration::from_secs(15)))
+            .max_idle_timeout(Some(std::time::Duration::from_secs(300)))
+            .expect("valid idle timeout")
             .build();
         let endpoint = Endpoint::client(config).map_err(|e| ExecServerError::Connect {
             url: url.clone(),
@@ -179,7 +186,12 @@ impl ExecServerClient {
             format!("exec-client {url}"),
         );
 
-        Self::from_conn(conn, args.into()).await
+        // Keep endpoint + session alive so the QUIC connection persists.
+        let handles: Vec<Box<dyn std::any::Any + Send + Sync>> = vec![
+            Box::new(endpoint),
+            Box::new(session),
+        ];
+        Self::from_conn(conn, args.into(), handles).await
     }
 
     /// Connect over a legacy WebSocket (for backward compat / tests).
@@ -207,20 +219,22 @@ impl ExecServerClient {
             ws,
             format!("exec-client ws {url}"),
         );
-        Self::from_conn(conn, args.into()).await
+        Self::from_conn(conn, args.into(), Vec::new()).await
     }
 
     async fn from_conn(
         conn: JsonMessageConnection<Value>,
         options: ExecServerClientConnectOptions,
+        quic_handles: Vec<Box<dyn std::any::Any + Send + Sync>>,
     ) -> Result<Self, ExecServerError> {
         let (write_tx, incoming_rx, transport_tasks) = conn.into_parts();
 
         let pending: Arc<
             Mutex<HashMap<u64, tokio::sync::oneshot::Sender<Result<Value, ExecServerError>>>>,
         > = Arc::new(Mutex::new(HashMap::new()));
-        let sessions: Arc<ArcSwap<HashMap<ProcessId, Arc<SessionState>>>> =
-            Arc::new(ArcSwap::from_pointee(HashMap::new()));
+        // Single shared sessions map — both Inner and the reader task
+        // must reference the same ArcSwap.
+        let sessions = Arc::new(ArcSwap::from_pointee(HashMap::<ProcessId, Arc<SessionState>>::new()));
 
         let rpc = RpcClient {
             write_tx,
@@ -233,7 +247,6 @@ impl ExecServerClient {
         let pending_for_reader = pending.clone();
         let reader_task = tokio::spawn(async move {
             run_reader(incoming_rx, &pending_for_reader, &sessions_for_reader).await;
-            // Connection closed — fail all pending invokes and sessions.
             drain_pending(&pending_for_reader).await;
             fail_all_sessions(&sessions_for_reader, "exec-server transport disconnected".into())
                 .await;
@@ -241,16 +254,12 @@ impl ExecServerClient {
 
         let inner = Arc::new(Inner {
             rpc,
-            sessions: ArcSwap::from_pointee(HashMap::new()),
+            sessions,
             sessions_write_lock: Mutex::new(()),
             reader_task,
             transport_tasks,
+            _quic_handles: quic_handles,
         });
-        // Move the sessions arc into inner — use inner.sessions from now on.
-        // Actually, sessions_for_reader already has its own Arc. The Inner
-        // has its own ArcSwap. We need them to be the same. Let me restructure.
-        // For simplicity, share through Inner directly.
-        drop(sessions); // unused — the reader uses its own copy
 
         let client = Self {
             inner,
@@ -423,7 +432,9 @@ impl ExecServerClient {
 
 impl RpcClient {
     async fn invoke(&self, method: &str, params: Value) -> Result<Value, ExecServerError> {
+        tracing::debug!("rpc invoke: {method}");
         if *self.closed.lock().await {
+            tracing::debug!("rpc invoke {method}: already closed!");
             return Err(ExecServerError::Closed);
         }
         let id = {

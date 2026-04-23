@@ -1,5 +1,6 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::time::Duration;
 
 use nexal_utils_json_transport::JsonMessageConnection;
 use serde_json::Value;
@@ -64,6 +65,9 @@ pub(crate) async fn run_transport(
     let config = ServerConfig::builder()
         .with_bind_address(bind_address)
         .with_identity(identity)
+        .keep_alive_interval(Some(Duration::from_secs(15)))
+        .max_idle_timeout(Some(Duration::from_secs(300)))
+        .expect("valid idle timeout")
         .build();
     // Keep the generated certs around for reference; the actual TLS
     // identity is self-signed via wtransport's built-in helper.

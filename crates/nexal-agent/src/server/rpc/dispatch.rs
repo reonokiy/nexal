@@ -156,8 +156,11 @@ async fn dispatch(
             Ok(Value::Null)
         }
         "process/start" => {
+            tracing::debug!("dispatch: process/start parsing params");
             let p: ExecParams = parse_params(params)?;
+            tracing::debug!("dispatch: process/start calling handler.exec");
             let r = handler.exec(p).await?;
+            tracing::debug!("dispatch: process/start exec returned {:?}", r);
             Ok(serde_json::to_value(r).unwrap_or(Value::Null))
         }
         "process/read" => {
