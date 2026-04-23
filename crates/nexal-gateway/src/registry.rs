@@ -21,7 +21,7 @@ use uuid::Uuid;
 use crate::agent_conn::{AgentConn, AgentConnError, AgentNotification};
 use crate::backend::{BackendError, ContainerHandle, ContainerSpec, SharedBackend};
 use crate::pool::WarmPool;
-use crate::proxy::SharedProxyRegistry;
+use crate::proxy::{SharedProxyRegistry, SharedTcpProxyRegistry};
 
 pub type AgentId = String;
 
@@ -43,6 +43,8 @@ pub struct AgentEntry {
     pub container_name: String,
     pub created_at_unix_ms: u64,
     pub conn: Arc<AgentConn>,
+    /// Extra port mappings: container_port → reachable address.
+    pub port_map: HashMap<u16, String>,
 }
 
 pub struct AgentRegistry {
@@ -56,6 +58,8 @@ pub struct AgentRegistry {
     /// Shared proxy registry — the agent registry owns lifecycle
     /// cleanup (when an agent is killed, all its proxies are dropped).
     pub proxies: SharedProxyRegistry,
+    /// TCP stream proxy registry.
+    pub tcp_proxies: SharedTcpProxyRegistry,
     /// Optional warm container pool.
     warm_pool: Option<Arc<WarmPool>>,
 }
@@ -84,6 +88,7 @@ impl AgentRegistry {
         backend: SharedBackend,
         spawn_defaults: SpawnDefaults,
         proxies: SharedProxyRegistry,
+        tcp_proxies: SharedTcpProxyRegistry,
         warm_pool: Option<Arc<WarmPool>>,
     ) -> Self {
         let (notify_tx, _) = broadcast::channel(256);
@@ -93,6 +98,7 @@ impl AgentRegistry {
             inner: Mutex::new(HashMap::new()),
             notify_tx,
             proxies,
+            tcp_proxies,
             warm_pool,
         }
     }
@@ -115,9 +121,11 @@ impl AgentRegistry {
         image: Option<String>,
         env: HashMap<String, String>,
         labels: HashMap<String, String>,
+        extra_ports: Vec<u16>,
     ) -> Result<AgentEntry, RegistryError> {
-        // Try the warm pool when no custom image is requested.
-        if image.is_none() {
+        // Try the warm pool when no custom image is requested and
+        // no extra ports are needed (pooled containers don't have them).
+        if image.is_none() && extra_ports.is_empty() {
             if let Some(pool) = &self.warm_pool {
                 if let Some(handle) = pool.take().await {
                     return self.dial_and_register(handle).await;
@@ -137,6 +145,7 @@ impl AgentRegistry {
             pids_limit: self.spawn_defaults.pids_limit,
             network: self.spawn_defaults.network,
             workspace_volume: self.spawn_defaults.workspace_volume.clone(),
+            extra_ports,
         };
         let handle = self.backend.ensure(spec).await?;
         let entry = self.dial_and_register(handle).await?;
@@ -163,12 +172,14 @@ impl AgentRegistry {
                 pids_limit: self.spawn_defaults.pids_limit,
                 network: self.spawn_defaults.network,
                 workspace_volume: self.spawn_defaults.workspace_volume.clone(),
+                extra_ports: Vec::new(),
             })
             .await?;
         let ws_url = self.backend.ws_url(&container_name).await?;
         let handle = ContainerHandle {
             name: container_name,
             ws_url,
+            port_map: Default::default(),
         };
         self.dial_and_register(handle).await
     }
@@ -206,6 +217,7 @@ impl AgentRegistry {
             container_name: handle.name,
             created_at_unix_ms: now_ms(),
             conn: Arc::new(conn),
+            port_map: handle.port_map,
         };
         self.inner.lock().await.insert(agent_id, entry.clone());
         Ok(entry)
@@ -234,8 +246,11 @@ impl AgentRegistry {
         // Proxy cleanup runs even if the agent_id isn't in our map
         // (idempotent, and lets a dangling registration get cleaned).
         let dropped = self.proxies.cleanup_for_agent(agent_id).await;
-        if dropped > 0 {
-            tracing::debug!("kill {agent_id}: dropped {dropped} proxy registration(s)");
+        let tcp_dropped = self.tcp_proxies.cleanup_for_agent(agent_id).await;
+        if dropped + tcp_dropped > 0 {
+            tracing::debug!(
+                "kill {agent_id}: dropped {dropped} http + {tcp_dropped} tcp proxy registration(s)"
+            );
         }
         match entry {
             Some(entry) => {

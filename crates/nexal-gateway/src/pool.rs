@@ -96,6 +96,7 @@ impl WarmPool {
             pids_limit: self.pids_limit,
             network: self.network,
             workspace_volume: None,
+            extra_ports: Vec::new(),
         };
         match self.backend.ensure(spec).await {
             Ok(handle) => {

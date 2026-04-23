@@ -40,6 +40,8 @@ export interface SpawnAgentParams {
 	env?: Record<string, string>;
 	labels?: Record<string, string>;
 	workspace?: string;
+	/** Extra container ports to publish for direct TCP access (e.g. [3389, 9222]). */
+	extra_ports?: number[];
 }
 export interface SpawnAgentResponse {
 	agent_id: string;
@@ -94,6 +96,24 @@ export interface UnregisterProxyParams {
 	name: string;
 }
 
+// ─── gateway/register_stream_proxy / unregister_stream_proxy ────────
+
+export interface RegisterStreamProxyParams {
+	agent_id: string;
+	name: string;
+	/** Container port to forward to (e.g. 3389 for RDP, 9222 for CDP). */
+	container_port: number;
+}
+export interface RegisterStreamProxyResponse {
+	/** Gateway-side listen address (e.g. "127.0.0.1:49201"). */
+	listen_addr: string;
+}
+
+export interface UnregisterStreamProxyParams {
+	agent_id: string;
+	name: string;
+}
+
 /** Discriminated map used by `GatewayClient.invoke` for type inference. */
 export interface GatewayMethods {
 	"gateway/hello": { params: HelloParams; result: HelloResponse };
@@ -104,6 +124,8 @@ export interface GatewayMethods {
 	"gateway/list_agents": { params: Record<string, never>; result: ListAgentsResponse };
 	"gateway/register_proxy": { params: RegisterProxyParams; result: RegisterProxyResponse };
 	"gateway/unregister_proxy": { params: UnregisterProxyParams; result: OkResponse };
+	"gateway/register_stream_proxy": { params: RegisterStreamProxyParams; result: RegisterStreamProxyResponse };
+	"gateway/unregister_stream_proxy": { params: UnregisterStreamProxyParams; result: OkResponse };
 }
 
 // ─── agent/* params + responses ─────────────────────────────────────

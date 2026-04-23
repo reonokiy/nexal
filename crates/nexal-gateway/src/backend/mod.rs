@@ -51,6 +51,11 @@ pub struct ContainerSpec {
     pub network: bool,
     /// Host path bind-mounted at `/workspace`. None = no mount.
     pub workspace_volume: Option<String>,
+    /// Extra container ports to publish (e.g. `[3389, 9222]`).
+    /// Each port is published to a random host port and recorded in
+    /// `ContainerHandle::port_map`.
+    #[allow(dead_code)]
+    pub extra_ports: Vec<u16>,
 }
 
 /// Result of `ensure_container`: enough for the gateway to dial the
@@ -60,6 +65,10 @@ pub struct ContainerHandle {
     pub name: String,
     /// `ws://127.0.0.1:<host-port>` reachable from the gateway process.
     pub ws_url: String,
+    /// Mappings for extra published ports: container_port → reachable address.
+    /// e.g. `{ 3389 → "127.0.0.1:49201", 9222 → "127.0.0.1:49202" }`.
+    /// For K8s this is `pod_ip:port`; for Podman it's the host-mapped address.
+    pub port_map: std::collections::HashMap<u16, String>,
 }
 
 #[async_trait]

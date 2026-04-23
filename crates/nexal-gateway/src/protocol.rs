@@ -23,6 +23,8 @@ pub const METHOD_LIST_AGENTS: &str = "gateway/list_agents";
 pub const METHOD_AGENT_INVOKE: &str = "agent/invoke";
 pub const METHOD_REGISTER_PROXY: &str = "gateway/register_proxy";
 pub const METHOD_UNREGISTER_PROXY: &str = "gateway/unregister_proxy";
+pub const METHOD_REGISTER_STREAM_PROXY: &str = "gateway/register_stream_proxy";
+pub const METHOD_UNREGISTER_STREAM_PROXY: &str = "gateway/unregister_stream_proxy";
 
 /// Notification carrying an in-band notification from a specific agent.
 pub const NOTIFY_AGENT: &str = "agent/notify";
@@ -142,6 +144,10 @@ pub struct SpawnAgentParams {
     /// Extra labels merged with the default `app=nexal` set.
     #[serde(default)]
     pub labels: HashMap<String, String>,
+    /// Extra container ports to publish for direct TCP access
+    /// (e.g. `[3389, 9222]` for RDP / CDP).
+    #[serde(default)]
+    pub extra_ports: Vec<u16>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -248,6 +254,38 @@ pub struct UnregisterProxyParams {
     pub name: String,
 }
 
+// ── gateway/register_stream_proxy / unregister_stream_proxy ─────────
+
+/// Register a TCP proxy that forwards an external gateway port to a
+/// container port. The gateway allocates a random listen port and
+/// does direct `tokio::io::copy` — no encoding overhead.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct RegisterStreamProxyParams {
+    /// Owning agent.
+    pub agent_id: String,
+    /// Frontend-chosen label, unique within `agent_id`.
+    pub name: String,
+    /// Port inside the container to forward to (e.g. 3389 for RDP,
+    /// 9222 for CDP).
+    pub container_port: u16,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct RegisterStreamProxyResponse {
+    /// Gateway-side listen address clients should connect to
+    /// (e.g. `"127.0.0.1:49201"`).
+    pub listen_addr: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct UnregisterStreamProxyParams {
+    pub agent_id: String,
+    pub name: String,
+}
+
 #[cfg(test)]
 mod tests {
     //! Wire-format guardrails. Every DTO on the gateway ↔ frontend
@@ -285,6 +323,7 @@ mod tests {
             image: None,
             env: HashMap::new(),
             labels: HashMap::new(),
+            extra_ports: Vec::new(),
         };
         let v = serde_json::to_value(&p).expect("spawn_agent params serialize");
         // `name` present, image absent, env/labels present as

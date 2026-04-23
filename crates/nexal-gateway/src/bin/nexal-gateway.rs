@@ -165,10 +165,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     };
 
     let proxies = Arc::new(ProxyRegistry::new());
+    let tcp_proxies = Arc::new(nexal_gateway::proxy::TcpProxyRegistry::new());
     let registry = Arc::new(AgentRegistry::new(
         backend,
         defaults,
         proxies.clone(),
+        tcp_proxies,
         warm_pool,
     ));
 

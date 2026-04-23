@@ -20,6 +20,8 @@
 
 pub mod registry;
 pub mod server;
+pub mod tcp;
 
 pub use registry::{ProxyEntry, ProxyRegistry, SharedProxyRegistry};
 pub use server::serve_proxy;
+pub use tcp::{TcpProxyRegistry, SharedTcpProxyRegistry};

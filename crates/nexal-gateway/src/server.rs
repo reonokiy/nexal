@@ -35,8 +35,10 @@ use crate::protocol::{
     HelloParams, HelloResponse, JSONRPC_VERSION, JsonRpcError, JsonRpcRequest, JsonRpcResponse,
     ListAgentsResponse, METHOD_AGENT_INVOKE, METHOD_ATTACH_AGENT, METHOD_DETACH_AGENT,
     METHOD_HELLO, METHOD_KILL_AGENT, METHOD_LIST_AGENTS, METHOD_REGISTER_PROXY, METHOD_SPAWN_AGENT,
-    METHOD_UNREGISTER_PROXY, NOTIFY_AGENT, OkResponse, RegisterProxyParams, RegisterProxyResponse,
-    SpawnAgentParams, SpawnAgentResponse, UnregisterProxyParams, error_code, notification,
+    METHOD_REGISTER_STREAM_PROXY, METHOD_UNREGISTER_PROXY, METHOD_UNREGISTER_STREAM_PROXY,
+    NOTIFY_AGENT, OkResponse, RegisterProxyParams, RegisterProxyResponse,
+    RegisterStreamProxyParams, RegisterStreamProxyResponse, SpawnAgentParams, SpawnAgentResponse,
+    UnregisterProxyParams, UnregisterStreamProxyParams, error_code, notification,
 };
 use crate::registry::AgentRegistry;
 
@@ -260,7 +262,7 @@ impl Session {
                 let p: SpawnAgentParams = parse_params(params)?;
                 let entry = self
                     .registry
-                    .spawn(p.name, p.image, p.env, p.labels)
+                    .spawn(p.name, p.image, p.env, p.labels, p.extra_ports)
                     .await
                     .map_err(registry_err)?;
                 Ok(serde_json::to_value(SpawnAgentResponse {
@@ -388,6 +390,49 @@ impl Session {
                         .await;
                 }
                 let removed = self.registry.proxies.unregister(&p.agent_id, &p.name).await;
+                Ok(serde_json::to_value(OkResponse { ok: removed }).unwrap_or(Value::Null))
+            }
+            METHOD_REGISTER_STREAM_PROXY => {
+                let p: RegisterStreamProxyParams = parse_params(params)?;
+                let agent_entry = self.registry.get(&p.agent_id).await.ok_or_else(|| {
+                    JsonRpcError {
+                        code: error_code::UNKNOWN_AGENT,
+                        message: format!("no agent {}", p.agent_id),
+                        data: None,
+                    }
+                })?;
+                // Look up the container-side address for this port.
+                let upstream_addr =
+                    agent_entry.port_map.get(&p.container_port).cloned().ok_or_else(|| {
+                        JsonRpcError {
+                            code: error_code::INVALID_PARAMS,
+                            message: format!(
+                                "port {} not published for agent {} — add it to extra_ports on spawn",
+                                p.container_port, p.agent_id
+                            ),
+                            data: None,
+                        }
+                    })?;
+                let listen_addr = self
+                    .registry
+                    .tcp_proxies
+                    .register(p.agent_id, p.name, upstream_addr)
+                    .await
+                    .map_err(|e| JsonRpcError {
+                        code: error_code::BACKEND_ERROR,
+                        message: e,
+                        data: None,
+                    })?;
+                Ok(serde_json::to_value(RegisterStreamProxyResponse { listen_addr })
+                    .unwrap_or(Value::Null))
+            }
+            METHOD_UNREGISTER_STREAM_PROXY => {
+                let p: UnregisterStreamProxyParams = parse_params(params)?;
+                let removed = self
+                    .registry
+                    .tcp_proxies
+                    .unregister(&p.agent_id, &p.name)
+                    .await;
                 Ok(serde_json::to_value(OkResponse { ok: removed }).unwrap_or(Value::Null))
             }
             other => Err(JsonRpcError {

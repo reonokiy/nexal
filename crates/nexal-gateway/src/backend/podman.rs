@@ -21,6 +21,8 @@ use tokio::process::Command;
 use tokio::time::sleep;
 use tracing::warn;
 
+use std::collections::HashMap;
+
 use super::{BackendError, ContainerBackend, ContainerHandle, ContainerSpec};
 
 const CONTAINER_WS_PORT: u16 = 9100;
@@ -71,19 +73,39 @@ impl PodmanBackend {
     }
 
     async fn discover_ws_url(&self, container_name: &str) -> Result<String, BackendError> {
-        let port_arg = format!("{CONTAINER_WS_PORT}/tcp");
+        let addr = self.discover_host_port(container_name, CONTAINER_WS_PORT).await?;
+        Ok(format!("ws://{addr}"))
+    }
+
+    async fn discover_host_port(&self, container_name: &str, port: u16) -> Result<String, BackendError> {
+        let port_arg = format!("{port}/tcp");
         for _ in 0..30u32 {
             if let Ok(out) = self.podman(&["port", container_name, &port_arg]).await
                 && let Some(line) = out.lines().next()
             {
                 let trimmed = line.trim();
                 if !trimmed.is_empty() {
-                    return Ok(format!("ws://{trimmed}"));
+                    return Ok(trimmed.to_string());
                 }
             }
             sleep(Duration::from_millis(200)).await;
         }
-        Err(BackendError::PortDiscovery(container_name.to_string()))
+        Err(BackendError::PortDiscovery(format!("{container_name}:{port}")))
+    }
+
+    async fn discover_extra_ports(
+        &self,
+        container_name: &str,
+        ports: &[u16],
+    ) -> HashMap<u16, String> {
+        let mut map = HashMap::new();
+        for &port in ports {
+            match self.discover_host_port(container_name, port).await {
+                Ok(addr) => { map.insert(port, addr); }
+                Err(e) => { warn!("port discovery for {container_name}:{port}: {e}"); }
+            }
+        }
+        map
     }
 }
 
@@ -99,9 +121,11 @@ impl ContainerBackend for PodmanBackend {
             // Best-effort start; ignore "already running" failures.
             let _ = self.podman(&["start", &spec.name]).await;
             let ws_url = self.discover_ws_url(&spec.name).await?;
+            let port_map = self.discover_extra_ports(&spec.name, &spec.extra_ports).await;
             return Ok(ContainerHandle {
                 name: spec.name,
                 ws_url,
+                port_map,
             });
         }
 
@@ -155,6 +179,11 @@ impl ContainerBackend for PodmanBackend {
         }
 
 
+        // Extra ports (e.g. RDP 3389, CDP 9222).
+        for port in &spec.extra_ports {
+            args.push(format!("--publish=127.0.0.1::{port}/tcp"));
+        }
+
         if let Some(vol) = &spec.workspace_volume {
             args.push(format!("--volume={vol}:/workspace"));
         }
@@ -194,9 +223,11 @@ impl ContainerBackend for PodmanBackend {
         }
 
         let ws_url = self.discover_ws_url(&spec.name).await?;
+        let port_map = self.discover_extra_ports(&spec.name, &spec.extra_ports).await;
         Ok(ContainerHandle {
             name: spec.name,
             ws_url,
+            port_map,
         })
     }
 

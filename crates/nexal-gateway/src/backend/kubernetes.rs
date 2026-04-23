@@ -158,11 +158,21 @@ impl KubernetesBackend {
                 "--listen".to_string(),
                 format!("ws://0.0.0.0:{AGENT_WS_PORT}"),
             ]),
-            ports: Some(vec![ContainerPort {
-                container_port: AGENT_WS_PORT as i32,
-                protocol: Some("TCP".to_string()),
-                ..Default::default()
-            }]),
+            ports: Some({
+                let mut ports = vec![ContainerPort {
+                    container_port: AGENT_WS_PORT as i32,
+                    protocol: Some("TCP".to_string()),
+                    ..Default::default()
+                }];
+                for &p in &spec.extra_ports {
+                    ports.push(ContainerPort {
+                        container_port: p as i32,
+                        protocol: Some("TCP".to_string()),
+                        ..Default::default()
+                    });
+                }
+                ports
+            }),
             env: Some(env),
             volume_mounts: Some(volume_mounts),
             resources: Some(ResourceRequirements {
@@ -269,9 +279,13 @@ impl ContainerBackend for KubernetesBackend {
                                     spec.name
                                 ))
                             })?;
+                        let port_map = spec.extra_ports.iter()
+                            .map(|&p| (p, format!("{ip}:{p}")))
+                            .collect();
                         return Ok(ContainerHandle {
                             name: spec.name,
                             ws_url: format!("ws://{ip}:{AGENT_WS_PORT}"),
+                            port_map,
                         });
                     }
                     _ => {
@@ -304,9 +318,13 @@ impl ContainerBackend for KubernetesBackend {
             .map_err(|e| BackendError::Cli(format!("create pod {}: {e}", spec.name)))?;
 
         let ip = self.wait_for_pod_ip(&spec.name).await?;
+        let port_map = spec.extra_ports.iter()
+            .map(|&p| (p, format!("{ip}:{p}")))
+            .collect();
         Ok(ContainerHandle {
             name: spec.name,
             ws_url: format!("ws://{ip}:{AGENT_WS_PORT}"),
+            port_map,
         })
     }
 
