@@ -7,10 +7,11 @@ pub struct ExecServerClientConnectOptions {
     pub initialize_timeout: Duration,
 }
 
-/// WebSocket connection arguments for a remote exec-server.
+/// Connection arguments for a remote exec-server (WebTransport or WS).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RemoteExecServerConnectArgs {
-    pub websocket_url: String,
+    /// Server URL. `https://` for WebTransport, `ws://` for legacy WS.
+    pub url: String,
     pub client_name: String,
     pub connect_timeout: Duration,
     pub initialize_timeout: Duration,

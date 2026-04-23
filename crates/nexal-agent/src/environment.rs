@@ -113,7 +113,7 @@ impl Environment {
         let remote_exec_server_client = if let Some(url) = &exec_server_url {
             Some(
                 ExecServerClient::connect_websocket(RemoteExecServerConnectArgs {
-                    websocket_url: url.clone(),
+                    url: url.clone(),
                     client_name: "nexal-environment".to_string(),
                     connect_timeout: std::time::Duration::from_secs(5),
                     initialize_timeout: std::time::Duration::from_secs(5),
