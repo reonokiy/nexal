@@ -1,22 +1,22 @@
 /**
- * GatewayClient — single WebSocket multiplexer between the Bun
+ * GatewayClient — single WebTransport multiplexer between the Bun
  * frontend and a `nexal-gateway` instance.
  *
  * Wire protocol: JSON-RPC 2.0, snake_case keys, fully typed via
  * `protocol.ts`'s `GatewayMethods` / `AgentMethods` /
  * `AgentNotifications` discriminated maps.
  *
+ * Transport:
+ *   - TCP mode: WebTransport (QUIC/HTTP3) via @webtransport-bun/webtransport
+ *   - Unix socket mode: raw newline-delimited JSON over a Unix stream
+ *
  * Lifecycle:
- *   1. `connect()` — open WS, wait for handshake.
+ *   1. `connect()` — open transport, wait for handshake.
  *   2. `hello()` — send `gateway/hello`. Idempotent.
  *   3. `invoke(method, params)` — typed gateway/* calls.
  *      `invokeAgent(agentId, method, params)` — typed agent/* calls,
  *      wrapped in the `agent/invoke` envelope.
- *   4. `subscribe(handler)` — receive `agent/notify` events as a
- *      typed discriminated union (or `unknown` for unmodeled methods).
- *
- * One GatewayClient is shared across ALL agents in the process. The
- * gateway side multiplexes by `agent_id`.
+ *   4. `subscribe(handler)` — receive `agent/notify` events.
  */
 
 import type {
@@ -70,7 +70,7 @@ export class GatewayError extends Error {
 }
 
 export interface GatewayClientOptions {
-	/** WebSocket URL, e.g. `"ws://127.0.0.1:5500"`. */
+	/** WebTransport URL, e.g. `"https://127.0.0.1:5500"`. */
 	url: string;
 	/** Unix domain socket path. When set, `url` is ignored for transport. */
 	unix?: string;
@@ -91,8 +91,14 @@ const NOTIFICATION_METHODS = new Set<keyof AgentNotifications>([
 	"process/closed",
 ]);
 
+/** Minimal interface for send/close — works for both WS wrapper and stream wrapper. */
+interface Transport {
+	send(data: string): void;
+	close(): void;
+}
+
 export class GatewayClient {
-	private ws: WebSocket | null = null;
+	private transport: Transport | null = null;
 	private readonly pending = new Map<JsonRpcId, Pending>();
 	private readyPromise: Promise<void> | null = null;
 	private helloPromise: Promise<void> | null = null;
@@ -108,87 +114,87 @@ export class GatewayClient {
 		if (this.readyPromise) return this.readyPromise;
 		this.readyPromise = this.options.unix
 			? this.connectUnix()
-			: this.connectTcp();
+			: this.connectWebTransport();
 		return this.readyPromise;
 	}
 
-	private connectTcp(): Promise<void> {
-		return new Promise<void>((resolve, reject) => {
-			const ws = new WebSocket(this.options.url);
-			this.ws = ws;
-			const timer = setTimeout(() => {
-				reject(new Error(`gateway WS connect timed out: ${this.options.url}`));
-				ws.close();
-			}, this.options.connectTimeoutMs ?? 5_000);
-			ws.addEventListener("open", () => {
-				clearTimeout(timer);
-				resolve();
-			});
-			ws.addEventListener("error", (ev: any) => {
-				clearTimeout(timer);
-				reject(new Error(`gateway WS error: ${ev?.message ?? this.options.url}`));
-			});
-			this.wireEvents(ws);
+	private async connectWebTransport(): Promise<void> {
+		const { connect } = await import("@webtransport-bun/webtransport");
+		const session = await connect(this.options.url, {
+			tls: { insecureSkipVerify: true },
 		});
+		const stream = await session.createBidirectionalStream();
+
+		// Build a line-oriented reader from the readable side.
+		const reader = stream.readable.getReader();
+		let buffer = "";
+		const readLoop = async () => {
+			try {
+				while (true) {
+					const { value, done } = await reader.read();
+					if (done) break;
+					buffer += new TextDecoder().decode(value);
+					const lines = buffer.split("\n");
+					buffer = lines.pop()!;
+					for (const line of lines) {
+						if (line.trim()) this.dispatch(line);
+					}
+				}
+			} catch {
+				// stream closed
+			}
+			this.onDisconnect();
+		};
+		readLoop();
+
+		const writer = stream.writable.getWriter();
+		const encoder = new TextEncoder();
+		this.transport = {
+			send: (data: string) => {
+				writer.write(encoder.encode(data + "\n"));
+			},
+			close: () => {
+				writer.close();
+				session.close();
+			},
+		};
 	}
 
 	private async connectUnix(): Promise<void> {
 		const { createConnection } = await import("node:net");
-		const WS = (await import("ws")).default;
 		return new Promise<void>((resolve, reject) => {
-			const ws = new WS("ws://localhost/", {
-				createConnection: () => createConnection(this.options.unix!),
-			});
-			const timer = setTimeout(() => {
-				reject(new Error(`gateway WS connect timed out: unix:${this.options.unix}`));
-				ws.close();
-			}, this.options.connectTimeoutMs ?? 5_000);
-			ws.on("open", () => {
-				clearTimeout(timer);
+			const sock = createConnection(this.options.unix!, () => {
 				resolve();
 			});
-			ws.on("error", (err: Error) => {
-				clearTimeout(timer);
-				reject(new Error(`gateway WS error: ${err?.message ?? this.options.unix}`));
+			sock.on("error", (err: Error) => {
+				reject(new Error(`gateway unix connect error: ${err.message}`));
 			});
-			// Wrap ws package instance to match the WebSocket interface we use.
-			const wrapper = ws as unknown as WebSocket;
-			this.ws = wrapper;
-			this.wireEvents(wrapper, ws);
+
+			let buffer = "";
+			sock.on("data", (chunk: Buffer) => {
+				buffer += chunk.toString("utf-8");
+				const lines = buffer.split("\n");
+				buffer = lines.pop()!;
+				for (const line of lines) {
+					if (line.trim()) this.dispatch(line);
+				}
+			});
+			sock.on("close", () => this.onDisconnect());
+
+			this.transport = {
+				send: (data: string) => sock.write(data + "\n"),
+				close: () => sock.destroy(),
+			};
 		});
 	}
 
-	private wireEvents(ws: WebSocket, rawWs?: import("ws").WebSocket): void {
-		const onClose = () => {
-			const closed = new Error("gateway WS closed");
-			for (const p of this.pending.values()) p.reject(closed);
-			this.pending.clear();
-			this.ws = null;
-			this.readyPromise = null;
-			this.helloPromise = null;
-		};
-		const onMessage = (data: unknown) => {
-			const text =
-				typeof data === "string"
-					? data
-					: data instanceof MessageEvent
-						? (typeof data.data === "string"
-							? data.data
-							: new TextDecoder().decode(new Uint8Array(data.data as ArrayBuffer)))
-						: String(data);
-			this.dispatch(text);
-		};
-		if (rawWs) {
-			// ws package — Node EventEmitter API.
-			rawWs.on("close", onClose);
-			rawWs.on("message", (d: import("ws").RawData) => {
-				onMessage(typeof d === "string" ? d : d.toString("utf-8"));
-			});
-		} else {
-			// Bun native WebSocket — DOM EventTarget API.
-			ws.addEventListener("close", onClose);
-			ws.addEventListener("message", (ev) => onMessage(ev));
-		}
+	private onDisconnect(): void {
+		const closed = new Error("gateway transport closed");
+		for (const p of this.pending.values()) p.reject(closed);
+		this.pending.clear();
+		this.transport = null;
+		this.readyPromise = null;
+		this.helloPromise = null;
 	}
 
 	/** Send `gateway/hello`. Idempotent — calling twice is safe. */
@@ -248,12 +254,6 @@ export class GatewayClient {
 
 	// ── Agent lifecycle ───────────────────────────────────────────────
 
-	/**
-	 * Acquire (or reuse) a sandboxed agent container keyed by
-	 * `sessionKey`. Idempotent — calling twice with the same key returns
-	 * the cached `AgentClient`. Concurrent calls for the same key are
-	 * deduplicated.
-	 */
 	async acquireAgent(
 		sessionKey: string,
 		opts?: { env?: Record<string, string> },
@@ -273,7 +273,6 @@ export class GatewayClient {
 		return entry.client;
 	}
 
-	/** Kill and remove the container for `sessionKey`. */
 	async releaseAgent(sessionKey: string): Promise<void> {
 		const entry = this.agents.get(sessionKey);
 		if (!entry) return;
@@ -281,12 +280,11 @@ export class GatewayClient {
 		try {
 			await this.invoke("gateway/kill_agent", { agent_id: entry.agentId });
 		} catch (err) {
-			log.error(`failed to kill agent for session "${sessionKey}", container may still be running`, err);
+			log.error(`failed to kill agent for session "${sessionKey}"`, err);
 		}
 		await entry.client.close();
 	}
 
-	/** Detach the container (keep it alive) and forget the mapping. */
 	async detachAgent(sessionKey: string): Promise<void> {
 		const entry = this.agents.get(sessionKey);
 		if (!entry) return;
@@ -299,7 +297,6 @@ export class GatewayClient {
 		await entry.client.close();
 	}
 
-	/** Release all tracked agents (shutdown path). */
 	async releaseAllAgents(): Promise<void> {
 		await Promise.all([...this.agents.keys()].map((k) => this.releaseAgent(k)));
 	}
@@ -323,19 +320,19 @@ export class GatewayClient {
 	}
 
 	async close(): Promise<void> {
-		this.ws?.close();
-		this.ws = null;
+		this.transport?.close();
+		this.transport = null;
 		this.readyPromise = null;
 		this.helloPromise = null;
 	}
 
 	// ── Internals ─────────────────────────────────────────────────────
 
-	private requireOpen(): WebSocket {
-		if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-			throw new Error("gateway WS not connected — call connect() first");
+	private requireOpen(): Transport {
+		if (!this.transport) {
+			throw new Error("gateway transport not connected — call connect() first");
 		}
-		return this.ws;
+		return this.transport;
 	}
 
 	private dispatch(line: string): void {
@@ -359,7 +356,6 @@ export class GatewayClient {
 			}
 			return;
 		}
-		// Notification — only `agent/notify` is interesting today.
 		const notif = msg as JsonRpcNotification;
 		if (notif.method !== "agent/notify") return;
 		const params = notif.params as
@@ -369,9 +365,7 @@ export class GatewayClient {
 		const event: AgentNotification | UnknownAgentNotification = NOTIFICATION_METHODS.has(
 			params.method as keyof AgentNotifications,
 		)
-			? // Trust the gateway's wire format — narrowing happens in handlers
-			  // via `notif.method ===` checks.
-			  ({
+			? ({
 					agentId: params.agent_id,
 					method: params.method,
 					params: params.params,

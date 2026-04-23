@@ -61,7 +61,7 @@ export interface ProxySpec {
 }
 
 export interface GatewayConfig {
-	/** WebSocket URL of the gateway, e.g. `"ws://127.0.0.1:5500"`. */
+	/** Gateway URL. `"https://..."` for WebTransport, `"ws://..."` for legacy WS. */
 	url: string;
 	/** Shared auth token sent in `gateway/hello`. */
 	token: string;
@@ -90,7 +90,7 @@ const DEFAULTS: NexalConfig = {
 		maxConcurrent: 5,
 	},
 	gateway: {
-		url: "ws://127.0.0.1:5500",
+		url: "https://127.0.0.1:5500",
 		token: "",
 		clientName: "nexal-bun",
 	},
