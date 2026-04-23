@@ -94,8 +94,10 @@ pub(crate) async fn run_transport(
         };
 
         tokio::spawn(async move {
+            info!("new WebTransport session from {}", session.remote_address());
             match session.accept_bi().await {
                 Ok(stream) => {
+                    info!("accepted bi-stream");
                     let bi: wtransport::stream::BiStream = stream.into();
                     let handler = Arc::new(ExecServerHandler::new());
                     let conn = JsonMessageConnection::<Value>::from_webtransport(
@@ -106,6 +108,7 @@ pub(crate) async fn run_transport(
                     for task in tasks {
                         let _ = task.await;
                     }
+                    info!("session dispatch ended");
                 }
                 Err(e) => {
                     error!("accept bidirectional stream failed: {e}");

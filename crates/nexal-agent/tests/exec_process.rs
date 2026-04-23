@@ -19,7 +19,7 @@ use tokio::time::Duration;
 use tokio::time::timeout;
 
 use common::exec_server::ExecServerHarness;
-use common::exec_server::exec_server;
+use common::exec_server::exec_server_url_only;
 
 struct ProcessContext {
     backend: Arc<dyn ExecBackend>,
@@ -28,7 +28,7 @@ struct ProcessContext {
 
 async fn create_process_context(use_remote: bool) -> Result<ProcessContext> {
     if use_remote {
-        let server = exec_server().await?;
+        let server = exec_server_url_only().await?;
         let environment = Environment::create(Some(server.websocket_url().to_string())).await?;
         Ok(ProcessContext {
             backend: environment.get_exec_backend(),

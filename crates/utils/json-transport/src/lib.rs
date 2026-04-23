@@ -224,16 +224,100 @@ where
 
     /// Create a connection over a WebTransport bidirectional stream.
     ///
-    /// Uses newline-delimited JSON framing (same as the stdio path).
-    /// The `BiStream` implements `AsyncRead + AsyncWrite`, so this is
-    /// a thin wrapper around `from_stdio`.
+    /// Uses newline-delimited JSON framing. Reads via `BufReader::lines()`
+    /// on the recv half, writes directly to the send half with explicit
+    /// flush after each message (QUIC streams need this).
     #[cfg(feature = "webtransport")]
     pub fn from_webtransport(
         stream: wtransport::stream::BiStream,
         connection_label: String,
     ) -> Self {
-        let (read_half, write_half) = tokio::io::split(stream);
-        Self::from_stdio(read_half, write_half, connection_label)
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+        use wtransport::stream::BiStream;
+
+        let (outgoing_tx, mut outgoing_rx) = mpsc::channel(CHANNEL_CAPACITY);
+        let (incoming_tx, incoming_rx) = mpsc::channel(CHANNEL_CAPACITY);
+
+        let (send, recv) = stream.split();
+
+        let reader_label = connection_label.clone();
+        let incoming_tx_for_reader = incoming_tx.clone();
+        let reader_task = tokio::spawn(async move {
+            let mut lines = BufReader::new(recv).lines();
+            loop {
+                match lines.next_line().await {
+                    Ok(Some(line)) => {
+                        if line.trim().is_empty() {
+                            continue;
+                        }
+                        match serde_json::from_str::<T>(&line) {
+                            Ok(message) => {
+                                if incoming_tx_for_reader
+                                    .send(JsonMessageConnectionEvent::Message(message))
+                                    .await
+                                    .is_err()
+                                {
+                                    break;
+                                }
+                            }
+                            Err(err) => {
+                                send_malformed_message(
+                                    &incoming_tx_for_reader,
+                                    Some(format!(
+                                        "failed to parse WebTransport JSON from {reader_label}: {err}"
+                                    )),
+                                )
+                                .await;
+                            }
+                        }
+                    }
+                    Ok(None) => {
+                        send_disconnected(&incoming_tx_for_reader, None).await;
+                        break;
+                    }
+                    Err(err) => {
+                        send_disconnected(
+                            &incoming_tx_for_reader,
+                            Some(format!("WebTransport read from {reader_label}: {err}")),
+                        )
+                        .await;
+                        break;
+                    }
+                }
+            }
+        });
+
+        let writer_task = tokio::spawn(async move {
+            let mut send = send;
+            while let Some(message) = outgoing_rx.recv().await {
+                let Ok(encoded) = serde_json::to_string(&message) else {
+                    send_disconnected(
+                        &incoming_tx,
+                        Some(format!("failed to serialize JSON for {connection_label}")),
+                    )
+                    .await;
+                    break;
+                };
+                let write_ok = send.write_all(encoded.as_bytes()).await.is_ok()
+                    && send.write_all(b"\n").await.is_ok()
+                    && send.flush().await.is_ok();
+                if !write_ok
+                {
+                    send_disconnected(
+                        &incoming_tx,
+                        Some(format!("WebTransport write to {connection_label} failed")),
+                    )
+                    .await;
+                    break;
+                }
+            }
+        });
+
+        Self {
+            outgoing_tx,
+            incoming_rx,
+            task_handles: vec![reader_task, writer_task],
+        }
     }
 
     pub fn into_parts(

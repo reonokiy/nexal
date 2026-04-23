@@ -63,7 +63,7 @@ impl AgentConn {
     ) -> Result<Self, AgentConnError> {
         let config = ClientConfig::builder()
             .with_bind_default()
-            .with_native_certs()
+            .with_no_cert_validation()
             .build();
         let endpoint = Endpoint::client(config)
             .map_err(|e| AgentConnError::Connect(format!("create endpoint: {e}")))?;

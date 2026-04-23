@@ -20,7 +20,7 @@ use tempfile::TempDir;
 use test_case::test_case;
 
 use common::exec_server::ExecServerHarness;
-use common::exec_server::exec_server;
+use common::exec_server::exec_server_url_only;
 
 struct FileSystemContext {
     file_system: Arc<dyn ExecutorFileSystem>,
@@ -29,7 +29,7 @@ struct FileSystemContext {
 
 async fn create_file_system_context(use_remote: bool) -> Result<FileSystemContext> {
     if use_remote {
-        let server = exec_server().await?;
+        let server = exec_server_url_only().await?;
         let environment = Environment::create(Some(server.websocket_url().to_string())).await?;
         Ok(FileSystemContext {
             file_system: environment.get_filesystem(),

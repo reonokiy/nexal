@@ -4,65 +4,94 @@ use std::process::Stdio;
 use std::time::Duration;
 
 use anyhow::anyhow;
-use futures::SinkExt;
-use futures::StreamExt;
-use jsonrpsee::types::TwoPointZero;
 use nexal_agent::JSONRPCMessage;
 use nexal_agent::JSONRPCNotification;
 use nexal_agent::JSONRPCRequest;
 use nexal_agent::RequestId;
 use nexal_utils_cargo_bin::cargo_bin;
+use nexal_utils_json_transport::{JsonMessageConnection, JsonMessageConnectionEvent};
+use serde_json::Value;
 use tokio::io::AsyncBufReadExt;
 use tokio::io::BufReader;
 use tokio::process::Child;
 use tokio::process::Command;
+use tokio::sync::mpsc;
 use tokio::time::Instant;
 use tokio::time::sleep;
 use tokio::time::timeout;
-use tokio_tungstenite::connect_async;
-use tokio_tungstenite::tungstenite::Message;
+use wtransport::{ClientConfig, Endpoint};
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
-const CONNECT_RETRY_INTERVAL: Duration = Duration::from_millis(25);
+const CONNECT_RETRY_INTERVAL: Duration = Duration::from_millis(100);
 const EVENT_TIMEOUT: Duration = Duration::from_secs(5);
 
 pub(crate) struct ExecServerHarness {
     child: Child,
-    websocket_url: String,
-    websocket: tokio_tungstenite::WebSocketStream<
-        tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
-    >,
+    url: String,
+    write_tx: Option<mpsc::Sender<Value>>,
+    incoming_rx: Option<mpsc::Receiver<JsonMessageConnectionEvent<Value>>>,
+    _transport_tasks: Vec<tokio::task::JoinHandle<()>>,
     next_request_id: i64,
 }
 
 impl Drop for ExecServerHarness {
     fn drop(&mut self) {
         let _ = self.child.start_kill();
+        for task in &self._transport_tasks {
+            task.abort();
+        }
     }
 }
 
+/// Start the agent process and optionally connect a test harness.
+/// For tests that only need the URL (e.g. they use `Environment::create`
+/// for their own connection), pass `connect = false` to avoid consuming
+/// a session.
 pub(crate) async fn exec_server() -> anyhow::Result<ExecServerHarness> {
+    exec_server_with_connect(true).await
+}
+
+pub(crate) async fn exec_server_url_only() -> anyhow::Result<ExecServerHarness> {
+    exec_server_with_connect(false).await
+}
+
+async fn exec_server_with_connect(connect: bool) -> anyhow::Result<ExecServerHarness> {
     let binary = cargo_bin("nexal-agent")?;
     let mut child = Command::new(binary);
-    child.args(["--listen", "ws://127.0.0.1:0"]);
+    child.args(["--listen", "wt://127.0.0.1:0"]);
     child.stdin(Stdio::null());
     child.stdout(Stdio::piped());
     child.stderr(Stdio::inherit());
     let mut child = child.spawn()?;
 
-    let websocket_url = read_listen_url_from_stdout(&mut child).await?;
-    let (websocket, _) = connect_websocket_when_ready(&websocket_url).await?;
-    Ok(ExecServerHarness {
-        child,
-        websocket_url,
-        websocket,
-        next_request_id: 1,
-    })
+    let url = read_listen_url_from_stdout(&mut child).await?;
+
+    if connect {
+        let (write_tx, incoming_rx, transport_tasks) =
+            connect_webtransport_when_ready(&url).await?;
+        Ok(ExecServerHarness {
+            child,
+            url,
+            write_tx: Some(write_tx),
+            incoming_rx: Some(incoming_rx),
+            _transport_tasks: transport_tasks,
+            next_request_id: 1,
+        })
+    } else {
+        Ok(ExecServerHarness {
+            child,
+            url,
+            write_tx: None,
+            incoming_rx: None,
+            _transport_tasks: Vec::new(),
+            next_request_id: 1,
+        })
+    }
 }
 
 impl ExecServerHarness {
     pub(crate) fn websocket_url(&self) -> &str {
-        &self.websocket_url
+        &self.url
     }
 
     pub(crate) async fn send_request(
@@ -73,10 +102,10 @@ impl ExecServerHarness {
         let id = RequestId::Integer(self.next_request_id);
         self.next_request_id += 1;
         self.send_message(JSONRPCMessage::Request(JSONRPCRequest {
-            jsonrpc: TwoPointZero,
+            jsonrpc: jsonrpsee::types::TwoPointZero,
             id: id.clone(),
             method: method.to_string(),
-            params: Some(to_positional(params)),
+            params: Some(params),
         }))
         .await?;
         Ok(id)
@@ -88,17 +117,22 @@ impl ExecServerHarness {
         params: serde_json::Value,
     ) -> anyhow::Result<()> {
         self.send_message(JSONRPCMessage::Notification(JSONRPCNotification {
-            jsonrpc: TwoPointZero,
+            jsonrpc: jsonrpsee::types::TwoPointZero,
             method: method.to_string(),
-            params: Some(to_positional(params)),
+            params: Some(params),
         }))
         .await
     }
 
     pub(crate) async fn send_raw_text(&mut self, text: &str) -> anyhow::Result<()> {
-        self.websocket
-            .send(Message::Text(text.to_string().into()))
-            .await?;
+        let value: Value = serde_json::from_str(text)
+            .unwrap_or_else(|_| Value::String(text.to_string()));
+        self.write_tx
+            .as_ref()
+            .ok_or_else(|| anyhow!("harness not connected"))?
+            .send(value)
+            .await
+            .map_err(|_| anyhow!("transport closed"))?;
         Ok(())
     }
 
@@ -135,8 +169,13 @@ impl ExecServerHarness {
     }
 
     async fn send_message(&mut self, message: JSONRPCMessage) -> anyhow::Result<()> {
-        let encoded = serde_json::to_string(&message)?;
-        self.websocket.send(Message::Text(encoded.into())).await?;
+        let value = serde_json::to_value(&message)?;
+        self.write_tx
+            .as_ref()
+            .ok_or_else(|| anyhow!("harness not connected"))?
+            .send(value)
+            .await
+            .map_err(|_| anyhow!("transport closed"))?;
         Ok(())
     }
 
@@ -144,48 +183,60 @@ impl ExecServerHarness {
         &mut self,
         timeout_duration: Duration,
     ) -> anyhow::Result<JSONRPCMessage> {
+        let rx = self.incoming_rx.as_mut().ok_or_else(|| anyhow!("harness not connected"))?;
         loop {
-            let frame = timeout(timeout_duration, self.websocket.next())
+            let event = timeout(timeout_duration, rx.recv())
                 .await
-                .map_err(|_| anyhow!("timed out waiting for exec-server websocket event"))?
-                .ok_or_else(|| anyhow!("exec-server websocket closed"))??;
+                .map_err(|_| anyhow!("timed out waiting for exec-server event"))?
+                .ok_or_else(|| anyhow!("exec-server transport closed"))?;
 
-            match frame {
-                Message::Text(text) => {
-                    return Ok(serde_json::from_str(text.as_ref())?);
+            match event {
+                JsonMessageConnectionEvent::Message(value) => {
+                    return Ok(serde_json::from_value(value)?);
                 }
-                Message::Binary(bytes) => {
-                    return Ok(serde_json::from_slice(bytes.as_ref())?);
+                JsonMessageConnectionEvent::MalformedMessage { reason } => {
+                    return Err(anyhow!("malformed message: {reason}"));
                 }
-                Message::Close(_) => return Err(anyhow!("exec-server websocket closed")),
-                Message::Ping(_) | Message::Pong(_) => {}
-                _ => {}
+                JsonMessageConnectionEvent::Disconnected { reason } => {
+                    return Err(anyhow!(
+                        "exec-server disconnected: {}",
+                        reason.unwrap_or_else(|| "unknown".to_string())
+                    ));
+                }
             }
         }
     }
 }
 
-async fn connect_websocket_when_ready(
-    websocket_url: &str,
+async fn connect_webtransport_when_ready(
+    url: &str,
 ) -> anyhow::Result<(
-    tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>,
-    tokio_tungstenite::tungstenite::handshake::client::Response,
+    mpsc::Sender<Value>,
+    mpsc::Receiver<JsonMessageConnectionEvent<Value>>,
+    Vec<tokio::task::JoinHandle<()>>,
 )> {
     let deadline = Instant::now() + CONNECT_TIMEOUT;
     loop {
-        match connect_async(websocket_url).await {
-            Ok(websocket) => return Ok(websocket),
-            Err(err)
-                if Instant::now() < deadline
-                    && matches!(
-                        err,
-                        tokio_tungstenite::tungstenite::Error::Io(ref io_err)
-                            if io_err.kind() == std::io::ErrorKind::ConnectionRefused
-                    ) =>
-            {
+        let config = ClientConfig::builder()
+            .with_bind_default()
+            .with_no_cert_validation()
+            .build();
+        let endpoint = Endpoint::client(config)?;
+        match endpoint.connect(url).await {
+            Ok(session) => {
+                let opening = session.open_bi().await?;
+                let streams = opening.await?;
+                let bi: wtransport::stream::BiStream = streams.into();
+                let conn = JsonMessageConnection::<Value>::from_webtransport(
+                    bi,
+                    format!("test-client {url}"),
+                );
+                return Ok(conn.into_parts());
+            }
+            Err(_) if Instant::now() < deadline => {
                 sleep(CONNECT_RETRY_INTERVAL).await;
             }
-            Err(err) => return Err(err.into()),
+            Err(err) => return Err(anyhow!("connect to {url}: {err}")),
         }
     }
 }
@@ -211,25 +262,8 @@ async fn read_listen_url_from_stdout(child: &mut Child) -> anyhow::Result<String
             .map_err(|_| anyhow!("timed out waiting for exec-server stdout"))??
             .ok_or_else(|| anyhow!("exec-server stdout closed before emitting listen URL"))?;
         let listen_url = line.trim();
-        if listen_url.starts_with("ws://") {
+        if listen_url.starts_with("https://") {
             return Ok(listen_url.to_string());
         }
-    }
-}
-
-/// nexal-agent uses jsonrpsee, which expects positional params —
-/// `"params": [arg1, arg2, ...]` with each element deserializing to
-/// the matching Rust fn arg. For single-struct methods like
-/// `fn initialize(&self, params: InitializeParams)`, the wire form
-/// becomes `"params": [{"client_name": "..."}]`. Tests pass a single
-/// object as the "natural" params shape and this helper wraps it.
-fn to_positional(params: serde_json::Value) -> serde_json::Value {
-    match params {
-        serde_json::Value::Null => serde_json::Value::Array(Vec::new()),
-        serde_json::Value::Array(_) => params,
-        serde_json::Value::Object(ref obj) if obj.is_empty() => {
-            serde_json::Value::Array(Vec::new())
-        }
-        other => serde_json::Value::Array(vec![other]),
     }
 }

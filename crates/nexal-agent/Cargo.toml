@@ -50,6 +50,8 @@ tracing = { workspace = true }
 [dev-dependencies]
 anyhow = { workspace = true }
 nexal-utils-cargo-bin = { workspace = true }
+nexal-utils-json-transport = { workspace = true, features = ["webtransport"] }
 pretty_assertions = { workspace = true }
 tempfile = { workspace = true }
 test-case = "3.3.1"
+wtransport = { workspace = true }

@@ -111,15 +111,20 @@ impl Environment {
     pub async fn create(exec_server_url: Option<String>) -> Result<Self, ExecServerError> {
         let exec_server_url = normalize_exec_server_url(exec_server_url);
         let remote_exec_server_client = if let Some(url) = &exec_server_url {
-            Some(
-                ExecServerClient::connect_websocket(RemoteExecServerConnectArgs {
+            {
+                let args = RemoteExecServerConnectArgs {
                     url: url.clone(),
                     client_name: "nexal-environment".to_string(),
                     connect_timeout: std::time::Duration::from_secs(5),
                     initialize_timeout: std::time::Duration::from_secs(5),
-                })
-                .await?,
-            )
+                };
+                let client = if url.starts_with("https://") {
+                    ExecServerClient::connect_webtransport(args).await?
+                } else {
+                    ExecServerClient::connect_websocket(args).await?
+                };
+                Some(client)
+            }
         } else {
             None
         };

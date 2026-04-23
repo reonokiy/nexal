@@ -147,7 +147,7 @@ impl ExecServerClient {
 
         let config = ClientConfig::builder()
             .with_bind_default()
-            .with_native_certs()
+            .with_no_cert_validation()
             .build();
         let endpoint = Endpoint::client(config).map_err(|e| ExecServerError::Connect {
             url: url.clone(),
