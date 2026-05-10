@@ -36,6 +36,11 @@ export function createChat(
 	let typing = $state(false);
 	const messages = $state<Message[]>([]);
 
+	// command_result events whose name matches a positive count are
+	// consumed by an awaiting caller (settings page, etc.) and should
+	// not bubble up as a system note in the chat transcript.
+	const mutedCounts = new Map<string, number>();
+
 	let typingTimer: ReturnType<typeof setTimeout> | null = null;
 	function setTyping(on: boolean) {
 		typing = on;
@@ -99,7 +104,12 @@ export function createChat(
 			case "typing":
 				setTyping(true);
 				break;
-			case "command_result":
+			case "command_result": {
+				const count = mutedCounts.get(ev.name) ?? 0;
+				if (count > 0) {
+					mutedCounts.set(ev.name, count - 1);
+					break;
+				}
 				messages.push({
 					id: nextId++,
 					role: "system",
@@ -109,6 +119,7 @@ export function createChat(
 					ts: Date.now(),
 				});
 				break;
+			}
 		}
 	});
 
@@ -153,6 +164,40 @@ export function createChat(
 		return ok;
 	}
 
+	/**
+	 * Send a slash command and await the matching command_result.
+	 * Resolves on the first command_result whose `name` matches.
+	 * Bypasses the chat history entirely — does not push system notes.
+	 */
+	function runCommandAwait(
+		name: string,
+		args: string[] = [],
+		timeoutMs = 5000,
+	): Promise<{ text?: string; error?: string; data?: unknown }> {
+		return new Promise((resolve, reject) => {
+			mutedCounts.set(name, (mutedCounts.get(name) ?? 0) + 1);
+			const off = client.on((ev) => {
+				if (ev.type !== "command_result" || ev.name !== name) return;
+				cleanup();
+				resolve({ text: ev.text, error: ev.error, data: ev.data });
+			});
+			const timer = setTimeout(() => {
+				cleanup();
+				reject(new Error(`/${name} timed out`));
+			}, timeoutMs);
+			function cleanup() {
+				off();
+				clearTimeout(timer);
+			}
+			if (!client.sendCommand(name, args)) {
+				const c = mutedCounts.get(name) ?? 0;
+				if (c > 0) mutedCounts.set(name, c - 1);
+				cleanup();
+				reject(new Error("not connected"));
+			}
+		});
+	}
+
 	return {
 		get url() {
 			return url;
@@ -174,6 +219,7 @@ export function createChat(
 		disconnect,
 		sendText,
 		runCommand,
+		runCommandAwait,
 	};
 }
 
