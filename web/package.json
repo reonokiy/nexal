@@ -17,6 +17,7 @@
     "clsx": "^2.1.1",
     "dompurify": "^3.4.2",
     "marked": "^18.0.3",
+    "simple-icons": "^16.19.0",
     "tailwind-merge": "^2.5.4",
     "tailwind-variants": "^0.3.0"
   },

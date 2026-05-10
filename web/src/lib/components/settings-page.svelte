@@ -8,6 +8,7 @@
 	import EyeOff from "@lucide/svelte/icons/eye-off";
 	import Check from "@lucide/svelte/icons/check";
 	import ExternalLink from "@lucide/svelte/icons/external-link";
+	import ProviderIcon from "$lib/components/provider-icon.svelte";
 	import type { Chat } from "$lib/client.svelte";
 
 	let { chat }: { chat: Chat } = $props();
@@ -28,7 +29,8 @@
 	}
 	interface ProviderPreset {
 		label: string;
-		emoji: string;
+		icon: string;
+		brand: string;
 		summary: string;
 		signupUrl: string;
 		models: ModelOption[];
@@ -38,7 +40,8 @@
 	const PRESETS: Record<string, ProviderPreset> = {
 		openrouter: {
 			label: "OpenRouter",
-			emoji: "🌐",
+			icon: "openrouter",
+			brand: "#6366F1",
 			summary: "Single key, 100+ models. Works for Claude, GPT, DeepSeek, Kimi…",
 			signupUrl: "https://openrouter.ai/keys",
 			models: [
@@ -62,7 +65,8 @@
 		},
 		"kimi-coding": {
 			label: "Kimi",
-			emoji: "🌙",
+			icon: "kimi-coding",
+			brand: "#16191E",
 			summary: "Moonshot Kimi for Coding — Anthropic-compatible API.",
 			signupUrl: "https://www.kimi.com/coding",
 			models: [
@@ -72,7 +76,8 @@
 		},
 		deepseek: {
 			label: "DeepSeek",
-			emoji: "🐳",
+			icon: "deepseek",
+			brand: "#4D6BFE",
 			summary: "Direct DeepSeek API. Save the key now; switch via OpenRouter to use it today.",
 			signupUrl: "https://platform.deepseek.com/api_keys",
 			models: [
@@ -274,9 +279,19 @@
 					)}
 				>
 					<div class="flex items-start gap-3">
-						<span class="mt-0.5 text-2xl leading-none">
-							{preset?.emoji ?? "✨"}
-						</span>
+						{#if preset}
+							<span
+								class="border-border bg-background text-foreground/85 mt-0.5 flex size-9 items-center justify-center rounded-lg border"
+							>
+								<ProviderIcon name={preset.icon} class="size-5" />
+							</span>
+						{:else}
+							<span
+								class="bg-muted text-muted-foreground mt-0.5 flex size-9 items-center justify-center rounded-lg text-sm font-semibold"
+							>
+								{p.name[0]?.toUpperCase()}
+							</span>
+						{/if}
 						<div class="flex-1">
 							<div class="flex items-center gap-2">
 								<h2 class="text-base font-medium">

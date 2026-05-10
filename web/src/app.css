@@ -49,6 +49,9 @@
 }
 
 @theme inline {
+	--font-mono:
+		"JetBrains Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo,
+		Consolas, "Liberation Mono", monospace;
 	--color-background: var(--background);
 	--color-foreground: var(--foreground);
 	--color-muted: var(--muted);
@@ -104,11 +107,14 @@
 .md-body li { margin: 0.15em 0; }
 .md-body li > p { margin: 0.2em 0; }
 .md-body code {
-	font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+	font-family: var(--font-mono);
 	background: var(--muted);
 	padding: 0.1em 0.35em;
 	border-radius: 0.25rem;
 	font-size: 0.88em;
+}
+code, kbd, samp, pre {
+	font-family: var(--font-mono);
 }
 .md-body pre {
 	background: var(--muted);
