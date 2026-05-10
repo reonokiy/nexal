@@ -76,19 +76,21 @@
 
 	{#if !dismissed}
 		<div
-			class="relative w-full"
+			class="w-full"
 			in:fly={{ y: 8, duration: 240, easing: cubicOut, delay: 80 }}
 			out:fade={{ duration: 160 }}
 		>
-			<button
-				type="button"
-				class="text-muted-foreground hover:bg-accent absolute -top-2 right-0 flex size-7 items-center justify-center rounded-full transition-colors"
-				aria-label="dismiss suggestions"
-				onclick={() => (dismissed = true)}
-			>
-				<X class="size-4" />
-			</button>
-			<div class="grid grid-cols-1 gap-3 pt-2 sm:grid-cols-3">
+			<div class="mb-1.5 flex justify-end">
+				<button
+					type="button"
+					class="text-muted-foreground hover:text-foreground hover:bg-accent flex size-6 items-center justify-center rounded-full transition-colors"
+					aria-label="dismiss suggestions"
+					onclick={() => (dismissed = true)}
+				>
+					<X class="size-3.5" />
+				</button>
+			</div>
+			<div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
 				{#each SUGGESTIONS as s, i (s.text)}
 					<button
 						type="button"
