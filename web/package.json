@@ -1,0 +1,34 @@
+{
+  "name": "nexal-web",
+  "version": "0.1.0",
+  "description": "Standalone Svelte web frontend for the nexal ws channel",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "check": "svelte-check --tsconfig ./tsconfig.json"
+  },
+  "dependencies": {
+    "@lucide/svelte": "^1.0.0",
+    "@nexal/chat-client": "workspace:*",
+    "bits-ui": "^2.0.0",
+    "clsx": "^2.1.1",
+    "dompurify": "^3.4.2",
+    "marked": "^18.0.3",
+    "tailwind-merge": "^2.5.4",
+    "tailwind-variants": "^0.3.0"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^5.0.0",
+    "@tailwindcss/vite": "^4.0.0",
+    "@types/bun": "latest",
+    "svelte": "^5.0.0",
+    "svelte-check": "^4.0.0",
+    "tailwindcss": "^4.0.0",
+    "tw-animate-css": "^1.0.0",
+    "typescript": "^5.6.0",
+    "vite": "^6.0.0"
+  }
+}

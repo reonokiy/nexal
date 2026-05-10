@@ -1,0 +1,169 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+	--background: hsl(0 0% 100%);
+	--foreground: hsl(222.2 47.4% 11.2%);
+	--muted: hsl(210 40% 96.1%);
+	--muted-foreground: hsl(215.4 16.3% 46.9%);
+	--popover: hsl(0 0% 100%);
+	--popover-foreground: hsl(222.2 47.4% 11.2%);
+	--card: hsl(0 0% 100%);
+	--card-foreground: hsl(222.2 47.4% 11.2%);
+	--border: hsl(214.3 31.8% 91.4%);
+	--input: hsl(214.3 31.8% 91.4%);
+	--primary: hsl(222.2 47.4% 11.2%);
+	--primary-foreground: hsl(210 40% 98%);
+	--secondary: hsl(210 40% 96.1%);
+	--secondary-foreground: hsl(222.2 47.4% 11.2%);
+	--accent: hsl(210 40% 96.1%);
+	--accent-foreground: hsl(222.2 47.4% 11.2%);
+	--destructive: hsl(0 84.2% 60.2%);
+	--destructive-foreground: hsl(210 40% 98%);
+	--ring: hsl(215 20.2% 65.1%);
+	--radius: 0.5rem;
+}
+
+.dark {
+	--background: hsl(222.2 47.4% 6%);
+	--foreground: hsl(210 40% 98%);
+	--muted: hsl(217.2 32.6% 17.5%);
+	--muted-foreground: hsl(215 20.2% 65.1%);
+	--popover: hsl(222.2 47.4% 7%);
+	--popover-foreground: hsl(210 40% 98%);
+	--card: hsl(222.2 47.4% 8%);
+	--card-foreground: hsl(210 40% 98%);
+	--border: hsl(217.2 32.6% 17.5%);
+	--input: hsl(217.2 32.6% 17.5%);
+	--primary: hsl(210 40% 98%);
+	--primary-foreground: hsl(222.2 47.4% 11.2%);
+	--secondary: hsl(217.2 32.6% 17.5%);
+	--secondary-foreground: hsl(210 40% 98%);
+	--accent: hsl(217.2 32.6% 17.5%);
+	--accent-foreground: hsl(210 40% 98%);
+	--destructive: hsl(0 62.8% 40%);
+	--destructive-foreground: hsl(0 85.7% 97.3%);
+	--ring: hsl(217.2 32.6% 17.5%);
+}
+
+@theme inline {
+	--color-background: var(--background);
+	--color-foreground: var(--foreground);
+	--color-muted: var(--muted);
+	--color-muted-foreground: var(--muted-foreground);
+	--color-popover: var(--popover);
+	--color-popover-foreground: var(--popover-foreground);
+	--color-card: var(--card);
+	--color-card-foreground: var(--card-foreground);
+	--color-border: var(--border);
+	--color-input: var(--input);
+	--color-primary: var(--primary);
+	--color-primary-foreground: var(--primary-foreground);
+	--color-secondary: var(--secondary);
+	--color-secondary-foreground: var(--secondary-foreground);
+	--color-accent: var(--accent);
+	--color-accent-foreground: var(--accent-foreground);
+	--color-destructive: var(--destructive);
+	--color-destructive-foreground: var(--destructive-foreground);
+	--color-ring: var(--ring);
+	--radius-lg: var(--radius);
+	--radius-md: calc(var(--radius) - 2px);
+	--radius-sm: calc(var(--radius) - 4px);
+}
+
+@layer base {
+	* {
+		border-color: var(--border);
+	}
+	body {
+		background-color: var(--background);
+		color: var(--foreground);
+	}
+}
+
+/* Markdown body — minimal, theme-aware. Targets DOMPurified output. */
+.md-body {
+	font-size: 0.9rem;
+	line-height: 1.65;
+}
+.md-body p { margin: 0.4em 0; }
+.md-body p:first-child { margin-top: 0; }
+.md-body p:last-child { margin-bottom: 0; }
+.md-body h1, .md-body h2, .md-body h3, .md-body h4 {
+	font-weight: 600;
+	margin: 1em 0 0.4em;
+	line-height: 1.25;
+}
+.md-body h1 { font-size: 1.4em; }
+.md-body h2 { font-size: 1.2em; }
+.md-body h3 { font-size: 1.05em; }
+.md-body h4 { font-size: 1em; }
+.md-body ul, .md-body ol { margin: 0.4em 0; padding-left: 1.4em; }
+.md-body li { margin: 0.15em 0; }
+.md-body li > p { margin: 0.2em 0; }
+.md-body code {
+	font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+	background: var(--muted);
+	padding: 0.1em 0.35em;
+	border-radius: 0.25rem;
+	font-size: 0.88em;
+}
+.md-body pre {
+	background: var(--muted);
+	border: 1px solid var(--border);
+	border-radius: 0.5rem;
+	padding: 0.75em 0.9em;
+	overflow-x: auto;
+	margin: 0.6em 0;
+}
+.md-body pre code {
+	background: transparent;
+	padding: 0;
+	border-radius: 0;
+	font-size: 0.85em;
+}
+.md-body blockquote {
+	border-left: 3px solid var(--border);
+	padding-left: 0.9em;
+	color: var(--muted-foreground);
+	margin: 0.5em 0;
+}
+.md-body a {
+	color: var(--primary);
+	text-decoration: underline;
+	text-underline-offset: 2px;
+}
+.md-body table {
+	border-collapse: collapse;
+	margin: 0.6em 0;
+	font-size: 0.88em;
+}
+.md-body th, .md-body td {
+	border: 1px solid var(--border);
+	padding: 0.35em 0.7em;
+}
+.md-body th {
+	background: var(--muted);
+	font-weight: 600;
+}
+.md-body hr {
+	border: none;
+	border-top: 1px solid var(--border);
+	margin: 1em 0;
+}
+
+.md-cursor {
+	display: inline-block;
+	width: 0.5em;
+	height: 1em;
+	margin-left: 1px;
+	vertical-align: text-bottom;
+	background: var(--primary);
+	opacity: 0.7;
+	animation: md-blink 1s steps(2, end) infinite;
+}
+@keyframes md-blink {
+	50% { opacity: 0; }
+}
