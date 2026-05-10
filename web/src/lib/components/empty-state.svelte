@@ -2,6 +2,8 @@
 	import ChevronDown from "@lucide/svelte/icons/chevron-down";
 	import X from "@lucide/svelte/icons/x";
 	import { cn } from "$lib/utils";
+	import { fade, fly } from "svelte/transition";
+	import { cubicOut } from "svelte/easing";
 
 	interface Suggestion {
 		emoji: string;
@@ -35,8 +37,14 @@
 	];
 </script>
 
-<div class="mx-auto flex w-full max-w-3xl flex-1 flex-col items-center justify-end pb-6">
-	<div class="mb-6 flex flex-col items-center">
+<div
+	class="mx-auto flex w-full max-w-3xl flex-1 flex-col items-center justify-end pb-6"
+	in:fade={{ duration: 220, easing: cubicOut }}
+>
+	<div
+		class="mb-6 flex flex-col items-center"
+		in:fly={{ y: 6, duration: 260, easing: cubicOut }}
+	>
 		<div
 			class="bg-foreground/[0.04] text-foreground/70 mb-5 flex size-12 items-center justify-center rounded-full"
 		>
@@ -67,22 +75,32 @@
 	</div>
 
 	{#if !dismissed}
-		<div class="relative w-full">
+		<div
+			class="relative w-full"
+			in:fly={{ y: 8, duration: 240, easing: cubicOut, delay: 80 }}
+			out:fade={{ duration: 160 }}
+		>
 			<button
 				type="button"
-				class="text-muted-foreground hover:bg-accent absolute -top-2 right-0 flex size-7 items-center justify-center rounded-full"
+				class="text-muted-foreground hover:bg-accent absolute -top-2 right-0 flex size-7 items-center justify-center rounded-full transition-colors"
 				aria-label="dismiss suggestions"
 				onclick={() => (dismissed = true)}
 			>
 				<X class="size-4" />
 			</button>
 			<div class="grid grid-cols-1 gap-3 pt-2 sm:grid-cols-3">
-				{#each SUGGESTIONS as s (s.text)}
+				{#each SUGGESTIONS as s, i (s.text)}
 					<button
 						type="button"
+						in:fly={{
+							y: 8,
+							duration: 240,
+							easing: cubicOut,
+							delay: 100 + i * 50,
+						}}
 						class={cn(
 							"border-border bg-background hover:bg-accent/40",
-							"flex flex-col gap-3 rounded-2xl border p-4 text-left transition-colors",
+							"flex flex-col gap-3 rounded-2xl border p-4 text-left transition-all duration-150 hover:-translate-y-0.5 active:translate-y-0",
 						)}
 						onclick={() => onPick(s.fill)}
 					>

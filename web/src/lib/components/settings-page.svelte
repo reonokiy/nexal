@@ -10,6 +10,8 @@
 	import ExternalLink from "@lucide/svelte/icons/external-link";
 	import ProviderIcon from "$lib/components/provider-icon.svelte";
 	import type { Chat } from "$lib/client.svelte";
+	import { fade, fly } from "svelte/transition";
+	import { cubicOut } from "svelte/easing";
 
 	let { chat }: { chat: Chat } = $props();
 
@@ -218,7 +220,13 @@
 		<span class="text-foreground/85 px-1 text-sm font-medium">Settings</span>
 		<span class="text-muted-foreground text-xs">model providers</span>
 		{#if loading}
-			<span class="text-muted-foreground/70 ml-2 text-xs">syncing…</span>
+			<span
+				in:fade={{ duration: 150 }}
+				out:fade={{ duration: 100 }}
+				class="text-muted-foreground/70 ml-2 text-xs"
+			>
+				syncing…
+			</span>
 		{/if}
 	</header>
 
@@ -236,7 +244,8 @@
 
 			{#if active}
 				<div
-					class="border-border bg-muted/40 flex h-10 items-center gap-2 rounded-lg border px-3 text-sm"
+					in:fade={{ duration: 200 }}
+					class="border-border bg-muted/40 flex h-10 items-center gap-2 rounded-lg border px-3 text-sm transition-colors"
 				>
 					<span class="text-muted-foreground text-xs">active</span>
 					<span class="font-mono text-xs">
@@ -247,19 +256,22 @@
 
 			{#if loadError}
 				<div
+					in:fade={{ duration: 150 }}
+					out:fade={{ duration: 100 }}
 					class="border-destructive/40 bg-destructive/5 text-destructive rounded-lg border px-3 py-2 text-sm"
 				>
 					{loadError}
 				</div>
 			{/if}
 
-			{#each providers as p (p.name)}
+			{#each providers as p, i (p.name)}
 				{@const preset = PRESETS[p.name]}
 				{@const f = form[p.name]}
 				{@const isActive = active?.provider === p.name}
 				<section
+					in:fly={{ y: 8, duration: 240, easing: cubicOut, delay: i * 60 }}
 					class={cn(
-						"border-border rounded-2xl border p-5 transition-colors",
+						"border-border rounded-2xl border p-5 transition-colors duration-200",
 						isActive && "border-foreground/30 bg-muted/20",
 					)}
 				>
@@ -445,7 +457,13 @@
 									<span></span>
 								{/if}
 								{#if f.flash}
-									<span class="text-foreground/70 text-xs">{f.flash}</span>
+									<span
+										in:fly={{ y: 4, duration: 180, easing: cubicOut }}
+										out:fade={{ duration: 150 }}
+										class="text-foreground/70 text-xs"
+									>
+										{f.flash}
+									</span>
 								{/if}
 							</div>
 						</div>

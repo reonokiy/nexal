@@ -36,14 +36,14 @@
 				disabled={item.soon}
 				title={item.soon ? "Coming soon" : ""}
 				class={cn(
-					"flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm",
+					"flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm transition-colors duration-150",
 					item.soon
 						? "text-muted-foreground/60 cursor-not-allowed"
-						: "text-foreground/85 hover:bg-accent",
+						: "text-foreground/85 hover:bg-accent active:scale-[0.98]",
 				)}
 				onclick={item.onclick}
 			>
-				<item.icon class="size-4" />
+				<item.icon class="size-4 transition-transform" />
 				<span>{item.label}</span>
 				{#if item.soon}
 					<span
@@ -92,7 +92,7 @@
 		<button
 			type="button"
 			class={cn(
-				"hover:bg-accent text-foreground/85 flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm",
+				"hover:bg-accent text-foreground/85 flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm transition-colors duration-150 active:scale-[0.98]",
 				router.current === "settings" && "bg-accent",
 			)}
 			onclick={() => router.go("settings")}

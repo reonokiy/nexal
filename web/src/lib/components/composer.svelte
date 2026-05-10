@@ -109,13 +109,14 @@
 				onclick={submit}
 				disabled={chat.status !== "open" || !value.trim()}
 				class={cn(
-					"flex size-8 items-center justify-center rounded-full transition-colors",
+					"flex size-8 items-center justify-center rounded-full transition-all duration-150",
+					"active:scale-90",
 					value.trim() && chat.status === "open"
 						? "bg-primary text-primary-foreground hover:opacity-90"
 						: "bg-muted text-muted-foreground",
 				)}
 			>
-				<ArrowUp class="size-4" />
+				<ArrowUp class="size-4 transition-transform duration-150" />
 			</button>
 		</div>
 	</div>
@@ -133,14 +134,14 @@
 	<span class="ml-auto inline-flex items-center gap-1 rounded-md px-2 py-1">
 		<span
 			class={cn(
-				"size-1.5 rounded-full",
+				"size-1.5 rounded-full transition-colors duration-200",
 				chat.status === "open"
 					? "bg-emerald-500"
 					: chat.status === "connecting"
-						? "bg-amber-500"
+						? "bg-amber-500 animate-pulse"
 						: "bg-rose-500",
 			)}
 		></span>
-		<span>{chat.status}</span>
+		<span class="transition-colors">{chat.status}</span>
 	</span>
 </div>

@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { tick, onMount } from "svelte";
 	import { VList, type VListHandle } from "virtua/svelte";
+	import { fade } from "svelte/transition";
+	import { cubicOut } from "svelte/easing";
 	import Message from "$lib/components/message.svelte";
 	import Composer from "$lib/components/composer.svelte";
 	import EmptyState from "$lib/components/empty-state.svelte";
@@ -103,7 +105,7 @@
 	<header class="border-border flex h-12 items-center gap-2 border-b px-4">
 		<button
 			type="button"
-			class="text-foreground/85 hover:bg-accent rounded-md px-2 py-1 text-sm font-medium"
+			class="text-foreground/85 hover:bg-accent rounded-md px-2 py-1 text-sm font-medium transition-colors duration-150 active:scale-[0.97]"
 			onclick={newChat}
 			title="Clear chat"
 		>
@@ -122,7 +124,9 @@
 			{#if chat.status !== "open"}
 				<button
 					type="button"
-					class="border-border hover:bg-accent flex items-center gap-1.5 rounded-md border px-3 py-1 text-sm"
+					in:fade={{ duration: 150 }}
+					out:fade={{ duration: 100 }}
+					class="border-border hover:bg-accent flex items-center gap-1.5 rounded-md border px-3 py-1 text-sm transition-colors duration-150 active:scale-[0.97]"
 					onclick={() => chat.connect(chat.url)}
 					title="Reconnect to backend"
 				>
@@ -134,7 +138,7 @@
 				type="button"
 				aria-label={sidebarOpen ? "hide sidebar" : "show sidebar"}
 				title={sidebarOpen ? "Hide sidebar" : "Show sidebar"}
-				class="text-muted-foreground hover:bg-accent flex size-8 items-center justify-center rounded-md"
+				class="text-muted-foreground hover:bg-accent flex size-8 items-center justify-center rounded-md transition-colors duration-150 active:scale-90"
 				onclick={onToggleSidebar}
 			>
 				<PanelLeft class="size-4" />
@@ -144,7 +148,11 @@
 
 	<main class="flex min-h-0 flex-1 flex-col">
 		{#if empty}
-			<div class="flex flex-1 overflow-y-auto">
+			<div
+				class="flex flex-1 overflow-y-auto"
+				in:fade={{ duration: 200, easing: cubicOut }}
+				out:fade={{ duration: 120 }}
+			>
 				<EmptyState onPick={pickSuggestion} />
 			</div>
 		{:else}

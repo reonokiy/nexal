@@ -5,6 +5,8 @@
 	import SettingsPage from "$lib/components/settings-page.svelte";
 	import Sidebar from "$lib/components/sidebar.svelte";
 	import { onMount } from "svelte";
+	import { slide } from "svelte/transition";
+	import { cubicOut } from "svelte/easing";
 
 	const defaultUrl =
 		(import.meta.env.VITE_NEXAL_BACKEND as string | undefined) ??
@@ -44,7 +46,12 @@
 
 <div class="bg-background text-foreground flex h-screen">
 	{#if sidebarOpen}
-		<Sidebar {chat} />
+		<div
+			transition:slide={{ axis: "x", duration: 200, easing: cubicOut }}
+			class="overflow-hidden"
+		>
+			<Sidebar {chat} />
+		</div>
 	{/if}
 	{#if router.current === "settings"}
 		<SettingsPage {chat} />
