@@ -3,15 +3,9 @@
  * over a Unix domain socket (default) or TCP WebSocket.
  */
 import { parseArgs } from "node:util";
-import WS from "ws";
 import chalk from "chalk";
 import { saveAuth, saveModelConfig, loadAuth, loadModelConfig } from "./settings.ts";
-import type {
-	WsServerFrame,
-	WsSendFrame,
-	WsCommandFrame,
-	WsImageBlock,
-} from "./channels/ws-protocol.ts";
+import { NexalChatClient, type ImageBlock } from "@nexal/chat-client";
 import {
 	TUI,
 	ProcessTerminal,
@@ -194,7 +188,7 @@ let ctrlCTimer: ReturnType<typeof setTimeout> | null = null;
 // ── Clipboard image paste state ────────────────────────────────────
 
 /** Pending images attached via Ctrl+V, sent with the next message. */
-const pendingImages: WsImageBlock[] = [];
+const pendingImages: ImageBlock[] = [];
 
 function updateImageIndicator(): void {
 	if (pendingImages.length > 0) {
@@ -337,52 +331,65 @@ function finishReply(): void {
 
 // ── WebSocket ───────────────────────────────────────────────────────
 
-let ws: WS | null = null;
+const wsUrl = `ws://${args.host}:${args.port}`;
 
-function createWs(): WS {
-	return new WS(`ws://${args.host}:${args.port}/ws`);
-}
+const client = new NexalChatClient({
+	url: wsUrl,
+	chatId: args.chatId,
+	sender: "tui-user",
+	reconnectDelayMs: 2_000,
+});
+
+// Streaming reply accumulator (one in flight per session is fine for the TUI).
+let streamBuf = "";
+let streamMsgId: string | null = null;
+
+client.on((ev) => {
+	switch (ev.type) {
+		case "open":
+			setStatus(`nexal-tui  chat_id=${args.chatId}  ${wsUrl}  ●`);
+			break;
+		case "close":
+			hideLoader();
+			if (waiting) finishReply();
+			streamBuf = "";
+			streamMsgId = null;
+			setStatus(`nexal-tui  chat_id=${args.chatId}  ${wsUrl}  ○ reconnecting...`);
+			break;
+		case "reply":
+			hideLoader();
+			addBotReply(ev.text, ev.metadata?.worker);
+			finishReply();
+			break;
+		case "reply_chunk":
+			if (streamMsgId !== ev.messageId) {
+				streamMsgId = ev.messageId;
+				streamBuf = "";
+			}
+			streamBuf += ev.delta;
+			break;
+		case "reply_end":
+			if (streamMsgId === ev.messageId) {
+				hideLoader();
+				if (streamBuf) addBotReply(streamBuf);
+				streamBuf = "";
+				streamMsgId = null;
+				finishReply();
+			}
+			break;
+		case "command_result":
+			hideLoader();
+			addSystemNote(ev.error ?? ev.text ?? "");
+			finishReply();
+			break;
+		case "typing":
+			showLoader();
+			break;
+	}
+});
 
 function connect(): void {
-	ws = createWs();
-
-	ws.on("open", () => {
-		setStatus(`nexal-tui  chat_id=${args.chatId}  ws://${args.host}:${args.port}  ●`);
-	});
-
-	ws.on("message", (raw: WS.RawData) => {
-		const text = typeof raw === "string" ? raw : raw.toString("utf-8");
-		let frame: WsServerFrame;
-		try {
-			frame = JSON.parse(text);
-		} catch {
-			return;
-		}
-
-		if (frame.type === "reply") {
-			hideLoader();
-			addBotReply(frame.text, frame.metadata?.worker);
-			finishReply();
-		} else if (frame.type === "command_result") {
-			hideLoader();
-			addSystemNote(frame.error ?? frame.text ?? "");
-			finishReply();
-		} else if (frame.type === "typing") {
-			showLoader();
-		}
-	});
-
-	ws.on("close", () => {
-		hideLoader();
-		if (waiting) finishReply();
-		setStatus(`nexal-tui  chat_id=${args.chatId}  ws://${args.host}:${args.port}  ○ reconnecting...`);
-		ws = null;
-		setTimeout(connect, 2_000);
-	});
-
-	ws.on("error", () => {
-		// `close` will fire next — reconnect happens there.
-	});
+	client.connect({ autoReconnect: true });
 }
 
 // ── Input handling ──────────────────────────────────────────────────
@@ -429,20 +436,11 @@ editor.onSubmit = (text: string) => {
 		editor.setText("");
 		showLoader();
 		tui.requestRender();
-		if (ws && ws.readyState === WS.OPEN) {
-			const frame: WsCommandFrame = {
-				type: "command",
-				chat_id: args.chatId,
-				sender: "tui-user",
-				name: cmdName,
-				args: cmdArgs,
-			};
-			ws.send(JSON.stringify(frame));
-		}
+		client.sendCommand(cmdName, cmdArgs);
 		return;
 	}
 
-	if (!ws || ws.readyState !== WS.OPEN) {
+	if (client.status !== "open") {
 		addSystemNote("Not connected — message not sent.");
 		tui.requestRender();
 		return;
@@ -459,16 +457,10 @@ editor.onSubmit = (text: string) => {
 	showLoader();
 	tui.requestRender();
 
-	const frame: WsSendFrame = {
-		type: "send",
-		chat_id: args.chatId,
-		sender: "tui-user",
-		text: trimmed,
-		...(hasImages && { images: [...pendingImages] }),
-	};
+	const images = hasImages ? [...pendingImages] : undefined;
 	pendingImages.length = 0;
-	setStatus(`nexal-tui  chat_id=${args.chatId}  ws://${args.host}:${args.port}  ●`);
-	ws.send(JSON.stringify(frame));
+	setStatus(`nexal-tui  chat_id=${args.chatId}  ${wsUrl}  ●`);
+	client.sendText(trimmed, images);
 };
 
 // ── Slash commands ──────────────────────────────────────────────────
@@ -571,7 +563,7 @@ async function handleModel(input: string): Promise<void> {
 
 function shutdown(): void {
 	hideLoader();
-	ws?.close();
+	client.disconnect();
 	tui.stop();
 	process.exit(0);
 }
@@ -580,6 +572,16 @@ process.on("SIGINT", shutdown);
 process.on("SIGTERM", shutdown);
 
 // Go
+history.addChild(new Text(chalk.bold.magenta(
+	"                            ______\n" +
+	"  ________________  _______ ___  /\n" +
+	"  __  __ \\  _ \\_  |/_/  __ `/_  / \n" +
+	"  _  / / /  __/_>  < / /_/ /_  /  \n" +
+	"  /_/ /_/\\___//_/|_| \\__,_/ /_/   ",
+), 0, 0));
+history.addChild(new Text(chalk.dim(`  v0.1.0  ·  ${args.chatId}  ·  ws://${args.host}:${args.port}`), 0, 0));
+history.addChild(new Spacer(1));
+
 setStatus(`nexal-tui  chat_id=${args.chatId}  ws://${args.host}:${args.port}  ○`);
 tui.start();
 connect();

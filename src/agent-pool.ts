@@ -174,13 +174,68 @@ export class AgentPool {
 			dispose: perSession?.dispose,
 		};
 
+		// Per-message streaming state. Tracks how much of the current
+		// assistant message has already been pushed as chunks, so we only
+		// send the new tail and skip the final full reply when the channel
+		// has been streaming.
+		let streamMsgId: string | null = null;
+		let streamSent = 0;
+		let streamed = false;
+
 		agent.subscribe(async (event) => {
-			if (event.type !== "message_end" || event.message.role !== "assistant") return;
-			const text = extractText(event.message);
-			if (!text) return;
 			const channel = this.config.channels.get(session.channelName);
 			if (!channel) return;
 			const last = session.lastIncoming;
+			const supportsStream = !!channel.sendChunk && !!channel.sendEnd;
+
+			if (
+				event.type === "message_start" &&
+				event.message.role === "assistant"
+			) {
+				streamMsgId = `${last.chatId}-${Date.now()}-${Math.random()
+					.toString(36)
+					.slice(2, 8)}`;
+				streamSent = 0;
+				streamed = false;
+				return;
+			}
+
+			if (
+				supportsStream &&
+				event.type === "message_update" &&
+				event.message.role === "assistant"
+			) {
+				if (!streamMsgId) return;
+				const text = extractText(event.message);
+				if (text.length > streamSent) {
+					const delta = text.slice(streamSent);
+					streamSent = text.length;
+					streamed = true;
+					channel.sendChunk!(last.chatId, streamMsgId, delta);
+				}
+				return;
+			}
+
+			if (event.type !== "message_end" || event.message.role !== "assistant") return;
+
+			const text = extractText(event.message);
+
+			// Flush any tail not yet streamed (final delta after last update).
+			if (supportsStream && streamMsgId && text.length > streamSent) {
+				const delta = text.slice(streamSent);
+				streamSent = text.length;
+				streamed = true;
+				channel.sendChunk!(last.chatId, streamMsgId, delta);
+			}
+
+			if (supportsStream && streamed && streamMsgId) {
+				channel.sendEnd!(last.chatId, streamMsgId);
+				streamMsgId = null;
+				return;
+			}
+
+			// Non-streaming path (or empty stream) → fall back to full reply.
+			if (!text) return;
 			const reply: OutgoingReply = {
 				chatId: last.chatId,
 				text,
@@ -194,6 +249,7 @@ export class AgentPool {
 			} catch (err) {
 				log.error(`failed to send reply via ${session.channelName} to chat ${last.chatId}`, err);
 			}
+			streamMsgId = null;
 		});
 
 		return session;

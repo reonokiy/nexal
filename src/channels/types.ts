@@ -83,6 +83,12 @@ export interface Channel {
 	/** Deliver a reply. Safe to call concurrently. */
 	send(reply: OutgoingReply): Promise<void>;
 
+	/** Optional streaming: incremental delta for an in-progress reply. */
+	sendChunk?(chatId: string, messageId: string, delta: string): void;
+
+	/** Optional streaming: signal end of a streaming reply. */
+	sendEnd?(chatId: string, messageId: string): void;
+
 	/** Optional typing-indicator support. */
 	startTyping?(chatId: string): TypingHandle | null;
 

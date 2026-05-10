@@ -26,6 +26,8 @@ import type {
 	WsReplyFrame,
 	WsTypingFrame,
 	WsCommandResultFrame,
+	WsReplyChunkFrame,
+	WsReplyEndFrame,
 } from "./ws-protocol.ts";
 
 const log = createLog("ws");
@@ -192,6 +194,31 @@ export class WsChannel implements Channel {
 		for (const ws of set) {
 			ws.send(json);
 		}
+	}
+
+	sendChunk(chatId: string, messageId: string, delta: string): void {
+		const set = this.clients.get(chatId);
+		if (!set || set.size === 0) return;
+		const frame: WsReplyChunkFrame = {
+			type: "reply_chunk",
+			chat_id: chatId,
+			message_id: messageId,
+			delta,
+		};
+		const json = JSON.stringify(frame);
+		for (const ws of set) ws.send(json);
+	}
+
+	sendEnd(chatId: string, messageId: string): void {
+		const set = this.clients.get(chatId);
+		if (!set || set.size === 0) return;
+		const frame: WsReplyEndFrame = {
+			type: "reply_end",
+			chat_id: chatId,
+			message_id: messageId,
+		};
+		const json = JSON.stringify(frame);
+		for (const ws of set) ws.send(json);
 	}
 
 	startTyping(chatId: string): TypingHandle | null {
