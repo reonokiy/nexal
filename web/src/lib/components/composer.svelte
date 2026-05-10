@@ -7,6 +7,7 @@
 	import ChevronDown from "@lucide/svelte/icons/chevron-down";
 	import Monitor from "@lucide/svelte/icons/monitor";
 	import Sparkles from "@lucide/svelte/icons/sparkles";
+	import { settings } from "$lib/settings.svelte";
 	import type { Chat } from "$lib/client.svelte";
 
 	interface Props {
@@ -33,10 +34,15 @@
 	}
 
 	function onkeydown(e: KeyboardEvent) {
-		if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
-			e.preventDefault();
-			submit();
+		if (e.key !== "Enter" || e.isComposing) return;
+		const wantShift = settings.sendKey === "shift-enter";
+		if (wantShift) {
+			if (!e.shiftKey) return; // plain Enter inserts a newline in this mode
+		} else {
+			if (e.shiftKey) return; // shift+Enter inserts a newline in plain-Enter mode
 		}
+		e.preventDefault();
+		submit();
 	}
 
 	function submit() {
@@ -57,7 +63,9 @@
 		bind:value
 		oninput={autoResize}
 		{onkeydown}
-		placeholder="Ask nexal anything, / for commands"
+		placeholder={settings.sendKey === "shift-enter"
+			? "Ask nexal anything · Shift+Enter to send"
+			: "Ask nexal anything · / for commands"}
 		rows="1"
 		class="text-foreground placeholder:text-muted-foreground/80 w-full resize-none bg-transparent px-4 pt-3.5 text-[15px] focus:outline-none"
 		disabled={chat.status !== "open"}
@@ -77,7 +85,7 @@
 		<button
 			type="button"
 			class="text-foreground/80 hover:bg-accent flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium"
-			onclick={() => router.go("settings")}
+			onclick={() => router.go("settings/providers")}
 			title="Configure model"
 		>
 			<Sparkles class="size-3.5" />

@@ -93,7 +93,7 @@
 			type="button"
 			class={cn(
 				"hover:bg-accent text-foreground/85 flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm transition-colors duration-150 active:scale-[0.98]",
-				router.current === "settings" && "bg-accent",
+				router.current.startsWith("settings") && "bg-accent",
 			)}
 			onclick={() => router.go("settings")}
 		>

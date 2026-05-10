@@ -9,6 +9,7 @@
 	import MoreHorizontal from "@lucide/svelte/icons/more-horizontal";
 	import PanelLeft from "@lucide/svelte/icons/panel-left";
 	import Plug from "@lucide/svelte/icons/plug";
+	import { settings } from "$lib/settings.svelte";
 	import type { Chat, Message as Msg } from "$lib/client.svelte";
 
 	interface Props {
@@ -25,8 +26,14 @@
 		| (Msg & { kind: "msg" })
 		| { kind: "typing"; id: number };
 
+	const visibleMessages = $derived(
+		settings.showSystem
+			? chat.messages
+			: chat.messages.filter((m) => m.role !== "system"),
+	);
+
 	const displayItems = $derived.by<DisplayItem[]>(() => {
-		const out: DisplayItem[] = chat.messages.map((m) => ({
+		const out: DisplayItem[] = visibleMessages.map((m) => ({
 			...m,
 			kind: "msg" as const,
 		}));

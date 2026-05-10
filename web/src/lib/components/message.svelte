@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { renderMarkdown } from "$lib/markdown";
 	import { cn } from "$lib/utils";
+	import { settings } from "$lib/settings.svelte";
 
 	interface Props {
 		role: "user" | "agent";
@@ -21,7 +22,9 @@
 	}
 </script>
 
-<article class="group flex flex-col gap-1 py-3">
+<article
+	class={cn("group flex flex-col gap-1", settings.compact ? "py-2" : "py-3")}
+>
 	<div class="text-muted-foreground flex items-baseline gap-2 text-xs">
 		<span
 			class={cn(
@@ -31,7 +34,9 @@
 		>
 			{role === "user" ? "you" : "nexal"}
 		</span>
-		<time class="opacity-60">{fmt(ts)}</time>
+		{#if settings.showTimestamps}
+			<time class="opacity-60">{fmt(ts)}</time>
+		{/if}
 		{#if streaming}
 			<span class="text-primary inline-flex items-center gap-1 text-[10px]">
 				<span class="bg-primary size-1.5 animate-pulse rounded-full"></span>
