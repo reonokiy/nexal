@@ -19,7 +19,8 @@
     "marked": "^18.0.3",
     "simple-icons": "^16.19.0",
     "tailwind-merge": "^2.5.4",
-    "tailwind-variants": "^0.3.0"
+    "tailwind-variants": "^0.3.0",
+    "virtua": "^0.49.1"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^5.0.0",

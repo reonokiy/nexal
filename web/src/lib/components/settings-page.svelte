@@ -4,7 +4,6 @@
 	import { Button } from "$lib/components/ui/button";
 	import { router } from "$lib/router.svelte";
 	import { cn } from "$lib/utils";
-	import RefreshCw from "@lucide/svelte/icons/refresh-cw";
 	import Eye from "@lucide/svelte/icons/eye";
 	import EyeOff from "@lucide/svelte/icons/eye-off";
 	import Check from "@lucide/svelte/icons/check";
@@ -218,17 +217,9 @@
 	<header class="border-border flex h-12 items-center gap-3 border-b px-4">
 		<span class="text-foreground/85 px-1 text-sm font-medium">Settings</span>
 		<span class="text-muted-foreground text-xs">model providers</span>
-		<div class="ml-auto">
-			<Button
-				variant="ghost"
-				size="sm"
-				onclick={refresh}
-				disabled={loading}
-			>
-				<RefreshCw class={cn("size-3.5", loading && "animate-spin")} />
-				refresh
-			</Button>
-		</div>
+		{#if loading}
+			<span class="text-muted-foreground/70 ml-2 text-xs">syncing…</span>
+		{/if}
 	</header>
 
 	<main class="flex-1 overflow-y-auto px-4 py-6">
