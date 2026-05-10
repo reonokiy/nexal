@@ -119,11 +119,12 @@ export class GatewayClient {
 	}
 
 	private async connectWebTransport(): Promise<void> {
-		const { connect } = await import("@webtransport-bun/webtransport");
-		const session = await connect(this.options.url, {
+		const { WebTransport } = await import("@webtransport-bun/webtransport");
+		const wt = new WebTransport(this.options.url, {
 			tls: { insecureSkipVerify: true },
-		});
-		const stream = await session.createBidirectionalStream();
+		} as never);
+		await wt.ready;
+		const stream = await wt.createBidirectionalStream();
 
 		// Build a line-oriented reader from the readable side.
 		const reader = stream.readable.getReader();
@@ -155,7 +156,7 @@ export class GatewayClient {
 			},
 			close: () => {
 				writer.close();
-				session.close();
+				wt.close();
 			},
 		};
 	}

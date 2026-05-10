@@ -123,7 +123,8 @@ async function launchGateway(): Promise<{
 	proc: Subprocess;
 }> {
 	const token = crypto.randomUUID();
-	const url = "ws://127.0.0.1:15500";
+	const url = "https://127.0.0.1:15500";
+	const proxyUrl = "http://127.0.0.1:15501";
 
 	// Resolve binary paths: compiled mode uses extracted embedded binaries,
 	// dev mode reads from target/release/.
@@ -175,16 +176,15 @@ async function launchGateway(): Promise<{
 		},
 	});
 
-	// Poll until the TCP port accepts WS connections.
+	// Poll the plain-HTTP proxy port — it comes up alongside the WebTransport
+	// listener and any TCP response (even 404) means the gateway is ready.
 	const deadline = Date.now() + 10_000;
 	while (Date.now() < deadline) {
 		try {
-			await new Promise<void>((resolve, reject) => {
-				const ws = new WebSocket(url);
-				const t = setTimeout(() => { ws.close(); reject(); }, 1_000);
-				ws.addEventListener("open", () => { clearTimeout(t); ws.close(); resolve(); });
-				ws.addEventListener("error", () => { clearTimeout(t); reject(); });
-			});
+			const ctrl = new AbortController();
+			const t = setTimeout(() => ctrl.abort(), 800);
+			await fetch(proxyUrl, { signal: ctrl.signal });
+			clearTimeout(t);
 			log.success(`embedded gateway ready at ${url}`);
 			return { url, token, proc };
 		} catch {
