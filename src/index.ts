@@ -52,59 +52,23 @@ async function applySavedAuth(): Promise<void> {
 			if (!process.env.NEXAL_MODEL) process.env.NEXAL_MODEL = saved.modelId;
 		}
 
-		// Restore OAuth/API key credentials.
 		const providerName = process.env.NEXAL_MODEL_PROVIDER ?? saved?.provider;
 		if (!providerName) return;
 
 		const auth = await loadAuth(providerName);
 		if (!auth) return;
 
-		if (auth.type === "oauth" && auth.access) {
-			const envKey = oauthEnvKey(providerName);
-			if (envKey && !process.env[envKey]) {
-				// Check if token is expired and refresh if needed.
-				if (auth.expires && Date.now() >= auth.expires && auth.refresh) {
-					const { getOAuthApiKey } = await import("@mariozechner/pi-ai/oauth");
-					const result = await getOAuthApiKey(providerName, {
-						[providerName]: { refresh: auth.refresh, access: auth.access, expires: auth.expires },
-					});
-					if (result) {
-						process.env[envKey] = result.apiKey;
-						// Persist refreshed credentials.
-						const { saveAuth } = await import("./settings.ts");
-						await saveAuth({
-							...auth,
-							access: result.newCredentials.access,
-							refresh: result.newCredentials.refresh,
-							expires: result.newCredentials.expires,
-						});
-						log.info(`${providerName} OAuth token was expired, refreshed and persisted new credentials`);
-					}
-				} else {
-					process.env[envKey] = auth.access;
-				}
-				log.info(`loaded saved ${providerName} OAuth credentials`);
-			}
-		} else if (auth.type === "apikey" && auth.apiKey) {
-			const envKey = apiKeyEnvKey(providerName);
-			if (envKey && !process.env[envKey]) {
-				process.env[envKey] = auth.apiKey;
-				log.info(`loaded saved ${providerName} API key`);
-			}
+		const envKey = apiKeyEnvKey(providerName);
+		if (envKey && !process.env[envKey]) {
+			process.env[envKey] = auth.apiKey;
+			log.info(`loaded saved ${providerName} API key`);
 		}
 	} catch (err) {
 		log.error("failed to load saved auth, continuing without credentials:", err);
 	}
 }
 
-function oauthEnvKey(provider: string): string | null {
-	switch (provider) {
-		case "anthropic": return "ANTHROPIC_OAUTH_TOKEN";
-		default: return null;
-	}
-}
-
-function apiKeyEnvKey(provider: string): string | null {
+export function apiKeyEnvKey(provider: string): string | null {
 	switch (provider) {
 		case "anthropic": return "ANTHROPIC_API_KEY";
 		case "openai": return "OPENAI_API_KEY";

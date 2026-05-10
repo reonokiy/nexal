@@ -2,7 +2,7 @@
  * Settings store — simple KV backed by PGlite (embedded Postgres).
  *
  * Used to persist:
- *   - OAuth credentials (provider → { refresh, access, expires })
+ *   - API keys per provider
  *   - Model provider / model ID preferences
  *   - Any other local config that should survive restarts
  *
@@ -106,11 +106,7 @@ export async function closeSettings(): Promise<void> {
 
 export interface SavedAuth {
 	provider: string;
-	type: "oauth" | "apikey";
-	access?: string;
-	refresh?: string;
-	expires?: number;
-	apiKey?: string;
+	apiKey: string;
 }
 
 export async function saveAuth(auth: SavedAuth): Promise<void> {
@@ -120,7 +116,13 @@ export async function saveAuth(auth: SavedAuth): Promise<void> {
 export async function loadAuth(provider: string): Promise<SavedAuth | null> {
 	const raw = await getSetting(`auth:${provider}`);
 	if (!raw) return null;
-	return JSON.parse(raw) as SavedAuth;
+	const parsed = JSON.parse(raw) as Partial<SavedAuth> & { apiKey?: string };
+	if (!parsed.apiKey) return null;
+	return { provider, apiKey: parsed.apiKey };
+}
+
+export async function deleteAuth(provider: string): Promise<void> {
+	await deleteSetting(`auth:${provider}`);
 }
 
 export async function saveModelConfig(provider: string, modelId: string): Promise<void> {

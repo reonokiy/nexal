@@ -4,7 +4,7 @@
  */
 import { parseArgs } from "node:util";
 import chalk from "chalk";
-import { saveAuth, saveModelConfig, loadAuth, loadModelConfig } from "./settings.ts";
+import { saveModelConfig, loadModelConfig } from "./settings.ts";
 import { NexalChatClient, type ImageBlock } from "@nexal/chat-client";
 import {
 	TUI,
@@ -125,7 +125,7 @@ const editor = new Editor(tui, editorTheme);
 editor.setAutocompleteProvider(
 	new CombinedAutocompleteProvider(
 		[
-			{ name: "login", description: "OAuth login (e.g. /login anthropic)" },
+			{ name: "apikey", description: "Set API key (e.g. /apikey anthropic sk-...)" },
 			{ name: "model", description: "Set model (e.g. /model anthropic claude-sonnet-4-6)" },
 			{ name: "status", description: "Show nexal system status" },
 			{ name: "help", description: "Show available commands" },
@@ -413,12 +413,6 @@ editor.onSubmit = (text: string) => {
 
 	if (waiting) return;
 
-	if (trimmed.startsWith("/login")) {
-		editor.setText("");
-		void handleLogin(trimmed);
-		return;
-	}
-
 	if (trimmed.startsWith("/model")) {
 		editor.setText("");
 		void handleModel(trimmed);
@@ -464,78 +458,6 @@ editor.onSubmit = (text: string) => {
 };
 
 // ── Slash commands ──────────────────────────────────────────────────
-
-async function handleLogin(input: string): Promise<void> {
-	const parts = input.split(/\s+/);
-	const provider = parts[1] ?? "anthropic";
-
-	addSystemNote(`Logging in to ${provider}...`);
-	tui.requestRender();
-
-	try {
-		const { getOAuthProvider } = await import("@mariozechner/pi-ai/oauth");
-		const oauthProvider = getOAuthProvider(provider);
-		if (!oauthProvider) {
-			addSystemNote(`Unknown OAuth provider: ${provider}. Try: anthropic`);
-			tui.requestRender();
-			return;
-		}
-
-		// Temporarily stop TUI so the OAuth callback server can use stdin if needed,
-		// and so the "open browser" message is visible.
-		tui.stop();
-
-		const creds = await oauthProvider.login({
-			onAuth: (info) => {
-				console.log(`\nOpen this URL to authorize:\n  ${info.url}\n`);
-				if (info.instructions) console.log(info.instructions);
-				// Try to open browser automatically.
-				const cmd = process.platform === "darwin" ? "open" : "xdg-open";
-				Bun.spawn([cmd, info.url], { stdout: "ignore", stderr: "ignore" });
-			},
-			onPrompt: async (prompt) => {
-				// Fallback manual input if callback server doesn't work.
-				const rl = await import("node:readline");
-				const iface = rl.createInterface({ input: process.stdin, output: process.stdout });
-				return new Promise<string>((resolve) => {
-					iface.question(`${prompt.message}: `, (answer) => {
-						iface.close();
-						resolve(answer);
-					});
-				});
-			},
-			onProgress: (msg) => {
-				console.log(`  ${msg}`);
-			},
-		});
-
-		// Save credentials.
-		await saveAuth({
-			provider,
-			type: "oauth",
-			access: creds.access,
-			refresh: creds.refresh,
-			expires: creds.expires,
-		});
-
-		// Also save as default model config if not already set.
-		const existing = await loadModelConfig();
-		if (!existing) {
-			const defaultModel = provider === "anthropic" ? "claude-sonnet-4-6" : "";
-			if (defaultModel) await saveModelConfig(provider, defaultModel);
-		}
-
-		// Restart TUI.
-		tui.start();
-		addSystemNote(`Logged in to ${provider} successfully! Restart nexal to use.`);
-		tui.requestRender();
-	} catch (err: any) {
-		// Restart TUI even on error.
-		tui.start();
-		addSystemNote(`Login failed: ${err?.message ?? err}`);
-		tui.requestRender();
-	}
-}
 
 async function handleModel(input: string): Promise<void> {
 	const parts = input.split(/\s+/);
