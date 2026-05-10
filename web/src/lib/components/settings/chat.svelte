@@ -7,7 +7,7 @@
 </script>
 
 <section>
-	<h1 class="text-foreground text-2xl font-medium tracking-tight">Chat</h1>
+	<h1 class="text-foreground text-xl font-semibold tracking-tight">Chat</h1>
 	<p class="text-muted-foreground mt-1 text-sm">
 		Defaults for the chat surface and what gets sent to the daemon.
 	</p>
@@ -30,7 +30,7 @@
 			desc="Sent as chat_id on every message. Affects which session the daemon uses."
 		>
 			<Input
-				class="h-9 w-48 font-mono text-xs"
+				class="h-8 w-44 font-mono text-xs"
 				value={settings.chatId}
 				oninput={(e) => (settings.chatId = (e.currentTarget as HTMLInputElement).value)}
 			/>

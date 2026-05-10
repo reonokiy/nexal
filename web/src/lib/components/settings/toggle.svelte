@@ -16,15 +16,15 @@
 	aria-label={label}
 	onclick={() => onchange(!checked)}
 	class={cn(
-		"relative inline-flex h-6 w-10 shrink-0 items-center rounded-full transition-colors duration-200",
+		"relative inline-flex h-[20px] w-9 shrink-0 items-center rounded-full transition-colors duration-200",
 		"focus-visible:ring-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2",
-		checked ? "bg-primary" : "bg-muted",
+		checked ? "bg-foreground/85" : "bg-muted-foreground/25",
 	)}
 >
 	<span
 		class={cn(
-			"bg-background inline-block size-4 rounded-full shadow-sm transition-transform duration-200",
-			checked ? "translate-x-5" : "translate-x-1",
+			"inline-block size-3.5 rounded-full bg-white shadow-sm transition-transform duration-200",
+			checked ? "translate-x-[18px]" : "translate-x-[3px]",
 		)}
 	></span>
 </button>

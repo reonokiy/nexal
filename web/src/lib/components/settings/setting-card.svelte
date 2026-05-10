@@ -9,10 +9,14 @@
 </script>
 
 {#if title}
-	<h2 class="text-muted-foreground mt-6 mb-2 px-1 text-xs font-semibold uppercase tracking-wide">
+	<h2
+		class="text-muted-foreground mb-2 mt-7 px-1 text-[11px] font-semibold uppercase tracking-wider"
+	>
 		{title}
 	</h2>
 {/if}
-<div class="border-border bg-background overflow-hidden rounded-2xl border">
+<div
+	class="border-border/60 bg-background overflow-hidden rounded-xl border"
+>
 	{@render children()}
 </div>

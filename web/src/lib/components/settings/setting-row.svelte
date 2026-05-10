@@ -13,14 +13,16 @@
 
 <div
 	class={cn(
-		"flex items-center gap-4 px-4 py-4",
-		!first && "border-border border-t",
+		"flex items-center gap-4 px-5 py-3.5",
+		!first && "border-border/60 border-t",
 	)}
 >
 	<div class="min-w-0 flex-1">
-		<div class="text-foreground text-sm font-medium">{label}</div>
+		<div class="text-foreground text-sm font-medium leading-tight">
+			{label}
+		</div>
 		{#if desc}
-			<div class="text-muted-foreground mt-0.5 text-xs">{desc}</div>
+			<div class="text-muted-foreground mt-1 text-xs leading-snug">{desc}</div>
 		{/if}
 	</div>
 	<div class="flex shrink-0 items-center gap-2">

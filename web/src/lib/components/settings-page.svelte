@@ -46,58 +46,70 @@
 	}
 </script>
 
-<div class="bg-background text-foreground flex h-screen flex-1">
-	<!-- Sub-nav rail -->
-	<aside
-		class="border-border bg-muted/20 flex h-full w-60 shrink-0 flex-col border-r"
+<div class="bg-muted/30 text-foreground flex h-screen flex-1 flex-col">
+	<!-- Top bar — spans full width like Codex's window header -->
+	<header
+		class="border-border/60 bg-muted/30 flex h-12 shrink-0 items-center gap-3 border-b px-4"
 	>
 		<button
 			type="button"
-			class="text-muted-foreground hover:text-foreground hover:bg-accent mx-2 mt-3 flex items-center gap-2 rounded-md px-2.5 py-1.5 text-sm transition-colors duration-150 active:scale-[0.98]"
+			class="text-muted-foreground hover:text-foreground hover:bg-accent/60 flex items-center gap-2 rounded-md px-2.5 py-1.5 text-sm transition-colors duration-150 active:scale-[0.98]"
 			onclick={() => router.go("home")}
 		>
 			<ArrowLeft class="size-4" />
 			Back to app
 		</button>
+	</header>
 
-		<nav class="mt-4 flex flex-col gap-0.5 px-2">
-			{#each SECTIONS as s (s.id)}
-				{@const active = section === s.id}
-				<button
-					type="button"
-					class={cn(
-						"flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm transition-colors duration-150 active:scale-[0.98]",
-						active
-							? "bg-accent text-foreground"
-							: "text-foreground/85 hover:bg-accent/60",
-					)}
-					onclick={() => goSection(s.id)}
-				>
-					<s.icon class="size-4" />
-					<span>{s.label}</span>
-				</button>
-			{/each}
-		</nav>
-	</aside>
+	<div class="flex min-h-0 flex-1">
+		<!-- Sub-nav rail -->
+		<aside
+			class="bg-muted/30 flex h-full w-60 shrink-0 flex-col py-3"
+		>
+			<nav class="flex flex-col gap-0.5 px-2">
+				{#each SECTIONS as s (s.id)}
+					{@const active = section === s.id}
+					<button
+						type="button"
+						class={cn(
+							"flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm transition-colors duration-150 active:scale-[0.98]",
+							active
+								? "bg-accent text-foreground"
+								: "text-foreground/80 hover:bg-accent/50",
+						)}
+						onclick={() => goSection(s.id)}
+					>
+						<s.icon
+							class={cn(
+								"size-4",
+								active ? "text-foreground" : "text-muted-foreground",
+							)}
+						/>
+						<span>{s.label}</span>
+					</button>
+				{/each}
+			</nav>
+		</aside>
 
-	<!-- Active section -->
-	<main class="flex-1 overflow-y-auto">
-		<div class="mx-auto max-w-2xl px-8 py-10">
-			{#key section}
-				<div in:fade={{ duration: 160, easing: cubicOut }}>
-					{#if section === "general"}
-						<General {chat} />
-					{:else if section === "appearance"}
-						<Appearance />
-					{:else if section === "chat"}
-						<ChatSection />
-					{:else if section === "providers"}
-						<Providers {chat} />
-					{:else if section === "advanced"}
-						<Advanced {chat} />
-					{/if}
-				</div>
-			{/key}
-		</div>
-	</main>
+		<!-- Active section -->
+		<main class="bg-background flex-1 overflow-y-auto">
+			<div class="mx-auto max-w-2xl px-10 py-10">
+				{#key section}
+					<div in:fade={{ duration: 160, easing: cubicOut }}>
+						{#if section === "general"}
+							<General {chat} />
+						{:else if section === "appearance"}
+							<Appearance />
+						{:else if section === "chat"}
+							<ChatSection />
+						{:else if section === "providers"}
+							<Providers {chat} />
+						{:else if section === "advanced"}
+							<Advanced {chat} />
+						{/if}
+					</div>
+				{/key}
+			</div>
+		</main>
+	</div>
 </div>

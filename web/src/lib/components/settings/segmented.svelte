@@ -15,14 +15,16 @@
 	let { value, options, onchange }: Props = $props();
 </script>
 
-<div class="bg-muted inline-flex shrink-0 rounded-md p-0.5 text-xs">
+<div
+	class="bg-muted/60 inline-flex shrink-0 rounded-full p-[3px] text-xs"
+>
 	{#each options as opt (opt.value)}
 		{@const active = value === opt.value}
 		<button
 			type="button"
 			onclick={() => onchange(opt.value)}
 			class={cn(
-				"rounded px-3 py-1 transition-colors duration-150",
+				"rounded-full px-3 py-1 transition-colors duration-150",
 				active
 					? "bg-background text-foreground shadow-sm"
 					: "text-muted-foreground hover:text-foreground",

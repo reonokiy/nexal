@@ -20,7 +20,7 @@
 </script>
 
 <section>
-	<h1 class="text-foreground text-2xl font-medium tracking-tight">General</h1>
+	<h1 class="text-foreground text-xl font-semibold tracking-tight">General</h1>
 	<p class="text-muted-foreground mt-1 text-sm">
 		How nexal connects and how you interact with it.
 	</p>
@@ -31,8 +31,10 @@
 			desc="Where the nexal daemon is listening. Apply reconnects."
 			first
 		>
-			<Input class="h-9 w-72 font-mono text-xs" bind:value={urlDraft} />
-			<Button size="sm" onclick={applyUrl}>apply</Button>
+			<Input class="h-8 w-64 font-mono text-xs" bind:value={urlDraft} />
+			<Button variant="secondary" size="sm" class="h-8" onclick={applyUrl}>
+				apply
+			</Button>
 		</SettingRow>
 
 		<SettingRow

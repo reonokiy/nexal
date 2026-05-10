@@ -7,7 +7,9 @@
 </script>
 
 <section>
-	<h1 class="text-foreground text-2xl font-medium tracking-tight">Appearance</h1>
+	<h1 class="text-foreground text-xl font-semibold tracking-tight">
+		Appearance
+	</h1>
 	<p class="text-muted-foreground mt-1 text-sm">
 		Theme, density, and what appears alongside each message.
 	</p>

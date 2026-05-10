@@ -19,7 +19,7 @@
 </script>
 
 <section>
-	<h1 class="text-foreground text-2xl font-medium tracking-tight">Advanced</h1>
+	<h1 class="text-foreground text-xl font-semibold tracking-tight">Advanced</h1>
 	<p class="text-muted-foreground mt-1 text-sm">
 		Local data and reset actions. None of these touch the daemon.
 	</p>
@@ -30,7 +30,7 @@
 			desc="Clears all preferences saved in this browser."
 			first
 		>
-			<Button variant="outline" size="sm" onclick={resetSettings}>
+			<Button variant="secondary" size="sm" class="h-8" onclick={resetSettings}>
 				reset
 			</Button>
 		</SettingRow>
@@ -39,7 +39,7 @@
 			label="Clear chat transcript"
 			desc="Wipes the in-memory message history shown on this device."
 		>
-			<Button variant="outline" size="sm" onclick={clearChat}>
+			<Button variant="secondary" size="sm" class="h-8" onclick={clearChat}>
 				clear
 			</Button>
 		</SettingRow>
