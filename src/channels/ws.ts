@@ -303,6 +303,7 @@ export class WsChannel implements Channel {
 					chat_id: chatId,
 					name,
 					text: result?.text ?? "",
+					...(result && "data" in result ? { data: result.data } : {}),
 				});
 			})
 			.catch((err) => {

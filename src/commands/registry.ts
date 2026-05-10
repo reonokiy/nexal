@@ -21,6 +21,9 @@ export interface CommandContext {
 export interface CommandResult {
 	/** Reply text (markdown OK — channels render as they see fit). */
 	text: string;
+	/** Optional structured payload — channels that support it (e.g. WS)
+	 * forward it verbatim so UIs can render rich responses. */
+	data?: unknown;
 }
 
 export interface CommandDef {

@@ -77,6 +77,8 @@ export interface CommandResultFrame {
 	name: string;
 	text?: string;
 	error?: string;
+	/** Optional structured payload for UI consumers (settings page etc.). */
+	data?: unknown;
 }
 
 export type ServerFrame =

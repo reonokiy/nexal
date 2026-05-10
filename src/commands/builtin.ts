@@ -2,7 +2,31 @@
  * Built-in slash commands registered at startup.
  */
 import type { CommandRegistry } from "./registry.ts";
-import { loadModelConfig, saveModelConfig } from "../settings.ts";
+import {
+	deleteAuth,
+	loadAuth,
+	loadModelConfig,
+	saveAuth,
+	saveModelConfig,
+} from "../settings.ts";
+import { apiKeyEnvKey } from "../index.ts";
+
+const KNOWN_PROVIDERS = [
+	"anthropic",
+	"openai",
+	"openrouter",
+	"google",
+	"mistral",
+] as const;
+
+interface ProvidersPayload {
+	active: { provider: string; modelId: string } | null;
+	providers: {
+		name: string;
+		hasKey: boolean;
+		envKey: string | null;
+	}[];
+}
 
 export function registerBuiltins(registry: CommandRegistry): void {
 	registry.register({
@@ -18,18 +42,79 @@ export function registerBuiltins(registry: CommandRegistry): void {
 
 	registry.register({
 		name: "model",
-		description: "View or set the model (e.g. /model anthropic claude-sonnet-4-6)",
+		description:
+			"View or set the model (e.g. /model anthropic claude-sonnet-4-6)",
 		async execute(_ctx, args) {
 			if (args.length < 2) {
 				const saved = await loadModelConfig();
 				if (saved) {
-					return { text: `Current model: ${saved.provider} / ${saved.modelId}` };
+					return {
+						text: `Current model: ${saved.provider} / ${saved.modelId}`,
+						data: { provider: saved.provider, modelId: saved.modelId },
+					};
 				}
-				return { text: "No model configured. Usage: /model <provider> <model_id>" };
+				return {
+					text: "No model configured. Usage: /model <provider> <model_id>",
+					data: null,
+				};
 			}
 			const [provider, modelId] = args;
 			await saveModelConfig(provider!, modelId!);
-			return { text: `Model set to ${provider} / ${modelId}. Restart nexal to apply.` };
+			return {
+				text: `Model set to ${provider} / ${modelId}. Restart nexal to apply.`,
+				data: { provider, modelId },
+			};
+		},
+	});
+
+	registry.register({
+		name: "apikey",
+		description: "Save an API key (e.g. /apikey anthropic sk-...)",
+		async execute(_ctx, args) {
+			const [provider, ...rest] = args;
+			if (!provider) {
+				return {
+					text:
+						"Usage: /apikey <provider> <key>\n" +
+						"       /apikey <provider> --clear",
+				};
+			}
+			if (rest[0] === "--clear" || rest.length === 0) {
+				await deleteAuth(provider);
+				return { text: `Cleared API key for ${provider}.` };
+			}
+			const key = rest.join(" ").trim();
+			await saveAuth({ provider, apiKey: key });
+			return {
+				text: `Saved API key for ${provider}. Restart nexal to apply.`,
+			};
+		},
+	});
+
+	registry.register({
+		name: "providers",
+		description: "List known providers and their auth status",
+		async execute(_ctx, _args) {
+			const active = await loadModelConfig();
+			const providers = await Promise.all(
+				KNOWN_PROVIDERS.map(async (name) => {
+					const auth = await loadAuth(name);
+					return {
+						name,
+						hasKey: !!auth?.apiKey,
+						envKey: apiKeyEnvKey(name),
+					};
+				}),
+			);
+			const payload: ProvidersPayload = { active, providers };
+
+			const lines = providers.map(
+				(p) =>
+					`${p.name.padEnd(11)} ${p.hasKey ? "✓ key" : "  --"}` +
+					(active?.provider === p.name ? "  (active)" : ""),
+			);
+			if (active) lines.push("", `active: ${active.provider} / ${active.modelId}`);
+			return { text: lines.join("\n"), data: payload };
 		},
 	});
 

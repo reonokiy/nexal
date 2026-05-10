@@ -42,6 +42,7 @@ export type ChatEvent =
 			name: string;
 			text?: string;
 			error?: string;
+			data?: unknown;
 	  };
 
 export type ChatListener = (event: ChatEvent) => void;
@@ -194,6 +195,7 @@ export class NexalChatClient {
 					name: frame.name,
 					text: frame.text,
 					error: frame.error,
+					data: frame.data,
 				});
 				return;
 		}
