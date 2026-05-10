@@ -14,16 +14,15 @@
 	let { chat }: { chat: Chat } = $props();
 
 	function newChat() {
-		// Clear local transcript and ensure we're on the home route.
 		chat.messages.length = 0;
 		router.go("home");
 	}
 
 	const navItems = [
-		{ icon: SquarePen, label: "New chat", onclick: newChat },
-		{ icon: Search, label: "Search", onclick: () => {} },
-		{ icon: Puzzle, label: "Plugins", onclick: () => {} },
-		{ icon: Clock, label: "Automations", onclick: () => {} },
+		{ icon: SquarePen, label: "New chat", onclick: newChat, soon: false },
+		{ icon: Search, label: "Search", onclick: () => {}, soon: true },
+		{ icon: Puzzle, label: "Plugins", onclick: () => {}, soon: true },
+		{ icon: Clock, label: "Automations", onclick: () => {}, soon: true },
 	];
 </script>
 
@@ -34,49 +33,62 @@
 		{#each navItems as item (item.label)}
 			<button
 				type="button"
-				class="hover:bg-accent text-foreground/85 flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm"
+				disabled={item.soon}
+				title={item.soon ? "Coming soon" : ""}
+				class={cn(
+					"flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm",
+					item.soon
+						? "text-muted-foreground/60 cursor-not-allowed"
+						: "text-foreground/85 hover:bg-accent",
+				)}
 				onclick={item.onclick}
 			>
 				<item.icon class="size-4" />
 				<span>{item.label}</span>
+				{#if item.soon}
+					<span
+						class="bg-muted text-muted-foreground/70 ml-auto rounded px-1.5 text-[10px]"
+					>
+						soon
+					</span>
+				{/if}
 			</button>
 		{/each}
 	</nav>
 
 	<div class="mt-5 flex items-center justify-between px-3 py-1">
 		<span class="text-muted-foreground text-xs">Threads</span>
-		<div class="text-muted-foreground flex items-center gap-1">
-			<button
-				type="button"
-				class="hover:bg-accent rounded p-1"
-				aria-label="filter"
+		<div class="text-muted-foreground/50 flex items-center gap-1">
+			<span
+				class="cursor-not-allowed rounded p-1"
+				title="Coming soon"
 			>
 				<Filter class="size-3.5" />
-			</button>
-			<button
-				type="button"
-				class="hover:bg-accent rounded p-1"
-				aria-label="new folder"
+			</span>
+			<span
+				class="cursor-not-allowed rounded p-1"
+				title="Coming soon"
 			>
 				<FolderPlus class="size-3.5" />
-			</button>
+			</span>
 		</div>
 	</div>
 
 	<div class="flex flex-col gap-0.5 px-2">
-		<button
-			type="button"
-			class="hover:bg-accent text-foreground/85 flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm"
+		<div
+			class="text-foreground/85 flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm"
 		>
 			<Folder class="size-4" />
-			<span>New project</span>
-		</button>
+			<span>default</span>
+		</div>
 		<div class="text-muted-foreground px-2.5 py-1 text-xs">
-			{chat.messages.length === 0 ? "No chats" : "current chat"}
+			{chat.messages.filter((m) => m.role !== "system").length === 0
+				? "No chats"
+				: "current chat"}
 		</div>
 	</div>
 
-	<div class="mt-auto border-border border-t px-2 py-2">
+	<div class="border-border mt-auto border-t px-2 py-2">
 		<button
 			type="button"
 			class={cn(

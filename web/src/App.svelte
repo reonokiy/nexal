@@ -16,6 +16,8 @@
 
 	const chat = createChat(stored ?? defaultUrl);
 
+	let sidebarOpen = $state(true);
+
 	onMount(() => chat.connect());
 
 	$effect(() => {
@@ -23,6 +25,10 @@
 			localStorage.setItem("nexal.backend", chat.url);
 		} catch {}
 	});
+
+	function toggleSidebar() {
+		sidebarOpen = !sidebarOpen;
+	}
 </script>
 
 <svelte:head>
@@ -37,10 +43,12 @@
 </svelte:head>
 
 <div class="bg-background text-foreground flex h-screen">
-	<Sidebar {chat} />
+	{#if sidebarOpen}
+		<Sidebar {chat} />
+	{/if}
 	{#if router.current === "settings"}
 		<SettingsPage {chat} />
 	{:else}
-		<ChatView {chat} />
+		<ChatView {chat} {sidebarOpen} onToggleSidebar={toggleSidebar} />
 	{/if}
 </div>

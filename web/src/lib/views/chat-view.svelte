@@ -4,11 +4,16 @@
 	import Composer from "$lib/components/composer.svelte";
 	import EmptyState from "$lib/components/empty-state.svelte";
 	import MoreHorizontal from "@lucide/svelte/icons/more-horizontal";
-	import PanelRight from "@lucide/svelte/icons/panel-right";
-	import Terminal from "@lucide/svelte/icons/terminal";
+	import PanelLeft from "@lucide/svelte/icons/panel-left";
+	import Plug from "@lucide/svelte/icons/plug";
 	import type { Chat } from "$lib/client.svelte";
 
-	let { chat }: { chat: Chat } = $props();
+	interface Props {
+		chat: Chat;
+		sidebarOpen: boolean;
+		onToggleSidebar: () => void;
+	}
+	let { chat, sidebarOpen, onToggleSidebar }: Props = $props();
 
 	let input = $state("");
 	let scrollEl: HTMLDivElement | undefined = $state();
@@ -32,6 +37,11 @@
 
 	function pickSuggestion(text: string) {
 		input = text;
+	}
+
+	function newChat() {
+		chat.messages.length = 0;
+		input = "";
 	}
 
 	async function refreshModelLabel() {
@@ -59,47 +69,50 @@
 		tryLoad();
 	});
 
-	const empty = $derived(chat.messages.filter((m) => m.role !== "system").length === 0);
+	const empty = $derived(
+		chat.messages.filter((m) => m.role !== "system").length === 0,
+	);
 </script>
 
 <div class="flex h-screen flex-1 flex-col">
-	<header
-		class="flex h-12 items-center gap-2 border-border border-b px-4"
-	>
+	<header class="border-border flex h-12 items-center gap-2 border-b px-4">
 		<button
 			type="button"
 			class="text-foreground/85 hover:bg-accent rounded-md px-2 py-1 text-sm font-medium"
+			onclick={newChat}
+			title="Clear chat"
 		>
 			New chat
 		</button>
 		<button
 			type="button"
-			aria-label="thread menu"
-			class="text-muted-foreground hover:bg-accent flex size-7 items-center justify-center rounded-md"
+			disabled
+			aria-label="thread menu (coming soon)"
+			title="Coming soon"
+			class="text-muted-foreground/50 flex size-7 cursor-not-allowed items-center justify-center rounded-md"
 		>
 			<MoreHorizontal class="size-4" />
 		</button>
 		<div class="ml-auto flex items-center gap-1">
+			{#if chat.status !== "open"}
+				<button
+					type="button"
+					class="border-border hover:bg-accent flex items-center gap-1.5 rounded-md border px-3 py-1 text-sm"
+					onclick={() => chat.connect(chat.url)}
+					title="Reconnect to backend"
+				>
+					<Plug class="size-3.5" />
+					reconnect
+				</button>
+			{/if}
 			<button
 				type="button"
-				class="border-border hover:bg-accent rounded-md border px-3 py-1 text-sm"
-				onclick={() => chat.connect(chat.url)}
-			>
-				Open
-			</button>
-			<button
-				type="button"
-				aria-label="terminal"
+				aria-label={sidebarOpen ? "hide sidebar" : "show sidebar"}
+				title={sidebarOpen ? "Hide sidebar" : "Show sidebar"}
 				class="text-muted-foreground hover:bg-accent flex size-8 items-center justify-center rounded-md"
+				onclick={onToggleSidebar}
 			>
-				<Terminal class="size-4" />
-			</button>
-			<button
-				type="button"
-				aria-label="side panel"
-				class="text-muted-foreground hover:bg-accent flex size-8 items-center justify-center rounded-md"
-			>
-				<PanelRight class="size-4" />
+				<PanelLeft class="size-4" />
 			</button>
 		</div>
 	</header>
@@ -142,13 +155,7 @@
 
 	<div class="px-4 pb-4">
 		<div class="mx-auto w-full max-w-3xl">
-			<Composer
-				{chat}
-				bind:value={input}
-				onValueChange={(v) => (input = v)}
-				onSubmit={send}
-				{modelLabel}
-			/>
+			<Composer {chat} bind:value={input} onSubmit={send} {modelLabel} />
 		</div>
 	</div>
 </div>

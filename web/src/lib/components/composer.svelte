@@ -12,7 +12,7 @@
 	interface Props {
 		chat: Chat;
 		value: string;
-		onValueChange: (v: string) => void;
+		onValueChange?: (v: string) => void;
 		onSubmit: () => void;
 		modelLabel?: string;
 	}
@@ -66,8 +66,10 @@
 	<div class="flex items-center gap-1.5 px-2 pb-2 pt-1.5">
 		<button
 			type="button"
-			aria-label="attach"
-			class="text-muted-foreground hover:bg-accent flex size-8 items-center justify-center rounded-full"
+			disabled
+			aria-label="attach (coming soon)"
+			title="Coming soon"
+			class="text-muted-foreground/50 flex size-8 cursor-not-allowed items-center justify-center rounded-full"
 		>
 			<Plus class="size-4" />
 		</button>
@@ -76,25 +78,28 @@
 			type="button"
 			class="text-foreground/80 hover:bg-accent flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium"
 			onclick={() => router.go("settings")}
+			title="Configure model"
 		>
 			<Sparkles class="size-3.5" />
 			<span>{modelLabel}</span>
 			<ChevronDown class="size-3.5 opacity-60" />
 		</button>
 
-		<button
-			type="button"
-			class="text-foreground/80 hover:bg-accent flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium"
+		<span
+			class="text-muted-foreground/60 flex cursor-not-allowed items-center gap-1 rounded-md px-2 py-1 text-xs font-medium"
+			title="Coming soon"
 		>
 			<span>Medium</span>
 			<ChevronDown class="size-3.5 opacity-60" />
-		</button>
+		</span>
 
 		<div class="ml-auto flex items-center gap-1">
 			<button
 				type="button"
-				aria-label="voice input"
-				class="text-muted-foreground hover:bg-accent flex size-8 items-center justify-center rounded-full"
+				disabled
+				aria-label="voice input (coming soon)"
+				title="Coming soon"
+				class="text-muted-foreground/50 flex size-8 cursor-not-allowed items-center justify-center rounded-full"
 			>
 				<Mic class="size-4" />
 			</button>
@@ -117,14 +122,14 @@
 </div>
 
 <div class="text-muted-foreground mt-1.5 flex items-center gap-3 px-2 text-xs">
-	<button
-		type="button"
-		class="hover:bg-accent flex items-center gap-1 rounded-md px-2 py-1"
+	<span
+		class="text-muted-foreground/60 flex cursor-not-allowed items-center gap-1 rounded-md px-2 py-1"
+		title="Coming soon"
 	>
 		<Monitor class="size-3.5" />
 		<span>Local</span>
 		<ChevronDown class="size-3 opacity-60" />
-	</button>
+	</span>
 	<span class="ml-auto inline-flex items-center gap-1 rounded-md px-2 py-1">
 		<span
 			class={cn(

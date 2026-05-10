@@ -1,14 +1,13 @@
 <script lang="ts">
 	import { onMount } from "svelte";
-	import { Button } from "$lib/components/ui/button";
 	import { Input } from "$lib/components/ui/input";
-	import { Badge } from "$lib/components/ui/badge";
 	import { router } from "$lib/router.svelte";
 	import { cn } from "$lib/utils";
-	import ArrowLeft from "@lucide/svelte/icons/arrow-left";
 	import RefreshCw from "@lucide/svelte/icons/refresh-cw";
 	import Eye from "@lucide/svelte/icons/eye";
 	import EyeOff from "@lucide/svelte/icons/eye-off";
+	import Check from "@lucide/svelte/icons/check";
+	import ExternalLink from "@lucide/svelte/icons/external-link";
 	import type { Chat } from "$lib/client.svelte";
 
 	let { chat }: { chat: Chat } = $props();
@@ -22,13 +21,66 @@
 		active: { provider: string; modelId: string } | null;
 		providers: ProviderInfo[];
 	}
+	interface ModelOption {
+		id: string;
+		label: string;
+		hint?: string;
+	}
+	interface ProviderPreset {
+		label: string;
+		emoji: string;
+		summary: string;
+		signupUrl: string;
+		models: ModelOption[];
+		warn?: string;
+	}
 
-	const DEFAULT_MODELS: Record<string, string> = {
-		anthropic: "claude-sonnet-4-6",
-		openai: "gpt-4o",
-		openrouter: "openai/gpt-4o",
-		google: "gemini-2.5-pro",
-		mistral: "mistral-large-latest",
+	const PRESETS: Record<string, ProviderPreset> = {
+		openrouter: {
+			label: "OpenRouter",
+			emoji: "🌐",
+			summary: "Single key, 100+ models. Works for Claude, GPT, DeepSeek, Kimi…",
+			signupUrl: "https://openrouter.ai/keys",
+			models: [
+				{ id: "openai/gpt-4o", label: "GPT-4o", hint: "general" },
+				{
+					id: "anthropic/claude-sonnet-4-5",
+					label: "Claude Sonnet 4.5",
+					hint: "balanced",
+				},
+				{
+					id: "deepseek/deepseek-chat",
+					label: "DeepSeek Chat",
+					hint: "low cost",
+				},
+				{
+					id: "moonshotai/kimi-k2-thinking",
+					label: "Kimi K2 Thinking",
+					hint: "reasoning",
+				},
+			],
+		},
+		"kimi-coding": {
+			label: "Kimi",
+			emoji: "🌙",
+			summary: "Moonshot Kimi for Coding — Anthropic-compatible API.",
+			signupUrl: "https://www.kimi.com/coding",
+			models: [
+				{ id: "kimi-for-coding", label: "Kimi For Coding" },
+				{ id: "kimi-k2-thinking", label: "Kimi K2 Thinking" },
+			],
+		},
+		deepseek: {
+			label: "DeepSeek",
+			emoji: "🐳",
+			summary: "Direct DeepSeek API. Save the key now; switch via OpenRouter to use it today.",
+			signupUrl: "https://platform.deepseek.com/api_keys",
+			models: [
+				{ id: "deepseek-chat", label: "DeepSeek Chat" },
+				{ id: "deepseek-reasoner", label: "DeepSeek Reasoner" },
+			],
+			warn: "Not natively routed by pi-ai yet — to actually run DeepSeek, pick it under OpenRouter for now.",
+		},
 	};
 
 	let providers = $state<ProviderInfo[]>([]);
@@ -36,18 +88,25 @@
 	let loading = $state(false);
 	let loadError = $state<string | null>(null);
 
-	// Per-provider editable form state (model id + new key + reveal flag).
 	const form = $state<
-		Record<string, { modelId: string; key: string; reveal: boolean; busy: boolean; flash: string | null }>
+		Record<
+			string,
+			{
+				modelId: string;
+				key: string;
+				reveal: boolean;
+				busy: boolean;
+				flash: string | null;
+			}
+		>
 	>({});
 
 	function ensureForm(name: string): void {
 		if (form[name]) return;
+		const preset = PRESETS[name];
+		const def = preset?.models[0]?.id ?? "";
 		form[name] = {
-			modelId:
-				active?.provider === name
-					? active.modelId
-					: DEFAULT_MODELS[name] ?? "",
+			modelId: active?.provider === name ? active.modelId : def,
 			key: "",
 			reveal: false,
 			busy: false,
@@ -79,18 +138,13 @@
 		}
 	}
 
-	async function saveModel(name: string) {
-		const f = form[name]!;
-		if (!f.modelId.trim()) return;
-		f.busy = true;
-		try {
-			await chat.runCommandAwait("model", [name, f.modelId.trim()]);
-			f.flash = "model saved · restart nexal";
-			setTimeout(() => (f.flash = null), 2500);
-			await refresh();
-		} finally {
-			f.busy = false;
-		}
+	function flash(name: string, msg: string) {
+		const f = form[name];
+		if (!f) return;
+		f.flash = msg;
+		setTimeout(() => {
+			if (form[name]?.flash === msg) form[name]!.flash = null;
+		}, 2500);
 	}
 
 	async function saveKey(name: string) {
@@ -100,8 +154,7 @@
 		try {
 			await chat.runCommandAwait("apikey", [name, f.key.trim()]);
 			f.key = "";
-			f.flash = "key saved · restart nexal";
-			setTimeout(() => (f.flash = null), 2500);
+			flash(name, "key saved · restart nexal");
 			await refresh();
 		} finally {
 			f.busy = false;
@@ -113,24 +166,41 @@
 		f.busy = true;
 		try {
 			await chat.runCommandAwait("apikey", [name, "--clear"]);
-			f.flash = "key cleared";
-			setTimeout(() => (f.flash = null), 2500);
+			flash(name, "key cleared");
 			await refresh();
 		} finally {
 			f.busy = false;
 		}
 	}
 
-	async function setActive(name: string) {
+	async function pickModel(name: string, modelId: string) {
 		const f = form[name]!;
-		const modelId = f.modelId.trim() || DEFAULT_MODELS[name] || "";
-		if (!modelId) return;
-		await chat.runCommandAwait("model", [name, modelId]);
-		await refresh();
+		f.modelId = modelId;
+		f.busy = true;
+		try {
+			await chat.runCommandAwait("model", [name, modelId]);
+			flash(name, `using ${modelId} · restart nexal`);
+			await refresh();
+		} finally {
+			f.busy = false;
+		}
+	}
+
+	async function saveCustomModel(name: string) {
+		const f = form[name]!;
+		const id = f.modelId.trim();
+		if (!id) return;
+		f.busy = true;
+		try {
+			await chat.runCommandAwait("model", [name, id]);
+			flash(name, `using ${id} · restart nexal`);
+			await refresh();
+		} finally {
+			f.busy = false;
+		}
 	}
 
 	onMount(() => {
-		// Wait briefly if the socket is still connecting.
 		const tryLoad = () => {
 			if (chat.status === "open") void refresh();
 			else setTimeout(tryLoad, 300);
@@ -140,157 +210,255 @@
 </script>
 
 <div class="bg-background text-foreground flex h-screen flex-1 flex-col">
-	<header
-		class="border-border flex h-12 items-center gap-3 border-b px-4"
-	>
-		<Button variant="ghost" size="sm" onclick={() => router.go("home")}>
-			<ArrowLeft />
-			back
-		</Button>
-		<span class="text-base font-semibold tracking-tight">Settings</span>
+	<header class="border-border flex h-12 items-center gap-3 border-b px-4">
+		<button
+			type="button"
+			class="text-foreground/85 hover:bg-accent rounded-md px-2 py-1 text-sm font-medium"
+			onclick={() => router.go("home")}
+		>
+			Settings
+		</button>
 		<span class="text-muted-foreground text-xs">model providers</span>
-		<div class="ml-auto flex items-center gap-2">
-			<Button
-				variant="outline"
-				size="sm"
+		<div class="ml-auto flex items-center gap-1">
+			<button
+				type="button"
+				class="text-muted-foreground hover:bg-accent flex items-center gap-1.5 rounded-md px-2 py-1 text-xs"
 				onclick={refresh}
 				disabled={loading}
 			>
-				<RefreshCw class={cn(loading && "animate-spin")} />
+				<RefreshCw class={cn("size-3.5", loading && "animate-spin")} />
 				refresh
-			</Button>
+			</button>
 		</div>
 	</header>
 
 	<main class="flex-1 overflow-y-auto px-4 py-6">
-		<div class="mx-auto flex max-w-3xl flex-col gap-4">
+		<div class="mx-auto flex w-full max-w-3xl flex-col gap-3">
+			<div class="mb-2">
+				<h1 class="text-foreground text-2xl font-medium tracking-tight">
+					Model providers
+				</h1>
+				<p class="text-muted-foreground mt-1 text-sm">
+					Save an API key for each subscription you use, then pick a model.
+					Changes apply after the daemon restarts.
+				</p>
+			</div>
+
 			{#if active}
 				<div
-					class="border-border bg-muted/40 flex items-center gap-3 rounded-md border px-4 py-3 text-sm"
+					class="border-border bg-muted/40 flex items-center gap-2 rounded-2xl border px-4 py-2.5 text-sm"
 				>
-					<span class="text-muted-foreground">active</span>
-					<span class="font-mono">
+					<span class="text-muted-foreground text-xs">active</span>
+					<span class="font-mono text-xs">
 						{active.provider} / {active.modelId}
 					</span>
-				</div>
-			{:else}
-				<div
-					class="border-border bg-muted/40 text-muted-foreground rounded-md border px-4 py-3 text-sm"
-				>
-					No active model configured. Pick one below and press “use”.
 				</div>
 			{/if}
 
 			{#if loadError}
-				<div class="bg-destructive/10 text-destructive rounded-md p-3 text-sm">
+				<div
+					class="border-destructive/40 bg-destructive/5 text-destructive rounded-2xl border px-4 py-3 text-sm"
+				>
 					{loadError}
 				</div>
 			{/if}
 
 			{#each providers as p (p.name)}
+				{@const preset = PRESETS[p.name]}
 				{@const f = form[p.name]}
 				{@const isActive = active?.provider === p.name}
 				<section
 					class={cn(
-						"border-border rounded-lg border p-4",
-						isActive && "border-primary/40 bg-primary/[0.03]",
+						"border-border rounded-2xl border p-5 transition-colors",
+						isActive && "border-foreground/30 bg-muted/30",
 					)}
 				>
-					<div class="mb-3 flex items-center gap-2">
-						<h2 class="text-base font-semibold">{p.name}</h2>
-						{#if isActive}
-							<Badge variant="success">active</Badge>
-						{/if}
-						{#if p.hasKey}
-							<Badge variant="secondary">key configured</Badge>
-						{:else}
-							<Badge variant="outline">no key</Badge>
-						{/if}
-						{#if p.envKey}
-							<span class="text-muted-foreground ml-auto font-mono text-[10px]">
-								env: {p.envKey}
-							</span>
+					<div class="flex items-start gap-3">
+						<span class="mt-0.5 text-2xl leading-none">
+							{preset?.emoji ?? "✨"}
+						</span>
+						<div class="flex-1">
+							<div class="flex items-center gap-2">
+								<h2 class="text-base font-medium">
+									{preset?.label ?? p.name}
+								</h2>
+								{#if isActive}
+									<span
+										class="border-foreground/20 text-foreground/70 inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium"
+									>
+										<Check class="size-3" />
+										active
+									</span>
+								{/if}
+								{#if p.hasKey}
+									<span
+										class="border-foreground/15 text-muted-foreground rounded-full border px-2 py-0.5 text-[10px]"
+									>
+										key configured
+									</span>
+								{:else}
+									<span
+										class="bg-muted text-muted-foreground rounded-full px-2 py-0.5 text-[10px]"
+									>
+										no key
+									</span>
+								{/if}
+							</div>
+							{#if preset}
+								<p class="text-muted-foreground mt-1 text-sm">
+									{preset.summary}
+								</p>
+							{/if}
+							{#if preset?.warn}
+								<p
+									class="border-amber-500/30 bg-amber-500/[0.07] text-amber-700 dark:text-amber-400 mt-2 rounded-md border px-2.5 py-1.5 text-xs"
+								>
+									{preset.warn}
+								</p>
+							{/if}
+						</div>
+						{#if preset}
+							<a
+								class="text-muted-foreground hover:text-foreground inline-flex items-center gap-1 text-xs"
+								href={preset.signupUrl}
+								target="_blank"
+								rel="noreferrer"
+							>
+								get key
+								<ExternalLink class="size-3" />
+							</a>
 						{/if}
 					</div>
 
 					{#if f}
-						<div class="grid grid-cols-[5rem_1fr_auto] items-center gap-2">
-							<label for="model-{p.name}" class="text-xs">model id</label>
-							<Input
-								id="model-{p.name}"
-								class="font-mono text-xs"
-								placeholder={DEFAULT_MODELS[p.name] ?? "model id"}
-								bind:value={f.modelId}
-								disabled={f.busy}
-							/>
-							<div class="flex gap-2">
-								<Button
-									size="sm"
-									variant="outline"
-									onclick={() => saveModel(p.name)}
-									disabled={f.busy || !f.modelId.trim()}
+						<div class="mt-4 flex flex-col gap-3">
+							<div class="flex items-center gap-2">
+								<label
+									for="key-{p.name}"
+									class="text-muted-foreground w-16 shrink-0 text-xs"
 								>
-									save
-								</Button>
-								<Button
-									size="sm"
-									onclick={() => setActive(p.name)}
-									disabled={f.busy || isActive}
-								>
-									{isActive ? "active" : "use"}
-								</Button>
-							</div>
-
-							<label for="key-{p.name}" class="text-xs">api key</label>
-							<div class="relative">
-								<Input
-									id="key-{p.name}"
-									type={f.reveal ? "text" : "password"}
-									class="pr-9 font-mono text-xs"
-									placeholder={p.hasKey ? "•••••••• (overwrite)" : "paste key here"}
-									bind:value={f.key}
-									disabled={f.busy}
-								/>
+									api key
+								</label>
+								<div class="relative flex-1">
+									<Input
+										id="key-{p.name}"
+										type={f.reveal ? "text" : "password"}
+										class="pr-9 font-mono text-xs"
+										placeholder={p.hasKey ? "•••••••• (overwrite)" : "paste key here"}
+										bind:value={f.key}
+										disabled={f.busy}
+									/>
+									<button
+										type="button"
+										class="text-muted-foreground hover:text-foreground absolute right-2 top-1/2 -translate-y-1/2"
+										aria-label={f.reveal ? "hide key" : "show key"}
+										onclick={() => (f.reveal = !f.reveal)}
+									>
+										{#if f.reveal}<EyeOff class="size-4" />{:else}<Eye
+												class="size-4"
+											/>{/if}
+									</button>
+								</div>
 								<button
 									type="button"
-									class="text-muted-foreground hover:text-foreground absolute right-2 top-1/2 -translate-y-1/2"
-									aria-label={f.reveal ? "hide key" : "show key"}
-									onclick={() => (f.reveal = !f.reveal)}
-								>
-									{#if f.reveal}<EyeOff class="size-4" />{:else}<Eye
-											class="size-4"
-										/>{/if}
-								</button>
-							</div>
-							<div class="flex gap-2">
-								<Button
-									size="sm"
-									variant="outline"
+									class="text-muted-foreground hover:bg-accent rounded-md border-border border px-2.5 py-1 text-xs disabled:opacity-50"
 									onclick={() => clearKey(p.name)}
 									disabled={f.busy || !p.hasKey}
 								>
 									clear
-								</Button>
-								<Button
-									size="sm"
+								</button>
+								<button
+									type="button"
+									class={cn(
+										"rounded-md px-3 py-1 text-xs font-medium transition-colors",
+										f.key.trim() && !f.busy
+											? "bg-primary text-primary-foreground hover:opacity-90"
+											: "bg-muted text-muted-foreground",
+									)}
 									onclick={() => saveKey(p.name)}
 									disabled={f.busy || !f.key.trim()}
 								>
-									save
-								</Button>
+									save key
+								</button>
 							</div>
-						</div>
 
-						{#if f.flash}
-							<div class="text-primary mt-2 text-xs">{f.flash}</div>
-						{/if}
+							{#if preset?.models.length}
+								<div class="flex items-start gap-2">
+									<span class="text-muted-foreground w-16 shrink-0 pt-1.5 text-xs">
+										models
+									</span>
+									<div class="flex flex-1 flex-wrap gap-1.5">
+										{#each preset.models as m (m.id)}
+											{@const selected = active?.provider === p.name && active.modelId === m.id}
+											<button
+												type="button"
+												class={cn(
+													"rounded-md border px-2.5 py-1 text-left text-xs transition-colors",
+													selected
+														? "border-foreground/40 bg-foreground/5"
+														: "border-border hover:bg-accent",
+												)}
+												onclick={() => pickModel(p.name, m.id)}
+												disabled={f.busy}
+											>
+												<div class="flex items-center gap-1.5">
+													<span class="font-medium">{m.label}</span>
+													{#if m.hint}
+														<span class="text-muted-foreground text-[10px]">
+															{m.hint}
+														</span>
+													{/if}
+													{#if selected}<Check class="size-3" />{/if}
+												</div>
+												<div class="text-muted-foreground mt-0.5 font-mono text-[10px]">
+													{m.id}
+												</div>
+											</button>
+										{/each}
+									</div>
+								</div>
+							{/if}
+
+							<div class="flex items-center gap-2">
+								<label
+									for="model-{p.name}"
+									class="text-muted-foreground w-16 shrink-0 text-xs"
+								>
+									custom
+								</label>
+								<Input
+									id="model-{p.name}"
+									class="flex-1 font-mono text-xs"
+									placeholder="custom model id"
+									bind:value={f.modelId}
+									disabled={f.busy}
+								/>
+								<button
+									type="button"
+									class="border-border text-foreground/85 hover:bg-accent rounded-md border px-2.5 py-1 text-xs disabled:opacity-50"
+									onclick={() => saveCustomModel(p.name)}
+									disabled={f.busy || !f.modelId.trim()}
+								>
+									use
+								</button>
+							</div>
+
+							{#if f.flash}
+								<div class="text-foreground/70 text-xs">{f.flash}</div>
+							{/if}
+
+							{#if p.envKey}
+								<div class="text-muted-foreground font-mono text-[10px]">
+									env: {p.envKey}
+								</div>
+							{/if}
+						</div>
 					{/if}
 				</section>
 			{/each}
 
-			<p class="text-muted-foreground text-xs">
+			<p class="text-muted-foreground mt-1 text-xs">
 				API keys are stored locally in <code>~/.nexal/data/</code> (PGlite).
-				Changes take effect after restarting the nexal daemon.
 			</p>
 		</div>
 	</main>
