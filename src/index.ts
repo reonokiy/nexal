@@ -70,10 +70,13 @@ async function applySavedAuth(): Promise<void> {
 
 export function apiKeyEnvKey(provider: string): string | null {
 	switch (provider) {
+		case "openrouter": return "OPENROUTER_API_KEY";
+		case "kimi-coding": return "KIMI_API_KEY";
+		case "deepseek": return "DEEPSEEK_API_KEY";
+		// kept for users who still have these set in env / config:
 		case "anthropic": return "ANTHROPIC_API_KEY";
 		case "openai": return "OPENAI_API_KEY";
-		case "openrouter": return "OPENROUTER_API_KEY";
-		case "google": return "GOOGLE_API_KEY";
+		case "google": return "GEMINI_API_KEY";
 		case "mistral": return "MISTRAL_API_KEY";
 		default: return null;
 	}

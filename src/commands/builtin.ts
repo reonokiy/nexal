@@ -11,13 +11,7 @@ import {
 } from "../settings.ts";
 import { apiKeyEnvKey } from "../index.ts";
 
-const KNOWN_PROVIDERS = [
-	"anthropic",
-	"openai",
-	"openrouter",
-	"google",
-	"mistral",
-] as const;
+const KNOWN_PROVIDERS = ["openrouter", "kimi-coding", "deepseek"] as const;
 
 interface ProvidersPayload {
 	active: { provider: string; modelId: string } | null;
