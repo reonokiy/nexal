@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from "svelte";
 	import { Input } from "$lib/components/ui/input";
+	import { Button } from "$lib/components/ui/button";
 	import { router } from "$lib/router.svelte";
 	import { cn } from "$lib/utils";
 	import RefreshCw from "@lucide/svelte/icons/refresh-cw";
@@ -30,7 +31,6 @@
 	interface ProviderPreset {
 		label: string;
 		icon: string;
-		brand: string;
 		summary: string;
 		signupUrl: string;
 		models: ModelOption[];
@@ -41,7 +41,6 @@
 		openrouter: {
 			label: "OpenRouter",
 			icon: "openrouter",
-			brand: "#6366F1",
 			summary: "Single key, 100+ models. Works for Claude, GPT, DeepSeek, Kimi…",
 			signupUrl: "https://openrouter.ai/keys",
 			models: [
@@ -66,7 +65,6 @@
 		"kimi-coding": {
 			label: "Kimi",
 			icon: "kimi-coding",
-			brand: "#16191E",
 			summary: "Moonshot Kimi for Coding — Anthropic-compatible API.",
 			signupUrl: "https://www.kimi.com/coding",
 			models: [
@@ -77,14 +75,13 @@
 		deepseek: {
 			label: "DeepSeek",
 			icon: "deepseek",
-			brand: "#4D6BFE",
 			summary: "Direct DeepSeek API. Save the key now; switch via OpenRouter to use it today.",
 			signupUrl: "https://platform.deepseek.com/api_keys",
 			models: [
 				{ id: "deepseek-chat", label: "DeepSeek Chat" },
 				{ id: "deepseek-reasoner", label: "DeepSeek Reasoner" },
 			],
-			warn: "Not natively routed by pi-ai yet — to actually run DeepSeek, pick it under OpenRouter for now.",
+			warn: "Not natively routed by pi-ai yet — pick it under OpenRouter for now.",
 		},
 	};
 
@@ -212,34 +209,31 @@
 		};
 		tryLoad();
 	});
+
+	const inputCls = "h-9 text-sm";
+	const labelCls = "text-muted-foreground w-16 shrink-0 pt-2 text-xs";
 </script>
 
 <div class="bg-background text-foreground flex h-screen flex-1 flex-col">
 	<header class="border-border flex h-12 items-center gap-3 border-b px-4">
-		<button
-			type="button"
-			class="text-foreground/85 hover:bg-accent rounded-md px-2 py-1 text-sm font-medium"
-			onclick={() => router.go("home")}
-		>
-			Settings
-		</button>
+		<span class="text-foreground/85 px-1 text-sm font-medium">Settings</span>
 		<span class="text-muted-foreground text-xs">model providers</span>
-		<div class="ml-auto flex items-center gap-1">
-			<button
-				type="button"
-				class="text-muted-foreground hover:bg-accent flex items-center gap-1.5 rounded-md px-2 py-1 text-xs"
+		<div class="ml-auto">
+			<Button
+				variant="ghost"
+				size="sm"
 				onclick={refresh}
 				disabled={loading}
 			>
 				<RefreshCw class={cn("size-3.5", loading && "animate-spin")} />
 				refresh
-			</button>
+			</Button>
 		</div>
 	</header>
 
 	<main class="flex-1 overflow-y-auto px-4 py-6">
-		<div class="mx-auto flex w-full max-w-3xl flex-col gap-3">
-			<div class="mb-2">
+		<div class="mx-auto flex w-full max-w-3xl flex-col gap-4">
+			<div>
 				<h1 class="text-foreground text-2xl font-medium tracking-tight">
 					Model providers
 				</h1>
@@ -251,7 +245,7 @@
 
 			{#if active}
 				<div
-					class="border-border bg-muted/40 flex items-center gap-2 rounded-2xl border px-4 py-2.5 text-sm"
+					class="border-border bg-muted/40 flex h-10 items-center gap-2 rounded-lg border px-3 text-sm"
 				>
 					<span class="text-muted-foreground text-xs">active</span>
 					<span class="font-mono text-xs">
@@ -262,7 +256,7 @@
 
 			{#if loadError}
 				<div
-					class="border-destructive/40 bg-destructive/5 text-destructive rounded-2xl border px-4 py-3 text-sm"
+					class="border-destructive/40 bg-destructive/5 text-destructive rounded-lg border px-3 py-2 text-sm"
 				>
 					{loadError}
 				</div>
@@ -275,25 +269,20 @@
 				<section
 					class={cn(
 						"border-border rounded-2xl border p-5 transition-colors",
-						isActive && "border-foreground/30 bg-muted/30",
+						isActive && "border-foreground/30 bg-muted/20",
 					)}
 				>
-					<div class="flex items-start gap-3">
-						{#if preset}
-							<span
-								class="border-border bg-background text-foreground/85 mt-0.5 flex size-9 items-center justify-center rounded-lg border"
-							>
-								<ProviderIcon name={preset.icon} class="size-5" />
-							</span>
-						{:else}
-							<span
-								class="bg-muted text-muted-foreground mt-0.5 flex size-9 items-center justify-center rounded-lg text-sm font-semibold"
-							>
-								{p.name[0]?.toUpperCase()}
-							</span>
-						{/if}
-						<div class="flex-1">
-							<div class="flex items-center gap-2">
+					<div class="mb-4 flex items-start gap-3">
+						<span
+							class="border-border bg-background text-foreground/85 flex size-9 shrink-0 items-center justify-center rounded-lg border"
+						>
+							<ProviderIcon
+								name={preset?.icon ?? p.name}
+								class="size-5"
+							/>
+						</span>
+						<div class="min-w-0 flex-1">
+							<div class="flex flex-wrap items-center gap-2">
 								<h2 class="text-base font-medium">
 									{preset?.label ?? p.name}
 								</h2>
@@ -324,17 +313,10 @@
 									{preset.summary}
 								</p>
 							{/if}
-							{#if preset?.warn}
-								<p
-									class="border-amber-500/30 bg-amber-500/[0.07] text-amber-700 dark:text-amber-400 mt-2 rounded-md border px-2.5 py-1.5 text-xs"
-								>
-									{preset.warn}
-								</p>
-							{/if}
 						</div>
 						{#if preset}
 							<a
-								class="text-muted-foreground hover:text-foreground inline-flex items-center gap-1 text-xs"
+								class="text-muted-foreground hover:text-foreground inline-flex h-9 items-center gap-1 rounded-md px-2 text-xs"
 								href={preset.signupUrl}
 								target="_blank"
 								rel="noreferrer"
@@ -345,12 +327,21 @@
 						{/if}
 					</div>
 
+					{#if preset?.warn}
+						<div
+							class="border-amber-500/30 bg-amber-500/[0.07] text-amber-700 dark:text-amber-400 mb-4 rounded-md border px-3 py-2 text-xs"
+						>
+							{preset.warn}
+						</div>
+					{/if}
+
 					{#if f}
-						<div class="mt-4 flex flex-col gap-3">
-							<div class="flex items-center gap-2">
+						<div class="flex flex-col gap-3">
+							<!-- API key row -->
+							<div class="flex items-start gap-2">
 								<label
 									for="key-{p.name}"
-									class="text-muted-foreground w-16 shrink-0 text-xs"
+									class={labelCls}
 								>
 									api key
 								</label>
@@ -358,7 +349,7 @@
 									<Input
 										id="key-{p.name}"
 										type={f.reveal ? "text" : "password"}
-										class="pr-9 font-mono text-xs"
+										class={cn(inputCls, "pr-9 font-mono")}
 										placeholder={p.hasKey ? "•••••••• (overwrite)" : "paste key here"}
 										bind:value={f.key}
 										disabled={f.busy}
@@ -369,46 +360,44 @@
 										aria-label={f.reveal ? "hide key" : "show key"}
 										onclick={() => (f.reveal = !f.reveal)}
 									>
-										{#if f.reveal}<EyeOff class="size-4" />{:else}<Eye
-												class="size-4"
-											/>{/if}
+										{#if f.reveal}
+											<EyeOff class="size-4" />
+										{:else}
+											<Eye class="size-4" />
+										{/if}
 									</button>
 								</div>
-								<button
-									type="button"
-									class="text-muted-foreground hover:bg-accent rounded-md border-border border px-2.5 py-1 text-xs disabled:opacity-50"
-									onclick={() => clearKey(p.name)}
-									disabled={f.busy || !p.hasKey}
-								>
-									clear
-								</button>
-								<button
-									type="button"
-									class={cn(
-										"rounded-md px-3 py-1 text-xs font-medium transition-colors",
-										f.key.trim() && !f.busy
-											? "bg-primary text-primary-foreground hover:opacity-90"
-											: "bg-muted text-muted-foreground",
-									)}
+								{#if p.hasKey}
+									<Button
+										variant="ghost"
+										size="sm"
+										onclick={() => clearKey(p.name)}
+										disabled={f.busy}
+									>
+										clear
+									</Button>
+								{/if}
+								<Button
+									size="sm"
 									onclick={() => saveKey(p.name)}
 									disabled={f.busy || !f.key.trim()}
 								>
-									save key
-								</button>
+									save
+								</Button>
 							</div>
 
+							<!-- Models row -->
 							{#if preset?.models.length}
 								<div class="flex items-start gap-2">
-									<span class="text-muted-foreground w-16 shrink-0 pt-1.5 text-xs">
-										models
-									</span>
+									<span class={labelCls}>models</span>
 									<div class="flex flex-1 flex-wrap gap-1.5">
 										{#each preset.models as m (m.id)}
-											{@const selected = active?.provider === p.name && active.modelId === m.id}
+											{@const selected =
+												active?.provider === p.name && active.modelId === m.id}
 											<button
 												type="button"
 												class={cn(
-													"rounded-md border px-2.5 py-1 text-left text-xs transition-colors",
+													"flex h-9 items-center gap-2 rounded-md border px-3 text-xs transition-colors disabled:opacity-50",
 													selected
 														? "border-foreground/40 bg-foreground/5"
 														: "border-border hover:bg-accent",
@@ -416,63 +405,64 @@
 												onclick={() => pickModel(p.name, m.id)}
 												disabled={f.busy}
 											>
-												<div class="flex items-center gap-1.5">
-													<span class="font-medium">{m.label}</span>
-													{#if m.hint}
-														<span class="text-muted-foreground text-[10px]">
-															{m.hint}
-														</span>
-													{/if}
-													{#if selected}<Check class="size-3" />{/if}
-												</div>
-												<div class="text-muted-foreground mt-0.5 font-mono text-[10px]">
+												<span class="font-medium">{m.label}</span>
+												<span class="text-muted-foreground font-mono text-[10px]">
 													{m.id}
-												</div>
+												</span>
+												{#if m.hint}
+													<span
+														class="bg-muted text-muted-foreground rounded px-1.5 py-0.5 text-[10px]"
+													>
+														{m.hint}
+													</span>
+												{/if}
+												{#if selected}
+													<Check class="size-3" />
+												{/if}
 											</button>
 										{/each}
 									</div>
 								</div>
 							{/if}
 
-							<div class="flex items-center gap-2">
-								<label
-									for="model-{p.name}"
-									class="text-muted-foreground w-16 shrink-0 text-xs"
-								>
-									custom
-								</label>
+							<!-- Custom model row -->
+							<div class="flex items-start gap-2">
+								<label for="model-{p.name}" class={labelCls}>custom</label>
 								<Input
 									id="model-{p.name}"
-									class="flex-1 font-mono text-xs"
+									class={cn(inputCls, "flex-1 font-mono")}
 									placeholder="custom model id"
 									bind:value={f.modelId}
 									disabled={f.busy}
 								/>
-								<button
-									type="button"
-									class="border-border text-foreground/85 hover:bg-accent rounded-md border px-2.5 py-1 text-xs disabled:opacity-50"
+								<Button
+									variant="outline"
+									size="sm"
 									onclick={() => saveCustomModel(p.name)}
 									disabled={f.busy || !f.modelId.trim()}
 								>
 									use
-								</button>
+								</Button>
 							</div>
 
-							{#if f.flash}
-								<div class="text-foreground/70 text-xs">{f.flash}</div>
-							{/if}
-
-							{#if p.envKey}
-								<div class="text-muted-foreground font-mono text-[10px]">
-									env: {p.envKey}
-								</div>
-							{/if}
+							<div class="flex items-center justify-between gap-2 pt-1">
+								{#if p.envKey}
+									<span class="text-muted-foreground font-mono text-[10px]">
+										env: {p.envKey}
+									</span>
+								{:else}
+									<span></span>
+								{/if}
+								{#if f.flash}
+									<span class="text-foreground/70 text-xs">{f.flash}</span>
+								{/if}
+							</div>
 						</div>
 					{/if}
 				</section>
 			{/each}
 
-			<p class="text-muted-foreground mt-1 text-xs">
+			<p class="text-muted-foreground text-xs">
 				API keys are stored locally in <code>~/.nexal/data/</code> (PGlite).
 			</p>
 		</div>
