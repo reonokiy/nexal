@@ -38,11 +38,11 @@
 </script>
 
 <div
-	class="mx-auto flex w-full max-w-3xl flex-1 flex-col items-center justify-end pb-6"
+	class="mx-auto flex w-full max-w-3xl flex-1 flex-col px-4"
 	in:fade={{ duration: 220, easing: cubicOut }}
 >
 	<div
-		class="mb-6 flex flex-col items-center"
+		class="flex flex-1 flex-col items-center justify-center"
 		in:fly={{ y: 6, duration: 260, easing: cubicOut }}
 	>
 		<div
@@ -76,7 +76,7 @@
 
 	{#if !dismissed}
 		<div
-			class="w-full"
+			class="w-full pb-6"
 			in:fly={{ y: 8, duration: 240, easing: cubicOut, delay: 80 }}
 			out:fade={{ duration: 160 }}
 		>
