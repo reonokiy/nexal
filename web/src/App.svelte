@@ -3,6 +3,7 @@
 	import { router } from "$lib/router.svelte";
 	import ChatView from "$lib/views/chat-view.svelte";
 	import SettingsPage from "$lib/components/settings-page.svelte";
+	import Sidebar from "$lib/components/sidebar.svelte";
 	import { onMount } from "svelte";
 
 	const defaultUrl =
@@ -35,8 +36,11 @@
 	</script>
 </svelte:head>
 
-{#if router.current === "settings"}
-	<SettingsPage {chat} />
-{:else}
-	<ChatView {chat} />
-{/if}
+<div class="bg-background text-foreground flex h-screen">
+	<Sidebar {chat} />
+	{#if router.current === "settings"}
+		<SettingsPage {chat} />
+	{:else}
+		<ChatView {chat} />
+	{/if}
+</div>

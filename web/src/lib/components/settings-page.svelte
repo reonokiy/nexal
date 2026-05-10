@@ -139,15 +139,15 @@
 	});
 </script>
 
-<div class="bg-background text-foreground flex h-screen flex-col">
+<div class="bg-background text-foreground flex h-screen flex-1 flex-col">
 	<header
-		class="border-border bg-background/80 sticky top-0 z-10 flex items-center gap-3 border-b px-4 py-3 backdrop-blur"
+		class="border-border flex h-12 items-center gap-3 border-b px-4"
 	>
 		<Button variant="ghost" size="sm" onclick={() => router.go("home")}>
 			<ArrowLeft />
 			back
 		</Button>
-		<span class="text-lg font-semibold tracking-tight">settings</span>
+		<span class="text-base font-semibold tracking-tight">Settings</span>
 		<span class="text-muted-foreground text-xs">model providers</span>
 		<div class="ml-auto flex items-center gap-2">
 			<Button
