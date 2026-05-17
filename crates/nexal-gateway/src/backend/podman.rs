@@ -203,7 +203,7 @@ impl ContainerBackend for PodmanBackend {
         args.push(spec.image.clone());
         args.push("/usr/local/bin/nexal-agent".into());
         args.push("--listen".into());
-        args.push(format!("ws://0.0.0.0:{CONTAINER_WS_PORT}"));
+        args.push(format!("ws://[::]:{CONTAINER_WS_PORT}"));
 
         let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
         self.podman(&arg_refs).await?;

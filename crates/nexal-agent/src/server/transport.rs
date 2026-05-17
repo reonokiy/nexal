@@ -2,7 +2,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use nexal_utils_json_transport::JsonMessageConnection;
-use serde_json::Value;
+use rmpv::Value;
 use tokio::net::TcpListener;
 use tracing::{info, warn};
 
@@ -74,7 +74,7 @@ pub(crate) async fn run_transport(
             };
 
             let handler = Arc::new(ExecServerHandler::new());
-            let conn = JsonMessageConnection::<Value>::from_websocket(
+            let conn = JsonMessageConnection::<Value>::from_websocket_binary(
                 ws_stream,
                 format!("agent-client-{remote_addr}"),
             );
@@ -85,27 +85,4 @@ pub(crate) async fn run_transport(
             info!("session dispatch ended for {remote_addr}");
         });
     }
-}
-
-/// Legacy WebSocket server for backward compatibility during migration.
-/// Uses jsonrpsee — will be removed after full cutover.
-#[cfg(test)]
-pub(crate) async fn start_server(
-    bind_address: SocketAddr,
-) -> Result<(SocketAddr, jsonrpsee::server::ServerHandle), Box<dyn std::error::Error + Send + Sync>>
-{
-    use crate::server::rpc::jsonrpsee::build_module;
-    use jsonrpsee::server::ServerBuilder;
-
-    let server = ServerBuilder::default().build(bind_address).await?;
-    let local_addr = server.local_addr()?;
-    let handler = Arc::new(ExecServerHandler::new());
-    let module = build_module(handler.clone());
-    let handle = server.start(module);
-    let cleanup_handle = handle.clone();
-    tokio::spawn(async move {
-        cleanup_handle.stopped().await;
-        handler.shutdown().await;
-    });
-    Ok((local_addr, handle))
 }

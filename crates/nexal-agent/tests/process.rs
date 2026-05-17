@@ -30,8 +30,8 @@ async fn exec_server_starts_process_over_websocket() -> anyhow::Result<()> {
         })
         .await?;
 
-    // `initialized` is a jsonrpsee method now, not a notification —
-    // send it with an id so the server sees it.
+    // Send `initialized` as a request (not a notification) so the
+    // server sees it — required by the lifecycle protocol.
     let initialized_id = server
         .send_request("initialized", serde_json::Value::Null)
         .await?;
@@ -69,7 +69,7 @@ async fn exec_server_starts_process_over_websocket() -> anyhow::Result<()> {
         panic!("expected process/start response");
     };
     assert_eq!(id, process_start_id);
-    let process_start_response: ExecResponse = serde_json::from_value(result)?;
+    let process_start_response: ExecResponse = rmpv::ext::from_value(result)?;
     assert_eq!(
         process_start_response,
         ExecResponse {

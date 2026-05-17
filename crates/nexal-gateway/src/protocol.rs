@@ -1,14 +1,14 @@
-//! Frontend ↔ gateway JSON-RPC types.
+//! Frontend ↔ gateway JSON-RPC types (MessagePack binary wire format).
 //!
-//! Wire format is JSON-RPC 2.0 over a single WebSocket. We use raw
-//! `serde_json::Value` for `id` and inner request/response payloads so
+//! Wire format is JSON-RPC 2.0 over WebSocket Binary frames. We use raw
+//! `rmpv::Value` for `id` and inner request/response payloads so
 //! that we can transparently forward agent-bound traffic without
 //! having to model every possible agent method here.
 
 use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use rmpv::Value;
 
 pub const JSONRPC_VERSION: &str = "2.0";
 

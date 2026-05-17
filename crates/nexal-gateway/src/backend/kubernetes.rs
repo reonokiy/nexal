@@ -162,7 +162,7 @@ impl KubernetesBackend {
             command: Some(vec![
                 AGENT_BIN_PATH.to_string(),
                 "--listen".to_string(),
-                format!("ws://0.0.0.0:{AGENT_WS_PORT}"),
+                format!("ws://[::]:{AGENT_WS_PORT}"),
             ]),
             ports: Some({
                 let mut ports = vec![ContainerPort {

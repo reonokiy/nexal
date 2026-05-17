@@ -13,7 +13,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use serde_json::Value;
+use rmpv::Value;
 use thiserror::Error;
 use tokio::sync::{Mutex, broadcast, mpsc};
 use uuid::Uuid;

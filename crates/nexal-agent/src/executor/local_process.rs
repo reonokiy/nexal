@@ -353,7 +353,7 @@ impl LocalProcess {
                 let _total_bytes: usize = response
                     .chunks
                     .iter()
-                    .map(|chunk| chunk.chunk.0.len())
+                    .map(|chunk| chunk.chunk.len())
                     .sum();
                 return Ok(response);
             }
@@ -372,7 +372,7 @@ impl LocalProcess {
     ) -> Result<WriteResponse, JSONRPCErrorError> {
         self.require_initialized_for("exec")?;
         let _process_id = params.process_id.clone();
-        let _input_bytes = params.chunk.0.len();
+        let _input_bytes = params.chunk.len();
         let writer_tx = {
             let process_map = self.inner.processes.lock().await;
             let Some(process) = process_map.get(&params.process_id) else {
@@ -394,7 +394,7 @@ impl LocalProcess {
         };
 
         writer_tx
-            .send(params.chunk.into_inner())
+            .send(params.chunk)
             .await
             .map_err(|_| internal_error("failed to write to process stdin".to_string()))?;
 

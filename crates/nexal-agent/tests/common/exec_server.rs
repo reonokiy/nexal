@@ -4,22 +4,24 @@ use std::process::Stdio;
 use std::time::Duration;
 
 use anyhow::anyhow;
+use futures::{SinkExt, StreamExt};
 use nexal_agent::JSONRPCMessage;
 use nexal_agent::JSONRPCNotification;
 use nexal_agent::JSONRPCRequest;
+use nexal_agent::JsonRpcVersion;
 use nexal_agent::RequestId;
 use nexal_utils_cargo_bin::cargo_bin;
-use nexal_utils_json_transport::{JsonMessageConnection, JsonMessageConnectionEvent};
-use serde_json::Value;
+use serde_json::Value as JsonValue;
 use tokio::io::AsyncBufReadExt;
 use tokio::io::BufReader;
 use tokio::net::TcpStream;
 use tokio::process::Child;
 use tokio::process::Command;
-use tokio::sync::mpsc;
 use tokio::time::Instant;
 use tokio::time::sleep;
 use tokio::time::timeout;
+use tokio_tungstenite::tungstenite::Message;
+use tokio_tungstenite::WebSocketStream;
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 const CONNECT_RETRY_INTERVAL: Duration = Duration::from_millis(100);
@@ -27,20 +29,14 @@ const EVENT_TIMEOUT: Duration = Duration::from_secs(5);
 
 pub(crate) struct ExecServerHarness {
     child: Child,
-    #[allow(dead_code)]
     url: String,
-    write_tx: mpsc::Sender<Value>,
-    incoming_rx: mpsc::Receiver<JsonMessageConnectionEvent<Value>>,
-    _transport_tasks: Vec<tokio::task::JoinHandle<()>>,
+    ws: WebSocketStream<tokio::net::TcpStream>,
     next_request_id: i64,
 }
 
 impl Drop for ExecServerHarness {
     fn drop(&mut self) {
         let _ = self.child.start_kill();
-        for task in &self._transport_tasks {
-            task.abort();
-        }
     }
 }
 
@@ -54,14 +50,12 @@ pub(crate) async fn exec_server() -> anyhow::Result<ExecServerHarness> {
     let mut child = child.spawn()?;
 
     let url = read_listen_url_from_stdout(&mut child).await?;
-    let (write_tx, incoming_rx, transport_tasks) = connect_websocket_when_ready(&url).await?;
+    let ws = connect_websocket_when_ready(&url).await?;
 
     Ok(ExecServerHarness {
         child,
         url,
-        write_tx,
-        incoming_rx,
-        _transport_tasks: transport_tasks,
+        ws,
         next_request_id: 1,
     })
 }
@@ -74,13 +68,14 @@ impl ExecServerHarness {
     ) -> anyhow::Result<RequestId> {
         let id = RequestId::Integer(self.next_request_id);
         self.next_request_id += 1;
-        self.send_message(JSONRPCMessage::Request(JSONRPCRequest {
-            jsonrpc: jsonrpsee::types::TwoPointZero,
+        let msg = JSONRPCMessage::Request(JSONRPCRequest {
+            jsonrpc: JsonRpcVersion,
             id: id.clone(),
             method: method.to_string(),
-            params: Some(params),
-        }))
-        .await?;
+            params: Some(serde_json_to_msgpack_value(params)),
+        });
+        let bytes = rmp_serde::to_vec(&msg)?;
+        self.ws.send(Message::Binary(bytes.into())).await?;
         Ok(id)
     }
 
@@ -89,21 +84,18 @@ impl ExecServerHarness {
         method: &str,
         params: serde_json::Value,
     ) -> anyhow::Result<()> {
-        self.send_message(JSONRPCMessage::Notification(JSONRPCNotification {
-            jsonrpc: jsonrpsee::types::TwoPointZero,
+        let msg = JSONRPCMessage::Notification(JSONRPCNotification {
+            jsonrpc: JsonRpcVersion,
             method: method.to_string(),
-            params: Some(params),
-        }))
-        .await
+            params: Some(serde_json_to_msgpack_value(params)),
+        });
+        let bytes = rmp_serde::to_vec(&msg)?;
+        self.ws.send(Message::Binary(bytes.into())).await?;
+        Ok(())
     }
 
     pub(crate) async fn send_raw_text(&mut self, text: &str) -> anyhow::Result<()> {
-        let value: Value =
-            serde_json::from_str(text).unwrap_or_else(|_| Value::String(text.to_string()));
-        self.write_tx
-            .send(value)
-            .await
-            .map_err(|_| anyhow!("transport closed"))?;
+        self.ws.send(Message::Text(text.to_string().into())).await?;
         Ok(())
     }
 
@@ -139,50 +131,41 @@ impl ExecServerHarness {
         Ok(())
     }
 
-    async fn send_message(&mut self, message: JSONRPCMessage) -> anyhow::Result<()> {
-        let value = serde_json::to_value(&message)?;
-        self.write_tx
-            .send(value)
-            .await
-            .map_err(|_| anyhow!("transport closed"))?;
-        Ok(())
-    }
-
     async fn next_event_with_timeout(
         &mut self,
         timeout_duration: Duration,
     ) -> anyhow::Result<JSONRPCMessage> {
         loop {
-            let event = timeout(timeout_duration, self.incoming_rx.recv())
+            let msg = timeout(timeout_duration, self.ws.next())
                 .await
                 .map_err(|_| anyhow!("timed out waiting for exec-server event"))?
-                .ok_or_else(|| anyhow!("exec-server transport closed"))?;
+                .ok_or_else(|| anyhow!("exec-server transport closed"))??;
 
-            match event {
-                JsonMessageConnectionEvent::Message(value) => {
-                    return Ok(serde_json::from_value(value)?);
+            match msg {
+                Message::Binary(bytes) => {
+                    return Ok(rmp_serde::from_slice(&bytes)?);
                 }
-                JsonMessageConnectionEvent::MalformedMessage { reason } => {
-                    return Err(anyhow!("malformed message: {reason}"));
+                Message::Close(_) => {
+                    return Err(anyhow!("exec-server closed connection"));
                 }
-                JsonMessageConnectionEvent::Disconnected { reason } => {
-                    return Err(anyhow!(
-                        "exec-server disconnected: {}",
-                        reason.unwrap_or_else(|| "unknown".to_string())
-                    ));
+                Message::Ping(_) | Message::Pong(_) => continue,
+                Message::Text(text) => {
+                    return Err(anyhow!("unexpected text frame: {text}"));
                 }
+                Message::Frame(_) => continue,
             }
         }
     }
 }
 
+fn serde_json_to_msgpack_value(v: serde_json::Value) -> rmpv::Value {
+    let json_bytes = serde_json::to_vec(&v).unwrap_or_default();
+    rmp_serde::from_slice(&json_bytes).unwrap_or(rmpv::Value::Nil)
+}
+
 async fn connect_websocket_when_ready(
     url: &str,
-) -> anyhow::Result<(
-    mpsc::Sender<Value>,
-    mpsc::Receiver<JsonMessageConnectionEvent<Value>>,
-    Vec<tokio::task::JoinHandle<()>>,
-)> {
+) -> anyhow::Result<WebSocketStream<tokio::net::TcpStream>> {
     let addr = url
         .strip_prefix("ws://")
         .ok_or_else(|| anyhow!("expected ws:// URL, got {url}"))?;
@@ -191,16 +174,10 @@ async fn connect_websocket_when_ready(
     loop {
         match TcpStream::connect(addr).await {
             Ok(stream) => {
-                let ws_stream =
-                    match tokio_tungstenite::client_async(format!("ws://{addr}"), stream).await {
-                        Ok((ws, _)) => ws,
-                        Err(e) => return Err(anyhow!("websocket handshake to {url}: {e}")),
-                    };
-                let conn = JsonMessageConnection::<Value>::from_websocket(
-                    ws_stream,
-                    format!("test-client {url}"),
-                );
-                return Ok(conn.into_parts());
+                let (ws, _) = tokio_tungstenite::client_async(format!("ws://{addr}"), stream)
+                    .await
+                    .map_err(|e| anyhow!("websocket handshake to {url}: {e}"))?;
+                return Ok(ws);
             }
             Err(_) if Instant::now() < deadline => {
                 sleep(CONNECT_RETRY_INTERVAL).await;

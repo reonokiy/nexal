@@ -3,6 +3,8 @@ use tokio::sync::mpsc;
 
 use crate::transport::protocol::JSONRPCErrorError;
 use crate::transport::protocol::JSONRPCNotification;
+use crate::transport::protocol::JsonRpcVersion;
+use crate::transport::protocol::{ERROR_CODE_INTERNAL, ERROR_CODE_INVALID_PARAMS, ERROR_CODE_INVALID_REQUEST};
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum RpcServerOutboundMessage {
@@ -24,11 +26,11 @@ impl RpcNotificationSender {
         method: &str,
         params: &P,
     ) -> Result<(), JSONRPCErrorError> {
-        let params = serde_json::to_value(params).map_err(|err| internal_error(err.to_string()))?;
+        let params = rmpv::ext::to_value(params).map_err(|err| internal_error(err.to_string()))?;
         self.outgoing_tx
             .send(RpcServerOutboundMessage::Notification(
                 JSONRPCNotification {
-                    jsonrpc: jsonrpsee::types::TwoPointZero,
+                    jsonrpc: JsonRpcVersion,
                     method: method.to_string(),
                     params: Some(params),
                 },
@@ -40,7 +42,7 @@ impl RpcNotificationSender {
 
 pub(crate) fn invalid_request(message: String) -> JSONRPCErrorError {
     JSONRPCErrorError {
-        code: -32600,
+        code: ERROR_CODE_INVALID_REQUEST,
         data: None,
         message,
     }
@@ -48,7 +50,7 @@ pub(crate) fn invalid_request(message: String) -> JSONRPCErrorError {
 
 pub(crate) fn invalid_params(message: String) -> JSONRPCErrorError {
     JSONRPCErrorError {
-        code: -32602,
+        code: ERROR_CODE_INVALID_PARAMS,
         data: None,
         message,
     }
@@ -56,7 +58,7 @@ pub(crate) fn invalid_params(message: String) -> JSONRPCErrorError {
 
 pub(crate) fn internal_error(message: String) -> JSONRPCErrorError {
     JSONRPCErrorError {
-        code: -32603,
+        code: ERROR_CODE_INTERNAL,
         data: None,
         message,
     }

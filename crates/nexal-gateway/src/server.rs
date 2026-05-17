@@ -21,10 +21,8 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 
 use nexal_utils_json_transport::JsonMessageConnection;
-use serde_json::{Value, json};
-use tokio::io::{
-    AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader, ReadBuf,
-};
+use rmpv::Value;
+use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader, ReadBuf};
 use tokio::net::{TcpListener, UnixListener};
 use tokio::sync::Mutex;
 use tracing::{debug, error, info, warn};
@@ -169,7 +167,7 @@ pub async fn serve(cfg: ServerConfig, registry: Arc<AgentRegistry>) -> std::io::
                         }
                     };
                     let label = format!("ws-{remote_addr}");
-                    let conn = JsonMessageConnection::<Value>::from_websocket(
+                    let conn = JsonMessageConnection::<Value>::from_websocket_binary(
                         ws_stream,
                         format!("frontend ws {label}"),
                     );
@@ -199,7 +197,7 @@ where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
     let (reader, writer) = tokio::io::split(stream);
-    let conn = JsonMessageConnection::<Value>::from_stdio(
+    let conn = JsonMessageConnection::<Value>::from_stdio_binary(
         reader,
         writer,
         format!("frontend unix {label}"),
@@ -212,7 +210,7 @@ where
 }
 
 pub(crate) fn parse_params<T: serde::de::DeserializeOwned>(value: Value) -> Result<T, JsonRpcError> {
-    serde_json::from_value(value).map_err(|err| JsonRpcError {
+    rmpv::ext::from_value(value).map_err(|err| JsonRpcError {
         code: error_code::INVALID_PARAMS,
         message: format!("invalid params: {err}"),
         data: None,
@@ -250,8 +248,8 @@ pub(crate) fn container_socket_path(name: &str) -> String {
 }
 
 #[allow(dead_code)]
-fn _ensure_json_used() -> Value {
-    json!(null)
+fn _ensure_msgpack_used() -> Value {
+    Value::Map(vec![])
 }
 
 #[cfg(test)]

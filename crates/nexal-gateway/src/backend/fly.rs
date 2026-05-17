@@ -214,7 +214,7 @@ impl FlyBackend {
                 "memory_mb": parse_memory_mb(spec.memory.as_deref()),
             },
             "init": {
-                "exec": [ self.agent_bin, "--listen", format!("ws://0.0.0.0:{AGENT_WS_PORT}") ]
+                "exec": [ self.agent_bin, "--listen", format!("ws://[::]:{AGENT_WS_PORT}") ]
             },
             "metadata": { "nexal": "worker", "nexal_name": spec.name }
         })

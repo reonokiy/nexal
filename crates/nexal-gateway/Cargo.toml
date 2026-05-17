@@ -26,6 +26,8 @@ http-body-util = { workspace = true }
 ring = { workspace = true }
 nexal-utils-json-transport = { workspace = true, features = ["webtransport"] }
 reqwest = { workspace = true }
+rmp-serde = { workspace = true }
+rmpv = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

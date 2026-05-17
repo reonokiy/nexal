@@ -52,7 +52,7 @@ async fn collect_process_output_from_reads(
             anyhow::bail!("process failed before closed state: {message}");
         }
         for chunk in response.chunks {
-            output.push_str(&String::from_utf8_lossy(&chunk.chunk.into_inner()));
+            output.push_str(&String::from_utf8_lossy(&chunk.chunk));
             after_seq = Some(chunk.seq);
         }
         if response.exited {

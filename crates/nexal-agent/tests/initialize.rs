@@ -26,7 +26,7 @@ async fn exec_server_accepts_initialize() -> anyhow::Result<()> {
         panic!("expected initialize response");
     };
     assert_eq!(id, initialize_id);
-    let initialize_response: InitializeResponse = serde_json::from_value(result)?;
+    let initialize_response: InitializeResponse = rmpv::ext::from_value(result)?;
     // initialize returns a default shell and cwd today; we just need a
     // successful response — the exact values are environment-dependent.
     assert!(

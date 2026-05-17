@@ -1,8 +1,5 @@
 use std::io;
 
-use base64::Engine as _;
-use base64::engine::general_purpose::STANDARD;
-
 use crate::transport::protocol::FsCopyParams;
 use crate::transport::protocol::FsCopyResponse;
 use crate::transport::protocol::FsCreateDirectoryParams;
@@ -43,7 +40,7 @@ impl FileSystemHandler {
             .await
             .map_err(map_fs_error)?;
         Ok(FsReadFileResponse {
-            data_base64: STANDARD.encode(bytes),
+            data: bytes,
         })
     }
 
@@ -51,13 +48,8 @@ impl FileSystemHandler {
         &self,
         params: FsWriteFileParams,
     ) -> Result<FsWriteFileResponse, JSONRPCErrorError> {
-        let bytes = STANDARD.decode(params.data_base64).map_err(|err| {
-            invalid_request(format!(
-                "fs/writeFile requires valid base64 dataBase64: {err}"
-            ))
-        })?;
         self.file_system
-            .write_file(&params.path, bytes)
+            .write_file(&params.path, params.data)
             .await
             .map_err(map_fs_error)?;
         Ok(FsWriteFileResponse {})

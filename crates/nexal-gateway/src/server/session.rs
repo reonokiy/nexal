@@ -1,7 +1,7 @@
 //! Frontend session — one per WebSocket or Unix-socket connection.
 //!
 //! Owns the per-connection message loop, HMAC authentication, and
-//! JSON-RPC request dispatch.
+//! JSON-RPC request dispatch (MessagePack binary frames).
 
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -9,9 +9,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use ring::hmac;
 
 use nexal_utils_json_transport::{JsonMessageConnection, JsonMessageConnectionEvent};
-use serde_json::Value;
+use rmpv::Value;
 use tokio::sync::{Mutex, mpsc};
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 use crate::protocol::{
     AgentIdParams, AgentInvokeParams, AgentNotifyParams, AgentSummary, AttachAgentParams,
@@ -80,6 +80,10 @@ async fn verify_hello(cfg: &ServerConfig, p: &HelloParams) -> Result<(), JsonRpc
     Ok(())
 }
 
+fn to_msgpack<T: serde::Serialize>(v: &T) -> Value {
+    rmpv::ext::to_value(v).unwrap_or(Value::Nil)
+}
+
 pub(super) struct Session {
     ws_tx: mpsc::Sender<Value>,
     incoming_rx: mpsc::Receiver<JsonMessageConnectionEvent<Value>>,
@@ -116,21 +120,14 @@ impl Session {
                 if !*auth_for_notify.lock().await {
                     continue;
                 }
-                let value = match serde_json::to_value(notification(
+                let value = to_msgpack(&notification(
                     NOTIFY_AGENT,
-                    serde_json::to_value(AgentNotifyParams {
+                    to_msgpack(&AgentNotifyParams {
                         agent_id: notif.agent_id,
                         method: notif.method,
                         params: notif.params,
-                    })
-                    .unwrap_or(Value::Null),
-                )) {
-                    Ok(value) => value,
-                    Err(err) => {
-                        warn!("encode notification: {err}");
-                        continue;
-                    }
-                };
+                    }),
+                ));
                 if write_tx.send(value).await.is_err() {
                     break;
                 }
@@ -141,7 +138,7 @@ impl Session {
             match event {
                 JsonMessageConnectionEvent::Message(value) => self.handle_value(value).await,
                 JsonMessageConnectionEvent::MalformedMessage { reason } => {
-                    self.send_error(Value::Null, error_code::PARSE_ERROR, reason)
+                    self.send_error(Value::Nil, error_code::PARSE_ERROR, reason)
                         .await;
                 }
                 JsonMessageConnectionEvent::Disconnected { reason } => {
@@ -161,10 +158,10 @@ impl Session {
     }
 
     async fn handle_value(&self, value: Value) {
-        let req: JsonRpcRequest = match serde_json::from_value(value) {
+        let req: JsonRpcRequest = match rmpv::ext::from_value(value) {
             Ok(r) => r,
             Err(err) => {
-                self.send_error(Value::Null, error_code::PARSE_ERROR, format!("json: {err}"))
+                self.send_error(Value::Nil, error_code::PARSE_ERROR, format!("msgpack: {err}"))
                     .await;
                 return;
             }
@@ -188,7 +185,7 @@ impl Session {
 
         let result = self.dispatch(&req).await;
         match result {
-            Ok(value) => self.send_result(req_id, value).await,
+            Ok(val) => self.send_result(req_id, val).await,
             Err(err) => {
                 self.send_response(JsonRpcResponse {
                     jsonrpc: JSONRPC_VERSION.into(),
@@ -202,18 +199,17 @@ impl Session {
     }
 
     async fn dispatch(&self, req: &JsonRpcRequest) -> Result<Value, JsonRpcError> {
-        let params = req.params.clone().unwrap_or(Value::Null);
+        let params = req.params.clone().unwrap_or(Value::Nil);
         match req.method.as_str() {
             METHOD_HELLO => {
                 let p: HelloParams = super::parse_params(params)?;
                 verify_hello(&self.cfg, &p).await?;
                 *self.authenticated.lock().await = true;
                 info!("frontend client authenticated: {}", p.client_name);
-                Ok(serde_json::to_value(HelloResponse {
+                Ok(to_msgpack(&HelloResponse {
                     ok: true,
                     gateway_version: GATEWAY_VERSION.into(),
-                })
-                .unwrap_or(Value::Null))
+                }))
             }
             METHOD_SPAWN_AGENT => {
                 let p: SpawnAgentParams = super::parse_params(params)?;
@@ -222,11 +218,10 @@ impl Session {
                     .spawn(p.name, p.image, p.env, p.labels, p.extra_ports)
                     .await
                     .map_err(super::registry_err)?;
-                Ok(serde_json::to_value(SpawnAgentResponse {
+                Ok(to_msgpack(&SpawnAgentResponse {
                     agent_id: entry.agent_id,
                     container_name: entry.container_name,
-                })
-                .unwrap_or(Value::Null))
+                }))
             }
             METHOD_KILL_AGENT => {
                 let p: AgentIdParams = super::parse_params(params)?;
@@ -234,7 +229,7 @@ impl Session {
                     .kill(&p.agent_id)
                     .await
                     .map_err(super::registry_err)?;
-                Ok(serde_json::to_value(OkResponse { ok: true }).unwrap_or(Value::Null))
+                Ok(to_msgpack(&OkResponse { ok: true }))
             }
             METHOD_DETACH_AGENT => {
                 let p: AgentIdParams = super::parse_params(params)?;
@@ -242,7 +237,7 @@ impl Session {
                     .detach(&p.agent_id)
                     .await
                     .map_err(super::registry_err)?;
-                Ok(serde_json::to_value(OkResponse { ok: true }).unwrap_or(Value::Null))
+                Ok(to_msgpack(&OkResponse { ok: true }))
             }
             METHOD_ATTACH_AGENT => {
                 let p: AttachAgentParams = super::parse_params(params)?;
@@ -251,11 +246,10 @@ impl Session {
                     .attach(p.container_name)
                     .await
                     .map_err(super::registry_err)?;
-                Ok(serde_json::to_value(SpawnAgentResponse {
+                Ok(to_msgpack(&SpawnAgentResponse {
                     agent_id: entry.agent_id,
                     container_name: entry.container_name,
-                })
-                .unwrap_or(Value::Null))
+                }))
             }
             METHOD_LIST_AGENTS => {
                 let entries = self.registry.list().await;
@@ -267,7 +261,7 @@ impl Session {
                         created_at_unix_ms: e.created_at_unix_ms,
                     })
                     .collect();
-                Ok(serde_json::to_value(ListAgentsResponse { agents }).unwrap_or(Value::Null))
+                Ok(to_msgpack(&ListAgentsResponse { agents }))
             }
             METHOD_AGENT_INVOKE => {
                 let p: AgentInvokeParams = super::parse_params(params)?;
@@ -313,41 +307,37 @@ impl Session {
                     self.cfg.proxy_external_base.trim_end_matches('/'),
                     entry.token
                 );
+                let agent_params = to_msgpack(&serde_json::json!({
+                    "socket_path": socket_path,
+                    "upstream_url": gateway_url,
+                    "headers": {},
+                }));
                 let agent_resp = agent_entry
                     .conn
-                    .invoke(
-                        "proxy/register",
-                        Some(serde_json::json!({
-                            "socket_path": socket_path,
-                            "upstream_url": gateway_url,
-                            "headers": {},
-                        })),
-                    )
+                    .invoke("proxy/register", Some(agent_params))
                     .await;
                 if let Err(err) = agent_resp {
                     self.registry.proxies.unregister(&p.agent_id, &p.name).await;
                     return Err(JsonRpcError::from(err));
                 }
-                Ok(serde_json::to_value(RegisterProxyResponse {
+                Ok(to_msgpack(&RegisterProxyResponse {
                     token: entry.token,
                     socket_path,
-                })
-                .unwrap_or(Value::Null))
+                }))
             }
             METHOD_UNREGISTER_PROXY => {
                 let p: UnregisterProxyParams = super::parse_params(params)?;
                 let socket_path = super::container_socket_path(&p.name);
                 if let Some(agent_entry) = self.registry.get(&p.agent_id).await {
+                    let agent_params =
+                        to_msgpack(&serde_json::json!({ "socket_path": socket_path }));
                     let _ = agent_entry
                         .conn
-                        .invoke(
-                            "proxy/unregister",
-                            Some(serde_json::json!({ "socket_path": socket_path })),
-                        )
+                        .invoke("proxy/unregister", Some(agent_params))
                         .await;
                 }
                 let removed = self.registry.proxies.unregister(&p.agent_id, &p.name).await;
-                Ok(serde_json::to_value(OkResponse { ok: removed }).unwrap_or(Value::Null))
+                Ok(to_msgpack(&OkResponse { ok: removed }))
             }
             METHOD_REGISTER_STREAM_PROXY => {
                 let p: RegisterStreamProxyParams = super::parse_params(params)?;
@@ -382,10 +372,7 @@ impl Session {
                         message: e,
                         data: None,
                     })?;
-                Ok(
-                    serde_json::to_value(RegisterStreamProxyResponse { listen_addr })
-                        .unwrap_or(Value::Null),
-                )
+                Ok(to_msgpack(&RegisterStreamProxyResponse { listen_addr }))
             }
             METHOD_UNREGISTER_STREAM_PROXY => {
                 let p: UnregisterStreamProxyParams = super::parse_params(params)?;
@@ -394,7 +381,7 @@ impl Session {
                     .tcp_proxies
                     .unregister(&p.agent_id, &p.name)
                     .await;
-                Ok(serde_json::to_value(OkResponse { ok: removed }).unwrap_or(Value::Null))
+                Ok(to_msgpack(&OkResponse { ok: removed }))
             }
             other => Err(JsonRpcError {
                 code: error_code::METHOD_NOT_FOUND,
@@ -414,13 +401,7 @@ impl Session {
     }
 
     async fn send_response(&self, resp: JsonRpcResponse) {
-        let value = match serde_json::to_value(resp) {
-            Ok(value) => value,
-            Err(err) => {
-                warn!("encode response: {err}");
-                return;
-            }
-        };
+        let value = to_msgpack(&resp);
         if let Err(err) = self.ws_tx.send(value).await {
             debug!("send response: {err}");
         }

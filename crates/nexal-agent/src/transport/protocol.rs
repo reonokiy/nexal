@@ -1,16 +1,111 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
-use jsonrpsee::types::TwoPointZero;
 use serde::Deserialize;
 use serde::Serialize;
 
 use crate::ProcessId;
 
+// ── JSON-RPC version marker ────────────────────────────────────────
+
+/// Always serializes to `"2.0"`, deserializes only from `"2.0"`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct JsonRpcVersion;
+
+impl Serialize for JsonRpcVersion {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str("2.0")
+    }
+}
+
+impl<'de> Deserialize<'de> for JsonRpcVersion {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let s = String::deserialize(d)?;
+        if s == "2.0" {
+            Ok(JsonRpcVersion)
+        } else {
+            Err(serde::de::Error::custom(format!(
+                "expected jsonrpc \"2.0\", got {s:?}"
+            )))
+        }
+    }
+}
+
 pub const EXEC_OUTPUT_DELTA_METHOD: &str = "process/output";
 pub const EXEC_EXITED_METHOD: &str = "process/exited";
 pub const EXEC_CLOSED_METHOD: &str = "process/closed";
+
+// ── Request method enum ────────────────────────────────────────────
+
+/// Parsed JSON-RPC method name, grouped by domain.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Method {
+    Lifecycle(LifecycleMethod),
+    Process(ProcessMethod),
+    FileSystem(FsMethod),
+    Proxy(ProxyMethod),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LifecycleMethod {
+    Initialize,
+    Initialized,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProcessMethod {
+    Start,
+    Read,
+    Write,
+    Terminate,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FsMethod {
+    ReadFile,
+    WriteFile,
+    CreateDirectory,
+    GetMetadata,
+    ReadDirectory,
+    Remove,
+    Copy,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProxyMethod {
+    Register,
+    Unregister,
+}
+
+/// Parse a wire-format method name into a [`Method`].
+pub fn parse_method(s: &str) -> Option<Method> {
+    match s {
+        "initialize" => Some(Method::Lifecycle(LifecycleMethod::Initialize)),
+        "initialized" => Some(Method::Lifecycle(LifecycleMethod::Initialized)),
+        "process/start" => Some(Method::Process(ProcessMethod::Start)),
+        "process/read" => Some(Method::Process(ProcessMethod::Read)),
+        "process/write" => Some(Method::Process(ProcessMethod::Write)),
+        "process/terminate" => Some(Method::Process(ProcessMethod::Terminate)),
+        "fs/read_file" => Some(Method::FileSystem(FsMethod::ReadFile)),
+        "fs/write_file" => Some(Method::FileSystem(FsMethod::WriteFile)),
+        "fs/create_directory" => Some(Method::FileSystem(FsMethod::CreateDirectory)),
+        "fs/get_metadata" => Some(Method::FileSystem(FsMethod::GetMetadata)),
+        "fs/read_directory" => Some(Method::FileSystem(FsMethod::ReadDirectory)),
+        "fs/remove" => Some(Method::FileSystem(FsMethod::Remove)),
+        "fs/copy" => Some(Method::FileSystem(FsMethod::Copy)),
+        "proxy/register" => Some(Method::Proxy(ProxyMethod::Register)),
+        "proxy/unregister" => Some(Method::Proxy(ProxyMethod::Unregister)),
+        _ => None,
+    }
+}
+
+// ── JSON-RPC error codes ──────────────────────────────────────────
+
+pub const ERROR_CODE_PARSE: i64 = -32700;
+pub const ERROR_CODE_INVALID_REQUEST: i64 = -32600;
+pub const ERROR_CODE_METHOD_NOT_FOUND: i64 = -32601;
+pub const ERROR_CODE_INVALID_PARAMS: i64 = -32602;
+pub const ERROR_CODE_INTERNAL: i64 = -32603;
 
 /// Register a reverse proxy Unix socket inside the container.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -43,23 +138,7 @@ pub struct ProxyUnregisterResponse {
     pub ok: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(transparent)]
-pub struct ByteChunk(#[serde(with = "base64_bytes")] pub Vec<u8>);
-
-impl ByteChunk {
-    pub fn into_inner(self) -> Vec<u8> {
-        self.0
-    }
-}
-
-impl From<Vec<u8>> for ByteChunk {
-    fn from(value: Vec<u8>) -> Self {
-        Self(value)
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct InitializeParams {
     pub client_name: String,
@@ -109,7 +188,7 @@ pub struct ReadParams {
 pub struct ProcessOutputChunk {
     pub seq: u64,
     pub stream: ExecOutputStream,
-    pub chunk: ByteChunk,
+    pub chunk: Vec<u8>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -127,7 +206,7 @@ pub struct ReadResponse {
 #[serde(rename_all = "snake_case")]
 pub struct WriteParams {
     pub process_id: ProcessId,
-    pub chunk: ByteChunk,
+    pub chunk: Vec<u8>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -171,7 +250,7 @@ pub struct ExecOutputDeltaNotification {
     pub process_id: ProcessId,
     pub seq: u64,
     pub stream: ExecOutputStream,
-    pub chunk: ByteChunk,
+    pub chunk: Vec<u8>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -196,8 +275,8 @@ pub struct ExecClosedNotification {
 pub enum RequestId {
     String(String),
     Integer(i64),
-    /// JSON-RPC 2.0 allows `null` ids — jsonrpsee emits them when it
-    /// can't parse the caller's id (e.g. a malformed frame).
+    /// JSON-RPC 2.0 allows `null` ids on error responses for
+    /// malformed frames where the original id could not be parsed.
     Null,
 }
 
@@ -223,34 +302,34 @@ pub enum JSONRPCMessage {
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct JSONRPCRequest {
     #[serde(default = "jsonrpc_2_0")]
-    pub jsonrpc: TwoPointZero,
+    pub jsonrpc: JsonRpcVersion,
     pub id: RequestId,
     pub method: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub params: Option<serde_json::Value>,
+    pub params: Option<rmpv::Value>,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct JSONRPCNotification {
     #[serde(default = "jsonrpc_2_0")]
-    pub jsonrpc: TwoPointZero,
+    pub jsonrpc: JsonRpcVersion,
     pub method: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub params: Option<serde_json::Value>,
+    pub params: Option<rmpv::Value>,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct JSONRPCResponse {
     #[serde(default = "jsonrpc_2_0")]
-    pub jsonrpc: TwoPointZero,
+    pub jsonrpc: JsonRpcVersion,
     pub id: RequestId,
-    pub result: serde_json::Value,
+    pub result: rmpv::Value,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct JSONRPCError {
     #[serde(default = "jsonrpc_2_0")]
-    pub jsonrpc: TwoPointZero,
+    pub jsonrpc: JsonRpcVersion,
     pub error: JSONRPCErrorError,
     pub id: RequestId,
 }
@@ -259,12 +338,12 @@ pub struct JSONRPCError {
 pub struct JSONRPCErrorError {
     pub code: i64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub data: Option<serde_json::Value>,
+    pub data: Option<rmpv::Value>,
     pub message: String,
 }
 
-fn jsonrpc_2_0() -> TwoPointZero {
-    TwoPointZero
+fn jsonrpc_2_0() -> JsonRpcVersion {
+    JsonRpcVersion
 }
 
 // ── Filesystem wire types ──
@@ -280,14 +359,14 @@ pub struct FsReadFileParams {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FsReadFileResponse {
-    pub data_base64: String,
+    pub data: Vec<u8>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FsWriteFileParams {
     pub path: AbsolutePathBuf,
-    pub data_base64: String,
+    pub data: Vec<u8>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -365,63 +444,36 @@ pub struct FsCopyParams {
 #[serde(rename_all = "camelCase")]
 pub struct FsCopyResponse {}
 
-mod base64_bytes {
-    use super::BASE64_STANDARD;
-    use base64::Engine as _;
-    use serde::Deserialize;
-    use serde::Deserializer;
-    use serde::Serializer;
-
-    pub fn serialize<S>(bytes: &[u8], serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_str(&BASE64_STANDARD.encode(bytes))
-    }
-
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<Vec<u8>, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let encoded = String::deserialize(deserializer)?;
-        BASE64_STANDARD
-            .decode(encoded)
-            .map_err(serde::de::Error::custom)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
+
+    fn msgpack_roundtrip<T: Serialize + serde::de::DeserializeOwned + std::fmt::Debug + PartialEq>(
+        val: &T,
+    ) {
+        let v = rmpv::ext::to_value(val).expect("serialize");
+        let back: T = rmpv::ext::from_value(v).expect("deserialize");
+        assert_eq!(back, *val);
+    }
 
     // ── RequestId round-trip ──────────────────────────────────────
 
     #[test]
     fn request_id_string_round_trips() {
         let id = RequestId::String("abc-123".into());
-        let v = serde_json::to_value(&id).expect("serialize");
-        assert_eq!(v, json!("abc-123"));
-        let back: RequestId = serde_json::from_value(v).expect("deserialize");
-        assert_eq!(back, id);
+        msgpack_roundtrip(&id);
     }
 
     #[test]
     fn request_id_integer_round_trips() {
         let id = RequestId::Integer(42);
-        let v = serde_json::to_value(&id).expect("serialize");
-        assert_eq!(v, json!(42));
-        let back: RequestId = serde_json::from_value(v).expect("deserialize");
-        assert_eq!(back, id);
+        msgpack_roundtrip(&id);
     }
 
     #[test]
     fn request_id_null_round_trips() {
         let id = RequestId::Null;
-        let v = serde_json::to_value(&id).expect("serialize");
-        assert_eq!(v, json!(null));
-        let back: RequestId = serde_json::from_value(v).expect("deserialize");
-        assert_eq!(back, id);
+        msgpack_roundtrip(&id);
     }
 
     #[test]
@@ -429,96 +481,5 @@ mod tests {
         assert_eq!(RequestId::String("x".into()).to_string(), "x");
         assert_eq!(RequestId::Integer(99).to_string(), "99");
         assert_eq!(RequestId::Null.to_string(), "null");
-    }
-
-    // ── JSONRPCMessage discriminated parse ─────────────────────────
-
-    #[test]
-    fn parses_request_with_id_and_method() {
-        let raw = json!({
-            "jsonrpc": "2.0",
-            "id": "req-1",
-            "method": "process/start",
-            "params": { "process_id": "p1" }
-        });
-        let msg: JSONRPCMessage = serde_json::from_value(raw).expect("parse request");
-        match msg {
-            JSONRPCMessage::Request(req) => {
-                assert_eq!(req.id, RequestId::String("req-1".into()));
-                assert_eq!(req.method, "process/start");
-            }
-            other => panic!("expected Request, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn parses_notification_without_id() {
-        let raw = json!({
-            "jsonrpc": "2.0",
-            "method": "process/output",
-            "params": { "chunk": "data" }
-        });
-        let msg: JSONRPCMessage = serde_json::from_value(raw).expect("parse notification");
-        match msg {
-            JSONRPCMessage::Notification(n) => {
-                assert_eq!(n.method, "process/output");
-            }
-            other => panic!("expected Notification, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn parses_response_with_result() {
-        let raw = json!({
-            "jsonrpc": "2.0",
-            "id": 7,
-            "result": { "ok": true }
-        });
-        let msg: JSONRPCMessage = serde_json::from_value(raw).expect("parse response");
-        match msg {
-            JSONRPCMessage::Response(r) => {
-                assert_eq!(r.id, RequestId::Integer(7));
-                assert_eq!(r.result, json!({ "ok": true }));
-            }
-            other => panic!("expected Response, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn parses_error_response_with_null_id() {
-        let raw = json!({
-            "jsonrpc": "2.0",
-            "id": null,
-            "error": { "code": -32700, "message": "parse error" }
-        });
-        let msg: JSONRPCMessage = serde_json::from_value(raw).expect("parse error response");
-        match msg {
-            JSONRPCMessage::Error(e) => {
-                assert_eq!(e.id, RequestId::Null);
-                assert_eq!(e.error.code, -32700);
-                assert_eq!(e.error.message, "parse error");
-            }
-            other => panic!("expected Error, got {other:?}"),
-        }
-    }
-
-    // ── Proxy wire types ──────────────────────────────────────────
-
-    #[test]
-    fn proxy_register_params_snake_case() {
-        let p = ProxyRegisterParams {
-            socket_path: "/ws/.nexal/proxies/jina.sock".into(),
-            upstream_url: "https://api.jina.ai".into(),
-            headers: [("Authorization".into(), "Bearer k".into())]
-                .into_iter()
-                .collect(),
-        };
-        let v = serde_json::to_value(&p).expect("serialize");
-        let obj = v.as_object().expect("is object");
-        assert!(obj.contains_key("socket_path"));
-        assert!(obj.contains_key("upstream_url"));
-        // No camelCase leak.
-        assert!(!obj.contains_key("socketPath"));
-        assert!(!obj.contains_key("upstreamUrl"));
     }
 }

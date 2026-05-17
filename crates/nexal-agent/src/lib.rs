@@ -20,10 +20,10 @@ pub use transport::protocol::{
     FsCreateDirectoryResponse, FsGetMetadataParams, FsGetMetadataResponse, FsReadDirectoryParams,
     FsReadDirectoryResponse, FsReadFileParams, FsReadFileResponse, FsRemoveParams,
     FsRemoveResponse, FsWriteFileParams, FsWriteFileResponse, InitializeParams, InitializeResponse,
-    JSONRPCError, JSONRPCErrorError, JSONRPCMessage, JSONRPCNotification, JSONRPCRequest,
-    JSONRPCResponse, ProxyRegisterParams, ProxyRegisterResponse, ProxyUnregisterParams,
-    ProxyUnregisterResponse, ReadParams, ReadResponse, RequestId, TerminateParams,
-    TerminateResponse, WriteParams, WriteResponse, WriteStatus,
+    JsonRpcVersion, JSONRPCError, JSONRPCErrorError, JSONRPCMessage, JSONRPCNotification,
+    JSONRPCRequest, JSONRPCResponse, ProxyRegisterParams, ProxyRegisterResponse,
+    ProxyUnregisterParams, ProxyUnregisterResponse, ReadParams, ReadResponse, RequestId,
+    TerminateParams, TerminateResponse, WriteParams, WriteResponse, WriteStatus,
 };
 
 pub use server::{
