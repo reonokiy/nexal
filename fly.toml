@@ -12,15 +12,27 @@ primary_region = "ams"
 [build]
   dockerfile = "gateway.Dockerfile"
 
+# Minimal shared-CPU instance (smallest available).
 [[vm]]
   size   = "shared-cpu-1x"
-  memory = "512mb"
+  memory = "256mb"
 
-# WebSocket over TCP; Fly proxy terminates TLS and forwards plaintext
-# to the gateway on port 5500.
+# Public WebSocket endpoint — Fly proxy terminates TLS on 443 and forwards
+# plain WebSocket to the gateway on port 5500.
+# Shared IPv4 + IPv6 are allocated automatically.
 [[services]]
   internal_port = 5500
   protocol      = "tcp"
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+
+  # TLS WebSocket (wss://)
   [[services.ports]]
-    port = 5500
+    port     = 443
+    handlers = ["tls", "http"]
+
+  # Plain WebSocket (ws://)
+  [[services.ports]]
+    port     = 80
     handlers = ["http"]
