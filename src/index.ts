@@ -20,7 +20,8 @@ import { createReportToParentTool } from "./tools/report_to_parent.ts";
 import { createSendUpdateTool } from "./tools/send_update.ts";
 import { createCoordinatorTools } from "./tools/worker.ts";
 import { WorkerRegistry } from "./workers/registry.ts";
-import { loadAuth, loadModelConfig, closeSettings } from "./settings.ts";
+import { loadAuth, loadModelConfig } from "./settings.ts";
+import { setDbUrl, runMigrations, closeDb } from "./db.ts";
 import { createWorkerStore } from "./workers/store.ts";
 import {
 	isCompiled,
@@ -157,7 +158,18 @@ async function launchGateway(): Promise<{
 
 async function main(): Promise<void> {
 	const cfg = await loadConfig();
-	// Load saved auth & model config from settings DB (PGlite).
+	// Open the shared Postgres connection and apply migrations before
+	// anything reads the DB. No embedded fallback — fail fast with a
+	// clear message if no Postgres URL is configured.
+	setDbUrl(cfg.workers.url);
+	try {
+		await runMigrations();
+	} catch (err) {
+		log.error(String(err instanceof Error ? err.message : err));
+		process.exit(1);
+	}
+
+	// Load saved auth & model config from the settings DB (Postgres).
 	await applySavedAuth();
 
 	const provider = process.env.NEXAL_MODEL_PROVIDER ?? "openrouter";
@@ -313,7 +325,7 @@ async function main(): Promise<void> {
 		);
 		await manager.stopAll();
 		await gateway.releaseAllAgents();
-		await closeSettings().catch(() => undefined);
+		await closeDb().catch(() => undefined);
 		if (gatewayProc) {
 			gatewayProc.kill("SIGTERM");
 			log.info("stopped embedded gateway");

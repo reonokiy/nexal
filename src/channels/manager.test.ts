@@ -6,7 +6,7 @@ import type { Channel, IncomingMessage } from "./types.ts";
 /**
  * ChannelManager.reconcile diff logic is tested in isolation: we inject
  * `loadConfigs` (a mutable fake DB) and `buildChannelFn` (returns fake
- * channels instead of binding real ports / hitting PGlite), then drive
+ * channels instead of binding real ports / hitting the DB), then drive
  * `reconcile()` directly. `start`/`stop` are spies.
  */
 

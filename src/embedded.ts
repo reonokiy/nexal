@@ -8,7 +8,7 @@
  * In dev mode (`bun run`), everything is read from disk as before.
  */
 import { writeFileSync, chmodSync, mkdirSync, existsSync, statSync, renameSync } from "node:fs";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
 import { homedir } from "node:os";
 import { log } from "./log.ts";
 
@@ -28,22 +28,24 @@ export { COORDINATOR_PROMPT, EXECUTOR_PROMPT };
 
 export let embeddedGatewayPath: string | null = null;
 export let embeddedAgentPath: string | null = null;
-export let embeddedPgliteWasm: string | null = null;
-export let embeddedPgliteData: string | null = null;
-export let embeddedInitdbWasm: string | null = null;
+
+/** Drizzle migration files, relative name → embedded $bunfs path. */
+export interface EmbeddedMigration {
+	/** Path relative to the `drizzle/` folder, e.g. "meta/_journal.json". */
+	name: string;
+	/** $bunfs path of the embedded file. */
+	path: string;
+}
+export let embeddedMigrations: EmbeddedMigration[] | null = null;
 
 export function setEmbeddedPaths(paths: {
 	gateway?: string | null;
 	agent?: string | null;
-	pgliteWasm?: string | null;
-	pgliteData?: string | null;
-	initdbWasm?: string | null;
+	migrations?: EmbeddedMigration[] | null;
 }): void {
 	embeddedGatewayPath = paths.gateway ?? null;
 	embeddedAgentPath = paths.agent ?? null;
-	embeddedPgliteWasm = paths.pgliteWasm ?? null;
-	embeddedPgliteData = paths.pgliteData ?? null;
-	embeddedInitdbWasm = paths.initdbWasm ?? null;
+	embeddedMigrations = paths.migrations ?? null;
 }
 
 // ── Extraction ─────────────────────────────────────────────────────
@@ -110,25 +112,23 @@ export async function extractEmbeddedBinaries(): Promise<{
 	return { gatewayBin, agentBin };
 }
 
-// ── PGlite asset extraction ────────────────────────────────────────
+// ── Migration extraction (compiled mode) ───────────────────────────
 
-const LIB_DIR = join(homedir(), ".nexal", "lib");
+const MIG_DIR = join(homedir(), ".nexal", "migrations");
 
 /**
- * Extract embedded PGlite WASM/data assets to ~/.nexal/lib/.
- * Returns the directory containing the extracted files, or null in dev mode.
+ * Extract embedded drizzle migration files to ~/.nexal/migrations/
+ * (preserving the `meta/` subdir layout the migrator expects) and
+ * return that folder. Null in dev mode — callers use ./drizzle then.
  */
-export async function extractPgliteAssets(): Promise<string | null> {
-	if (!isCompiled || !embeddedPgliteWasm) return null;
+export async function extractMigrations(): Promise<string | null> {
+	if (!isCompiled || !embeddedMigrations) return null;
 
-	mkdirSync(LIB_DIR, { recursive: true });
-	const selfMtime = statSync(process.execPath).mtimeMs;
-
-	await Promise.all([
-		embeddedPgliteWasm ? extract(embeddedPgliteWasm, "pglite.wasm", selfMtime, LIB_DIR, true) : null,
-		embeddedPgliteData ? extract(embeddedPgliteData, "pglite.data", selfMtime, LIB_DIR, true) : null,
-		embeddedInitdbWasm ? extract(embeddedInitdbWasm, "initdb.wasm", selfMtime, LIB_DIR, true) : null,
-	]);
-
-	return LIB_DIR;
+	for (const m of embeddedMigrations) {
+		const dest = join(MIG_DIR, m.name);
+		mkdirSync(dirname(dest), { recursive: true });
+		const buf = await Bun.file(m.path).arrayBuffer();
+		writeFileSync(dest, Buffer.from(buf));
+	}
+	return MIG_DIR;
 }

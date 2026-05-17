@@ -1,20 +1,14 @@
 /**
  * WorkerStore — Drizzle-backed persistence for sub-agent workers.
  *
- * Two driver modes:
- *   1. External Postgres via `drizzle-orm/bun-sql` (Bun.sql native)
- *      — set `url` to a postgres:// connection string.
- *   2. Embedded PGlite via `drizzle-orm/pglite` (WASM, zero-deps)
- *      — leave `url` empty; data persists to `~/.nexal/data/`.
+ * Backed by the shared external Postgres connection (`src/db.ts`);
+ * schema is owned by drizzle migrations. The old embedded-PGlite
+ * fallback was removed — a Postgres URL is mandatory.
  */
-import { and, desc, eq, inArray, sql as dsql } from "drizzle-orm";
-import { drizzle as drizzleBun } from "drizzle-orm/bun-sql";
-import { drizzle as drizzlePglite } from "drizzle-orm/pglite";
+import { and, desc, eq, inArray } from "drizzle-orm";
 
-import { createLog } from "../log.ts";
+import { getDb, runMigrations, setDbUrl } from "../db.ts";
 import * as schema from "./schema.ts";
-
-const log = createLog("store");
 
 export type WorkerKind = "coordinator" | "executor";
 export type WorkerLifetime = "persistent" | "oneshot";
@@ -86,13 +80,16 @@ export interface WorkerStore {
 export interface WorkerStoreConfig {
 	/**
 	 * Postgres connection string, e.g. `postgres://user:pw@host:5432/db`.
-	 * Leave empty to use embedded PGlite (data at `~/.nexal/data/`).
+	 * Required — there is no embedded fallback. Empty → startup error
+	 * (raised by the shared db layer).
 	 */
 	url: string;
 }
 
 export async function createWorkerStore(cfg: WorkerStoreConfig): Promise<WorkerStore> {
-	const { db, close } = await openDb(cfg);
+	setDbUrl(cfg.url);
+	await runMigrations();
+	const db = getDb();
 	const { workers } = schema;
 
 	return {
@@ -207,64 +204,9 @@ export async function createWorkerStore(cfg: WorkerStoreConfig): Promise<WorkerS
 		},
 
 		async close(): Promise<void> {
-			await close();
+			// Pool lifecycle is centralized in db.ts (closeDb on shutdown).
 		},
 	};
-}
-
-// ── Driver bootstrap ────────────────────────────────────────────────
-
-type Db = ReturnType<typeof drizzleBun> | ReturnType<typeof drizzlePglite>;
-
-async function openDb(cfg: WorkerStoreConfig): Promise<{ db: Db; close: () => Promise<void> }> {
-	if (cfg.url) {
-		// External Postgres via Bun.sql
-		const sql = new (Bun as any).SQL(cfg.url);
-		const db = drizzleBun(sql, { schema });
-		return { db, close: () => sql.close() };
-	}
-
-	// Embedded PGlite — share the process-wide instance from settings.ts
-	// (PGlite only allows one connection per data directory).
-	const { getSharedPglite } = await import("../settings.ts");
-	const client = await getSharedPglite();
-	const db = drizzlePglite({ client, schema });
-
-	// Auto-create the workers table if it doesn't exist.
-	await db.execute(dsql`
-		CREATE TABLE IF NOT EXISTS workers (
-			id TEXT PRIMARY KEY,
-			kind TEXT NOT NULL,
-			lifetime TEXT NOT NULL,
-			parent_session_key TEXT NOT NULL,
-			source_channel TEXT NOT NULL,
-			source_chat_id TEXT NOT NULL,
-			source_reply_to TEXT,
-			name TEXT NOT NULL,
-			initial_prompt TEXT,
-			system_prompt TEXT NOT NULL,
-			model_provider TEXT NOT NULL,
-			model_id TEXT NOT NULL,
-			status TEXT NOT NULL,
-			messages_json TEXT NOT NULL DEFAULT '[]',
-			container_name TEXT NOT NULL,
-			created_at BIGINT NOT NULL,
-			started_at BIGINT,
-			updated_at BIGINT NOT NULL,
-			completed_at BIGINT,
-			error TEXT,
-			turn_count INTEGER NOT NULL DEFAULT 0,
-			send_policy TEXT NOT NULL DEFAULT 'explicit'
-		)
-	`);
-	// Migrate legacy "shot" → "oneshot" lifetime values.
-	await db.execute(dsql`UPDATE workers SET lifetime = 'oneshot' WHERE lifetime = 'shot'`);
-	await db.execute(dsql`CREATE INDEX IF NOT EXISTS workers_status_idx ON workers (status)`);
-	await db.execute(dsql`CREATE INDEX IF NOT EXISTS workers_parent_idx ON workers (parent_session_key)`);
-
-	log.success("embedded PGlite database ready (shared instance)");
-	// Don't close the shared client — closeSettings() handles that.
-	return { db, close: async () => {} };
 }
 
 function castRow(row: typeof schema.workers.$inferSelect): WorkerRow {

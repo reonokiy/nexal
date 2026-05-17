@@ -1,105 +1,37 @@
 /**
- * Settings store — simple KV backed by PGlite (embedded Postgres).
+ * Settings store — simple KV backed by the shared Postgres connection
+ * (`src/db.ts`). The `settings` table is created by drizzle migrations.
  *
- * Used to persist:
- *   - API keys per provider
- *   - Model provider / model ID preferences
- *   - Any other local config that should survive restarts
+ * Persists:
+ *   - API keys per provider           (auth:<provider>)
+ *   - Model provider / model ID prefs (model:provider, model:id)
+ *   - Channel config buckets          (channel:<name>)
  *
- * Data lives in `~/.nexal/data/` alongside the worker store.
+ * (Previously PGlite-backed; PGlite was removed in favour of a single
+ * external Postgres shared with the worker store.)
  */
-import { homedir } from "node:os";
-import { join } from "node:path";
-import { mkdirSync, readFileSync } from "node:fs";
-import { isCompiled, extractPgliteAssets } from "./embedded.ts";
+import { eq, like } from "drizzle-orm";
 
-let _db: import("@electric-sql/pglite").PGlite | null = null;
-let _dbPromise: Promise<import("@electric-sql/pglite").PGlite> | null = null;
-
-/**
- * Shared PGlite instance for the process. Both settings and worker
- * store use the same `~/.nexal/data/` directory — PGlite only allows
- * one connection per directory, so we share the instance.
- */
-export async function getSharedPglite(): Promise<import("@electric-sql/pglite").PGlite> {
-	if (_db) return _db;
-	if (_dbPromise) return _dbPromise;
-	_dbPromise = (async () => {
-		const { PGlite } = await import("@electric-sql/pglite");
-		const dataDir = join(homedir(), ".nexal", "data");
-		mkdirSync(dataDir, { recursive: true });
-
-		// In compiled mode, PGlite can't resolve its WASM/data files from
-		// $bunfs. Extract them to disk and pass via constructor options.
-		let opts: Record<string, unknown> = {};
-		if (isCompiled) {
-			const libDir = await extractPgliteAssets();
-			if (libDir) {
-				const fsBundleBytes = readFileSync(join(libDir, "pglite.data"));
-				opts = {
-					fsBundle: new Blob([fsBundleBytes]),
-					pgliteWasmModule: await WebAssembly.compile(
-						readFileSync(join(libDir, "pglite.wasm")),
-					),
-					initdbWasmModule: await WebAssembly.compile(
-						readFileSync(join(libDir, "initdb.wasm")),
-					),
-				};
-			}
-		}
-
-		const client = new PGlite(dataDir, opts);
-		await client.waitReady;
-		_db = client;
-		_dbPromise = null;
-		return client;
-	})();
-	return _dbPromise;
-}
-
-let _settingsReady = false;
-
-async function db(): Promise<import("@electric-sql/pglite").PGlite> {
-	const pg = await getSharedPglite();
-	if (!_settingsReady) {
-		await pg.exec(`
-			CREATE TABLE IF NOT EXISTS settings (
-				key TEXT PRIMARY KEY,
-				value TEXT NOT NULL
-			)
-		`);
-		_settingsReady = true;
-	}
-	return pg;
-}
+import { getDb } from "./db.ts";
+import { settings } from "./schema.ts";
 
 export async function getSetting(key: string): Promise<string | null> {
-	const pg = await db();
-	const res = await pg.query<{ value: string }>(
-		"SELECT value FROM settings WHERE key = $1",
-		[key],
-	);
-	return res.rows[0]?.value ?? null;
+	const rows = await getDb()
+		.select({ value: settings.value })
+		.from(settings)
+		.where(eq(settings.key, key));
+	return rows[0]?.value ?? null;
 }
 
 export async function setSetting(key: string, value: string): Promise<void> {
-	const pg = await db();
-	await pg.exec(
-		`INSERT INTO settings (key, value) VALUES ('${escSql(key)}', '${escSql(value)}')
-		 ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
-	);
+	await getDb()
+		.insert(settings)
+		.values({ key, value })
+		.onConflictDoUpdate({ target: settings.key, set: { value } });
 }
 
 export async function deleteSetting(key: string): Promise<void> {
-	const pg = await db();
-	await pg.query("DELETE FROM settings WHERE key = $1", [key]);
-}
-
-export async function closeSettings(): Promise<void> {
-	if (_db) {
-		await _db.close();
-		_db = null;
-	}
+	await getDb().delete(settings).where(eq(settings.key, key));
 }
 
 // ── Auth helpers ────────────────────────────────────────────────────
@@ -182,13 +114,12 @@ export async function deleteChannelConfig(name: string): Promise<void> {
 }
 
 export async function loadAllChannelConfigs(): Promise<Record<string, ChannelConfigBucket>> {
-	const pg = await db();
-	const res = await pg.query<{ key: string; value: string }>(
-		"SELECT key, value FROM settings WHERE key LIKE $1",
-		["channel:%"],
-	);
+	const rows = await getDb()
+		.select()
+		.from(settings)
+		.where(like(settings.key, "channel:%"));
 	const out: Record<string, ChannelConfigBucket> = {};
-	for (const row of res.rows) {
+	for (const row of rows) {
 		const name = row.key.slice("channel:".length);
 		try {
 			out[name] = JSON.parse(row.value) as ChannelConfigBucket;
@@ -197,9 +128,4 @@ export async function loadAllChannelConfigs(): Promise<Record<string, ChannelCon
 		}
 	}
 	return out;
-}
-
-// Simple SQL escape for string literals (PGlite doesn't support $N in exec).
-function escSql(s: string): string {
-	return s.replace(/'/g, "''");
 }

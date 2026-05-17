@@ -1,31 +1,36 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 
 /**
- * settings.ts opens a PGlite DB under `os.homedir()/.nexal/data`. On
- * POSIX `os.homedir()` honours $HOME, so we point HOME at a throwaway
- * temp dir BEFORE the first DB call — the suite never touches the real
- * ~/.nexal. getSharedPglite() resolves the dir lazily on first use, so
- * setting HOME in beforeAll (after the hoisted import) is in time.
+ * PGlite was removed — settings.ts now needs a real Postgres. These
+ * tests run only when a disposable test DB is provided (same convention
+ * as scripts/smoke-worker-store.ts); otherwise the suite skips so
+ * `bun test` stays green with zero infrastructure.
+ *
+ *   NEXAL_TEST_DB=postgres://… bun test src/settings.test.ts
  */
 
-let realHome: string | undefined;
+const TEST_DB = process.env.NEXAL_TEST_DB ?? process.env.NEXAL_WORKERS_URL ?? "";
+const suite = TEST_DB ? describe : describe.skip;
 
-beforeAll(() => {
-	realHome = process.env.HOME;
-	process.env.HOME = mkdtempSync(join(tmpdir(), "nexal-settings-test-"));
+const TOUCHED_CHANNELS = ["telegram", "github", "cron", "heartbeat"];
+
+beforeAll(async () => {
+	if (!TEST_DB) return;
+	const { setDbUrl, runMigrations } = await import("./db.ts");
+	setDbUrl(TEST_DB);
+	await runMigrations();
 });
 
 afterAll(async () => {
-	const { closeSettings } = await import("./settings.ts");
-	await closeSettings();
-	if (realHome === undefined) delete process.env.HOME;
-	else process.env.HOME = realHome;
+	if (!TEST_DB) return;
+	const s = await import("./settings.ts");
+	for (const n of TOUCHED_CHANNELS) await s.deleteChannelConfig(n).catch(() => {});
+	await s.deleteSetting("model:provider").catch(() => {});
+	const { closeDb } = await import("./db.ts");
+	await closeDb();
 });
 
-describe("channel config helpers", () => {
+suite("channel config helpers (Postgres)", () => {
 	test("save → loadChannelConfig round-trips the JSON bucket", async () => {
 		const s = await import("./settings.ts");
 		await s.saveChannelConfig("telegram", { enabled: true, botToken: "A", allowFrom: ["x"] });
