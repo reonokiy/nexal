@@ -233,7 +233,6 @@ where
         connection_label: String,
     ) -> Self {
         use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-        use wtransport::stream::BiStream;
 
         let (outgoing_tx, mut outgoing_rx) = mpsc::channel(CHANNEL_CAPACITY);
         let (incoming_tx, incoming_rx) = mpsc::channel(CHANNEL_CAPACITY);

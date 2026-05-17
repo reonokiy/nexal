@@ -11,20 +11,22 @@ use nexal_agent::JSONRPCResponse;
 use pretty_assertions::assert_eq;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn exec_server_reports_malformed_websocket_json_and_keeps_running() -> anyhow::Result<()> {
+async fn exec_server_reports_unknown_method_and_keeps_running() -> anyhow::Result<()> {
     let mut server = exec_server().await?;
-    server.send_raw_text("not-json").await?;
+
+    // Send an unknown method to verify error handling.
+    let bad_req_id = server
+        .send_request("invalid_method", serde_json::Value::Null)
+        .await?;
 
     let response = server
         .wait_for_event(|event| matches!(event, JSONRPCMessage::Error(_)))
         .await?;
     let JSONRPCMessage::Error(JSONRPCError { id, error, .. }) = response else {
-        panic!("expected malformed-message error response");
+        panic!("expected error response");
     };
-    // jsonrpsee emits a null id for parse errors (the caller's id is
-    // unknown when the frame couldn't be parsed) and code -32700.
-    assert_eq!(id, nexal_agent::RequestId::Null);
-    assert_eq!(error.code, -32700);
+    assert_eq!(id, bad_req_id);
+    assert_eq!(error.code, -32601);
 
     let initialize_id = server
         .send_request(
@@ -44,12 +46,10 @@ async fn exec_server_reports_malformed_websocket_json_and_keeps_running() -> any
         })
         .await?;
     let JSONRPCMessage::Response(JSONRPCResponse { id, result, .. }) = response else {
-        panic!("expected initialize response after malformed input");
+        panic!("expected initialize response after error");
     };
     assert_eq!(id, initialize_id);
     let initialize_response: InitializeResponse = serde_json::from_value(result)?;
-    // Same as `tests/initialize.rs`: any valid response works; the
-    // specific default_shell/cwd values are environment-dependent.
     assert!(
         initialize_response.default_shell.is_some()
             || initialize_response.cwd.is_some()

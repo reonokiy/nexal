@@ -1,6 +1,6 @@
-//! Frontend server — accepts WebTransport or Unix socket connections.
+//! Frontend server — accepts WebSocket or Unix socket connections.
 //!
-//! WebTransport (QUIC/UDP): used for TCP connections.
+//! WebSocket (TCP): used for external frontend connections.
 //! Unix socket: uses newline-delimited JSON over a raw stream (no WS).
 //!
 //! Session lifecycle:
@@ -20,10 +20,9 @@ use ring::hmac;
 use nexal_utils_json_transport::{JsonMessageConnection, JsonMessageConnectionEvent};
 use serde_json::{Value, json};
 use tokio::io::{AsyncRead, AsyncWrite};
-use tokio::net::UnixListener;
+use tokio::net::{TcpListener, UnixListener};
 use tokio::sync::{Mutex, mpsc};
 use tracing::{debug, error, info, warn};
-use wtransport::{Endpoint, Identity, ServerConfig as WtServerConfig};
 
 use crate::protocol::{
     AgentIdParams, AgentInvokeParams, AgentNotifyParams, AgentSummary, AttachAgentParams,
@@ -142,60 +141,37 @@ pub async fn serve(cfg: ServerConfig, registry: Arc<AgentRegistry>) -> std::io::
             });
         }
     } else {
-        // WebTransport server over QUIC.
-        let identity = Identity::self_signed(["localhost", "127.0.0.1", "host.containers.internal"])
-            .map_err(|e| std::io::Error::other(format!("generate TLS identity: {e}")))?;
-
-        let wt_config = WtServerConfig::builder()
-            .with_bind_address(cfg.listen.parse().map_err(|e| {
-                std::io::Error::other(format!("invalid listen address '{}': {e}", cfg.listen))
-            })?)
-            .with_identity(identity)
-            .build();
-
-        let endpoint = Endpoint::server(wt_config)
-            .map_err(|e| std::io::Error::other(format!("create webtransport endpoint: {e}")))?;
-        let local_addr = endpoint
-            .local_addr()
-            .map_err(|e| std::io::Error::other(format!("local_addr: {e}")))?;
-        info!("nexal-gateway listening on https://{local_addr}");
+        let listener = TcpListener::bind(&cfg.listen).await?;
+        let local_addr = listener.local_addr()?;
+        info!("nexal-gateway listening on ws://{local_addr}");
 
         loop {
-            let incoming = endpoint.accept().await;
+            let (stream, remote_addr) = match listener.accept().await {
+                Ok(v) => v,
+                Err(err) => {
+                    error!("accept failed: {err}");
+                    continue;
+                }
+            };
             let cfg = cfg.clone();
             let registry = registry.clone();
             tokio::spawn(async move {
-                let request = match incoming.await {
-                    Ok(r) => r,
+                let ws_stream = match tokio_tungstenite::accept_async(stream).await {
+                    Ok(ws) => ws,
                     Err(e) => {
-                        warn!("webtransport session request failed: {e}");
+                        warn!("websocket handshake failed for {remote_addr}: {e}");
                         return;
                     }
                 };
-                let session = match request.accept().await {
-                    Ok(s) => s,
-                    Err(e) => {
-                        warn!("webtransport session accept failed: {e}");
-                        return;
-                    }
-                };
-                let label = format!("wt-{}", session.remote_address());
-                match session.accept_bi().await {
-                    Ok(stream) => {
-                        let bi: wtransport::stream::BiStream = stream.into();
-                        let conn = JsonMessageConnection::<Value>::from_webtransport(
-                            bi,
-                            format!("frontend wt {label}"),
-                        );
-                        info!("frontend session opened: {label}");
-                        let session = Session::from_conn(conn, cfg, registry, label.clone());
-                        session.run().await;
-                        info!("frontend session closed: {label}");
-                    }
-                    Err(e) => {
-                        warn!("accept bi stream for {label}: {e}");
-                    }
-                }
+                let label = format!("ws-{remote_addr}");
+                let conn = JsonMessageConnection::<Value>::from_websocket(
+                    ws_stream,
+                    format!("frontend ws {label}"),
+                );
+                info!("frontend session opened: {label}");
+                let session = Session::from_conn(conn, cfg, registry, label.clone());
+                session.run().await;
+                info!("frontend session closed: {label}");
             });
         }
     }

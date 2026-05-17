@@ -1,9 +1,9 @@
-//! `AgentConn` — one WebTransport connection between the gateway and a
+//! `AgentConn` — one WebSocket connection between the gateway and a
 //! single in-container `nexal-agent`.
 //!
 //! Lifecycle:
-//!   1. `AgentConn::connect(url)` — open WebTransport session, open a
-//!      bidirectional stream, do `initialize` + `initialized` handshake.
+//!   1. `AgentConn::connect(url)` — open WebSocket, do `initialize` +
+//!      `initialized` handshake.
 //!   2. `invoke(method, params)` — sends a JSON-RPC request, awaits
 //!      the matching response. Allocates its own request ids
 //!      independent from the frontend's ids.
@@ -21,7 +21,6 @@ use serde_json::{Value, json};
 use thiserror::Error;
 use tokio::sync::{Mutex, mpsc, oneshot};
 use tracing::warn;
-use wtransport::{ClientConfig, Endpoint};
 
 use crate::protocol::{JSONRPC_VERSION, JsonRpcError};
 
@@ -53,8 +52,6 @@ pub struct AgentConn {
     closed: Arc<Mutex<bool>>,
     reader: tokio::task::JoinHandle<()>,
     transport_tasks: Vec<tokio::task::JoinHandle<()>>,
-    /// Keep QUIC endpoint + session alive for the connection lifetime.
-    _quic_handles: Vec<Box<dyn std::any::Any + Send + Sync>>,
 }
 
 impl AgentConn {
@@ -63,29 +60,13 @@ impl AgentConn {
         client_name: &str,
         notify_tx: mpsc::Sender<AgentNotification>,
     ) -> Result<Self, AgentConnError> {
-        let config = ClientConfig::builder()
-            .with_bind_default()
-            .with_no_cert_validation()
-            .build();
-        let endpoint = Endpoint::client(config)
-            .map_err(|e| AgentConnError::Connect(format!("create endpoint: {e}")))?;
-
-        let session = endpoint
-            .connect(url)
+        let (ws_stream, _) = tokio_tungstenite::connect_async(url)
             .await
             .map_err(|e| AgentConnError::Connect(format!("connect {url}: {e}")))?;
 
-        let opening = session
-            .open_bi()
-            .await
-            .map_err(|e| AgentConnError::Connect(format!("open bi stream: {e}")))?;
-        let streams = opening
-            .await
-            .map_err(|e| AgentConnError::Connect(format!("await bi stream: {e}")))?;
-        let bi: wtransport::stream::BiStream = streams.into();
-        let conn = JsonMessageConnection::<Value>::from_webtransport(
-            bi,
-            format!("agent wt {url}"),
+        let conn = JsonMessageConnection::<Value>::from_websocket(
+            ws_stream,
+            format!("agent ws {url}"),
         );
 
         let (write_tx, incoming_rx, transport_tasks) = conn.into_parts();
@@ -103,10 +84,6 @@ impl AgentConn {
             drain_pending(&pending_for_reader).await;
         });
 
-        let quic_handles: Vec<Box<dyn std::any::Any + Send + Sync>> = vec![
-            Box::new(endpoint),
-            Box::new(session),
-        ];
         let agent_conn = Self {
             write_tx,
             pending,
@@ -114,7 +91,6 @@ impl AgentConn {
             closed,
             reader,
             transport_tasks,
-            _quic_handles: quic_handles,
         };
 
         let _init: Value = agent_conn

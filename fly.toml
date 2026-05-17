@@ -16,12 +16,11 @@ primary_region = "ams"
   size   = "shared-cpu-1x"
   memory = "512mb"
 
-# WebTransport = HTTP/3 over QUIC = UDP; the gateway terminates its own
-# TLS (wtransport). NOTE: external frontend reachability over Fly UDP is
-# a known follow-up — the gateway boots and can spawn sandboxes without
-# it. Sandbox<->gateway traffic is 6PN-internal (no service needed).
+# WebSocket over TCP; Fly proxy terminates TLS and forwards plaintext
+# to the gateway on port 5500.
 [[services]]
   internal_port = 5500
-  protocol      = "udp"
+  protocol      = "tcp"
   [[services.ports]]
     port = 5500
+    handlers = ["http"]

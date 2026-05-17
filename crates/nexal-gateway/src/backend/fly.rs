@@ -183,7 +183,7 @@ impl FlyBackend {
             .collect();
         ContainerHandle {
             name,
-            url: format!("https://[{ip}]:{AGENT_WS_PORT}"),
+            url: format!("ws://[{ip}]:{AGENT_WS_PORT}"),
             port_map,
         }
     }
@@ -293,7 +293,7 @@ impl ContainerBackend for FlyBackend {
                 .await;
         }
         let ip = self.wait_started(&m.id).await?;
-        Ok(format!("https://[{ip}]:{AGENT_WS_PORT}"))
+        Ok(format!("ws://[{ip}]:{AGENT_WS_PORT}"))
     }
 }
 

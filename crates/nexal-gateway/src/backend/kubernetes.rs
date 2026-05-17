@@ -284,7 +284,7 @@ impl ContainerBackend for KubernetesBackend {
                             .collect();
                         return Ok(ContainerHandle {
                             name: spec.name,
-                            url: format!("https://{ip}:{AGENT_WS_PORT}"),
+                            url: format!("ws://{ip}:{AGENT_WS_PORT}"),
                             port_map,
                         });
                     }
@@ -323,7 +323,7 @@ impl ContainerBackend for KubernetesBackend {
             .collect();
         Ok(ContainerHandle {
             name: spec.name,
-            url: format!("https://{ip}:{AGENT_WS_PORT}"),
+            url: format!("ws://{ip}:{AGENT_WS_PORT}"),
             port_map,
         })
     }
@@ -347,7 +347,7 @@ impl ContainerBackend for KubernetesBackend {
 
     async fn url(&self, name: &str) -> Result<String, BackendError> {
         let ip = self.wait_for_pod_ip(name).await?;
-        Ok(format!("https://{ip}:{AGENT_WS_PORT}"))
+        Ok(format!("ws://{ip}:{AGENT_WS_PORT}"))
     }
 }
 

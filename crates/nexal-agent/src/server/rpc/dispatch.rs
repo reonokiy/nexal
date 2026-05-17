@@ -113,6 +113,18 @@ pub(crate) async fn run_dispatch(
             }
             JsonMessageConnectionEvent::MalformedMessage { reason } => {
                 warn!("malformed message: {reason}");
+                let response = json!({
+                    "jsonrpc": "2.0",
+                    "id": null,
+                    "error": {
+                        "code": -32700,
+                        "message": "Parse error",
+                        "data": reason,
+                    },
+                });
+                if outgoing_tx.send(response).await.is_err() {
+                    break;
+                }
             }
             JsonMessageConnectionEvent::Disconnected { reason } => {
                 if let Some(reason) = reason {

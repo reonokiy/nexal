@@ -1732,7 +1732,6 @@ dependencies = [
  "tokio-util",
  "tracing",
  "tracing-subscriber",
- "wtransport",
 ]
 
 [[package]]
@@ -1757,12 +1756,12 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.18",
  "tokio",
+ "tokio-tungstenite",
  "tokio-util",
  "toml",
  "tracing",
  "tracing-subscriber",
  "uuid",
- "wtransport",
 ]
 
 [[package]]

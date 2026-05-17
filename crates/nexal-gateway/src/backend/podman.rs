@@ -74,7 +74,7 @@ impl PodmanBackend {
 
     async fn discover_url(&self, container_name: &str) -> Result<String, BackendError> {
         let addr = self.discover_host_port(container_name, CONTAINER_WS_PORT).await?;
-        Ok(format!("https://{addr}"))
+        Ok(format!("ws://{addr}"))
     }
 
     async fn discover_host_port(&self, container_name: &str, port: u16) -> Result<String, BackendError> {

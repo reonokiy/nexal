@@ -13,13 +13,13 @@ use nexal_utils_json_transport::{JsonMessageConnection, JsonMessageConnectionEve
 use serde_json::Value;
 use tokio::io::AsyncBufReadExt;
 use tokio::io::BufReader;
+use tokio::net::TcpStream;
 use tokio::process::Child;
 use tokio::process::Command;
 use tokio::sync::mpsc;
 use tokio::time::Instant;
 use tokio::time::sleep;
 use tokio::time::timeout;
-use wtransport::{ClientConfig, Endpoint};
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 const CONNECT_RETRY_INTERVAL: Duration = Duration::from_millis(100);
@@ -47,7 +47,7 @@ impl Drop for ExecServerHarness {
 pub(crate) async fn exec_server() -> anyhow::Result<ExecServerHarness> {
     let binary = cargo_bin("nexal-agent")?;
     let mut child = Command::new(binary);
-    child.args(["--listen", "wt://127.0.0.1:0"]);
+    child.args(["--listen", "ws://127.0.0.1:0"]);
     child.stdin(Stdio::null());
     child.stdout(Stdio::piped());
     child.stderr(Stdio::inherit());
@@ -55,7 +55,7 @@ pub(crate) async fn exec_server() -> anyhow::Result<ExecServerHarness> {
 
     let url = read_listen_url_from_stdout(&mut child).await?;
     let (write_tx, incoming_rx, transport_tasks) =
-        connect_webtransport_when_ready(&url).await?;
+        connect_websocket_when_ready(&url).await?;
 
     Ok(ExecServerHarness {
         child,
@@ -177,27 +177,27 @@ impl ExecServerHarness {
     }
 }
 
-async fn connect_webtransport_when_ready(
+async fn connect_websocket_when_ready(
     url: &str,
 ) -> anyhow::Result<(
     mpsc::Sender<Value>,
     mpsc::Receiver<JsonMessageConnectionEvent<Value>>,
     Vec<tokio::task::JoinHandle<()>>,
 )> {
+    let addr = url
+        .strip_prefix("ws://")
+        .ok_or_else(|| anyhow!("expected ws:// URL, got {url}"))?;
+
     let deadline = Instant::now() + CONNECT_TIMEOUT;
     loop {
-        let config = ClientConfig::builder()
-            .with_bind_default()
-            .with_no_cert_validation()
-            .build();
-        let endpoint = Endpoint::client(config)?;
-        match endpoint.connect(url).await {
-            Ok(session) => {
-                let opening = session.open_bi().await?;
-                let streams = opening.await?;
-                let bi: wtransport::stream::BiStream = streams.into();
-                let conn = JsonMessageConnection::<Value>::from_webtransport(
-                    bi,
+        match TcpStream::connect(addr).await {
+            Ok(stream) => {
+                let ws_stream = match tokio_tungstenite::client_async(format!("ws://{addr}"), stream).await {
+                    Ok((ws, _)) => ws,
+                    Err(e) => return Err(anyhow!("websocket handshake to {url}: {e}")),
+                };
+                let conn = JsonMessageConnection::<Value>::from_websocket(
+                    ws_stream,
                     format!("test-client {url}"),
                 );
                 return Ok(conn.into_parts());
@@ -231,7 +231,7 @@ async fn read_listen_url_from_stdout(child: &mut Child) -> anyhow::Result<String
             .map_err(|_| anyhow!("timed out waiting for exec-server stdout"))??
             .ok_or_else(|| anyhow!("exec-server stdout closed before emitting listen URL"))?;
         let listen_url = line.trim();
-        if listen_url.starts_with("https://") {
+        if listen_url.starts_with("ws://") {
             return Ok(listen_url.to_string());
         }
     }

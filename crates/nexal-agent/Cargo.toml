@@ -25,7 +25,6 @@ nexal-utils-certs = { workspace = true }
 nexal-utils-json-transport = { workspace = true, features = ["webtransport"] }
 futures = { workspace = true }
 jsonrpsee = { workspace = true }
-wtransport = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
@@ -54,4 +53,3 @@ nexal-utils-json-transport = { workspace = true, features = ["webtransport"] }
 pretty_assertions = { workspace = true }
 tempfile = { workspace = true }
 tracing-subscriber = { workspace = true }
-wtransport = { workspace = true }
