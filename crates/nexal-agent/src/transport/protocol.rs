@@ -8,10 +8,6 @@ use serde::Serialize;
 
 use crate::ProcessId;
 
-#[cfg(test)]
-pub const INITIALIZE_METHOD: &str = "initialize";
-#[cfg(test)]
-pub const INITIALIZED_METHOD: &str = "initialized";
 pub const EXEC_OUTPUT_DELTA_METHOD: &str = "process/output";
 pub const EXEC_EXITED_METHOD: &str = "process/exited";
 pub const EXEC_CLOSED_METHOD: &str = "process/closed";

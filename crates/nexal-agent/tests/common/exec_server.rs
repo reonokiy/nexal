@@ -27,9 +27,10 @@ const EVENT_TIMEOUT: Duration = Duration::from_secs(5);
 
 pub(crate) struct ExecServerHarness {
     child: Child,
+    #[allow(dead_code)]
     url: String,
-    write_tx: Option<mpsc::Sender<Value>>,
-    incoming_rx: Option<mpsc::Receiver<JsonMessageConnectionEvent<Value>>>,
+    write_tx: mpsc::Sender<Value>,
+    incoming_rx: mpsc::Receiver<JsonMessageConnectionEvent<Value>>,
     _transport_tasks: Vec<tokio::task::JoinHandle<()>>,
     next_request_id: i64,
 }
@@ -43,19 +44,7 @@ impl Drop for ExecServerHarness {
     }
 }
 
-/// Start the agent process and optionally connect a test harness.
-/// For tests that only need the URL (e.g. they use `Environment::create`
-/// for their own connection), pass `connect = false` to avoid consuming
-/// a session.
 pub(crate) async fn exec_server() -> anyhow::Result<ExecServerHarness> {
-    exec_server_with_connect(true).await
-}
-
-pub(crate) async fn exec_server_url_only() -> anyhow::Result<ExecServerHarness> {
-    exec_server_with_connect(false).await
-}
-
-async fn exec_server_with_connect(connect: bool) -> anyhow::Result<ExecServerHarness> {
     let binary = cargo_bin("nexal-agent")?;
     let mut child = Command::new(binary);
     child.args(["--listen", "wt://127.0.0.1:0"]);
@@ -65,35 +54,20 @@ async fn exec_server_with_connect(connect: bool) -> anyhow::Result<ExecServerHar
     let mut child = child.spawn()?;
 
     let url = read_listen_url_from_stdout(&mut child).await?;
+    let (write_tx, incoming_rx, transport_tasks) =
+        connect_webtransport_when_ready(&url).await?;
 
-    if connect {
-        let (write_tx, incoming_rx, transport_tasks) =
-            connect_webtransport_when_ready(&url).await?;
-        Ok(ExecServerHarness {
-            child,
-            url,
-            write_tx: Some(write_tx),
-            incoming_rx: Some(incoming_rx),
-            _transport_tasks: transport_tasks,
-            next_request_id: 1,
-        })
-    } else {
-        Ok(ExecServerHarness {
-            child,
-            url,
-            write_tx: None,
-            incoming_rx: None,
-            _transport_tasks: Vec::new(),
-            next_request_id: 1,
-        })
-    }
+    Ok(ExecServerHarness {
+        child,
+        url,
+        write_tx,
+        incoming_rx,
+        _transport_tasks: transport_tasks,
+        next_request_id: 1,
+    })
 }
 
 impl ExecServerHarness {
-    pub(crate) fn websocket_url(&self) -> &str {
-        &self.url
-    }
-
     pub(crate) async fn send_request(
         &mut self,
         method: &str,
@@ -128,8 +102,6 @@ impl ExecServerHarness {
         let value: Value = serde_json::from_str(text)
             .unwrap_or_else(|_| Value::String(text.to_string()));
         self.write_tx
-            .as_ref()
-            .ok_or_else(|| anyhow!("harness not connected"))?
             .send(value)
             .await
             .map_err(|_| anyhow!("transport closed"))?;
@@ -171,8 +143,6 @@ impl ExecServerHarness {
     async fn send_message(&mut self, message: JSONRPCMessage) -> anyhow::Result<()> {
         let value = serde_json::to_value(&message)?;
         self.write_tx
-            .as_ref()
-            .ok_or_else(|| anyhow!("harness not connected"))?
             .send(value)
             .await
             .map_err(|_| anyhow!("transport closed"))?;
@@ -183,9 +153,8 @@ impl ExecServerHarness {
         &mut self,
         timeout_duration: Duration,
     ) -> anyhow::Result<JSONRPCMessage> {
-        let rx = self.incoming_rx.as_mut().ok_or_else(|| anyhow!("harness not connected"))?;
         loop {
-            let event = timeout(timeout_duration, rx.recv())
+            let event = timeout(timeout_duration, self.incoming_rx.recv())
                 .await
                 .map_err(|_| anyhow!("timed out waiting for exec-server event"))?
                 .ok_or_else(|| anyhow!("exec-server transport closed"))?;

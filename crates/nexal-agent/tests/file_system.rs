@@ -1,7 +1,5 @@
 #![cfg(unix)]
 
-mod common;
-
 use std::os::unix::fs::symlink;
 use std::process::Command;
 use std::sync::Arc;
@@ -14,33 +12,19 @@ use nexal_agent::{
 use nexal_utils_absolute_path::AbsolutePathBuf;
 use pretty_assertions::assert_eq;
 use tempfile::TempDir;
-use test_case::test_case;
-
-use common::exec_server::{ExecServerHarness, exec_server_url_only};
-
-async fn create_fs(
-    use_remote: bool,
-) -> Result<(Arc<dyn ExecutorFileSystem>, Option<ExecServerHarness>)> {
-    if use_remote {
-        let server = exec_server_url_only().await?;
-        let env = Environment::create(Some(server.websocket_url().to_string())).await?;
-        Ok((env.get_filesystem(), Some(server)))
-    } else {
-        let env = Environment::create(None).await?;
-        Ok((env.get_filesystem(), None))
-    }
-}
 
 fn abs(path: std::path::PathBuf) -> AbsolutePathBuf {
     assert!(path.is_absolute(), "path must be absolute: {}", path.display());
     AbsolutePathBuf::try_from(path).expect("path should be absolute")
 }
 
-#[test_case(false ; "local")]
-#[test_case(true ; "remote")]
+async fn create_fs() -> Result<Arc<dyn ExecutorFileSystem>> {
+    Ok(Environment::create().await?.get_filesystem())
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn get_metadata_returns_expected_fields(use_remote: bool) -> Result<()> {
-    let (fs, _server) = create_fs(use_remote).await?;
+async fn get_metadata_returns_expected_fields() -> Result<()> {
+    let fs = create_fs().await?;
 
     let tmp = TempDir::new()?;
     let file_path = tmp.path().join("note.txt");
@@ -54,11 +38,9 @@ async fn get_metadata_returns_expected_fields(use_remote: bool) -> Result<()> {
     Ok(())
 }
 
-#[test_case(false ; "local")]
-#[test_case(true ; "remote")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn methods_cover_surface_area(use_remote: bool) -> Result<()> {
-    let (fs, _server) = create_fs(use_remote).await?;
+async fn methods_cover_surface_area() -> Result<()> {
+    let fs = create_fs().await?;
 
     let tmp = TempDir::new()?;
     let source_dir = tmp.path().join("source");
@@ -117,11 +99,9 @@ async fn methods_cover_surface_area(use_remote: bool) -> Result<()> {
     Ok(())
 }
 
-#[test_case(false ; "local")]
-#[test_case(true ; "remote")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn copy_rejects_directory_without_recursive(use_remote: bool) -> Result<()> {
-    let (fs, _server) = create_fs(use_remote).await?;
+async fn copy_rejects_directory_without_recursive() -> Result<()> {
+    let fs = create_fs().await?;
 
     let tmp = TempDir::new()?;
     let source_dir = tmp.path().join("source");
@@ -145,11 +125,9 @@ async fn copy_rejects_directory_without_recursive(use_remote: bool) -> Result<()
     Ok(())
 }
 
-#[test_case(false ; "local")]
-#[test_case(true ; "remote")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn copy_rejects_copying_directory_into_descendant(use_remote: bool) -> Result<()> {
-    let (fs, _server) = create_fs(use_remote).await?;
+async fn copy_rejects_copying_directory_into_descendant() -> Result<()> {
+    let fs = create_fs().await?;
 
     let tmp = TempDir::new()?;
     let source_dir = tmp.path().join("source");
@@ -173,11 +151,9 @@ async fn copy_rejects_copying_directory_into_descendant(use_remote: bool) -> Res
     Ok(())
 }
 
-#[test_case(false ; "local")]
-#[test_case(true ; "remote")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn copy_preserves_symlinks_in_recursive_copy(use_remote: bool) -> Result<()> {
-    let (fs, _server) = create_fs(use_remote).await?;
+async fn copy_preserves_symlinks_in_recursive_copy() -> Result<()> {
+    let fs = create_fs().await?;
 
     let tmp = TempDir::new()?;
     let source_dir = tmp.path().join("source");
@@ -201,11 +177,9 @@ async fn copy_preserves_symlinks_in_recursive_copy(use_remote: bool) -> Result<(
     Ok(())
 }
 
-#[test_case(false ; "local")]
-#[test_case(true ; "remote")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn copy_ignores_unknown_special_files_in_recursive_copy(use_remote: bool) -> Result<()> {
-    let (fs, _server) = create_fs(use_remote).await?;
+async fn copy_ignores_unknown_special_files_in_recursive_copy() -> Result<()> {
+    let fs = create_fs().await?;
 
     let tmp = TempDir::new()?;
     let source_dir = tmp.path().join("source");
@@ -235,11 +209,9 @@ async fn copy_ignores_unknown_special_files_in_recursive_copy(use_remote: bool) 
     Ok(())
 }
 
-#[test_case(false ; "local")]
-#[test_case(true ; "remote")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn copy_rejects_standalone_fifo_source(use_remote: bool) -> Result<()> {
-    let (fs, _server) = create_fs(use_remote).await?;
+async fn copy_rejects_standalone_fifo_source() -> Result<()> {
+    let fs = create_fs().await?;
 
     let tmp = TempDir::new()?;
     let fifo_path = tmp.path().join("named-pipe");
