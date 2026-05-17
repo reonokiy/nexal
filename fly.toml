@@ -17,9 +17,9 @@ primary_region = "ams"
   size   = "shared-cpu-1x"
   memory = "256mb"
 
-# Public WebSocket endpoint — Fly proxy terminates TLS on 443 and forwards
-# plain WebSocket to the gateway on port 5500.
-# Shared IPv4 + IPv6 are allocated automatically.
+# Public WebSocket endpoint — raw TCP forwarding on port 80 so Fly proxy
+# does not inspect/modify HTTP headers (WebSocket upgrade passes through).
+# Port 443 with TLS termination for wss:// clients.
 [[services]]
   internal_port = 5500
   protocol      = "tcp"
@@ -27,12 +27,11 @@ primary_region = "ams"
   auto_start_machines = true
   min_machines_running = 1
 
-  # TLS WebSocket (wss://)
+  # Raw TCP on 80 — no handlers so Fly does byte-for-byte forwarding.
+  [[services.ports]]
+    port = 80
+
+  # TLS-terminated WebSocket on 443.
   [[services.ports]]
     port     = 443
     handlers = ["tls", "http"]
-
-  # Plain WebSocket (ws://)
-  [[services.ports]]
-    port     = 80
-    handlers = ["http"]
