@@ -90,7 +90,8 @@ afterEach(() => {
 function newClient(opts: Partial<ConstructorParameters<typeof GatewayClient>[0]> = {}) {
 	return new GatewayClient({
 		url: "ws://127.0.0.1:5500",
-		token: "tok",
+		accessKey: "AK",
+		secretKey: "sk",
 		clientName: "test-client",
 		connectTimeoutMs: 500,
 		...opts,
@@ -218,7 +219,7 @@ describe("GatewayClient", () => {
 	});
 
 	describe("hello()", () => {
-		test("sends gateway/hello with token + client name once, memoized", async () => {
+		test("sends a HMAC-signed gateway/hello once, memoized", async () => {
 			const client = newClient();
 			const p1 = client.hello();
 			// hello() calls connect() internally; drive the WS open.
@@ -230,7 +231,16 @@ describe("GatewayClient", () => {
 			await flush();
 			const sent = ws.lastSent();
 			expect(sent.method).toBe("gateway/hello");
-			expect(sent.params).toEqual({ token: "tok", client_name: "test-client" });
+			const pr = sent.params as Record<string, unknown>;
+			expect(pr.access_key).toBe("AK");
+			expect(pr.client_name).toBe("test-client");
+			expect(typeof pr.ts).toBe("number");
+			expect(pr.nonce).toMatch(/^[0-9a-f]{32}$/);
+			// signature must verify against the sent ts/nonce.
+			const { createHmac } = await import("node:crypto");
+			const canonical = `AK\n${pr.ts}\n${pr.nonce}\ntest-client`;
+			const expectSig = createHmac("sha256", "sk").update(canonical).digest("hex");
+			expect(pr.signature).toBe(expectSig);
 			respondOk(ws, { ok: true, gateway_version: "0.1.0" });
 			await p1;
 

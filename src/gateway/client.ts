@@ -29,6 +29,7 @@ import type {
 import type { AgentClient } from "./agent_client.ts";
 import { GatewayAgentClient } from "./agent_client.ts";
 import { createLog } from "../log.ts";
+import { createHmac, randomBytes } from "node:crypto";
 
 const log = createLog("gateway-client");
 
@@ -74,8 +75,10 @@ export interface GatewayClientOptions {
 	url: string;
 	/** Unix domain socket path. When set, `url` is ignored for transport. */
 	unix?: string;
-	/** Shared auth token. */
-	token: string;
+	/** Credential id (sent in `gateway/hello`). */
+	accessKey: string;
+	/** Secret used to HMAC-sign the handshake; never sent on the wire. */
+	secretKey: string;
 	/** Identifier sent in `gateway/hello`. */
 	clientName: string;
 	connectTimeoutMs?: number;
@@ -203,9 +206,18 @@ export class GatewayClient {
 		if (this.helloPromise) return this.helloPromise;
 		this.helloPromise = (async () => {
 			await this.connect();
+			const ts = Math.floor(Date.now() / 1000);
+			const nonce = randomBytes(16).toString("hex");
+			const canonical = `${this.options.accessKey}\n${ts}\n${nonce}\n${this.options.clientName}`;
+			const signature = createHmac("sha256", this.options.secretKey)
+				.update(canonical)
+				.digest("hex");
 			await this.invoke("gateway/hello", {
-				token: this.options.token,
+				access_key: this.options.accessKey,
 				client_name: this.options.clientName,
+				ts,
+				nonce,
+				signature,
 			});
 		})();
 		return this.helloPromise;

@@ -117,8 +117,16 @@ pub mod error_code {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct HelloParams {
-    pub token: String,
+    /// Credential identifier (looked up server-side → secret).
+    pub access_key: String,
     pub client_name: String,
+    /// Unix seconds when the request was signed (replay window check).
+    pub ts: i64,
+    /// Single-use random hex string (replay guard).
+    pub nonce: String,
+    /// Lowercase hex HMAC-SHA256(secret_key,
+    /// `"{access_key}\n{ts}\n{nonce}\n{client_name}"`).
+    pub signature: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -299,11 +307,23 @@ mod tests {
     #[test]
     fn hello_params_serializes_snake_case() {
         let p = HelloParams {
-            token: "t".into(),
+            access_key: "ak".into(),
             client_name: "c".into(),
+            ts: 42,
+            nonce: "n".into(),
+            signature: "sig".into(),
         };
         let v = serde_json::to_value(&p).expect("hello params serialize");
-        assert_eq!(v, json!({ "token": "t", "client_name": "c" }));
+        assert_eq!(
+            v,
+            json!({
+                "access_key": "ak",
+                "client_name": "c",
+                "ts": 42,
+                "nonce": "n",
+                "signature": "sig"
+            })
+        );
     }
 
     #[test]

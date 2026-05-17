@@ -1,8 +1,12 @@
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use clap::Parser;
-use nexal_gateway::backend::{KubernetesBackend, KubernetesConfig, PodmanBackend, SharedBackend};
+use tokio::sync::Mutex;
+use nexal_gateway::backend::{
+    FlyBackend, FlyConfig, KubernetesBackend, KubernetesConfig, PodmanBackend, SharedBackend,
+};
 use nexal_gateway::config::GatewayConfig;
 use nexal_gateway::pool::{self, WarmPool, WarmPoolConfig};
 use nexal_gateway::proxy::{ProxyRegistry, serve_proxy};
@@ -39,9 +43,12 @@ struct Args {
     )]
     proxy_external_base: Option<String>,
 
-    /// Override the shared auth token. Required if not set in config.
-    #[arg(long, env = "NEXAL_GATEWAY_TOKEN")]
-    token: Option<String>,
+    /// Single-credential override for the embedded/dev path. Both must
+    /// be set; merged into the gateway.toml `[[credentials]]` map.
+    #[arg(long, env = "NEXAL_GATEWAY_ACCESS_KEY")]
+    access_key: Option<String>,
+    #[arg(long, env = "NEXAL_GATEWAY_SECRET_KEY")]
+    secret_key: Option<String>,
 
     /// Override the in-container nexal-agent binary path.
     #[arg(long = "agent-bin", env = "NEXAL_AGENT_BIN")]
@@ -73,9 +80,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .listen
         .or(cfg.listen.clone())
         .unwrap_or_else(|| "127.0.0.1:5500".to_string());
-    let token = args.token.or(cfg.token.clone()).ok_or(
-        "no shared token configured; pass --token or set token in gateway.toml / NEXAL_GATEWAY_TOKEN",
-    )?;
+    let mut credentials: HashMap<String, String> = cfg
+        .credentials
+        .iter()
+        .filter(|c| !c.access_key.is_empty() && !c.secret_key.is_empty())
+        .map(|c| (c.access_key.clone(), c.secret_key.clone()))
+        .collect();
+    if let (Some(ak), Some(sk)) = (args.access_key.clone(), args.secret_key.clone()) {
+        credentials.insert(ak, sk);
+    }
+    if credentials.is_empty() {
+        return Err("no credentials configured; add [[credentials]] (access_key/secret_key) to gateway.toml or set NEXAL_GATEWAY_ACCESS_KEY + NEXAL_GATEWAY_SECRET_KEY".into());
+    }
     let agent_bin = args
         .agent_bin
         .or(cfg.defaults.agent_bin.clone())
@@ -112,6 +128,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 })
                 .await?,
             )
+        }
+        "fly" => {
+            let api_token = cfg
+                .backend
+                .fly_api_token
+                .clone()
+                .ok_or("fly backend requires backend.fly_api_token")?;
+            let app = cfg
+                .backend
+                .fly_app
+                .clone()
+                .ok_or("fly backend requires backend.fly_app")?;
+            Arc::new(FlyBackend::new(FlyConfig {
+                api_token,
+                app,
+                region: cfg.backend.fly_region.clone(),
+                api_base: cfg.backend.fly_api_base.clone(),
+                agent_bin_path: cfg.backend.fly_agent_bin_path.clone(),
+            })?)
         }
         other => return Err(format!("unknown backend kind: {other}").into()),
     };
@@ -197,7 +232,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         ServerConfig {
             listen,
             unix: args.unix,
-            token,
+            credentials,
+            nonce_cache: Arc::new(Mutex::new(HashMap::new())),
             proxy_external_base,
         },
         registry,

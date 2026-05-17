@@ -4,13 +4,18 @@
 //! Unix socket: uses newline-delimited JSON over a raw stream (no WS).
 //!
 //! Session lifecycle:
-//!   1. First client message MUST be `gateway/hello { token, clientName }`.
+//!   1. First client message MUST be a HMAC-signed `gateway/hello`
+//!      `{ access_key, client_name, ts, nonce, signature }`.
 //!   2. Once authenticated, the session can call gateway methods,
 //!      `agent/invoke`, and receives `agent/notify` notifications.
 //!   3. On disconnect, agent containers are detached (kept alive).
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use ring::hmac;
 
 use nexal_utils_json_transport::{JsonMessageConnection, JsonMessageConnectionEvent};
 use serde_json::{Value, json};
@@ -38,8 +43,71 @@ pub const GATEWAY_VERSION: &str = env!("CARGO_PKG_VERSION");
 pub struct ServerConfig {
     pub listen: String,
     pub unix: Option<PathBuf>,
-    pub token: String,
+    /// access_key → secret_key. Handshake is HMAC-signed.
+    pub credentials: HashMap<String, String>,
+    /// Shared replay guard: nonce → first-seen unix seconds.
+    pub nonce_cache: Arc<Mutex<HashMap<String, i64>>>,
     pub proxy_external_base: String,
+}
+
+/// Max clock skew (seconds) tolerated between client `ts` and server.
+const HELLO_MAX_SKEW_SECS: i64 = 300;
+
+fn unix_now() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
+}
+
+fn hex_decode(s: &str) -> Option<Vec<u8>> {
+    if s.len() % 2 != 0 {
+        return None;
+    }
+    (0..s.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&s[i..i + 2], 16).ok())
+        .collect()
+}
+
+/// Verify a `gateway/hello` HMAC signature. Returns Ok(()) on success,
+/// or an `AUTH_REJECTED` JsonRpcError describing the failure.
+async fn verify_hello(cfg: &ServerConfig, p: &HelloParams) -> Result<(), JsonRpcError> {
+    let reject = |msg: &str| JsonRpcError {
+        code: error_code::AUTH_REJECTED,
+        message: msg.into(),
+        data: None,
+    };
+
+    let secret = cfg
+        .credentials
+        .get(&p.access_key)
+        .ok_or_else(|| reject("unknown access key"))?;
+
+    let now = unix_now();
+    if (now - p.ts).abs() > HELLO_MAX_SKEW_SECS {
+        return Err(reject("stale request (ts outside allowed window)"));
+    }
+
+    // Replay guard: prune old nonces, reject a reused one.
+    {
+        let mut cache = cfg.nonce_cache.lock().await;
+        cache.retain(|_, seen| (now - *seen) <= HELLO_MAX_SKEW_SECS * 2);
+        if cache.contains_key(&p.nonce) {
+            return Err(reject("replayed nonce"));
+        }
+        cache.insert(p.nonce.clone(), now);
+    }
+
+    let sig = hex_decode(&p.signature).ok_or_else(|| reject("malformed signature"))?;
+    let canonical = format!(
+        "{}\n{}\n{}\n{}",
+        p.access_key, p.ts, p.nonce, p.client_name
+    );
+    let key = hmac::Key::new(hmac::HMAC_SHA256, secret.as_bytes());
+    hmac::verify(&key, canonical.as_bytes(), &sig)
+        .map_err(|_| reject("signature mismatch"))?;
+    Ok(())
 }
 
 pub async fn serve(cfg: ServerConfig, registry: Arc<AgentRegistry>) -> std::io::Result<()> {
@@ -277,13 +345,7 @@ impl Session {
         match req.method.as_str() {
             METHOD_HELLO => {
                 let p: HelloParams = parse_params(params)?;
-                if p.token != self.cfg.token {
-                    return Err(JsonRpcError {
-                        code: error_code::AUTH_REJECTED,
-                        message: "invalid token".into(),
-                        data: None,
-                    });
-                }
+                verify_hello(&self.cfg, &p).await?;
                 *self.authenticated.lock().await = true;
                 info!("frontend client authenticated: {}", p.client_name);
                 Ok(serde_json::to_value(HelloResponse {

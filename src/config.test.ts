@@ -77,17 +77,19 @@ admins = ["alice", "bob"]
 		expect(cfg.admins).toEqual(["alice", "bob"]);
 	});
 
-	test("gateway section overlays URL + token + client_name", async () => {
+	test("gateway section overlays URL + access/secret + client_name", async () => {
 		const path = await withConfig(`
 [gateway]
 url = "ws://example:6000"
-token = "s3cret"
+access_key = "AK"
+secret_key = "s3cret"
 client_name = "ci-runner"
 `);
 		setEnv("NEXAL_CONFIG_PATH", path);
 		const cfg = await loadConfig();
 		expect(cfg.gateway.url).toBe("ws://example:6000");
-		expect(cfg.gateway.token).toBe("s3cret");
+		expect(cfg.gateway.accessKey).toBe("AK");
+		expect(cfg.gateway.secretKey).toBe("s3cret");
 		expect(cfg.gateway.clientName).toBe("ci-runner");
 	});
 
@@ -151,18 +153,18 @@ describe("env overlay", () => {
 		expect(cfg.debounceSecs).toBe(99);
 	});
 
-	test("NEXAL_GATEWAY__URL + __TOKEN override", async () => {
+	test("NEXAL_GATEWAY__URL + __SECRET_KEY override", async () => {
 		const path = await withConfig(`
 [gateway]
 url = "ws://file:5500"
-token = "from-file"
+secret_key = "from-file"
 `);
 		setEnv("NEXAL_CONFIG_PATH", path);
 		setEnv("NEXAL_GATEWAY__URL", "ws://env:9999");
-		setEnv("NEXAL_GATEWAY__TOKEN", "env-token");
+		setEnv("NEXAL_GATEWAY__SECRET_KEY", "env-secret");
 		const cfg = await loadConfig();
 		expect(cfg.gateway.url).toBe("ws://env:9999");
-		expect(cfg.gateway.token).toBe("env-token");
+		expect(cfg.gateway.secretKey).toBe("env-secret");
 	});
 
 	test("NEXAL_WORKERS__URL overrides TOML", async () => {

@@ -14,11 +14,19 @@
 import { GatewayClient } from "../gateway/client.ts";
 
 const URL = process.env.NEXAL_GATEWAY_URL ?? "ws://127.0.0.1:5500";
-const TOKEN = process.env.NEXAL_GATEWAY_TOKEN;
+const ACCESS_KEY = process.env.NEXAL_GATEWAY_ACCESS_KEY;
+const SECRET_KEY = process.env.NEXAL_GATEWAY_SECRET_KEY;
 
-if (!TOKEN) throw new Error("NEXAL_GATEWAY_TOKEN env var is required");
+if (!ACCESS_KEY || !SECRET_KEY) {
+	throw new Error("NEXAL_GATEWAY_ACCESS_KEY + NEXAL_GATEWAY_SECRET_KEY env vars are required");
+}
 
-const gateway = new GatewayClient({ url: URL, token: TOKEN, clientName: "smoke" });
+const gateway = new GatewayClient({
+	url: URL,
+	accessKey: ACCESS_KEY,
+	secretKey: SECRET_KEY,
+	clientName: "smoke",
+});
 await gateway.hello();
 console.log("[smoke] hello ok");
 

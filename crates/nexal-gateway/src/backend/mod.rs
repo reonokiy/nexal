@@ -12,9 +12,11 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use thiserror::Error;
 
+pub mod fly;
 pub mod kubernetes;
 pub mod podman;
 
+pub use fly::{FlyBackend, FlyConfig};
 pub use kubernetes::{KubernetesBackend, KubernetesConfig};
 pub use podman::PodmanBackend;
 

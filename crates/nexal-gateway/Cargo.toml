@@ -23,6 +23,7 @@ dirs = { workspace = true }
 futures = { workspace = true }
 http = { workspace = true }
 http-body-util = { workspace = true }
+ring = { workspace = true }
 nexal-utils-json-transport = { workspace = true, features = ["webtransport"] }
 reqwest = { workspace = true }
 serde = { workspace = true, features = ["derive"] }

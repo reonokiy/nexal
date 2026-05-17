@@ -25,8 +25,14 @@
 // ─── gateway/* params + responses ───────────────────────────────────
 
 export interface HelloParams {
-	token: string;
+	access_key: string;
 	client_name: string;
+	/** Unix seconds when signed. */
+	ts: number;
+	/** Single-use random hex nonce. */
+	nonce: string;
+	/** Lowercase hex HMAC-SHA256(secret, `access_key\nts\nnonce\nclient_name`). */
+	signature: string;
 }
 export interface HelloResponse {
 	ok: boolean;

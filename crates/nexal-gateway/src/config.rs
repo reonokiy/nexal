@@ -32,11 +32,20 @@ use thiserror::Error;
 #[serde(default, rename_all = "snake_case")]
 pub struct GatewayConfig {
     pub listen: Option<String>,
-    pub token: Option<String>,
+    /// Frontend credentials. The handshake is HMAC-signed
+    /// (`gateway/hello`); the shared `token` was removed.
+    pub credentials: Vec<Credential>,
     pub defaults: SpawnDefaultsConfig,
     pub backend: BackendConfig,
     pub proxy: ProxyConfig,
     pub pool: PoolConfig,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+#[serde(default, rename_all = "snake_case")]
+pub struct Credential {
+    pub access_key: String,
+    pub secret_key: String,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -76,6 +85,18 @@ pub struct BackendConfig {
     pub kubeconfig: Option<PathBuf>,
     /// Image that ships `/usr/local/bin/nexal-agent` for the initContainer.
     pub agent_init_image: Option<String>,
+    // Fly.io-specific.
+    /// Fly API / org-deploy token (`Authorization: Bearer`).
+    pub fly_api_token: Option<String>,
+    /// Fly app the worker machines belong to.
+    pub fly_app: Option<String>,
+    /// Default Fly region (e.g. `"iad"`). None → Fly picks.
+    pub fly_region: Option<String>,
+    /// Machines API base. Default `https://api.machines.dev`.
+    pub fly_api_base: Option<String>,
+    /// Path of `nexal-agent` inside the image. Default
+    /// `/usr/local/bin/nexal-agent`.
+    pub fly_agent_bin_path: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -121,7 +142,7 @@ mod tests {
     fn defaults_are_all_none() {
         let c = GatewayConfig::default();
         assert!(c.listen.is_none());
-        assert!(c.token.is_none());
+        assert!(c.credentials.is_empty());
         assert!(c.defaults.image.is_none());
         assert!(c.defaults.agent_bin.is_none());
         assert!(c.backend.kind.is_none());
@@ -132,7 +153,10 @@ mod tests {
     fn parses_all_top_level_keys() {
         let text = r#"
 listen = "0.0.0.0:5500"
-token  = "shared"
+
+[[credentials]]
+access_key = "AK1"
+secret_key = "sk1"
 
 [defaults]
 image       = "ghcr.io/nexal:latest"
@@ -154,7 +178,9 @@ external_base = "http://host.containers.internal:5501"
         let c: GatewayConfig =
             toml::from_str(text).expect("gateway config should parse");
         assert_eq!(c.listen.as_deref(), Some("0.0.0.0:5500"));
-        assert_eq!(c.token.as_deref(), Some("shared"));
+        assert_eq!(c.credentials.len(), 1);
+        assert_eq!(c.credentials[0].access_key, "AK1");
+        assert_eq!(c.credentials[0].secret_key, "sk1");
         assert_eq!(c.defaults.image.as_deref(), Some("ghcr.io/nexal:latest"));
         assert_eq!(c.defaults.memory.as_deref(), Some("256m"));
         assert_eq!(c.defaults.cpus.as_deref(), Some("0.5"));
@@ -239,7 +265,7 @@ image = "x"
             .await
             .expect("missing file should be OK");
         assert!(c.listen.is_none());
-        assert!(c.token.is_none());
+        assert!(c.credentials.is_empty());
     }
 
     #[tokio::test]

@@ -28,7 +28,8 @@ import type { WorkerAgent } from "../workers/agent.ts";
 import { createWorkerStore } from "../workers/store.ts";
 
 const GATEWAY_URL = process.env.NEXAL_GATEWAY_URL ?? "ws://127.0.0.1:5500";
-const GATEWAY_TOKEN = process.env.NEXAL_GATEWAY_TOKEN;
+const GATEWAY_ACCESS_KEY = process.env.NEXAL_GATEWAY_ACCESS_KEY;
+const GATEWAY_SECRET_KEY = process.env.NEXAL_GATEWAY_SECRET_KEY;
 const PROVIDER = process.env.NEXAL_MODEL_PROVIDER ?? "openrouter";
 const MODEL_ID = process.env.NEXAL_MODEL ?? "openai/gpt-4o-mini";
 
@@ -44,8 +45,8 @@ class StubChannel implements Channel {
 }
 
 async function main(): Promise<void> {
-	if (!GATEWAY_TOKEN) {
-		throw new Error("NEXAL_GATEWAY_TOKEN env var is required");
+	if (!GATEWAY_ACCESS_KEY || !GATEWAY_SECRET_KEY) {
+		throw new Error("NEXAL_GATEWAY_ACCESS_KEY + NEXAL_GATEWAY_SECRET_KEY env vars are required");
 	}
 	const dbUrl = process.env.NEXAL_WORKERS_URL;
 	if (!dbUrl) throw new Error("NEXAL_WORKERS_URL env var required (postgres connection string)");
@@ -54,7 +55,8 @@ async function main(): Promise<void> {
 
 	const gateway = new GatewayClient({
 		url: GATEWAY_URL,
-		token: GATEWAY_TOKEN,
+		accessKey: GATEWAY_ACCESS_KEY,
+		secretKey: GATEWAY_SECRET_KEY,
 		clientName: "smoke-worker",
 	});
 	await gateway.hello();

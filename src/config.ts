@@ -63,8 +63,10 @@ export interface ProxySpec {
 export interface GatewayConfig {
 	/** Gateway URL. `"https://..."` for WebTransport, `"ws://..."` for legacy WS. */
 	url: string;
-	/** Shared auth token sent in `gateway/hello`. */
-	token: string;
+	/** Credential id sent in `gateway/hello`. */
+	accessKey: string;
+	/** Secret used to HMAC-sign the handshake; never sent on the wire. */
+	secretKey: string;
 	/** Identifier sent in `gateway/hello` (default: `"nexal-bun"`). */
 	clientName: string;
 }
@@ -91,7 +93,8 @@ const DEFAULTS: NexalConfig = {
 	},
 	gateway: {
 		url: "https://127.0.0.1:5500",
-		token: "",
+		accessKey: "",
+		secretKey: "",
 		clientName: "nexal-bun",
 	},
 	executor: {
@@ -170,8 +173,10 @@ function applyGatewayOverlay(
 ): void {
 	const url = source.url;
 	if (typeof url === "string") gateway.url = url;
-	const token = source.token;
-	if (typeof token === "string") gateway.token = token;
+	const accessKey = source.accessKey ?? source.access_key;
+	if (typeof accessKey === "string") gateway.accessKey = accessKey;
+	const secretKey = source.secretKey ?? source.secret_key;
+	if (typeof secretKey === "string") gateway.secretKey = secretKey;
 	const clientName = source.clientName ?? source.client_name;
 	if (typeof clientName === "string") gateway.clientName = clientName;
 }
@@ -249,8 +254,11 @@ function setDeep(cfg: NexalConfig, path: string[], value: unknown): void {
 			case "url":
 				if (typeof value === "string") cfg.gateway.url = value;
 				return;
-			case "token":
-				if (typeof value === "string") cfg.gateway.token = value;
+			case "accessKey":
+				if (typeof value === "string") cfg.gateway.accessKey = value;
+				return;
+			case "secretKey":
+				if (typeof value === "string") cfg.gateway.secretKey = value;
 				return;
 			case "clientName":
 				if (typeof value === "string") cfg.gateway.clientName = value;

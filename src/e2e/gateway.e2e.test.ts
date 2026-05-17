@@ -22,7 +22,8 @@ import { GatewayAgentClient } from "../gateway/agent_client.ts";
 const ROOT = join(import.meta.dir, "../..");
 const GATEWAY_BIN = join(ROOT, "target/release/nexal-gateway");
 const AGENT_BIN = join(ROOT, "target/release/nexal-agent");
-const TOKEN = `e2e-${crypto.randomUUID()}`;
+const ACCESS_KEY = "e2e";
+const SECRET_KEY = `e2e-${crypto.randomUUID()}`;
 const PORT = 15500; // avoid clashing with dev gateway on 5500
 
 // ── Pre-flight checks ───────────────────────────────────────────────
@@ -58,14 +59,18 @@ async function startGateway(): Promise<void> {
 	gatewayProc = spawn({
 		cmd: [
 			GATEWAY_BIN,
-			"--token", TOKEN,
 			"--listen", `127.0.0.1:${PORT}`,
 			"--agent-bin", AGENT_BIN,
 			"--proxy-listen", `127.0.0.1:${PORT + 1}`,
 		],
 		stdout: "inherit",
 		stderr: "inherit",
-		env: { ...process.env, NEXAL_LOG: "info" },
+		env: {
+			...process.env,
+			NEXAL_LOG: "info",
+			NEXAL_GATEWAY_ACCESS_KEY: ACCESS_KEY,
+			NEXAL_GATEWAY_SECRET_KEY: SECRET_KEY,
+		},
 	});
 
 	// Wait for the WS port to accept connections.
@@ -110,7 +115,8 @@ describe.skipIf(!!skip)("Gateway E2E", () => {
 		console.log("[e2e] connecting client...");
 		client = new GatewayClient({
 			url: `ws://127.0.0.1:${PORT}`,
-			token: TOKEN,
+			accessKey: ACCESS_KEY,
+			secretKey: SECRET_KEY,
 			clientName: "e2e-test",
 			connectTimeoutMs: 10_000,
 		});

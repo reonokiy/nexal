@@ -1753,6 +1753,7 @@ dependencies = [
  "nexal-utils-certs",
  "nexal-utils-json-transport",
  "reqwest",
+ "ring",
  "serde",
  "serde_json",
  "thiserror 2.0.18",

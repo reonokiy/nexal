@@ -80,10 +80,12 @@ export function apiKeyEnvKey(provider: string): string | null {
 
 async function launchGateway(): Promise<{
 	url: string;
-	token: string;
+	accessKey: string;
+	secretKey: string;
 	proc: Subprocess;
 }> {
-	const token = crypto.randomUUID();
+	const accessKey = crypto.randomUUID();
+	const secretKey = crypto.randomUUID();
 	const url = "https://127.0.0.1:15500";
 	const proxyUrl = "http://127.0.0.1:15501";
 
@@ -111,7 +113,7 @@ async function launchGateway(): Promise<{
 		if (!existsSync(agentBin)) agentBin = null;
 	}
 
-	log.info(`no gateway token configured, auto-starting embedded gateway from ${gatewayBin}`);
+	log.info(`no gateway credentials configured, auto-starting embedded gateway from ${gatewayBin}`);
 
 	// Kill any stale gateway from a previous run (e.g. bun --watch restart).
 	try {
@@ -124,7 +126,6 @@ async function launchGateway(): Promise<{
 	const proc = spawn({
 		cmd: [
 			gatewayBin,
-			"--token", token,
 			"--listen", "127.0.0.1:15500",
 			"--proxy-listen", "127.0.0.1:15501",
 			...(agentBin ? ["--agent-bin", agentBin] : []),
@@ -134,6 +135,8 @@ async function launchGateway(): Promise<{
 		env: {
 			...process.env,
 			NEXAL_LOG: process.env.NEXAL_LOG ?? "info",
+			NEXAL_GATEWAY_ACCESS_KEY: accessKey,
+			NEXAL_GATEWAY_SECRET_KEY: secretKey,
 		},
 	});
 
@@ -147,7 +150,7 @@ async function launchGateway(): Promise<{
 			await fetch(proxyUrl, { signal: ctrl.signal });
 			clearTimeout(t);
 			log.success(`embedded gateway ready at ${url}`);
-			return { url, token, proc };
+			return { url, accessKey, secretKey, proc };
 		} catch {
 			await new Promise((r) => setTimeout(r, 300));
 		}
@@ -182,21 +185,24 @@ async function main(): Promise<void> {
 
 	let gatewayUrl = process.env.NEXAL_GATEWAY_URL ?? cfg.gateway.url;
 	let gatewayUnix: string | undefined = process.env.NEXAL_GATEWAY_UNIX ?? (cfg.gateway as any).unix;
-	let gatewayToken = process.env.NEXAL_GATEWAY_TOKEN ?? cfg.gateway.token;
+	let gatewayAccessKey = process.env.NEXAL_GATEWAY_ACCESS_KEY ?? cfg.gateway.accessKey;
+	let gatewaySecretKey = process.env.NEXAL_GATEWAY_SECRET_KEY ?? cfg.gateway.secretKey;
 	let gatewayProc: Subprocess | null = null;
 
-	if (!gatewayToken) {
+	if (!gatewayAccessKey || !gatewaySecretKey) {
 		// Auto-start an embedded gateway for local dev.
 		const launched = await launchGateway();
 		gatewayUrl = launched.url;
-		gatewayToken = launched.token;
+		gatewayAccessKey = launched.accessKey;
+		gatewaySecretKey = launched.secretKey;
 		gatewayProc = launched.proc;
 	}
 
 	const gateway = new GatewayClient({
 		url: gatewayUrl,
 		unix: gatewayUnix,
-		token: gatewayToken,
+		accessKey: gatewayAccessKey,
+		secretKey: gatewaySecretKey,
 		clientName: cfg.gateway.clientName,
 	});
 	await gateway.hello();
