@@ -1,6 +1,7 @@
 //! Frontend server — accepts WebSocket or Unix socket connections.
 //!
 //! WebSocket (TCP): used for external frontend connections.
+//! Also responds to plain HTTP requests (Fly health checks) with 200 OK.
 //! Unix socket: uses newline-delimited JSON over a raw stream (no WS).
 //!
 //! Session lifecycle:
@@ -13,12 +14,17 @@
 mod session;
 
 use std::collections::HashMap;
+use std::io;
 use std::path::PathBuf;
+use std::pin::Pin;
 use std::sync::Arc;
+use std::task::{Context, Poll};
 
 use nexal_utils_json_transport::JsonMessageConnection;
 use serde_json::{Value, json};
-use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::io::{
+    AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader, ReadBuf,
+};
 use tokio::net::{TcpListener, UnixListener};
 use tokio::sync::Mutex;
 use tracing::{debug, error, info, warn};
@@ -28,6 +34,50 @@ use crate::protocol::error_code;
 use crate::registry::AgentRegistry;
 
 pub const GATEWAY_VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// Wraps an async stream, prepending buffered data before the real stream.
+/// Used to replay HTTP request headers already read during inspection.
+struct PrefixedStream<S> {
+    prefix: io::Cursor<Vec<u8>>,
+    inner: S,
+}
+
+impl<S: AsyncRead + Unpin> AsyncRead for PrefixedStream<S> {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        let pos = self.prefix.position() as usize;
+        let data = self.prefix.get_ref();
+        if pos < data.len() {
+            let remaining = &data[pos..];
+            let n = remaining.len().min(buf.remaining());
+            buf.put_slice(&remaining[..n]);
+            self.prefix.set_position((pos + n) as u64);
+            return Poll::Ready(Ok(()));
+        }
+        Pin::new(&mut self.inner).poll_read(cx, buf)
+    }
+}
+
+impl<S: AsyncWrite + Unpin> AsyncWrite for PrefixedStream<S> {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<io::Result<usize>> {
+        Pin::new(&mut self.inner).poll_write(cx, buf)
+    }
+
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.inner).poll_flush(cx)
+    }
+
+    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.inner).poll_shutdown(cx)
+    }
+}
 
 #[derive(Clone)]
 pub struct ServerConfig {
@@ -87,22 +137,53 @@ pub async fn serve(cfg: ServerConfig, registry: Arc<AgentRegistry>) -> std::io::
             let cfg = cfg.clone();
             let registry = registry.clone();
             tokio::spawn(async move {
-                let ws_stream = match tokio_tungstenite::accept_async(stream).await {
-                    Ok(ws) => ws,
-                    Err(e) => {
-                        warn!("websocket handshake failed for {remote_addr}: {e}");
-                        return;
+                let mut buf = BufReader::new(stream);
+                let mut headers = Vec::new();
+                let mut line = String::new();
+                let mut is_ws = false;
+                loop {
+                    line.clear();
+                    match buf.read_line(&mut line).await {
+                        Ok(0) | Err(_) => break,
+                        _ => {}
                     }
-                };
-                let label = format!("ws-{remote_addr}");
-                let conn = JsonMessageConnection::<Value>::from_websocket(
-                    ws_stream,
-                    format!("frontend ws {label}"),
-                );
-                info!("frontend session opened: {label}");
-                let session = session::Session::from_conn(conn, cfg, registry, label.clone());
-                session.run().await;
-                info!("frontend session closed: {label}");
+                    headers.extend_from_slice(line.as_bytes());
+                    if line.eq_ignore_ascii_case("upgrade: websocket\r\n") {
+                        is_ws = true;
+                    }
+                    if line == "\r\n" {
+                        break;
+                    }
+                }
+
+                if is_ws {
+                    let prefixed = PrefixedStream {
+                        prefix: io::Cursor::new(headers),
+                        inner: buf,
+                    };
+                    let ws_stream = match tokio_tungstenite::accept_async(prefixed).await {
+                        Ok(ws) => ws,
+                        Err(e) => {
+                            warn!("websocket handshake failed for {remote_addr}: {e}");
+                            return;
+                        }
+                    };
+                    let label = format!("ws-{remote_addr}");
+                    let conn = JsonMessageConnection::<Value>::from_websocket(
+                        ws_stream,
+                        format!("frontend ws {label}"),
+                    );
+                    info!("frontend session opened: {label}");
+                    let session = session::Session::from_conn(conn, cfg, registry, label.clone());
+                    session.run().await;
+                    info!("frontend session closed: {label}");
+                } else {
+                    let mut inner = buf.into_inner();
+                    let _ = inner
+                        .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nOK")
+                        .await;
+                    debug!("health-check response sent to {remote_addr}");
+                }
             });
         }
     }
