@@ -10,6 +10,9 @@ __pycache__/
 .vscode
 .claude
 
+# Local agent / tooling state
+.codex
+
 # Reference checkouts (not vendored — clone locally for reading)
 upstream/pi-mono/
 
