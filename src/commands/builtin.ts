@@ -2,6 +2,7 @@
  * Built-in slash commands registered at startup.
  */
 import type { CommandRegistry } from "./registry.ts";
+import type { GatewayClient } from "../gateway/client.ts";
 import {
 	deleteAuth,
 	loadAuth,
@@ -22,7 +23,7 @@ interface ProvidersPayload {
 	}[];
 }
 
-export function registerBuiltins(registry: CommandRegistry): void {
+export function registerBuiltins(registry: CommandRegistry, gateway?: GatewayClient): void {
 	registry.register({
 		name: "help",
 		description: "Show available commands",
@@ -131,4 +132,28 @@ export function registerBuiltins(registry: CommandRegistry): void {
 			};
 		},
 	});
+
+	if (gateway) {
+		registry.register({
+			name: "sandboxes",
+			description: "List running sandbox containers",
+			async execute(_ctx, _args) {
+				try {
+					const result = await gateway.invoke("gateway/list_agents", {});
+					const { agents } = result as { agents: Array<{ agent_id: string; container_name: string; created_at_unix_ms: number }> };
+					if (agents.length === 0) {
+						return { text: "No sandboxes running." };
+					}
+					const lines = agents.map((a) => {
+						const age = Math.floor((Date.now() - a.created_at_unix_ms) / 1000);
+						const ageStr = age < 60 ? `${age}s` : age < 3600 ? `${Math.floor(age / 60)}m` : `${Math.floor(age / 3600)}h`;
+						return `${a.container_name.padEnd(30)} ${a.agent_id.slice(0, 12)}…  ${ageStr}`;
+					});
+					return { text: lines.join("\n"), data: result };
+				} catch (err) {
+					return { text: `Failed to list sandboxes: ${err}` };
+				}
+			},
+		});
+	}
 }

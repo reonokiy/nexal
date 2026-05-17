@@ -9,6 +9,7 @@
 	import FolderPlus from "@lucide/svelte/icons/folder-plus";
 	import Folder from "@lucide/svelte/icons/folder";
 	import Settings from "@lucide/svelte/icons/settings";
+	import Box from "@lucide/svelte/icons/box";
 	import type { Chat } from "$lib/client.svelte";
 
 	let { chat }: { chat: Chat } = $props();
@@ -88,7 +89,18 @@
 		</div>
 	</div>
 
-	<div class="border-border mt-auto border-t px-2 py-2">
+	<div class="border-border mt-auto border-t px-2 py-2 flex flex-col gap-0.5">
+		<button
+			type="button"
+			class={cn(
+				"hover:bg-accent text-foreground/85 flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm transition-colors duration-150 active:scale-[0.98]",
+				router.current.startsWith("sandboxes") && "bg-accent",
+			)}
+			onclick={() => router.go("sandboxes")}
+		>
+			<Box class="size-4" />
+			<span>Sandboxes</span>
+		</button>
 		<button
 			type="button"
 			class={cn(

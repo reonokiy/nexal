@@ -306,6 +306,7 @@ async function main(): Promise<void> {
 
 	const manager = new ChannelManager({
 		channels,
+		gateway,
 		onMessage: (msg) => {
 			try {
 				pool!.handle(msg);

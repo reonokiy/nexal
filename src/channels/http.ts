@@ -19,6 +19,7 @@
  */
 import type { Channel, IncomingMessage, OutgoingReply } from "./types.ts";
 import type { CommandRegistry } from "../commands/registry.ts";
+import type { GatewayClient } from "../gateway/client.ts";
 import { createLog } from "../log.ts";
 
 const log = createLog("http");
@@ -31,6 +32,8 @@ export interface HttpChannelConfig {
 	host?: string;
 	/** Shared command registry for slash commands. */
 	commands?: CommandRegistry;
+	/** Gateway client for querying sandbox status. */
+	gateway?: GatewayClient;
 }
 
 export class HttpChannel implements Channel {
@@ -94,12 +97,24 @@ export class HttpChannel implements Channel {
 
 				if (req.method === "POST" && (url.pathname === "/response" || url.pathname === "/")) {
 					// Sandbox skill-script → "the agent decided to reply" path.
-					// Same effect as an outgoing reply from the agent.
 					const body = (await req.json()) as { chat_id?: string; text?: string };
 					if (typeof body.chat_id === "string" && typeof body.text === "string") {
 						self.pushOutbox(body.chat_id, body.text);
 					}
 					return Response.json({ ok: true });
+				}
+
+				if (req.method === "GET" && url.pathname === "/sandboxes") {
+					if (!self.config.gateway) {
+						return Response.json({ error: "gateway not available" }, { status: 503 });
+					}
+					try {
+						const result = await self.config.gateway.invoke("gateway/list_agents", {});
+						return Response.json(result);
+					} catch (err) {
+						log.error("failed to list agents:", err);
+						return Response.json({ error: "failed to list agents" }, { status: 500 });
+					}
 				}
 
 				return new Response("not found", { status: 404 });
