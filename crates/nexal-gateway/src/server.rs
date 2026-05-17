@@ -10,36 +10,21 @@
 //!      `agent/invoke`, and receives `agent/notify` notifications.
 //!   3. On disconnect, agent containers are detached (kept alive).
 
+mod session;
+
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
 
-use ring::hmac;
-
-use http::StatusCode;
-use http::header::UPGRADE;
-use nexal_utils_json_transport::{JsonMessageConnection, JsonMessageConnectionEvent};
+use nexal_utils_json_transport::JsonMessageConnection;
 use serde_json::{Value, json};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::{TcpListener, UnixListener};
-use tokio::sync::{Mutex, mpsc};
-use tokio_tungstenite::tungstenite::handshake::server::{
-    Callback, ErrorResponse, Request, Response,
-};
+use tokio::sync::Mutex;
 use tracing::{debug, error, info, warn};
 
-use crate::protocol::{
-    AgentIdParams, AgentInvokeParams, AgentNotifyParams, AgentSummary, AttachAgentParams,
-    HelloParams, HelloResponse, JSONRPC_VERSION, JsonRpcError, JsonRpcRequest, JsonRpcResponse,
-    ListAgentsResponse, METHOD_AGENT_INVOKE, METHOD_ATTACH_AGENT, METHOD_DETACH_AGENT,
-    METHOD_HELLO, METHOD_KILL_AGENT, METHOD_LIST_AGENTS, METHOD_REGISTER_PROXY,
-    METHOD_REGISTER_STREAM_PROXY, METHOD_SPAWN_AGENT, METHOD_UNREGISTER_PROXY,
-    METHOD_UNREGISTER_STREAM_PROXY, NOTIFY_AGENT, OkResponse, RegisterProxyParams,
-    RegisterProxyResponse, RegisterStreamProxyParams, RegisterStreamProxyResponse,
-    SpawnAgentParams, SpawnAgentResponse, UnregisterProxyParams, UnregisterStreamProxyParams,
-    error_code, notification,
-};
+use crate::protocol::JsonRpcError;
+use crate::protocol::error_code;
 use crate::registry::AgentRegistry;
 
 pub const GATEWAY_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -53,62 +38,6 @@ pub struct ServerConfig {
     /// Shared replay guard: nonce → first-seen unix seconds.
     pub nonce_cache: Arc<Mutex<HashMap<String, i64>>>,
     pub proxy_external_base: String,
-}
-
-/// Max clock skew (seconds) tolerated between client `ts` and server.
-const HELLO_MAX_SKEW_SECS: i64 = 300;
-
-fn unix_now() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0)
-}
-
-fn hex_decode(s: &str) -> Option<Vec<u8>> {
-    if s.len() % 2 != 0 {
-        return None;
-    }
-    (0..s.len())
-        .step_by(2)
-        .map(|i| u8::from_str_radix(&s[i..i + 2], 16).ok())
-        .collect()
-}
-
-/// Verify a `gateway/hello` HMAC signature. Returns Ok(()) on success,
-/// or an `AUTH_REJECTED` JsonRpcError describing the failure.
-async fn verify_hello(cfg: &ServerConfig, p: &HelloParams) -> Result<(), JsonRpcError> {
-    let reject = |msg: &str| JsonRpcError {
-        code: error_code::AUTH_REJECTED,
-        message: msg.into(),
-        data: None,
-    };
-
-    let secret = cfg
-        .credentials
-        .get(&p.access_key)
-        .ok_or_else(|| reject("unknown access key"))?;
-
-    let now = unix_now();
-    if (now - p.ts).abs() > HELLO_MAX_SKEW_SECS {
-        return Err(reject("stale request (ts outside allowed window)"));
-    }
-
-    // Replay guard: prune old nonces, reject a reused one.
-    {
-        let mut cache = cfg.nonce_cache.lock().await;
-        cache.retain(|_, seen| (now - *seen) <= HELLO_MAX_SKEW_SECS * 2);
-        if cache.contains_key(&p.nonce) {
-            return Err(reject("replayed nonce"));
-        }
-        cache.insert(p.nonce.clone(), now);
-    }
-
-    let sig = hex_decode(&p.signature).ok_or_else(|| reject("malformed signature"))?;
-    let canonical = format!("{}\n{}\n{}\n{}", p.access_key, p.ts, p.nonce, p.client_name);
-    let key = hmac::Key::new(hmac::HMAC_SHA256, secret.as_bytes());
-    hmac::verify(&key, canonical.as_bytes(), &sig).map_err(|_| reject("signature mismatch"))?;
-    Ok(())
 }
 
 pub async fn serve(cfg: ServerConfig, registry: Arc<AgentRegistry>) -> std::io::Result<()> {
@@ -158,36 +87,10 @@ pub async fn serve(cfg: ServerConfig, registry: Arc<AgentRegistry>) -> std::io::
             let cfg = cfg.clone();
             let registry = registry.clone();
             tokio::spawn(async move {
-                struct WsOrHealth;
-                impl Callback for WsOrHealth {
-                    fn on_request(
-                        self,
-                        request: &Request,
-                        response: Response,
-                    ) -> Result<Response, ErrorResponse> {
-                        let is_ws = request
-                            .headers()
-                            .get(UPGRADE)
-                            .and_then(|v| v.to_str().ok())
-                            .map(|v| v.eq_ignore_ascii_case("websocket"))
-                            .unwrap_or(false);
-                        if is_ws {
-                            Ok(response)
-                        } else {
-                            Err(ErrorResponse::from(
-                                http::Response::builder()
-                                    .status(StatusCode::OK)
-                                    .body(Some("OK".into()))
-                                    .unwrap(),
-                            ))
-                        }
-                    }
-                }
-
-                let ws_stream = match tokio_tungstenite::accept_hdr_async(stream, WsOrHealth).await {
+                let ws_stream = match tokio_tungstenite::accept_async(stream).await {
                     Ok(ws) => ws,
                     Err(e) => {
-                        debug!("non-websocket connection from {remote_addr}: {e}");
+                        warn!("websocket handshake failed for {remote_addr}: {e}");
                         return;
                     }
                 };
@@ -197,7 +100,7 @@ pub async fn serve(cfg: ServerConfig, registry: Arc<AgentRegistry>) -> std::io::
                     format!("frontend ws {label}"),
                 );
                 info!("frontend session opened: {label}");
-                let session = Session::from_conn(conn, cfg, registry, label.clone());
+                let session = session::Session::from_conn(conn, cfg, registry, label.clone());
                 session.run().await;
                 info!("frontend session closed: {label}");
             });
@@ -221,360 +124,13 @@ where
         format!("frontend unix {label}"),
     );
     info!("frontend session opened: {label}");
-    let session = Session::from_conn(conn, cfg, registry, label.to_string());
+    let session = session::Session::from_conn(conn, cfg, registry, label.to_string());
     session.run().await;
     info!("frontend session closed: {label}");
     Ok(())
 }
 
-struct Session {
-    ws_tx: mpsc::Sender<Value>,
-    incoming_rx: mpsc::Receiver<JsonMessageConnectionEvent<Value>>,
-    connection_tasks: Vec<tokio::task::JoinHandle<()>>,
-    cfg: ServerConfig,
-    registry: Arc<AgentRegistry>,
-    authenticated: Arc<Mutex<bool>>,
-}
-
-impl Session {
-    fn from_conn(
-        conn: JsonMessageConnection<Value>,
-        cfg: ServerConfig,
-        registry: Arc<AgentRegistry>,
-        _label: String,
-    ) -> Self {
-        let (ws_tx, incoming_rx, connection_tasks) = conn.into_parts();
-        Self {
-            ws_tx,
-            incoming_rx,
-            connection_tasks,
-            cfg,
-            registry,
-            authenticated: Arc::new(Mutex::new(false)),
-        }
-    }
-
-    async fn run(mut self) {
-        let mut notify_rx = self.registry.subscribe_notifications();
-        let write_tx = self.ws_tx.clone();
-        let auth_for_notify = self.authenticated.clone();
-        let notify_task = tokio::spawn(async move {
-            while let Ok(notif) = notify_rx.recv().await {
-                if !*auth_for_notify.lock().await {
-                    continue;
-                }
-                let value = match serde_json::to_value(notification(
-                    NOTIFY_AGENT,
-                    serde_json::to_value(AgentNotifyParams {
-                        agent_id: notif.agent_id,
-                        method: notif.method,
-                        params: notif.params,
-                    })
-                    .unwrap_or(Value::Null),
-                )) {
-                    Ok(value) => value,
-                    Err(err) => {
-                        warn!("encode notification: {err}");
-                        continue;
-                    }
-                };
-                if write_tx.send(value).await.is_err() {
-                    break;
-                }
-            }
-        });
-
-        while let Some(event) = self.incoming_rx.recv().await {
-            match event {
-                JsonMessageConnectionEvent::Message(value) => self.handle_value(value).await,
-                JsonMessageConnectionEvent::MalformedMessage { reason } => {
-                    self.send_error(Value::Null, error_code::PARSE_ERROR, reason)
-                        .await;
-                }
-                JsonMessageConnectionEvent::Disconnected { reason } => {
-                    if let Some(reason) = reason {
-                        debug!("frontend read: {reason}");
-                    }
-                    break;
-                }
-            }
-        }
-
-        notify_task.abort();
-        for task in self.connection_tasks {
-            task.abort();
-            let _ = task.await;
-        }
-    }
-
-    async fn handle_value(&self, value: Value) {
-        let req: JsonRpcRequest = match serde_json::from_value(value) {
-            Ok(r) => r,
-            Err(err) => {
-                self.send_error(Value::Null, error_code::PARSE_ERROR, format!("json: {err}"))
-                    .await;
-                return;
-            }
-        };
-        let id = req.id.clone();
-
-        let Some(req_id) = id.clone() else {
-            debug!("frontend notification ignored: {}", req.method);
-            return;
-        };
-
-        if !*self.authenticated.lock().await && req.method != METHOD_HELLO {
-            self.send_error(
-                req_id,
-                error_code::NOT_AUTHENTICATED,
-                "send gateway/hello first",
-            )
-            .await;
-            return;
-        }
-
-        let result = self.dispatch(&req).await;
-        match result {
-            Ok(value) => self.send_result(req_id, value).await,
-            Err(err) => {
-                self.send_response(JsonRpcResponse {
-                    jsonrpc: JSONRPC_VERSION.into(),
-                    id: req_id,
-                    result: None,
-                    error: Some(err),
-                })
-                .await
-            }
-        }
-    }
-
-    async fn dispatch(&self, req: &JsonRpcRequest) -> Result<Value, JsonRpcError> {
-        let params = req.params.clone().unwrap_or(Value::Null);
-        match req.method.as_str() {
-            METHOD_HELLO => {
-                let p: HelloParams = parse_params(params)?;
-                verify_hello(&self.cfg, &p).await?;
-                *self.authenticated.lock().await = true;
-                info!("frontend client authenticated: {}", p.client_name);
-                Ok(serde_json::to_value(HelloResponse {
-                    ok: true,
-                    gateway_version: GATEWAY_VERSION.into(),
-                })
-                .unwrap_or(Value::Null))
-            }
-            METHOD_SPAWN_AGENT => {
-                let p: SpawnAgentParams = parse_params(params)?;
-                let entry = self
-                    .registry
-                    .spawn(p.name, p.image, p.env, p.labels, p.extra_ports)
-                    .await
-                    .map_err(registry_err)?;
-                Ok(serde_json::to_value(SpawnAgentResponse {
-                    agent_id: entry.agent_id,
-                    container_name: entry.container_name,
-                })
-                .unwrap_or(Value::Null))
-            }
-            METHOD_KILL_AGENT => {
-                let p: AgentIdParams = parse_params(params)?;
-                self.registry
-                    .kill(&p.agent_id)
-                    .await
-                    .map_err(registry_err)?;
-                Ok(serde_json::to_value(OkResponse { ok: true }).unwrap_or(Value::Null))
-            }
-            METHOD_DETACH_AGENT => {
-                let p: AgentIdParams = parse_params(params)?;
-                self.registry
-                    .detach(&p.agent_id)
-                    .await
-                    .map_err(registry_err)?;
-                Ok(serde_json::to_value(OkResponse { ok: true }).unwrap_or(Value::Null))
-            }
-            METHOD_ATTACH_AGENT => {
-                let p: AttachAgentParams = parse_params(params)?;
-                let entry = self
-                    .registry
-                    .attach(p.container_name)
-                    .await
-                    .map_err(registry_err)?;
-                Ok(serde_json::to_value(SpawnAgentResponse {
-                    agent_id: entry.agent_id,
-                    container_name: entry.container_name,
-                })
-                .unwrap_or(Value::Null))
-            }
-            METHOD_LIST_AGENTS => {
-                let entries = self.registry.list().await;
-                let agents = entries
-                    .into_iter()
-                    .map(|e| AgentSummary {
-                        agent_id: e.agent_id,
-                        container_name: e.container_name,
-                        created_at_unix_ms: e.created_at_unix_ms,
-                    })
-                    .collect();
-                Ok(serde_json::to_value(ListAgentsResponse { agents }).unwrap_or(Value::Null))
-            }
-            METHOD_AGENT_INVOKE => {
-                let p: AgentInvokeParams = parse_params(params)?;
-                let entry = self
-                    .registry
-                    .get(&p.agent_id)
-                    .await
-                    .ok_or_else(|| JsonRpcError {
-                        code: error_code::UNKNOWN_AGENT,
-                        message: format!("no agent {}", p.agent_id),
-                        data: None,
-                    })?;
-                entry
-                    .conn
-                    .invoke(&p.method, p.params)
-                    .await
-                    .map_err(JsonRpcError::from)
-            }
-            METHOD_REGISTER_PROXY => {
-                let p: RegisterProxyParams = parse_params(params)?;
-                let agent_entry =
-                    self.registry
-                        .get(&p.agent_id)
-                        .await
-                        .ok_or_else(|| JsonRpcError {
-                            code: error_code::UNKNOWN_AGENT,
-                            message: format!("no agent {}", p.agent_id),
-                            data: None,
-                        })?;
-                let socket_path = container_socket_path(&p.name);
-                let entry = self
-                    .registry
-                    .proxies
-                    .register(
-                        p.agent_id.clone(),
-                        p.name.clone(),
-                        p.upstream_url,
-                        p.headers,
-                    )
-                    .await;
-                let gateway_url = format!(
-                    "{}/p/{}",
-                    self.cfg.proxy_external_base.trim_end_matches('/'),
-                    entry.token
-                );
-                let agent_resp = agent_entry
-                    .conn
-                    .invoke(
-                        "proxy/register",
-                        Some(serde_json::json!({
-                            "socket_path": socket_path,
-                            "upstream_url": gateway_url,
-                            "headers": {},
-                        })),
-                    )
-                    .await;
-                if let Err(err) = agent_resp {
-                    self.registry.proxies.unregister(&p.agent_id, &p.name).await;
-                    return Err(JsonRpcError::from(err));
-                }
-                Ok(serde_json::to_value(RegisterProxyResponse {
-                    token: entry.token,
-                    socket_path,
-                })
-                .unwrap_or(Value::Null))
-            }
-            METHOD_UNREGISTER_PROXY => {
-                let p: UnregisterProxyParams = parse_params(params)?;
-                let socket_path = container_socket_path(&p.name);
-                if let Some(agent_entry) = self.registry.get(&p.agent_id).await {
-                    let _ = agent_entry
-                        .conn
-                        .invoke(
-                            "proxy/unregister",
-                            Some(serde_json::json!({ "socket_path": socket_path })),
-                        )
-                        .await;
-                }
-                let removed = self.registry.proxies.unregister(&p.agent_id, &p.name).await;
-                Ok(serde_json::to_value(OkResponse { ok: removed }).unwrap_or(Value::Null))
-            }
-            METHOD_REGISTER_STREAM_PROXY => {
-                let p: RegisterStreamProxyParams = parse_params(params)?;
-                let agent_entry =
-                    self.registry
-                        .get(&p.agent_id)
-                        .await
-                        .ok_or_else(|| JsonRpcError {
-                            code: error_code::UNKNOWN_AGENT,
-                            message: format!("no agent {}", p.agent_id),
-                            data: None,
-                        })?;
-                let upstream_addr = agent_entry
-                    .port_map
-                    .get(&p.container_port)
-                    .cloned()
-                    .ok_or_else(|| JsonRpcError {
-                        code: error_code::INVALID_PARAMS,
-                        message: format!(
-                            "port {} not published for agent {}",
-                            p.container_port, p.agent_id
-                        ),
-                        data: None,
-                    })?;
-                let listen_addr = self
-                    .registry
-                    .tcp_proxies
-                    .register(p.agent_id, p.name, upstream_addr)
-                    .await
-                    .map_err(|e| JsonRpcError {
-                        code: error_code::BACKEND_ERROR,
-                        message: e,
-                        data: None,
-                    })?;
-                Ok(
-                    serde_json::to_value(RegisterStreamProxyResponse { listen_addr })
-                        .unwrap_or(Value::Null),
-                )
-            }
-            METHOD_UNREGISTER_STREAM_PROXY => {
-                let p: UnregisterStreamProxyParams = parse_params(params)?;
-                let removed = self
-                    .registry
-                    .tcp_proxies
-                    .unregister(&p.agent_id, &p.name)
-                    .await;
-                Ok(serde_json::to_value(OkResponse { ok: removed }).unwrap_or(Value::Null))
-            }
-            other => Err(JsonRpcError {
-                code: error_code::METHOD_NOT_FOUND,
-                message: format!("unknown method: {other}"),
-                data: None,
-            }),
-        }
-    }
-
-    async fn send_result(&self, id: Value, result: Value) {
-        self.send_response(JsonRpcResponse::ok(id, result)).await;
-    }
-
-    async fn send_error(&self, id: Value, code: i32, message: impl Into<String>) {
-        self.send_response(JsonRpcResponse::err(id, code, message))
-            .await;
-    }
-
-    async fn send_response(&self, resp: JsonRpcResponse) {
-        let value = match serde_json::to_value(resp) {
-            Ok(value) => value,
-            Err(err) => {
-                warn!("encode response: {err}");
-                return;
-            }
-        };
-        if let Err(err) = self.ws_tx.send(value).await {
-            debug!("send response: {err}");
-        }
-    }
-}
-
-fn parse_params<T: serde::de::DeserializeOwned>(value: Value) -> Result<T, JsonRpcError> {
+pub(crate) fn parse_params<T: serde::de::DeserializeOwned>(value: Value) -> Result<T, JsonRpcError> {
     serde_json::from_value(value).map_err(|err| JsonRpcError {
         code: error_code::INVALID_PARAMS,
         message: format!("invalid params: {err}"),
@@ -582,7 +138,7 @@ fn parse_params<T: serde::de::DeserializeOwned>(value: Value) -> Result<T, JsonR
     })
 }
 
-fn registry_err(err: crate::registry::RegistryError) -> JsonRpcError {
+pub(crate) fn registry_err(err: crate::registry::RegistryError) -> JsonRpcError {
     use crate::registry::RegistryError::*;
     let (code, msg) = match err {
         Backend(e) => (error_code::BACKEND_ERROR, format!("{e}")),
@@ -600,7 +156,7 @@ fn registry_err(err: crate::registry::RegistryError) -> JsonRpcError {
     }
 }
 
-fn container_socket_path(name: &str) -> String {
+pub(crate) fn container_socket_path(name: &str) -> String {
     let mut sanitized = String::with_capacity(name.len());
     for c in name.chars() {
         if c.is_ascii_alphanumeric() || c == '_' || c == '.' || c == '-' {

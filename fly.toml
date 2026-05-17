@@ -17,10 +17,24 @@ primary_region = "ams"
   size   = "shared-cpu-1x"
   memory = "256mb"
 
-# HTTP service with WebSocket support.
-[http_service]
+# TCP service with HTTP handlers (Host routing + WebSocket) and TCP-level
+# health checks (port-open only, no HTTP probes).
+[[services]]
+  protocol = "tcp"
   internal_port = 5500
-  force_https = false
   auto_stop_machines = false
   auto_start_machines = true
   min_machines_running = 1
+
+  [[services.tcp_checks]]
+    interval = "15s"
+    timeout = "3s"
+    grace_period = "5s"
+
+  [[services.ports]]
+    port = 80
+    handlers = ["http"]
+
+  [[services.ports]]
+    port = 443
+    handlers = ["tls", "http"]
