@@ -1,16 +1,16 @@
-use crate::protocol::JSONRPCErrorError;
+use crate::transport::protocol::JSONRPCErrorError;
 
-use crate::local_process::LocalProcess;
-use crate::protocol::ExecParams;
-use crate::protocol::ExecResponse;
-use crate::protocol::InitializeResponse;
-use crate::protocol::ReadParams;
-use crate::protocol::ReadResponse;
-use crate::protocol::TerminateParams;
-use crate::protocol::TerminateResponse;
-use crate::protocol::WriteParams;
-use crate::protocol::WriteResponse;
-use crate::rpc::RpcNotificationSender;
+use crate::executor::local_process::LocalProcess;
+use crate::transport::protocol::ExecParams;
+use crate::transport::protocol::ExecResponse;
+use crate::transport::protocol::InitializeResponse;
+use crate::transport::protocol::ReadParams;
+use crate::transport::protocol::ReadResponse;
+use crate::transport::protocol::TerminateParams;
+use crate::transport::protocol::TerminateResponse;
+use crate::transport::protocol::WriteParams;
+use crate::transport::protocol::WriteResponse;
+use crate::transport::rpc::RpcNotificationSender;
 use crate::server::services::{ProcessEvent, ProcessEventBroadcaster};
 
 #[derive(Clone)]

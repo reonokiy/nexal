@@ -307,8 +307,7 @@ where
                 let write_ok = send.write_all(encoded.as_bytes()).await.is_ok()
                     && send.write_all(b"\n").await.is_ok()
                     && send.flush().await.is_ok();
-                if !write_ok
-                {
+                if !write_ok {
                     send_disconnected(
                         &incoming_tx,
                         Some(format!("WebTransport write to {connection_label} failed")),

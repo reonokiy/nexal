@@ -114,10 +114,20 @@ mod tests {
     async fn register_returns_distinct_tokens() {
         let reg = ProxyRegistry::new();
         let a = reg
-            .register("agent-1".into(), "jina".into(), "https://jina".into(), HashMap::new())
+            .register(
+                "agent-1".into(),
+                "jina".into(),
+                "https://jina".into(),
+                HashMap::new(),
+            )
             .await;
         let b = reg
-            .register("agent-1".into(), "openai".into(), "https://oai".into(), HashMap::new())
+            .register(
+                "agent-1".into(),
+                "openai".into(),
+                "https://oai".into(),
+                HashMap::new(),
+            )
             .await;
         assert_ne!(a.token, b.token);
     }
@@ -126,10 +136,20 @@ mod tests {
     async fn register_same_key_replaces_token() {
         let reg = ProxyRegistry::new();
         let first = reg
-            .register("a".into(), "jina".into(), "https://jina".into(), HashMap::new())
+            .register(
+                "a".into(),
+                "jina".into(),
+                "https://jina".into(),
+                HashMap::new(),
+            )
             .await;
         let second = reg
-            .register("a".into(), "jina".into(), "https://jina2".into(), HashMap::new())
+            .register(
+                "a".into(),
+                "jina".into(),
+                "https://jina2".into(),
+                HashMap::new(),
+            )
             .await;
         assert_ne!(first.token, second.token, "token should rotate on replace");
         assert!(

@@ -1,31 +1,31 @@
 use std::io;
 
-use crate::protocol::FsCopyParams;
-use crate::protocol::FsCopyResponse;
-use crate::protocol::FsCreateDirectoryParams;
-use crate::protocol::FsCreateDirectoryResponse;
-use crate::protocol::FsGetMetadataParams;
-use crate::protocol::FsGetMetadataResponse;
-use crate::protocol::FsReadDirectoryEntry;
-use crate::protocol::FsReadDirectoryParams;
-use crate::protocol::FsReadDirectoryResponse;
-use crate::protocol::FsReadFileParams;
-use crate::protocol::FsReadFileResponse;
-use crate::protocol::FsRemoveParams;
-use crate::protocol::FsRemoveResponse;
-use crate::protocol::FsWriteFileParams;
-use crate::protocol::FsWriteFileResponse;
-use crate::protocol::JSONRPCErrorError;
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
 
+use crate::transport::protocol::FsCopyParams;
+use crate::transport::protocol::FsCopyResponse;
+use crate::transport::protocol::FsCreateDirectoryParams;
+use crate::transport::protocol::FsCreateDirectoryResponse;
+use crate::transport::protocol::FsGetMetadataParams;
+use crate::transport::protocol::FsGetMetadataResponse;
+use crate::transport::protocol::FsReadDirectoryEntry;
+use crate::transport::protocol::FsReadDirectoryParams;
+use crate::transport::protocol::FsReadDirectoryResponse;
+use crate::transport::protocol::FsReadFileParams;
+use crate::transport::protocol::FsReadFileResponse;
+use crate::transport::protocol::FsRemoveParams;
+use crate::transport::protocol::FsRemoveResponse;
+use crate::transport::protocol::FsWriteFileParams;
+use crate::transport::protocol::FsWriteFileResponse;
+use crate::transport::protocol::JSONRPCErrorError;
 use crate::CopyOptions;
 use crate::CreateDirectoryOptions;
 use crate::ExecutorFileSystem;
 use crate::RemoveOptions;
-use crate::local_file_system::LocalFileSystem;
-use crate::rpc::internal_error;
-use crate::rpc::invalid_request;
+use crate::executor::local_file_system::LocalFileSystem;
+use crate::transport::rpc::internal_error;
+use crate::transport::rpc::invalid_request;
 
 #[derive(Clone, Default)]
 pub(crate) struct FileSystemHandler {

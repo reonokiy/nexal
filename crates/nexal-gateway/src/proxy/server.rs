@@ -250,7 +250,8 @@ mod tests {
     #[test]
     fn build_url_handles_empty_rest() {
         assert_eq!(
-            build_upstream_url("https://api.jina.ai", "", &uri("/p/tok")).expect("build_upstream_url should succeed"),
+            build_upstream_url("https://api.jina.ai", "", &uri("/p/tok"))
+                .expect("build_upstream_url should succeed"),
             "https://api.jina.ai"
         );
     }
@@ -260,8 +261,12 @@ mod tests {
         // `rest` after axum's `*rest` matcher normally has no leading
         // slash, but defensive code accepts one.
         assert_eq!(
-            build_upstream_url("https://api.jina.ai", "/v1/search", &uri("/p/tok/v1/search"))
-                .expect("build_upstream_url should succeed"),
+            build_upstream_url(
+                "https://api.jina.ai",
+                "/v1/search",
+                &uri("/p/tok/v1/search")
+            )
+            .expect("build_upstream_url should succeed"),
             "https://api.jina.ai/v1/search"
         );
     }
@@ -269,7 +274,8 @@ mod tests {
     #[test]
     fn build_url_strips_trailing_slash_on_upstream_base() {
         assert_eq!(
-            build_upstream_url("https://api.jina.ai/", "v1/x", &uri("/p/tok/v1/x")).expect("build_upstream_url should succeed"),
+            build_upstream_url("https://api.jina.ai/", "v1/x", &uri("/p/tok/v1/x"))
+                .expect("build_upstream_url should succeed"),
             "https://api.jina.ai/v1/x"
         );
     }
@@ -277,7 +283,8 @@ mod tests {
     #[test]
     fn build_url_passes_through_empty_query() {
         assert_eq!(
-            build_upstream_url("https://api", "x", &uri("/p/tok/x?")).expect("build_upstream_url should succeed"),
+            build_upstream_url("https://api", "x", &uri("/p/tok/x?"))
+                .expect("build_upstream_url should succeed"),
             "https://api/x?"
         );
     }

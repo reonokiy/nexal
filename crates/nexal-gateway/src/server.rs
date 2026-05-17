@@ -17,11 +17,16 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use ring::hmac;
 
+use http::StatusCode;
+use http::header::UPGRADE;
 use nexal_utils_json_transport::{JsonMessageConnection, JsonMessageConnectionEvent};
 use serde_json::{Value, json};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::{TcpListener, UnixListener};
 use tokio::sync::{Mutex, mpsc};
+use tokio_tungstenite::tungstenite::handshake::server::{
+    Callback, ErrorResponse, Request, Response,
+};
 use tracing::{debug, error, info, warn};
 
 use crate::protocol::{
@@ -29,10 +34,11 @@ use crate::protocol::{
     HelloParams, HelloResponse, JSONRPC_VERSION, JsonRpcError, JsonRpcRequest, JsonRpcResponse,
     ListAgentsResponse, METHOD_AGENT_INVOKE, METHOD_ATTACH_AGENT, METHOD_DETACH_AGENT,
     METHOD_HELLO, METHOD_KILL_AGENT, METHOD_LIST_AGENTS, METHOD_REGISTER_PROXY,
-    METHOD_REGISTER_STREAM_PROXY, METHOD_UNREGISTER_PROXY, METHOD_UNREGISTER_STREAM_PROXY,
-    METHOD_SPAWN_AGENT, NOTIFY_AGENT, OkResponse, RegisterProxyParams, RegisterProxyResponse,
-    RegisterStreamProxyParams, RegisterStreamProxyResponse, SpawnAgentParams, SpawnAgentResponse,
-    UnregisterProxyParams, UnregisterStreamProxyParams, error_code, notification,
+    METHOD_REGISTER_STREAM_PROXY, METHOD_SPAWN_AGENT, METHOD_UNREGISTER_PROXY,
+    METHOD_UNREGISTER_STREAM_PROXY, NOTIFY_AGENT, OkResponse, RegisterProxyParams,
+    RegisterProxyResponse, RegisterStreamProxyParams, RegisterStreamProxyResponse,
+    SpawnAgentParams, SpawnAgentResponse, UnregisterProxyParams, UnregisterStreamProxyParams,
+    error_code, notification,
 };
 use crate::registry::AgentRegistry;
 
@@ -99,13 +105,9 @@ async fn verify_hello(cfg: &ServerConfig, p: &HelloParams) -> Result<(), JsonRpc
     }
 
     let sig = hex_decode(&p.signature).ok_or_else(|| reject("malformed signature"))?;
-    let canonical = format!(
-        "{}\n{}\n{}\n{}",
-        p.access_key, p.ts, p.nonce, p.client_name
-    );
+    let canonical = format!("{}\n{}\n{}\n{}", p.access_key, p.ts, p.nonce, p.client_name);
     let key = hmac::Key::new(hmac::HMAC_SHA256, secret.as_bytes());
-    hmac::verify(&key, canonical.as_bytes(), &sig)
-        .map_err(|_| reject("signature mismatch"))?;
+    hmac::verify(&key, canonical.as_bytes(), &sig).map_err(|_| reject("signature mismatch"))?;
     Ok(())
 }
 
@@ -156,10 +158,36 @@ pub async fn serve(cfg: ServerConfig, registry: Arc<AgentRegistry>) -> std::io::
             let cfg = cfg.clone();
             let registry = registry.clone();
             tokio::spawn(async move {
-                let ws_stream = match tokio_tungstenite::accept_async(stream).await {
+                struct WsOrHealth;
+                impl Callback for WsOrHealth {
+                    fn on_request(
+                        self,
+                        request: &Request,
+                        response: Response,
+                    ) -> Result<Response, ErrorResponse> {
+                        let is_ws = request
+                            .headers()
+                            .get(UPGRADE)
+                            .and_then(|v| v.to_str().ok())
+                            .map(|v| v.eq_ignore_ascii_case("websocket"))
+                            .unwrap_or(false);
+                        if is_ws {
+                            Ok(response)
+                        } else {
+                            Err(ErrorResponse::from(
+                                http::Response::builder()
+                                    .status(StatusCode::OK)
+                                    .body(Some("OK".into()))
+                                    .unwrap(),
+                            ))
+                        }
+                    }
+                }
+
+                let ws_stream = match tokio_tungstenite::accept_hdr_async(stream, WsOrHealth).await {
                     Ok(ws) => ws,
                     Err(e) => {
-                        warn!("websocket handshake failed for {remote_addr}: {e}");
+                        debug!("non-websocket connection from {remote_addr}: {e}");
                         return;
                     }
                 };
@@ -187,7 +215,11 @@ where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
     let (reader, writer) = tokio::io::split(stream);
-    let conn = JsonMessageConnection::<Value>::from_stdio(reader, writer, format!("frontend unix {label}"));
+    let conn = JsonMessageConnection::<Value>::from_stdio(
+        reader,
+        writer,
+        format!("frontend unix {label}"),
+    );
     info!("frontend session opened: {label}");
     let session = Session::from_conn(conn, cfg, registry, label.to_string());
     session.run().await;
@@ -403,18 +435,25 @@ impl Session {
             }
             METHOD_REGISTER_PROXY => {
                 let p: RegisterProxyParams = parse_params(params)?;
-                let agent_entry = self.registry.get(&p.agent_id).await.ok_or_else(|| {
-                    JsonRpcError {
-                        code: error_code::UNKNOWN_AGENT,
-                        message: format!("no agent {}", p.agent_id),
-                        data: None,
-                    }
-                })?;
+                let agent_entry =
+                    self.registry
+                        .get(&p.agent_id)
+                        .await
+                        .ok_or_else(|| JsonRpcError {
+                            code: error_code::UNKNOWN_AGENT,
+                            message: format!("no agent {}", p.agent_id),
+                            data: None,
+                        })?;
                 let socket_path = container_socket_path(&p.name);
                 let entry = self
                     .registry
                     .proxies
-                    .register(p.agent_id.clone(), p.name.clone(), p.upstream_url, p.headers)
+                    .register(
+                        p.agent_id.clone(),
+                        p.name.clone(),
+                        p.upstream_url,
+                        p.headers,
+                    )
                     .await;
                 let gateway_url = format!(
                     "{}/p/{}",
@@ -459,23 +498,26 @@ impl Session {
             }
             METHOD_REGISTER_STREAM_PROXY => {
                 let p: RegisterStreamProxyParams = parse_params(params)?;
-                let agent_entry = self.registry.get(&p.agent_id).await.ok_or_else(|| {
-                    JsonRpcError {
-                        code: error_code::UNKNOWN_AGENT,
-                        message: format!("no agent {}", p.agent_id),
-                        data: None,
-                    }
-                })?;
-                let upstream_addr =
-                    agent_entry.port_map.get(&p.container_port).cloned().ok_or_else(|| {
-                        JsonRpcError {
-                            code: error_code::INVALID_PARAMS,
-                            message: format!(
-                                "port {} not published for agent {}",
-                                p.container_port, p.agent_id
-                            ),
+                let agent_entry =
+                    self.registry
+                        .get(&p.agent_id)
+                        .await
+                        .ok_or_else(|| JsonRpcError {
+                            code: error_code::UNKNOWN_AGENT,
+                            message: format!("no agent {}", p.agent_id),
                             data: None,
-                        }
+                        })?;
+                let upstream_addr = agent_entry
+                    .port_map
+                    .get(&p.container_port)
+                    .cloned()
+                    .ok_or_else(|| JsonRpcError {
+                        code: error_code::INVALID_PARAMS,
+                        message: format!(
+                            "port {} not published for agent {}",
+                            p.container_port, p.agent_id
+                        ),
+                        data: None,
                     })?;
                 let listen_addr = self
                     .registry
@@ -487,8 +529,10 @@ impl Session {
                         message: e,
                         data: None,
                     })?;
-                Ok(serde_json::to_value(RegisterStreamProxyResponse { listen_addr })
-                    .unwrap_or(Value::Null))
+                Ok(
+                    serde_json::to_value(RegisterStreamProxyResponse { listen_addr })
+                        .unwrap_or(Value::Null),
+                )
             }
             METHOD_UNREGISTER_STREAM_PROXY => {
                 let p: UnregisterStreamProxyParams = parse_params(params)?;
@@ -575,13 +619,14 @@ fn _ensure_json_used() -> Value {
 
 #[cfg(test)]
 mod tests {
+    use serde::Deserialize;
+    use serde_json::json;
+
     use super::{container_socket_path, parse_params, registry_err};
     use crate::agent_conn::AgentConnError;
     use crate::backend::BackendError;
     use crate::protocol::error_code;
     use crate::registry::RegistryError;
-    use serde::Deserialize;
-    use serde_json::json;
 
     #[derive(Debug, Deserialize)]
     struct Sample {
@@ -606,8 +651,7 @@ mod tests {
 
     #[test]
     fn parse_params_rejects_wrong_shape() {
-        let err = parse_params::<Sample>(json!([1, 2, 3]))
-            .expect_err("array is not an object");
+        let err = parse_params::<Sample>(json!([1, 2, 3])).expect_err("array is not an object");
         assert_eq!(err.code, error_code::INVALID_PARAMS);
     }
 
@@ -639,7 +683,10 @@ mod tests {
 
     #[test]
     fn socket_path_uses_convention() {
-        assert_eq!(container_socket_path("jina"), "/run/nexal/proxy/jina.socket");
+        assert_eq!(
+            container_socket_path("jina"),
+            "/run/nexal/proxy/jina.socket"
+        );
     }
 
     #[test]

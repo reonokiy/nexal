@@ -175,8 +175,7 @@ runtime    = "crun"
 listen        = "127.0.0.1:5501"
 external_base = "http://host.containers.internal:5501"
 "#;
-        let c: GatewayConfig =
-            toml::from_str(text).expect("gateway config should parse");
+        let c: GatewayConfig = toml::from_str(text).expect("gateway config should parse");
         assert_eq!(c.listen.as_deref(), Some("0.0.0.0:5500"));
         assert_eq!(c.credentials.len(), 1);
         assert_eq!(c.credentials[0].access_key, "AK1");
@@ -207,8 +206,7 @@ enabled = true
 size = 3
 image = "ghcr.io/reonokiy/nexal-sandbox:latest"
 "#;
-        let c: GatewayConfig =
-            toml::from_str(text).expect("k8s + pool config should parse");
+        let c: GatewayConfig = toml::from_str(text).expect("k8s + pool config should parse");
         assert_eq!(c.backend.kind.as_deref(), Some("kubernetes"));
         assert_eq!(c.backend.namespace.as_deref(), Some("nexal"));
         assert_eq!(
@@ -251,8 +249,7 @@ image = "x"
 # made-up-key is NOT defined on SpawnDefaultsConfig; serde drops it
 # only because we don't `deny_unknown_fields`.
 "#;
-        let c: GatewayConfig =
-            toml::from_str(text).expect("unknown inner keys shouldn't fail");
+        let c: GatewayConfig = toml::from_str(text).expect("unknown inner keys shouldn't fail");
         assert_eq!(c.defaults.image.as_deref(), Some("x"));
     }
 

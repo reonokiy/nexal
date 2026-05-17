@@ -24,10 +24,9 @@ impl std::fmt::Display for ExecServerListenUrlParseError {
                 f,
                 "unsupported --listen URL `{url}`; expected `ws://IP:PORT`"
             ),
-            ExecServerListenUrlParseError::InvalidListenUrl(url) => write!(
-                f,
-                "invalid --listen URL `{url}`; expected `ws://IP:PORT`"
-            ),
+            ExecServerListenUrlParseError::InvalidListenUrl(url) => {
+                write!(f, "invalid --listen URL `{url}`; expected `ws://IP:PORT`")
+            }
         }
     }
 }
@@ -37,14 +36,12 @@ impl std::error::Error for ExecServerListenUrlParseError {}
 pub(crate) fn parse_listen_url(
     listen_url: &str,
 ) -> Result<SocketAddr, ExecServerListenUrlParseError> {
-    let addr_str = listen_url
-        .strip_prefix("ws://")
-        .ok_or_else(|| {
-            ExecServerListenUrlParseError::UnsupportedListenUrl(listen_url.to_string())
-        })?;
-    addr_str.parse::<SocketAddr>().map_err(|_| {
-        ExecServerListenUrlParseError::InvalidListenUrl(listen_url.to_string())
-    })
+    let addr_str = listen_url.strip_prefix("ws://").ok_or_else(|| {
+        ExecServerListenUrlParseError::UnsupportedListenUrl(listen_url.to_string())
+    })?;
+    addr_str
+        .parse::<SocketAddr>()
+        .map_err(|_| ExecServerListenUrlParseError::InvalidListenUrl(listen_url.to_string()))
 }
 
 pub(crate) async fn run_transport(
@@ -97,8 +94,8 @@ pub(crate) async fn start_server(
     bind_address: SocketAddr,
 ) -> Result<(SocketAddr, jsonrpsee::server::ServerHandle), Box<dyn std::error::Error + Send + Sync>>
 {
-    use jsonrpsee::server::ServerBuilder;
     use crate::server::rpc::jsonrpsee::build_module;
+    use jsonrpsee::server::ServerBuilder;
 
     let server = ServerBuilder::default().build(bind_address).await?;
     let local_addr = server.local_addr()?;

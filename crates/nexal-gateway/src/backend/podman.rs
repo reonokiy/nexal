@@ -13,6 +13,7 @@
 //!   discovered via `podman port`.
 //! - `nexal-agent` binary copied in via `podman cp`.
 
+use std::collections::HashMap;
 use std::process::Stdio;
 use std::time::Duration;
 
@@ -20,8 +21,6 @@ use async_trait::async_trait;
 use tokio::process::Command;
 use tokio::time::sleep;
 use tracing::warn;
-
-use std::collections::HashMap;
 
 use super::{BackendError, ContainerBackend, ContainerHandle, ContainerSpec};
 
@@ -73,11 +72,17 @@ impl PodmanBackend {
     }
 
     async fn discover_url(&self, container_name: &str) -> Result<String, BackendError> {
-        let addr = self.discover_host_port(container_name, CONTAINER_WS_PORT).await?;
+        let addr = self
+            .discover_host_port(container_name, CONTAINER_WS_PORT)
+            .await?;
         Ok(format!("ws://{addr}"))
     }
 
-    async fn discover_host_port(&self, container_name: &str, port: u16) -> Result<String, BackendError> {
+    async fn discover_host_port(
+        &self,
+        container_name: &str,
+        port: u16,
+    ) -> Result<String, BackendError> {
         let port_arg = format!("{port}/tcp");
         for _ in 0..30u32 {
             if let Ok(out) = self.podman(&["port", container_name, &port_arg]).await
@@ -90,7 +95,9 @@ impl PodmanBackend {
             }
             sleep(Duration::from_millis(200)).await;
         }
-        Err(BackendError::PortDiscovery(format!("{container_name}:{port}")))
+        Err(BackendError::PortDiscovery(format!(
+            "{container_name}:{port}"
+        )))
     }
 
     async fn discover_extra_ports(
@@ -101,8 +108,12 @@ impl PodmanBackend {
         let mut map = HashMap::new();
         for &port in ports {
             match self.discover_host_port(container_name, port).await {
-                Ok(addr) => { map.insert(port, addr); }
-                Err(e) => { warn!("port discovery for {container_name}:{port}: {e}"); }
+                Ok(addr) => {
+                    map.insert(port, addr);
+                }
+                Err(e) => {
+                    warn!("port discovery for {container_name}:{port}: {e}");
+                }
             }
         }
         map
@@ -121,7 +132,9 @@ impl ContainerBackend for PodmanBackend {
             // Best-effort start; ignore "already running" failures.
             let _ = self.podman(&["start", &spec.name]).await;
             let url = self.discover_url(&spec.name).await?;
-            let port_map = self.discover_extra_ports(&spec.name, &spec.extra_ports).await;
+            let port_map = self
+                .discover_extra_ports(&spec.name, &spec.extra_ports)
+                .await;
             return Ok(ContainerHandle {
                 name: spec.name,
                 url,
@@ -178,7 +191,6 @@ impl ContainerBackend for PodmanBackend {
             args.push("--dns=8.8.8.8".into());
         }
 
-
         // Extra ports (e.g. RDP 3389, CDP 9222).
         for port in &spec.extra_ports {
             args.push(format!("--publish=127.0.0.1::{port}/tcp"));
@@ -211,19 +223,16 @@ impl ContainerBackend for PodmanBackend {
         // or created by the image — no chmod needed.
         let setup_cmd = "mkdir -p /run/nexal/proxy";
         if let Err(err) = self
-            .podman(&[
-                "exec", &spec.name, "/bin/sh", "-c", setup_cmd,
-            ])
+            .podman(&["exec", &spec.name, "/bin/sh", "-c", setup_cmd])
             .await
         {
-            warn!(
-                "podman exec setup failed for {}: {err}",
-                spec.name
-            );
+            warn!("podman exec setup failed for {}: {err}", spec.name);
         }
 
         let url = self.discover_url(&spec.name).await?;
-        let port_map = self.discover_extra_ports(&spec.name, &spec.extra_ports).await;
+        let port_map = self
+            .discover_extra_ports(&spec.name, &spec.extra_ports)
+            .await;
         Ok(ContainerHandle {
             name: spec.name,
             url,

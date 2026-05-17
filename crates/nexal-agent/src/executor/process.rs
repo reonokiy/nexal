@@ -5,9 +5,9 @@ use tokio::sync::watch;
 
 use crate::ExecServerError;
 use crate::ProcessId;
-use crate::protocol::ExecParams;
-use crate::protocol::ReadResponse;
-use crate::protocol::WriteResponse;
+use crate::transport::protocol::ExecParams;
+use crate::transport::protocol::ReadResponse;
+use crate::transport::protocol::WriteResponse;
 
 pub struct StartedExecProcess {
     pub process: Arc<dyn ExecProcess>,

@@ -1,7 +1,8 @@
-use crate::protocol::JSONRPCErrorError;
-use crate::protocol::JSONRPCNotification;
 use serde::Serialize;
 use tokio::sync::mpsc;
+
+use crate::transport::protocol::JSONRPCErrorError;
+use crate::transport::protocol::JSONRPCNotification;
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum RpcServerOutboundMessage {

@@ -64,10 +64,8 @@ impl AgentConn {
             .await
             .map_err(|e| AgentConnError::Connect(format!("connect {url}: {e}")))?;
 
-        let conn = JsonMessageConnection::<Value>::from_websocket(
-            ws_stream,
-            format!("agent ws {url}"),
-        );
+        let conn =
+            JsonMessageConnection::<Value>::from_websocket(ws_stream, format!("agent ws {url}"));
 
         let (write_tx, incoming_rx, transport_tasks) = conn.into_parts();
 

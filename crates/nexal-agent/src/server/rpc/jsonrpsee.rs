@@ -5,7 +5,7 @@ use jsonrpsee::server::{PendingSubscriptionSink, RpcModule};
 use jsonrpsee::types::ErrorObjectOwned;
 
 use crate::ProcessId;
-use crate::protocol::{
+use crate::transport::protocol::{
     ExecParams, ExecResponse, FsCopyParams, FsCopyResponse, FsCreateDirectoryParams,
     FsCreateDirectoryResponse, FsGetMetadataParams, FsGetMetadataResponse, FsReadDirectoryParams,
     FsReadDirectoryResponse, FsReadFileParams, FsReadFileResponse, FsRemoveParams,
@@ -248,7 +248,7 @@ mod tests {
     use pretty_assertions::assert_eq;
 
     use super::build_module;
-    use crate::protocol::{InitializeParams, InitializeResponse};
+    use crate::transport::protocol::{InitializeParams, InitializeResponse};
     use crate::server::services::ExecServerHandler;
 
     #[tokio::test]

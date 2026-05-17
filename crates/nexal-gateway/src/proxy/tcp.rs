@@ -121,7 +121,11 @@ impl TcpProxyRegistry {
     /// Get the listen address for a proxy.
     pub async fn get_listen_addr(&self, agent_id: &str, name: &str) -> Option<String> {
         let key = (agent_id.to_string(), name.to_string());
-        self.inner.read().await.get(&key).map(|e| e.listen_addr.clone())
+        self.inner
+            .read()
+            .await
+            .get(&key)
+            .map(|e| e.listen_addr.clone())
     }
 }
 
@@ -221,9 +225,18 @@ mod tests {
         // We can't connect, but registration itself should work.
         let echo = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = echo.local_addr().unwrap().to_string();
-        registry.register("a".into(), "rdp".into(), addr.clone()).await.unwrap();
-        registry.register("a".into(), "cdp".into(), addr.clone()).await.unwrap();
-        registry.register("b".into(), "rdp".into(), addr).await.unwrap();
+        registry
+            .register("a".into(), "rdp".into(), addr.clone())
+            .await
+            .unwrap();
+        registry
+            .register("a".into(), "cdp".into(), addr.clone())
+            .await
+            .unwrap();
+        registry
+            .register("b".into(), "rdp".into(), addr)
+            .await
+            .unwrap();
 
         assert_eq!(registry.cleanup_for_agent("a").await, 2);
         assert!(registry.get_listen_addr("a", "rdp").await.is_none());

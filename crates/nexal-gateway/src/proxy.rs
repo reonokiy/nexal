@@ -24,4 +24,4 @@ pub mod tcp;
 
 pub use registry::{ProxyEntry, ProxyRegistry, SharedProxyRegistry};
 pub use server::serve_proxy;
-pub use tcp::{TcpProxyRegistry, SharedTcpProxyRegistry};
+pub use tcp::{SharedTcpProxyRegistry, TcpProxyRegistry};

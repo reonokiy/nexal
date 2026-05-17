@@ -3,7 +3,7 @@ use jsonrpsee::proc_macros::rpc;
 use jsonrpsee::types::ErrorObjectOwned;
 
 use crate::ProcessId;
-use crate::protocol::{
+use crate::transport::protocol::{
     ExecClosedNotification, ExecExitedNotification, ExecOutputDeltaNotification, ExecParams,
     ExecResponse, FsCopyParams, FsCopyResponse, FsCreateDirectoryParams, FsCreateDirectoryResponse,
     FsGetMetadataParams, FsGetMetadataResponse, FsReadDirectoryParams, FsReadDirectoryResponse,
@@ -120,7 +120,7 @@ mod tests {
 
     use super::ExecServerJsonRpseeApiClient;
     use crate::ProcessId;
-    use crate::protocol::{ExecParams, InitializeParams};
+    use crate::transport::protocol::{ExecParams, InitializeParams};
     use crate::server::start_server;
 
     #[tokio::test]

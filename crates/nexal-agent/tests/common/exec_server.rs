@@ -54,8 +54,7 @@ pub(crate) async fn exec_server() -> anyhow::Result<ExecServerHarness> {
     let mut child = child.spawn()?;
 
     let url = read_listen_url_from_stdout(&mut child).await?;
-    let (write_tx, incoming_rx, transport_tasks) =
-        connect_websocket_when_ready(&url).await?;
+    let (write_tx, incoming_rx, transport_tasks) = connect_websocket_when_ready(&url).await?;
 
     Ok(ExecServerHarness {
         child,
@@ -99,8 +98,8 @@ impl ExecServerHarness {
     }
 
     pub(crate) async fn send_raw_text(&mut self, text: &str) -> anyhow::Result<()> {
-        let value: Value = serde_json::from_str(text)
-            .unwrap_or_else(|_| Value::String(text.to_string()));
+        let value: Value =
+            serde_json::from_str(text).unwrap_or_else(|_| Value::String(text.to_string()));
         self.write_tx
             .send(value)
             .await
@@ -192,10 +191,11 @@ async fn connect_websocket_when_ready(
     loop {
         match TcpStream::connect(addr).await {
             Ok(stream) => {
-                let ws_stream = match tokio_tungstenite::client_async(format!("ws://{addr}"), stream).await {
-                    Ok((ws, _)) => ws,
-                    Err(e) => return Err(anyhow!("websocket handshake to {url}: {e}")),
-                };
+                let ws_stream =
+                    match tokio_tungstenite::client_async(format!("ws://{addr}"), stream).await {
+                        Ok((ws, _)) => ws,
+                        Err(e) => return Err(anyhow!("websocket handshake to {url}: {e}")),
+                    };
                 let conn = JsonMessageConnection::<Value>::from_websocket(
                     ws_stream,
                     format!("test-client {url}"),

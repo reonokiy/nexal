@@ -3,7 +3,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use clap::Parser;
-use tokio::sync::Mutex;
 use nexal_gateway::backend::{
     FlyBackend, FlyConfig, KubernetesBackend, KubernetesConfig, PodmanBackend, SharedBackend,
 };
@@ -12,6 +11,7 @@ use nexal_gateway::pool::{self, WarmPool, WarmPoolConfig};
 use nexal_gateway::proxy::{ProxyRegistry, serve_proxy};
 use nexal_gateway::registry::SpawnDefaults;
 use nexal_gateway::{AgentRegistry, server::ServerConfig};
+use tokio::sync::Mutex;
 use tracing_subscriber::EnvFilter;
 
 #[derive(Debug, Parser)]
@@ -159,7 +159,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         pids_limit: cfg.defaults.pids_limit.or(Some(256)),
         network: cfg.defaults.network.unwrap_or(true),
         workspace_volume: cfg.defaults.workspace_volume.clone().or_else(|| {
-            dirs::home_dir().map(|h| h.join(".nexal").join("workspace").to_string_lossy().into_owned())
+            dirs::home_dir().map(|h| {
+                h.join(".nexal")
+                    .join("workspace")
+                    .to_string_lossy()
+                    .into_owned()
+            })
         }),
         container_name_prefix: cfg
             .defaults

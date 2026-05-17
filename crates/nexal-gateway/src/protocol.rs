@@ -454,6 +454,9 @@ mod tests {
         assert_eq!(p.agent_id, "a-1");
         assert_eq!(p.name, "jina");
         assert_eq!(p.upstream_url, "https://api.jina.ai");
-        assert_eq!(p.headers.get("Authorization").map(String::as_str), Some("Bearer k"));
+        assert_eq!(
+            p.headers.get("Authorization").map(String::as_str),
+            Some("Bearer k")
+        );
     }
 }

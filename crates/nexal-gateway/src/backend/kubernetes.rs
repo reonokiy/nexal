@@ -45,11 +45,13 @@ impl KubernetesBackend {
     pub async fn new(cfg: KubernetesConfig) -> Result<Self, BackendError> {
         let client = match cfg.kubeconfig {
             Some(path) => {
-                let kubeconfig = Kubeconfig::read_from(&path)
-                    .map_err(|e| BackendError::Io(format!("read kubeconfig {}: {e}", path.display())))?;
-                let config = Config::from_custom_kubeconfig(kubeconfig, &KubeConfigOptions::default())
-                    .await
-                    .map_err(|e| BackendError::Io(format!("build kube config: {e}")))?;
+                let kubeconfig = Kubeconfig::read_from(&path).map_err(|e| {
+                    BackendError::Io(format!("read kubeconfig {}: {e}", path.display()))
+                })?;
+                let config =
+                    Config::from_custom_kubeconfig(kubeconfig, &KubeConfigOptions::default())
+                        .await
+                        .map_err(|e| BackendError::Io(format!("build kube config: {e}")))?;
                 Client::try_from(config)
                     .map_err(|e| BackendError::Io(format!("create kube client: {e}")))?
             }
@@ -115,7 +117,11 @@ impl KubernetesBackend {
         let init_container = Container {
             name: "copy-agent".to_string(),
             image: Some(self.agent_init_image.clone()),
-            command: Some(vec!["cp".into(), "/usr/local/bin/nexal-agent".into(), AGENT_BIN_PATH.into()]),
+            command: Some(vec![
+                "cp".into(),
+                "/usr/local/bin/nexal-agent".into(),
+                AGENT_BIN_PATH.into(),
+            ]),
             volume_mounts: Some(vec![agent_volume_mount.clone()]),
             ..Default::default()
         };
@@ -176,7 +182,11 @@ impl KubernetesBackend {
             env: Some(env),
             volume_mounts: Some(volume_mounts),
             resources: Some(ResourceRequirements {
-                limits: if limits.is_empty() { None } else { Some(limits) },
+                limits: if limits.is_empty() {
+                    None
+                } else {
+                    Some(limits)
+                },
                 ..Default::default()
             }),
             working_dir: Some("/workspace".to_string()),
@@ -279,7 +289,9 @@ impl ContainerBackend for KubernetesBackend {
                                     spec.name
                                 ))
                             })?;
-                        let port_map = spec.extra_ports.iter()
+                        let port_map = spec
+                            .extra_ports
+                            .iter()
                             .map(|&p| (p, format!("{ip}:{p}")))
                             .collect();
                         return Ok(ContainerHandle {
@@ -318,7 +330,9 @@ impl ContainerBackend for KubernetesBackend {
             .map_err(|e| BackendError::Cli(format!("create pod {}: {e}", spec.name)))?;
 
         let ip = self.wait_for_pod_ip(&spec.name).await?;
-        let port_map = spec.extra_ports.iter()
+        let port_map = spec
+            .extra_ports
+            .iter()
             .map(|&p| (p, format!("{ip}:{p}")))
             .collect();
         Ok(ContainerHandle {
@@ -330,7 +344,10 @@ impl ContainerBackend for KubernetesBackend {
 
     async fn destroy(&self, name: &str) -> Result<(), BackendError> {
         let pods = self.pods();
-        match pods.delete(name, &DeleteParams::default().grace_period(0)).await {
+        match pods
+            .delete(name, &DeleteParams::default().grace_period(0))
+            .await
+        {
             Ok(_) => Ok(()),
             Err(kube::Error::Api(resp)) if resp.code == 404 => Ok(()),
             Err(e) => Err(BackendError::Cli(format!("delete pod {name}: {e}"))),

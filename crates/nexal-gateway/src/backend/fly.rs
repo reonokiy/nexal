@@ -25,7 +25,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use reqwest::{Client, Method, StatusCode};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tokio::time::sleep;
 
 use super::{BackendError, ContainerBackend, ContainerHandle, ContainerSpec};
@@ -74,10 +74,14 @@ struct Machine {
 impl FlyBackend {
     pub fn new(cfg: FlyConfig) -> Result<Self, BackendError> {
         if cfg.api_token.is_empty() {
-            return Err(BackendError::Io("fly backend requires backend.fly_api_token".into()));
+            return Err(BackendError::Io(
+                "fly backend requires backend.fly_api_token".into(),
+            ));
         }
         if cfg.app.is_empty() {
-            return Err(BackendError::Io("fly backend requires backend.fly_app".into()));
+            return Err(BackendError::Io(
+                "fly backend requires backend.fly_app".into(),
+            ));
         }
         let http = Client::builder()
             .timeout(Duration::from_secs(30))
@@ -93,7 +97,9 @@ impl FlyBackend {
                 .unwrap_or_else(|| DEFAULT_API_BASE.to_string())
                 .trim_end_matches('/')
                 .to_string(),
-            agent_bin: cfg.agent_bin_path.unwrap_or_else(|| DEFAULT_AGENT_BIN.to_string()),
+            agent_bin: cfg
+                .agent_bin_path
+                .unwrap_or_else(|| DEFAULT_AGENT_BIN.to_string()),
         })
     }
 
@@ -106,10 +112,7 @@ impl FlyBackend {
         body: Option<Value>,
     ) -> Result<(StatusCode, String), BackendError> {
         let url = format!("{}/v1/apps/{}{}", self.api_base, self.app, path);
-        let mut req = self
-            .http
-            .request(method, &url)
-            .bearer_auth(&self.token);
+        let mut req = self.http.request(method, &url).bearer_auth(&self.token);
         if let Some(b) = body {
             req = req
                 .header("content-type", "application/json")
@@ -135,16 +138,22 @@ impl FlyBackend {
         }
         let machines: Vec<Machine> = serde_json::from_str(&body)
             .map_err(|e| BackendError::Io(format!("parse machines list: {e}")))?;
-        Ok(machines.into_iter().find(|m| m.name.as_deref() == Some(name)))
+        Ok(machines
+            .into_iter()
+            .find(|m| m.name.as_deref() == Some(name)))
     }
 
     async fn get_machine(&self, id: &str) -> Result<Option<Machine>, BackendError> {
-        let (status, body) = self.api(Method::GET, &format!("/machines/{id}"), None).await?;
+        let (status, body) = self
+            .api(Method::GET, &format!("/machines/{id}"), None)
+            .await?;
         if status == StatusCode::NOT_FOUND {
             return Ok(None);
         }
         if !status.is_success() {
-            return Err(BackendError::Cli(format!("get machine {id}: {status} {body}")));
+            return Err(BackendError::Cli(format!(
+                "get machine {id}: {status} {body}"
+            )));
         }
         let m: Machine = serde_json::from_str(&body)
             .map_err(|e| BackendError::Io(format!("parse machine {id}: {e}")))?;
@@ -266,7 +275,11 @@ impl ContainerBackend for FlyBackend {
             .api(Method::POST, &format!("/machines/{}/stop", m.id), None)
             .await;
         let (status, body) = self
-            .api(Method::DELETE, &format!("/machines/{}?force=true", m.id), None)
+            .api(
+                Method::DELETE,
+                &format!("/machines/{}?force=true", m.id),
+                None,
+            )
             .await?;
         if status.is_success() || status == StatusCode::NOT_FOUND {
             Ok(())

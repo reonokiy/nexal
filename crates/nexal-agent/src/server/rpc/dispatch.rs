@@ -15,11 +15,11 @@ use serde_json::{Value, json};
 use tokio::sync::mpsc;
 use tracing::{debug, warn};
 
-use crate::protocol::{
-    ExecParams, FsCopyParams, FsCreateDirectoryParams, FsGetMetadataParams, FsReadDirectoryParams,
-    FsReadFileParams, FsRemoveParams, FsWriteFileParams, InitializeParams, JSONRPCErrorError,
-    ProxyRegisterParams, ProxyUnregisterParams, ReadParams, TerminateParams, WriteParams,
-    EXEC_CLOSED_METHOD, EXEC_EXITED_METHOD, EXEC_OUTPUT_DELTA_METHOD,
+use crate::transport::protocol::{
+    EXEC_CLOSED_METHOD, EXEC_EXITED_METHOD, EXEC_OUTPUT_DELTA_METHOD, ExecParams, FsCopyParams,
+    FsCreateDirectoryParams, FsGetMetadataParams, FsReadDirectoryParams, FsReadFileParams,
+    FsRemoveParams, FsWriteFileParams, InitializeParams, JSONRPCErrorError, ProxyRegisterParams,
+    ProxyUnregisterParams, ReadParams, TerminateParams, WriteParams,
 };
 use crate::server::services::{ExecServerHandler, ProcessEvent};
 

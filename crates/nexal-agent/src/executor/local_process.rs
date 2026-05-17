@@ -5,7 +5,6 @@ use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
-use crate::protocol::JSONRPCErrorError;
 use async_trait::async_trait;
 use nexal_utils_pty::ExecCommandSession;
 use nexal_utils_pty::TerminalSize;
@@ -19,27 +18,28 @@ use crate::ExecProcess;
 use crate::ExecServerError;
 use crate::ProcessId;
 use crate::StartedExecProcess;
-use crate::protocol::EXEC_CLOSED_METHOD;
-use crate::protocol::ExecClosedNotification;
-use crate::protocol::ExecExitedNotification;
-use crate::protocol::ExecOutputDeltaNotification;
-use crate::protocol::ExecOutputStream;
-use crate::protocol::ExecParams;
-use crate::protocol::ExecResponse;
-use crate::protocol::InitializeResponse;
-use crate::protocol::ProcessOutputChunk;
-use crate::protocol::ReadParams;
-use crate::protocol::ReadResponse;
-use crate::protocol::TerminateParams;
-use crate::protocol::TerminateResponse;
-use crate::protocol::WriteParams;
-use crate::protocol::WriteResponse;
-use crate::protocol::WriteStatus;
-use crate::rpc::RpcNotificationSender;
-use crate::rpc::RpcServerOutboundMessage;
-use crate::rpc::internal_error;
-use crate::rpc::invalid_params;
-use crate::rpc::invalid_request;
+use crate::transport::protocol::ExecClosedNotification;
+use crate::transport::protocol::ExecExitedNotification;
+use crate::transport::protocol::ExecOutputDeltaNotification;
+use crate::transport::protocol::ExecOutputStream;
+use crate::transport::protocol::ExecParams;
+use crate::transport::protocol::ExecResponse;
+use crate::transport::protocol::InitializeResponse;
+use crate::transport::protocol::JSONRPCErrorError;
+use crate::transport::protocol::ProcessOutputChunk;
+use crate::transport::protocol::ReadParams;
+use crate::transport::protocol::ReadResponse;
+use crate::transport::protocol::TerminateParams;
+use crate::transport::protocol::TerminateResponse;
+use crate::transport::protocol::WriteParams;
+use crate::transport::protocol::WriteResponse;
+use crate::transport::protocol::WriteStatus;
+use crate::transport::protocol::EXEC_CLOSED_METHOD;
+use crate::transport::rpc::RpcNotificationSender;
+use crate::transport::rpc::RpcServerOutboundMessage;
+use crate::transport::rpc::internal_error;
+use crate::transport::rpc::invalid_params;
+use crate::transport::rpc::invalid_request;
 use crate::server::{ProcessEvent, ProcessEventBroadcaster};
 
 const RETAINED_OUTPUT_BYTES_PER_PROCESS: usize = 1024 * 1024;
@@ -564,7 +564,7 @@ async fn stream_output(
         output_notify.notify_waiters();
         if inner
             .notifications
-            .notify(crate::protocol::EXEC_OUTPUT_DELTA_METHOD, &notification)
+            .notify(crate::transport::protocol::EXEC_OUTPUT_DELTA_METHOD, &notification)
             .await
             .is_err()
         {
@@ -603,7 +603,7 @@ async fn watch_exit(
     if let Some(notification) = notification.as_ref()
         && inner
             .notifications
-            .notify(crate::protocol::EXEC_EXITED_METHOD, notification)
+            .notify(crate::transport::protocol::EXEC_EXITED_METHOD, notification)
             .await
             .is_err()
     {

@@ -7,7 +7,7 @@
 use std::path::{Path, PathBuf};
 
 use rcgen::{
-    CertificateParams, DistinguishedName, DnType, Issuer, IsCa, KeyPair, BasicConstraints,
+    BasicConstraints, CertificateParams, DistinguishedName, DnType, IsCa, Issuer, KeyPair,
     KeyUsagePurpose, SanType,
 };
 use tracing::info;
@@ -110,21 +110,21 @@ pub fn generate() -> Result<CertMaterial, CertError> {
     let mut server_dn = DistinguishedName::new();
     server_dn.push(DnType::CommonName, "nexal gateway");
     server_params.distinguished_name = server_dn;
-    server_params
-        .subject_alt_names
-        .push(SanType::DnsName("localhost".try_into().map_err(|e| {
-            CertError::Gen(format!("san: {e}"))
-        })?));
+    server_params.subject_alt_names.push(SanType::DnsName(
+        "localhost"
+            .try_into()
+            .map_err(|e| CertError::Gen(format!("san: {e}")))?,
+    ));
     server_params
         .subject_alt_names
         .push(SanType::IpAddress(std::net::IpAddr::V4(
             std::net::Ipv4Addr::LOCALHOST,
         )));
-    server_params
-        .subject_alt_names
-        .push(SanType::DnsName("host.containers.internal".try_into().map_err(|e| {
-            CertError::Gen(format!("san: {e}"))
-        })?));
+    server_params.subject_alt_names.push(SanType::DnsName(
+        "host.containers.internal"
+            .try_into()
+            .map_err(|e| CertError::Gen(format!("san: {e}")))?,
+    ));
     let server_cert = server_params
         .signed_by(&server_key, &ca_issuer)
         .map_err(|e| CertError::Gen(format!("server sign: {e}")))?;

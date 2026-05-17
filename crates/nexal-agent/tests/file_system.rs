@@ -6,15 +6,19 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use nexal_agent::{
-    CopyOptions, CreateDirectoryOptions, Environment, ExecutorFileSystem,
-    ReadDirectoryEntry, RemoveOptions,
+    CopyOptions, CreateDirectoryOptions, Environment, ExecutorFileSystem, ReadDirectoryEntry,
+    RemoveOptions,
 };
 use nexal_utils_absolute_path::AbsolutePathBuf;
 use pretty_assertions::assert_eq;
 use tempfile::TempDir;
 
 fn abs(path: std::path::PathBuf) -> AbsolutePathBuf {
-    assert!(path.is_absolute(), "path must be absolute: {}", path.display());
+    assert!(
+        path.is_absolute(),
+        "path must be absolute: {}",
+        path.display()
+    );
     AbsolutePathBuf::try_from(path).expect("path should be absolute")
 }
 
@@ -50,15 +54,24 @@ async fn methods_cover_surface_area() -> Result<()> {
     let copied_dir = tmp.path().join("copied");
     let copied_file = tmp.path().join("copy.txt");
 
-    fs.create_directory(&abs(nested_dir.clone()), CreateDirectoryOptions { recursive: true })
-        .await?;
+    fs.create_directory(
+        &abs(nested_dir.clone()),
+        CreateDirectoryOptions { recursive: true },
+    )
+    .await?;
 
     fs.write_file(&abs(nested_file.clone()), b"hello from trait".to_vec())
         .await?;
-    fs.write_file(&abs(source_file.clone()), b"hello from source root".to_vec())
-        .await?;
+    fs.write_file(
+        &abs(source_file.clone()),
+        b"hello from source root".to_vec(),
+    )
+    .await?;
 
-    assert_eq!(fs.read_file(&abs(nested_file.clone())).await?, b"hello from trait");
+    assert_eq!(
+        fs.read_file(&abs(nested_file.clone())).await?,
+        b"hello from trait"
+    );
 
     fs.copy(
         &abs(nested_file),
@@ -84,14 +97,25 @@ async fn methods_cover_surface_area() -> Result<()> {
     assert_eq!(
         entries,
         vec![
-            ReadDirectoryEntry { file_name: "nested".into(), is_directory: true, is_file: false },
-            ReadDirectoryEntry { file_name: "root.txt".into(), is_directory: false, is_file: true },
+            ReadDirectoryEntry {
+                file_name: "nested".into(),
+                is_directory: true,
+                is_file: false
+            },
+            ReadDirectoryEntry {
+                file_name: "root.txt".into(),
+                is_directory: false,
+                is_file: true
+            },
         ]
     );
 
     fs.remove(
         &abs(copied_dir.clone()),
-        RemoveOptions { recursive: true, force: true },
+        RemoveOptions {
+            recursive: true,
+            force: true,
+        },
     )
     .await?;
     assert!(!copied_dir.exists());
@@ -172,7 +196,10 @@ async fn copy_preserves_symlinks_in_recursive_copy() -> Result<()> {
     let copied_link = copied_dir.join("nested-link");
     let metadata = std::fs::symlink_metadata(&copied_link)?;
     assert!(metadata.file_type().is_symlink());
-    assert_eq!(std::fs::read_link(copied_link)?, std::path::PathBuf::from("nested"));
+    assert_eq!(
+        std::fs::read_link(copied_link)?,
+        std::path::PathBuf::from("nested")
+    );
 
     Ok(())
 }
@@ -203,7 +230,10 @@ async fn copy_ignores_unknown_special_files_in_recursive_copy() -> Result<()> {
     )
     .await?;
 
-    assert_eq!(std::fs::read_to_string(copied_dir.join("note.txt"))?, "hello");
+    assert_eq!(
+        std::fs::read_to_string(copied_dir.join("note.txt"))?,
+        "hello"
+    );
     assert!(!copied_dir.join("named-pipe").exists());
 
     Ok(())
