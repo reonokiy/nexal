@@ -6,73 +6,49 @@ use std::os::unix::fs::symlink;
 use std::process::Command;
 use std::sync::Arc;
 
-use anyhow::Context;
 use anyhow::Result;
-use nexal_agent::CopyOptions;
-use nexal_agent::CreateDirectoryOptions;
-use nexal_agent::Environment;
-use nexal_agent::ExecutorFileSystem;
-use nexal_agent::ReadDirectoryEntry;
-use nexal_agent::RemoveOptions;
+use nexal_agent::{
+    CopyOptions, CreateDirectoryOptions, Environment, ExecutorFileSystem,
+    ReadDirectoryEntry, RemoveOptions,
+};
 use nexal_utils_absolute_path::AbsolutePathBuf;
 use pretty_assertions::assert_eq;
 use tempfile::TempDir;
 use test_case::test_case;
 
-use common::exec_server::ExecServerHarness;
-use common::exec_server::exec_server_url_only;
+use common::exec_server::{ExecServerHarness, exec_server_url_only};
 
-struct FileSystemContext {
-    file_system: Arc<dyn ExecutorFileSystem>,
-    _server: Option<ExecServerHarness>,
-}
-
-async fn create_file_system_context(use_remote: bool) -> Result<FileSystemContext> {
+async fn create_fs(
+    use_remote: bool,
+) -> Result<(Arc<dyn ExecutorFileSystem>, Option<ExecServerHarness>)> {
     if use_remote {
         let server = exec_server_url_only().await?;
-        let environment = Environment::create(Some(server.websocket_url().to_string())).await?;
-        Ok(FileSystemContext {
-            file_system: environment.get_filesystem(),
-            _server: Some(server),
-        })
+        let env = Environment::create(Some(server.websocket_url().to_string())).await?;
+        Ok((env.get_filesystem(), Some(server)))
     } else {
-        let environment = Environment::create(/*exec_server_url*/ None).await?;
-        Ok(FileSystemContext {
-            file_system: environment.get_filesystem(),
-            _server: None,
-        })
+        let env = Environment::create(None).await?;
+        Ok((env.get_filesystem(), None))
     }
 }
 
-fn absolute_path(path: std::path::PathBuf) -> AbsolutePathBuf {
-    assert!(
-        path.is_absolute(),
-        "path must be absolute: {}",
-        path.display()
-    );
-    match AbsolutePathBuf::try_from(path) {
-        Ok(path) => path,
-        Err(err) => panic!("path should be absolute: {err}"),
-    }
+fn abs(path: std::path::PathBuf) -> AbsolutePathBuf {
+    assert!(path.is_absolute(), "path must be absolute: {}", path.display());
+    AbsolutePathBuf::try_from(path).expect("path should be absolute")
 }
 
 #[test_case(false ; "local")]
 #[test_case(true ; "remote")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn file_system_get_metadata_returns_expected_fields(use_remote: bool) -> Result<()> {
-    let context = create_file_system_context(use_remote).await?;
-    let file_system = context.file_system;
+async fn get_metadata_returns_expected_fields(use_remote: bool) -> Result<()> {
+    let (fs, _server) = create_fs(use_remote).await?;
 
     let tmp = TempDir::new()?;
     let file_path = tmp.path().join("note.txt");
-    std::fs::write(&file_path, "hello")?;
+    std::fs::write(&file_path, b"hello")?;
 
-    let metadata = file_system
-        .get_metadata(&absolute_path(file_path))
-        .await
-        .with_context(|| format!("mode={use_remote}"))?;
-    assert_eq!(metadata.is_directory, false);
-    assert_eq!(metadata.is_file, true);
+    let metadata = fs.get_metadata(&abs(file_path)).await?;
+    assert!(!metadata.is_directory);
+    assert!(metadata.is_file);
     assert!(metadata.modified_at_ms > 0);
 
     Ok(())
@@ -81,9 +57,8 @@ async fn file_system_get_metadata_returns_expected_fields(use_remote: bool) -> R
 #[test_case(false ; "local")]
 #[test_case(true ; "remote")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn file_system_methods_cover_surface_area(use_remote: bool) -> Result<()> {
-    let context = create_file_system_context(use_remote).await?;
-    let file_system = context.file_system;
+async fn methods_cover_surface_area(use_remote: bool) -> Result<()> {
+    let (fs, _server) = create_fs(use_remote).await?;
 
     let tmp = TempDir::new()?;
     let source_dir = tmp.path().join("source");
@@ -93,89 +68,50 @@ async fn file_system_methods_cover_surface_area(use_remote: bool) -> Result<()> 
     let copied_dir = tmp.path().join("copied");
     let copied_file = tmp.path().join("copy.txt");
 
-    file_system
-        .create_directory(
-            &absolute_path(nested_dir.clone()),
-            CreateDirectoryOptions { recursive: true },
-        )
-        .await
-        .with_context(|| format!("mode={use_remote}"))?;
+    fs.create_directory(&abs(nested_dir.clone()), CreateDirectoryOptions { recursive: true })
+        .await?;
 
-    file_system
-        .write_file(
-            &absolute_path(nested_file.clone()),
-            b"hello from trait".to_vec(),
-        )
-        .await
-        .with_context(|| format!("mode={use_remote}"))?;
-    file_system
-        .write_file(
-            &absolute_path(source_file.clone()),
-            b"hello from source root".to_vec(),
-        )
-        .await
-        .with_context(|| format!("mode={use_remote}"))?;
+    fs.write_file(&abs(nested_file.clone()), b"hello from trait".to_vec())
+        .await?;
+    fs.write_file(&abs(source_file.clone()), b"hello from source root".to_vec())
+        .await?;
 
-    let nested_file_contents = file_system
-        .read_file(&absolute_path(nested_file.clone()))
-        .await
-        .with_context(|| format!("mode={use_remote}"))?;
-    assert_eq!(nested_file_contents, b"hello from trait");
+    assert_eq!(fs.read_file(&abs(nested_file.clone())).await?, b"hello from trait");
 
-    file_system
-        .copy(
-            &absolute_path(nested_file),
-            &absolute_path(copied_file.clone()),
-            CopyOptions { recursive: false },
-        )
-        .await
-        .with_context(|| format!("mode={use_remote}"))?;
-    assert_eq!(std::fs::read_to_string(copied_file)?, "hello from trait");
+    fs.copy(
+        &abs(nested_file),
+        &abs(copied_file.clone()),
+        CopyOptions { recursive: false },
+    )
+    .await?;
+    assert_eq!(std::fs::read_to_string(&copied_file)?, "hello from trait");
 
-    file_system
-        .copy(
-            &absolute_path(source_dir.clone()),
-            &absolute_path(copied_dir.clone()),
-            CopyOptions { recursive: true },
-        )
-        .await
-        .with_context(|| format!("mode={use_remote}"))?;
+    fs.copy(
+        &abs(source_dir.clone()),
+        &abs(copied_dir.clone()),
+        CopyOptions { recursive: true },
+    )
+    .await?;
     assert_eq!(
         std::fs::read_to_string(copied_dir.join("nested").join("note.txt"))?,
         "hello from trait"
     );
 
-    let mut entries = file_system
-        .read_directory(&absolute_path(source_dir))
-        .await
-        .with_context(|| format!("mode={use_remote}"))?;
-    entries.sort_by(|left, right| left.file_name.cmp(&right.file_name));
+    let mut entries = fs.read_directory(&abs(source_dir)).await?;
+    entries.sort_by(|a, b| a.file_name.cmp(&b.file_name));
     assert_eq!(
         entries,
         vec![
-            ReadDirectoryEntry {
-                file_name: "nested".to_string(),
-                is_directory: true,
-                is_file: false,
-            },
-            ReadDirectoryEntry {
-                file_name: "root.txt".to_string(),
-                is_directory: false,
-                is_file: true,
-            },
+            ReadDirectoryEntry { file_name: "nested".into(), is_directory: true, is_file: false },
+            ReadDirectoryEntry { file_name: "root.txt".into(), is_directory: false, is_file: true },
         ]
     );
 
-    file_system
-        .remove(
-            &absolute_path(copied_dir.clone()),
-            RemoveOptions {
-                recursive: true,
-                force: true,
-            },
-        )
-        .await
-        .with_context(|| format!("mode={use_remote}"))?;
+    fs.remove(
+        &abs(copied_dir.clone()),
+        RemoveOptions { recursive: true, force: true },
+    )
+    .await?;
     assert!(!copied_dir.exists());
 
     Ok(())
@@ -184,25 +120,22 @@ async fn file_system_methods_cover_surface_area(use_remote: bool) -> Result<()> 
 #[test_case(false ; "local")]
 #[test_case(true ; "remote")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn file_system_copy_rejects_directory_without_recursive(use_remote: bool) -> Result<()> {
-    let context = create_file_system_context(use_remote).await?;
-    let file_system = context.file_system;
+async fn copy_rejects_directory_without_recursive(use_remote: bool) -> Result<()> {
+    let (fs, _server) = create_fs(use_remote).await?;
 
     let tmp = TempDir::new()?;
     let source_dir = tmp.path().join("source");
     std::fs::create_dir_all(&source_dir)?;
 
-    let error = file_system
+    let error = fs
         .copy(
-            &absolute_path(source_dir),
-            &absolute_path(tmp.path().join("dest")),
+            &abs(source_dir),
+            &abs(tmp.path().join("dest")),
             CopyOptions { recursive: false },
         )
-        .await;
-    let error = match error {
-        Ok(()) => panic!("copy should fail"),
-        Err(error) => error,
-    };
+        .await
+        .unwrap_err();
+
     assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput);
     assert_eq!(
         error.to_string(),
@@ -215,27 +148,22 @@ async fn file_system_copy_rejects_directory_without_recursive(use_remote: bool) 
 #[test_case(false ; "local")]
 #[test_case(true ; "remote")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn file_system_copy_rejects_copying_directory_into_descendant(
-    use_remote: bool,
-) -> Result<()> {
-    let context = create_file_system_context(use_remote).await?;
-    let file_system = context.file_system;
+async fn copy_rejects_copying_directory_into_descendant(use_remote: bool) -> Result<()> {
+    let (fs, _server) = create_fs(use_remote).await?;
 
     let tmp = TempDir::new()?;
     let source_dir = tmp.path().join("source");
     std::fs::create_dir_all(source_dir.join("nested"))?;
 
-    let error = file_system
+    let error = fs
         .copy(
-            &absolute_path(source_dir.clone()),
-            &absolute_path(source_dir.join("nested").join("copy")),
+            &abs(source_dir.clone()),
+            &abs(source_dir.join("nested").join("copy")),
             CopyOptions { recursive: true },
         )
-        .await;
-    let error = match error {
-        Ok(()) => panic!("copy should fail"),
-        Err(error) => error,
-    };
+        .await
+        .unwrap_err();
+
     assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput);
     assert_eq!(
         error.to_string(),
@@ -248,9 +176,8 @@ async fn file_system_copy_rejects_copying_directory_into_descendant(
 #[test_case(false ; "local")]
 #[test_case(true ; "remote")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn file_system_copy_preserves_symlinks_in_recursive_copy(use_remote: bool) -> Result<()> {
-    let context = create_file_system_context(use_remote).await?;
-    let file_system = context.file_system;
+async fn copy_preserves_symlinks_in_recursive_copy(use_remote: bool) -> Result<()> {
+    let (fs, _server) = create_fs(use_remote).await?;
 
     let tmp = TempDir::new()?;
     let source_dir = tmp.path().join("source");
@@ -259,22 +186,17 @@ async fn file_system_copy_preserves_symlinks_in_recursive_copy(use_remote: bool)
     std::fs::create_dir_all(&nested_dir)?;
     symlink("nested", source_dir.join("nested-link"))?;
 
-    file_system
-        .copy(
-            &absolute_path(source_dir),
-            &absolute_path(copied_dir.clone()),
-            CopyOptions { recursive: true },
-        )
-        .await
-        .with_context(|| format!("mode={use_remote}"))?;
+    fs.copy(
+        &abs(source_dir),
+        &abs(copied_dir.clone()),
+        CopyOptions { recursive: true },
+    )
+    .await?;
 
     let copied_link = copied_dir.join("nested-link");
     let metadata = std::fs::symlink_metadata(&copied_link)?;
     assert!(metadata.file_type().is_symlink());
-    assert_eq!(
-        std::fs::read_link(copied_link)?,
-        std::path::PathBuf::from("nested")
-    );
+    assert_eq!(std::fs::read_link(copied_link)?, std::path::PathBuf::from("nested"));
 
     Ok(())
 }
@@ -282,11 +204,8 @@ async fn file_system_copy_preserves_symlinks_in_recursive_copy(use_remote: bool)
 #[test_case(false ; "local")]
 #[test_case(true ; "remote")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn file_system_copy_ignores_unknown_special_files_in_recursive_copy(
-    use_remote: bool,
-) -> Result<()> {
-    let context = create_file_system_context(use_remote).await?;
-    let file_system = context.file_system;
+async fn copy_ignores_unknown_special_files_in_recursive_copy(use_remote: bool) -> Result<()> {
+    let (fs, _server) = create_fs(use_remote).await?;
 
     let tmp = TempDir::new()?;
     let source_dir = tmp.path().join("source");
@@ -296,27 +215,21 @@ async fn file_system_copy_ignores_unknown_special_files_in_recursive_copy(
 
     let fifo_path = source_dir.join("named-pipe");
     let output = Command::new("mkfifo").arg(&fifo_path).output()?;
-    if !output.status.success() {
-        anyhow::bail!(
-            "mkfifo failed: stdout={} stderr={}",
-            String::from_utf8_lossy(&output.stdout).trim(),
-            String::from_utf8_lossy(&output.stderr).trim()
-        );
-    }
-
-    file_system
-        .copy(
-            &absolute_path(source_dir),
-            &absolute_path(copied_dir.clone()),
-            CopyOptions { recursive: true },
-        )
-        .await
-        .with_context(|| format!("mode={use_remote}"))?;
-
-    assert_eq!(
-        std::fs::read_to_string(copied_dir.join("note.txt"))?,
-        "hello"
+    anyhow::ensure!(
+        output.status.success(),
+        "mkfifo failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout).trim(),
+        String::from_utf8_lossy(&output.stderr).trim()
     );
+
+    fs.copy(
+        &abs(source_dir),
+        &abs(copied_dir.clone()),
+        CopyOptions { recursive: true },
+    )
+    .await?;
+
+    assert_eq!(std::fs::read_to_string(copied_dir.join("note.txt"))?, "hello");
     assert!(!copied_dir.join("named-pipe").exists());
 
     Ok(())
@@ -325,32 +238,28 @@ async fn file_system_copy_ignores_unknown_special_files_in_recursive_copy(
 #[test_case(false ; "local")]
 #[test_case(true ; "remote")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn file_system_copy_rejects_standalone_fifo_source(use_remote: bool) -> Result<()> {
-    let context = create_file_system_context(use_remote).await?;
-    let file_system = context.file_system;
+async fn copy_rejects_standalone_fifo_source(use_remote: bool) -> Result<()> {
+    let (fs, _server) = create_fs(use_remote).await?;
 
     let tmp = TempDir::new()?;
     let fifo_path = tmp.path().join("named-pipe");
     let output = Command::new("mkfifo").arg(&fifo_path).output()?;
-    if !output.status.success() {
-        anyhow::bail!(
-            "mkfifo failed: stdout={} stderr={}",
-            String::from_utf8_lossy(&output.stdout).trim(),
-            String::from_utf8_lossy(&output.stderr).trim()
-        );
-    }
+    anyhow::ensure!(
+        output.status.success(),
+        "mkfifo failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout).trim(),
+        String::from_utf8_lossy(&output.stderr).trim()
+    );
 
-    let error = file_system
+    let error = fs
         .copy(
-            &absolute_path(fifo_path),
-            &absolute_path(tmp.path().join("copied")),
+            &abs(fifo_path),
+            &abs(tmp.path().join("copied")),
             CopyOptions { recursive: false },
         )
-        .await;
-    let error = match error {
-        Ok(()) => panic!("copy should fail"),
-        Err(error) => error,
-    };
+        .await
+        .unwrap_err();
+
     assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput);
     assert_eq!(
         error.to_string(),
