@@ -163,6 +163,7 @@ pub struct ReadParams {
 pub struct ProcessOutputChunk {
     pub seq: u64,
     pub stream: ExecOutputStream,
+    #[serde(with = "serde_bytes")]
     pub chunk: Vec<u8>,
 }
 
@@ -181,6 +182,7 @@ pub struct ReadResponse {
 #[serde(rename_all = "snake_case")]
 pub struct WriteParams {
     pub process_id: ProcessId,
+    #[serde(with = "serde_bytes")]
     pub chunk: Vec<u8>,
 }
 
@@ -225,6 +227,7 @@ pub struct ExecOutputDeltaNotification {
     pub process_id: ProcessId,
     pub seq: u64,
     pub stream: ExecOutputStream,
+    #[serde(with = "serde_bytes")]
     pub chunk: Vec<u8>,
 }
 
@@ -287,6 +290,7 @@ pub struct FsReadFileParams {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FsReadFileResponse {
+    #[serde(with = "serde_bytes")]
     pub data: Vec<u8>,
 }
 
@@ -294,6 +298,7 @@ pub struct FsReadFileResponse {
 #[serde(rename_all = "camelCase")]
 pub struct FsWriteFileParams {
     pub path: AbsolutePathBuf,
+    #[serde(with = "serde_bytes")]
     pub data: Vec<u8>,
 }
 
