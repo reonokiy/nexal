@@ -1,0 +1,26 @@
+name: Deploy Server (LLM)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - src/**
+      - packages/**
+      - package.json
+      - tsconfig.json
+      - drizzle.config.ts
+      - server.Dockerfile
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: superfly/flyctl-actions/setup-flyctl@1.6
+
+      - name: Deploy to Fly
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: flyctl deploy -c deploy/server/fly.toml --ha=false
