@@ -60,3 +60,6 @@ jobs:
 
       - name: Deploy
         run: flyctl deploy --remote-only -a "$APP" --regions "$REGION" --ha=false
+
+      - name: Dump gateway logs
+        run: flyctl logs -a "$APP" --limit 50
