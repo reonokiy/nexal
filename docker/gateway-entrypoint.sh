@@ -9,7 +9,7 @@ HOME="${HOME:-/root}"
 mkdir -p "$HOME/.nexal"
 
 cat > "$HOME/.nexal/gateway.toml" <<EOF
-listen = "0.0.0.0:${NEXAL_GATEWAY_PORT:-5500}"
+listen = "[::]:${NEXAL_GATEWAY_PORT:-5500}"
 
 [defaults]
 image     = "${NEXAL_SANDBOX_IMAGE:-ghcr.io/reonokiy/nexal-sandbox:python3.13-debian13}"
