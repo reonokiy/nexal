@@ -16,4 +16,4 @@ RUN apt-get update \
 COPY --from=build /src/target/release/nexal-agent /usr/local/bin/nexal-agent
 RUN chmod +x /usr/local/bin/nexal-agent
 # No ENTRYPOINT: the Fly backend sets the machine's
-# init.exec = [/usr/local/bin/nexal-agent, --listen, ws://0.0.0.0:9100].
+# init.exec = [/usr/local/bin/nexal-agent, --listen, ws://[::]:9100].
