@@ -42,7 +42,7 @@ jobs:
         run: |
           set -euo pipefail
           # The running gateway needs the Fly token to call the Machines API.
-          ARGS="FLY_API_TOKEN=${FLY_API_TOKEN}"
+          ARGS=("FLY_API_TOKEN=${FLY_API_TOKEN}")
 
           # Frontend HMAC credential. Prefer repo secrets; otherwise
           # generate a stable random pair once (kept across deploys).
@@ -50,13 +50,13 @@ jobs:
           AK="${{ secrets.NEXAL_GATEWAY_ACCESS_KEY }}"
           SK="${{ secrets.NEXAL_GATEWAY_SECRET_KEY }}"
           if [ -n "$AK" ] && [ -n "$SK" ]; then
-            ARGS="$ARGS NEXAL_GATEWAY_ACCESS_KEY=$AK NEXAL_GATEWAY_SECRET_KEY=$SK"
+            ARGS+=("NEXAL_GATEWAY_ACCESS_KEY=$AK" "NEXAL_GATEWAY_SECRET_KEY=$SK")
           elif ! echo "$have" | grep -qx NEXAL_GATEWAY_ACCESS_KEY; then
-            ARGS="$ARGS NEXAL_GATEWAY_ACCESS_KEY=$(openssl rand -hex 8) NEXAL_GATEWAY_SECRET_KEY=$(openssl rand -hex 32)"
+            ARGS+=("NEXAL_GATEWAY_ACCESS_KEY=$(openssl rand -hex 8)" "NEXAL_GATEWAY_SECRET_KEY=$(openssl rand -hex 32)")
           fi
 
           # --stage: apply together with the deploy below (no extra restart).
-          flyctl secrets set -a "$APP" --stage $ARGS
+          flyctl secrets set -a "$APP" --stage "${ARGS[@]}"
 
       - name: Deploy
         run: flyctl deploy --remote-only -a "$APP" --regions "$REGION"
