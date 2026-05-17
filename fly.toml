@@ -1,0 +1,27 @@
+# Fly app for nexal-gateway. Agent sandbox machines are NOT declared
+# here — the gateway creates them at runtime via the Machines API into
+# THIS app, so they share 6PN with the gateway.
+#
+# `app`/`primary_region` can be overridden per-deploy via the workflow
+# (repo variables FLY_APP / FLY_REGION → flyctl deploy --app/--region).
+app            = "nexal"
+# EU. Fly compute is flat-priced across standard regions (ams/fra/cdg/
+# lhr/arn/mad all base rate) — ams is a well-provisioned primary region.
+primary_region = "ams"
+
+[build]
+  dockerfile = "gateway.Dockerfile"
+
+[[vm]]
+  size   = "shared-cpu-1x"
+  memory = "512mb"
+
+# WebTransport = HTTP/3 over QUIC = UDP; the gateway terminates its own
+# TLS (wtransport). NOTE: external frontend reachability over Fly UDP is
+# a known follow-up — the gateway boots and can spawn sandboxes without
+# it. Sandbox<->gateway traffic is 6PN-internal (no service needed).
+[[services]]
+  internal_port = 5500
+  protocol      = "udp"
+  [[services.ports]]
+    port = 5500
