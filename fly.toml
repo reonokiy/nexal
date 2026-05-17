@@ -17,11 +17,19 @@ primary_region = "ams"
   size   = "shared-cpu-1x"
   memory = "256mb"
 
-# Native HTTP service — Fly proxy handles TLS termination and WebSocket
-# upgrade automatically. Forces HTTPS (301 redirect on HTTP).
-[http_service]
+# Raw TCP service — no HTTP handlers so Fly proxy does TCP forwarding.
+# WebSocket upgrade is handled entirely by the gateway.
+[[services]]
+  protocol = "tcp"
   internal_port = 5500
-  force_https = false
   auto_stop_machines = false
   auto_start_machines = true
   min_machines_running = 1
+
+  [[services.ports]]
+    port = 80
+    # No handlers = raw TCP
+
+  [[services.ports]]
+    port = 443
+    # No handlers = raw TCP

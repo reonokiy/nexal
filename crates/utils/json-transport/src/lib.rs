@@ -1,3 +1,10 @@
+//! Transport-agnostic newline-delimited JSON messaging.
+//!
+//! Wraps WebSocket, stdio (Unix socket), and optional WebTransport
+//! streams into a uniform send/receive interface. Each connection
+//! spawns background reader/writer tasks and exposes typed message
+//! channels with disconnect/malformed-message events.
+
 use futures::{SinkExt, StreamExt};
 use serde::Serialize;
 use serde::de::DeserializeOwned;

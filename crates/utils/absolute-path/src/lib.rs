@@ -1,3 +1,9 @@
+//! A normalized absolute path type with serde support.
+//!
+//! `AbsolutePathBuf` guarantees the wrapped path is absolute and
+//! normalized. Deserialization requires a thread-local base path
+//! guarded by `AbsolutePathBufGuard` for resolving relative inputs.
+
 use dirs::home_dir;
 use path_absolutize::Absolutize;
 use serde::Deserialize;

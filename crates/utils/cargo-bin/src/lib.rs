@@ -1,3 +1,9 @@
+//! Locate compiled binary targets for integration testing.
+//!
+//! Resolves binary paths via `CARGO_BIN_EXE_<name>` env vars (set
+//! automatically by Cargo for test targets declared in `[[bin]]`), then
+//! falls back to `assert_cmd` heuristics.
+
 use std::io;
 use std::path::Path;
 use std::path::PathBuf;

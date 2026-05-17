@@ -1,3 +1,9 @@
+//! Cross-platform PTY and pipe process spawning.
+//!
+//! Provides async (Tokio) wrappers around `portable-pty` for
+//! interactive terminal sessions and `pipe` for non-interactive
+//! subprocesses with captured stdout/stderr.
+
 pub mod pipe;
 mod process;
 pub mod process_group;
