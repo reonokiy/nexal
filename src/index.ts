@@ -13,11 +13,7 @@ import { getModel } from "@mariozechner/pi-ai";
 
 import { AgentPool } from "./agent-pool.ts";
 import type { Channel } from "./channels/types.ts";
-import { HttpChannel } from "./channels/http.ts";
-import { WsChannel } from "./channels/ws.ts";
-import { TelegramChannel } from "./channels/telegram.ts";
-import { HeartbeatChannel } from "./channels/heartbeat.ts";
-import { CronChannel } from "./channels/cron.ts";
+import { ChannelManager } from "./channels/manager.ts";
 import { loadConfig } from "./config.ts";
 import { GatewayClient } from "./gateway/client.ts";
 import { createBashTool } from "./tools/bash.ts";
@@ -27,8 +23,6 @@ import { createCoordinatorTools } from "./tools/worker.ts";
 import { WorkerRegistry } from "./workers/registry.ts";
 import { loadAuth, loadModelConfig, closeSettings } from "./settings.ts";
 import { createWorkerStore } from "./workers/store.ts";
-import { CommandRegistry } from "./commands/registry.ts";
-import { registerBuiltins } from "./commands/builtin.ts";
 
 const DEFAULT_COORDINATOR_PROMPT = await Bun.file(
 	join(import.meta.dir, "prompts/coordinator.md"),
@@ -179,11 +173,6 @@ async function launchGateway(): Promise<{
 
 async function main(): Promise<void> {
 	const cfg = await loadConfig();
-	const httpPort = Number(
-		(cfg.channel.http?.port as number | string | undefined) ??
-			process.env.NEXAL_HTTP_PORT ??
-			"3000",
-	);
 	// Load saved auth & model config from settings DB (PGlite).
 	await applySavedAuth();
 
@@ -219,65 +208,12 @@ async function main(): Promise<void> {
 
 	const model = getModel(provider as any, modelId);
 
-	const commands = new CommandRegistry();
-	registerBuiltins(commands);
-
+	// Channel config lives exclusively in the DB (settings KV). The
+	// manager (created after `pool`) constructs/starts channels from it
+	// and hot-reloads on every saveChannelConfig/deleteChannelConfig
+	// write. This Map is shared by reference with WorkerRegistry &
+	// AgentPool below — mutating it in place keeps reply routing correct.
 	const channels = new Map<string, Channel>();
-	channels.set("http", new HttpChannel({ port: httpPort, commands }));
-
-	const wsBucket = cfg.channel.ws ?? {};
-	const wsPort = Number(wsBucket.port ?? process.env.NEXAL_WS_PORT ?? "3001");
-	channels.set(
-		"ws",
-		new WsChannel({
-			port: wsPort,
-			host: (wsBucket.host as string | undefined) ?? "127.0.0.1",
-			commands,
-		}),
-	);
-
-	const tgBucket = cfg.channel.telegram ?? {};
-	const tgToken =
-		(tgBucket.botToken as string | undefined) ??
-		process.env.TELEGRAM_BOT_TOKEN ??
-		process.env.NEXAL_TELEGRAM_BOT_TOKEN;
-	if (tgToken && tgBucket.enabled === true) {
-		channels.set(
-			"telegram",
-			new TelegramChannel({
-				botToken: tgToken,
-				allowFrom:
-					(tgBucket.allowFrom as string[] | undefined) ??
-					splitCsv(process.env.NEXAL_TELEGRAM_ALLOW_FROM),
-				allowChats:
-					(tgBucket.allowChats as string[] | undefined) ??
-					splitCsv(process.env.NEXAL_TELEGRAM_ALLOW_CHATS),
-				commands,
-			}),
-		);
-	}
-
-	const hbCfg = cfg.channel.heartbeat ?? {};
-	if (hbCfg.enabled === true) {
-		channels.set(
-			"heartbeat",
-			new HeartbeatChannel({
-				intervalMinutes:
-					(hbCfg.intervalMins as number | undefined) ??
-					(hbCfg.intervalMinutes as number | undefined),
-			}),
-		);
-	}
-
-	const cronCfg = cfg.channel.cron ?? {};
-	if (cronCfg.enabled === true) {
-		channels.set(
-			"cron",
-			new CronChannel({
-				tickIntervalSecs: cronCfg.tickIntervalSecs as number | undefined,
-			}),
-		);
-	}
 
 	// Worker registry — long-lived persistent workers + one-shot tasks
 	// spawned by the dispatcher. Persistence via Drizzle on Postgres
@@ -366,6 +302,17 @@ async function main(): Promise<void> {
 		},
 	});
 
+	const manager = new ChannelManager({
+		channels,
+		onMessage: (msg) => {
+			try {
+				pool!.handle(msg);
+			} catch (err) {
+				log.error(`failed to dispatch incoming message from ${msg.channel} channel`, err);
+			}
+		},
+	});
+
 	const stop = new AbortController();
 	let shuttingDown = false;
 	const shutdown = async (sig: string) => {
@@ -380,7 +327,7 @@ async function main(): Promise<void> {
 		await workers.shutdown().catch((err) =>
 			log.error("worker registry shutdown failed, some workers may not have been suspended cleanly", err),
 		);
-		await Promise.all([...channels.values()].map((c) => c.stop().catch(() => undefined)));
+		await manager.stopAll();
 		await gateway.releaseAllAgents();
 		await closeSettings().catch(() => undefined);
 		if (gatewayProc) {
@@ -392,17 +339,9 @@ async function main(): Promise<void> {
 	process.on("SIGINT", () => void shutdown("SIGINT"));
 	process.on("SIGTERM", () => void shutdown("SIGTERM"));
 
-	await Promise.all(
-		[...channels.values()].map((channel) =>
-			channel.start((msg) => {
-				try {
-					pool.handle(msg);
-				} catch (err) {
-					log.error(`failed to dispatch incoming message from ${channel.name} channel`, err);
-				}
-			}),
-		),
-	);
+	// Initial reconcile builds & starts every DB-configured channel and
+	// wires the change-notification + 5s poll loop for hot-reload.
+	await manager.startInitial();
 
 	// Resume non-terminal workers after channels are up so their
 	// send_update calls can land on the right destination.
@@ -413,12 +352,6 @@ async function main(): Promise<void> {
 	await new Promise<void>((resolve) => {
 		stop.signal.addEventListener("abort", () => resolve());
 	});
-}
-
-function splitCsv(v: string | undefined): string[] | undefined {
-	if (!v) return undefined;
-	const parts = v.split(",").map((s) => s.trim()).filter(Boolean);
-	return parts.length > 0 ? parts : undefined;
 }
 
 // ── CLI ──────────────────────────────────────────────────────────────

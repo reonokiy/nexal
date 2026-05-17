@@ -114,6 +114,68 @@ export async function loadModelConfig(): Promise<{ provider: string; modelId: st
 	return { provider, modelId };
 }
 
+// ── Channel config helpers ──────────────────────────────────────────
+//
+// Channel configuration lives in the DB only (TOML/env `[channel.*]` is
+// deprecated). Same JSON-blob-in-KV pattern as auth: key
+// `channel:<name>` → the channel's config bucket. Writers fire
+// `notifyChannelConfigChanged` so the ChannelManager can hot-reload
+// without a poll round-trip.
+
+type ChannelConfigBucket = Record<string, unknown>;
+
+const channelConfigListeners = new Set<() => void>();
+
+/** Subscribe to channel-config writes. Returns an unsubscribe fn. */
+export function onChannelConfigChange(fn: () => void): () => void {
+	channelConfigListeners.add(fn);
+	return () => channelConfigListeners.delete(fn);
+}
+
+function notifyChannelConfigChanged(): void {
+	for (const fn of channelConfigListeners) {
+		try {
+			fn();
+		} catch {
+			// A misbehaving listener must not break the writer.
+		}
+	}
+}
+
+export async function saveChannelConfig(name: string, config: ChannelConfigBucket): Promise<void> {
+	await setSetting(`channel:${name}`, JSON.stringify(config));
+	notifyChannelConfigChanged();
+}
+
+export async function loadChannelConfig(name: string): Promise<ChannelConfigBucket | null> {
+	const raw = await getSetting(`channel:${name}`);
+	if (!raw) return null;
+	return JSON.parse(raw) as ChannelConfigBucket;
+}
+
+export async function deleteChannelConfig(name: string): Promise<void> {
+	await deleteSetting(`channel:${name}`);
+	notifyChannelConfigChanged();
+}
+
+export async function loadAllChannelConfigs(): Promise<Record<string, ChannelConfigBucket>> {
+	const pg = await db();
+	const res = await pg.query<{ key: string; value: string }>(
+		"SELECT key, value FROM settings WHERE key LIKE $1",
+		["channel:%"],
+	);
+	const out: Record<string, ChannelConfigBucket> = {};
+	for (const row of res.rows) {
+		const name = row.key.slice("channel:".length);
+		try {
+			out[name] = JSON.parse(row.value) as ChannelConfigBucket;
+		} catch {
+			// Skip a corrupt row rather than crash the whole reconcile.
+		}
+	}
+	return out;
+}
+
 // Simple SQL escape for string literals (PGlite doesn't support $N in exec).
 function escSql(s: string): string {
 	return s.replace(/'/g, "''");
