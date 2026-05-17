@@ -81,7 +81,10 @@ async fn verify_hello(cfg: &ServerConfig, p: &HelloParams) -> Result<(), JsonRpc
 }
 
 fn to_msgpack<T: serde::Serialize>(v: &T) -> Value {
-    rmpv::ext::to_value(v).unwrap_or(Value::Nil)
+    let mut buf = Vec::new();
+    let mut ser = rmp_serde::Serializer::new(&mut buf).with_struct_map();
+    v.serialize(&mut ser).unwrap();
+    rmp_serde::from_slice(&buf).unwrap_or(Value::Nil)
 }
 
 pub(super) struct Session {

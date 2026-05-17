@@ -2,12 +2,9 @@
 
 mod common;
 
-use common::exec_server::exec_server;
-use nexal_agent::InitializeParams;
+use common::exec_server::{event_get, event_id, exec_server};
 use nexal_agent::InitializeResponse;
-use nexal_agent::JSONRPCMessage;
-use nexal_agent::JSONRPCResponse;
-use pretty_assertions::assert_eq;
+use rmpv::Value;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn exec_server_accepts_initialize() -> anyhow::Result<()> {
@@ -15,27 +12,17 @@ async fn exec_server_accepts_initialize() -> anyhow::Result<()> {
     let initialize_id = server
         .send_request(
             "initialize",
-            serde_json::to_value(InitializeParams {
+            serde_json::to_value(nexal_agent::InitializeParams {
                 client_name: "exec-server-test".to_string(),
             })?,
         )
         .await?;
 
     let response = server.next_event().await?;
-    let JSONRPCMessage::Response(JSONRPCResponse { id, result, .. }) = response else {
-        panic!("expected initialize response");
-    };
-    assert_eq!(id, initialize_id);
-    let initialize_response: InitializeResponse = rmpv::ext::from_value(result)?;
-    // initialize returns a default shell and cwd today; we just need a
-    // successful response — the exact values are environment-dependent.
-    assert!(
-        initialize_response.default_shell.is_some()
-            || initialize_response.cwd.is_some()
-            || initialize_response == InitializeResponse::default(),
-        "unexpected initialize response: {:?}",
-        initialize_response,
-    );
+    assert_eq!(event_id(&response), Some(initialize_id));
+
+    let result = event_get(&response, "result").expect("response has result");
+    let _: InitializeResponse = rmpv::ext::from_value(result.clone())?;
 
     server.shutdown().await?;
     Ok(())

@@ -247,21 +247,24 @@ pub(crate) fn container_socket_path(name: &str) -> String {
     format!("/run/nexal/proxy/{sanitized}.socket")
 }
 
-#[allow(dead_code)]
-fn _ensure_msgpack_used() -> Value {
-    Value::Map(vec![])
-}
-
 #[cfg(test)]
 mod tests {
     use serde::Deserialize;
-    use serde_json::json;
+    use serde::Serialize;
 
     use super::{container_socket_path, parse_params, registry_err};
     use crate::agent_conn::AgentConnError;
     use crate::backend::BackendError;
     use crate::protocol::error_code;
     use crate::registry::RegistryError;
+
+    fn mpv(s: &str) -> rmpv::Value {
+        let jv: serde_json::Value = serde_json::from_str(s).unwrap();
+        let mut buf = Vec::new();
+        let mut ser = rmp_serde::Serializer::new(&mut buf).with_struct_map();
+        jv.serialize(&mut ser).unwrap();
+        rmp_serde::from_slice(&buf).unwrap()
+    }
 
     #[derive(Debug, Deserialize)]
     struct Sample {
@@ -270,8 +273,8 @@ mod tests {
     }
 
     #[test]
-    fn parse_params_succeeds_on_well_formed_json() {
-        let s: Sample = parse_params(json!({ "agent_id": "a", "count": 7 }))
+    fn parse_params_succeeds_on_well_formed_msgpack() {
+        let s: Sample = parse_params(mpv(r#"{"agent_id":"a","count":7}"#))
             .expect("well-formed params should deserialize");
         assert_eq!(s.agent_id, "a");
         assert_eq!(s.count, 7);
@@ -279,14 +282,14 @@ mod tests {
 
     #[test]
     fn parse_params_wraps_serde_error_as_invalid_params() {
-        let err = parse_params::<Sample>(json!({ "agent_id": "a" }))
+        let err = parse_params::<Sample>(mpv(r#"{"agent_id":"a"}"#))
             .expect_err("should reject missing fields");
         assert_eq!(err.code, error_code::INVALID_PARAMS);
     }
 
     #[test]
     fn parse_params_rejects_wrong_shape() {
-        let err = parse_params::<Sample>(json!([1, 2, 3])).expect_err("array is not an object");
+        let err = parse_params::<Sample>(mpv("[1,2,3]")).expect_err("array is not an object");
         assert_eq!(err.code, error_code::INVALID_PARAMS);
     }
 

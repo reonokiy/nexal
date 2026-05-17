@@ -17,12 +17,11 @@ workspace = true
 [dependencies]
 arc-swap = { workspace = true }
 async-trait = { workspace = true }
-base64 = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 nexal-utils-absolute-path = { workspace = true }
 nexal-utils-pty = { workspace = true }
 nexal-utils-certs = { workspace = true }
-nexal-utils-json-transport = { workspace = true, features = ["webtransport"] }
+nexal-utils-json-transport = { workspace = true }
 futures = { workspace = true }
 rmp-serde = { workspace = true }
 rmpv = { workspace = true }
@@ -50,7 +49,7 @@ tracing = { workspace = true }
 [dev-dependencies]
 anyhow = { workspace = true }
 nexal-utils-cargo-bin = { workspace = true }
-nexal-utils-json-transport = { workspace = true, features = ["webtransport"] }
+nexal-utils-json-transport = { workspace = true }
 pretty_assertions = { workspace = true }
 rmp-serde = { workspace = true }
 rmpv = { workspace = true }

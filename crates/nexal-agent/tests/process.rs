@@ -2,13 +2,10 @@
 
 mod common;
 
-use common::exec_server::exec_server;
+use common::exec_server::{event_get, event_id, exec_server};
 use nexal_agent::ExecResponse;
-use nexal_agent::InitializeParams;
-use nexal_agent::JSONRPCMessage;
-use nexal_agent::JSONRPCResponse;
 use nexal_agent::ProcessId;
-use pretty_assertions::assert_eq;
+use rmpv::Value;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn exec_server_starts_process_over_websocket() -> anyhow::Result<()> {
@@ -16,32 +13,20 @@ async fn exec_server_starts_process_over_websocket() -> anyhow::Result<()> {
     let initialize_id = server
         .send_request(
             "initialize",
-            serde_json::to_value(InitializeParams {
+            serde_json::to_value(nexal_agent::InitializeParams {
                 client_name: "exec-server-test".to_string(),
             })?,
         )
         .await?;
     let _ = server
-        .wait_for_event(|event| {
-            matches!(
-                event,
-                JSONRPCMessage::Response(JSONRPCResponse { id, .. }) if id == &initialize_id
-            )
-        })
+        .wait_for_event(|event| event_id(event) == Some(initialize_id))
         .await?;
 
-    // Send `initialized` as a request (not a notification) so the
-    // server sees it — required by the lifecycle protocol.
     let initialized_id = server
         .send_request("initialized", serde_json::Value::Null)
         .await?;
     let _ = server
-        .wait_for_event(|event| {
-            matches!(
-                event,
-                JSONRPCMessage::Response(JSONRPCResponse { id, .. }) if id == &initialized_id
-            )
-        })
+        .wait_for_event(|event| event_id(event) == Some(initialized_id))
         .await?;
 
     let process_start_id = server
@@ -58,18 +43,12 @@ async fn exec_server_starts_process_over_websocket() -> anyhow::Result<()> {
         )
         .await?;
     let response = server
-        .wait_for_event(|event| {
-            matches!(
-                event,
-                JSONRPCMessage::Response(JSONRPCResponse { id, .. }) if id == &process_start_id
-            )
-        })
+        .wait_for_event(|event| event_id(event) == Some(process_start_id))
         .await?;
-    let JSONRPCMessage::Response(JSONRPCResponse { id, result, .. }) = response else {
-        panic!("expected process/start response");
-    };
-    assert_eq!(id, process_start_id);
-    let process_start_response: ExecResponse = rmpv::ext::from_value(result)?;
+
+    assert_eq!(event_id(&response), Some(process_start_id));
+    let result = event_get(&response, "result").expect("response has result");
+    let process_start_response: ExecResponse = rmpv::ext::from_value(result.clone())?;
     assert_eq!(
         process_start_response,
         ExecResponse {

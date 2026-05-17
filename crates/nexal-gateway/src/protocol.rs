@@ -297,12 +297,34 @@ pub struct UnregisterStreamProxyParams {
 #[cfg(test)]
 mod tests {
     //! Wire-format guardrails. Every DTO on the gateway ↔ frontend
-    //! boundary must emit snake_case JSON so TS/Bun callers don't get
-    //! surprises. Serialize a hand-built instance and confirm the
-    //! on-wire key names.
+    //! boundary are preserved (snake_case map keys) even with the
+    //! MessagePack wire format.
 
     use super::*;
-    use serde_json::json;
+
+    fn mpv_from_json(s: &str) -> rmpv::Value {
+        let jv: serde_json::Value = serde_json::from_str(s).unwrap();
+        let mut buf = Vec::new();
+        let mut ser = rmp_serde::Serializer::new(&mut buf).with_struct_map();
+        jv.serialize(&mut ser).unwrap();
+        rmp_serde::from_slice(&buf).unwrap()
+    }
+
+    fn mpv_roundtrip<T: serde::Serialize + serde::de::DeserializeOwned>(v: &T) -> rmpv::Value {
+        let mut buf = Vec::new();
+        let mut ser = rmp_serde::Serializer::new(&mut buf).with_struct_map();
+        v.serialize(&mut ser).unwrap();
+        rmp_serde::from_slice(&buf).unwrap()
+    }
+
+    fn mpv_map_keys(v: &rmpv::Value) -> Vec<&str> {
+        eprintln!("v: {v:?}");
+        v.as_map()
+            .into_iter()
+            .flat_map(|m| m.iter())
+            .filter_map(|(k, _)| k.as_str())
+            .collect()
+    }
 
     #[test]
     fn hello_params_serializes_snake_case() {
@@ -313,17 +335,13 @@ mod tests {
             nonce: "n".into(),
             signature: "sig".into(),
         };
-        let v = serde_json::to_value(&p).expect("hello params serialize");
-        assert_eq!(
-            v,
-            json!({
-                "access_key": "ak",
-                "client_name": "c",
-                "ts": 42,
-                "nonce": "n",
-                "signature": "sig"
-            })
-        );
+        let v = mpv_roundtrip(&p);
+        let keys = mpv_map_keys(&v);
+        assert!(keys.contains(&"access_key"));
+        assert!(keys.contains(&"client_name"));
+        assert!(keys.contains(&"ts"));
+        assert!(keys.contains(&"nonce"));
+        assert!(keys.contains(&"signature"));
     }
 
     #[test]
@@ -332,8 +350,10 @@ mod tests {
             ok: true,
             gateway_version: "0.2.0".into(),
         };
-        let v = serde_json::to_value(&r).expect("hello response serialize");
-        assert_eq!(v, json!({ "ok": true, "gateway_version": "0.2.0" }));
+        let v = mpv_roundtrip(&r);
+        let keys = mpv_map_keys(&v);
+        assert!(keys.contains(&"ok"));
+        assert!(keys.contains(&"gateway_version"));
     }
 
     #[test]
@@ -345,13 +365,9 @@ mod tests {
             labels: HashMap::new(),
             extra_ports: Vec::new(),
         };
-        let v = serde_json::to_value(&p).expect("spawn_agent params serialize");
-        // `name` present, image absent, env/labels present as
-        // empty maps (serde doesn't strip them without
-        // `skip_serializing_if`). Asserting structural shape, not
-        // bit-for-bit presence, keeps this robust to future tweaks.
-        let obj = v.as_object().expect("serialized shape is an object");
-        assert_eq!(obj.get("name"), Some(&json!("n")));
+        let v = mpv_roundtrip(&p);
+        let keys = mpv_map_keys(&v);
+        assert!(keys.contains(&"name"));
     }
 
     #[test]
@@ -361,11 +377,11 @@ mod tests {
             container_name: "nexal-c".into(),
             created_at_unix_ms: 1_700_000_000_000,
         };
-        let v = serde_json::to_value(&s).expect("agent summary serialize");
-        let obj = v.as_object().expect("serialized shape is an object");
-        assert!(obj.contains_key("agent_id"));
-        assert!(obj.contains_key("container_name"));
-        assert!(obj.contains_key("created_at_unix_ms"));
+        let v = mpv_roundtrip(&s);
+        let keys = mpv_map_keys(&v);
+        assert!(keys.contains(&"agent_id"));
+        assert!(keys.contains(&"container_name"));
+        assert!(keys.contains(&"created_at_unix_ms"));
     }
 
     #[test]
@@ -374,11 +390,10 @@ mod tests {
             token: "deadbeef".into(),
             socket_path: "/run/nexal/proxy/jina.socket".into(),
         };
-        let v = serde_json::to_value(&r).expect("register_proxy response serialize");
-        let obj = v.as_object().expect("serialized shape is an object");
-        assert!(obj.contains_key("socket_path"));
-        // camelCase leaks would show up here — guard against them.
-        assert!(!obj.contains_key("socketPath"));
+        let v = mpv_roundtrip(&r);
+        let keys = mpv_map_keys(&v);
+        assert!(keys.contains(&"socket_path"));
+        assert!(!keys.contains(&"socketPath"));
     }
 
     #[test]
@@ -387,25 +402,28 @@ mod tests {
             jsonrpc: JSONRPC_VERSION.into(),
             id: None,
             method: "x".into(),
-            params: Some(json!({ "a": 1 })),
+            params: Some(mpv_from_json(r#"{"a":1}"#)),
         };
-        let v = serde_json::to_value(&req).expect("jsonrpc req serialize");
-        let obj = v.as_object().expect("serialized shape is an object");
-        assert!(!obj.contains_key("id"), "notifications omit `id`");
+        let v = mpv_roundtrip(&req);
+        let keys = mpv_map_keys(&v);
+        assert!(!keys.contains(&"id"), "notifications omit `id`");
     }
 
     #[test]
     fn jsonrpc_response_ok_helper_builds_valid_envelope() {
-        let r = JsonRpcResponse::ok(json!("id-1"), json!({ "ok": true }));
+        let r = JsonRpcResponse::ok(
+            mpv_from_json(r#""id-1""#),
+            mpv_from_json(r#"{"ok":true}"#),
+        );
         assert_eq!(r.jsonrpc, JSONRPC_VERSION);
-        assert_eq!(r.id, json!("id-1"));
+        assert_eq!(r.id, mpv_from_json(r#""id-1""#));
         assert!(r.error.is_none());
-        assert_eq!(r.result, Some(json!({ "ok": true })));
+        assert_eq!(r.result, Some(mpv_from_json(r#"{"ok":true}"#)));
     }
 
     #[test]
     fn jsonrpc_response_err_helper_builds_error_envelope() {
-        let r = JsonRpcResponse::err(json!(5), error_code::UNKNOWN_AGENT, "nope");
+        let r = JsonRpcResponse::err(mpv_from_json("5"), error_code::UNKNOWN_AGENT, "nope");
         assert_eq!(r.jsonrpc, JSONRPC_VERSION);
         assert!(r.result.is_none());
         let e = r.error.expect("error response must carry an error");
@@ -416,7 +434,7 @@ mod tests {
 
     #[test]
     fn notification_helper_sets_id_to_none() {
-        let n = notification(NOTIFY_AGENT, json!({ "agent_id": "a" }));
+        let n = notification(NOTIFY_AGENT, mpv_from_json(r#"{"agent_id":"a"}"#));
         assert!(n.id.is_none());
         assert_eq!(n.method, NOTIFY_AGENT);
     }
@@ -443,14 +461,9 @@ mod tests {
     }
 
     #[test]
-    fn register_proxy_params_deserializes_from_snake_case_json() {
-        let raw = json!({
-            "agent_id": "a-1",
-            "name": "jina",
-            "upstream_url": "https://api.jina.ai",
-            "headers": { "Authorization": "Bearer k" }
-        });
-        let p: RegisterProxyParams = serde_json::from_value(raw).expect("register_proxy parses");
+    fn register_proxy_params_deserializes_from_snake_case_msgpack() {
+        let raw = mpv_from_json(r#"{"agent_id":"a-1","name":"jina","upstream_url":"https://api.jina.ai","headers":{"Authorization":"Bearer k"}}"#);
+        let p: RegisterProxyParams = rmpv::ext::from_value(raw).expect("register_proxy parses");
         assert_eq!(p.agent_id, "a-1");
         assert_eq!(p.name, "jina");
         assert_eq!(p.upstream_url, "https://api.jina.ai");

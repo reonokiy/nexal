@@ -6,31 +6,6 @@ use serde::Serialize;
 
 use crate::ProcessId;
 
-// ── JSON-RPC version marker ────────────────────────────────────────
-
-/// Always serializes to `"2.0"`, deserializes only from `"2.0"`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub struct JsonRpcVersion;
-
-impl Serialize for JsonRpcVersion {
-    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
-        s.serialize_str("2.0")
-    }
-}
-
-impl<'de> Deserialize<'de> for JsonRpcVersion {
-    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        let s = String::deserialize(d)?;
-        if s == "2.0" {
-            Ok(JsonRpcVersion)
-        } else {
-            Err(serde::de::Error::custom(format!(
-                "expected jsonrpc \"2.0\", got {s:?}"
-            )))
-        }
-    }
-}
-
 pub const EXEC_OUTPUT_DELTA_METHOD: &str = "process/output";
 pub const EXEC_EXITED_METHOD: &str = "process/exited";
 pub const EXEC_CLOSED_METHOD: &str = "process/closed";
@@ -291,59 +266,12 @@ impl std::fmt::Display for RequestId {
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
-#[serde(untagged)]
-pub enum JSONRPCMessage {
-    Request(JSONRPCRequest),
-    Notification(JSONRPCNotification),
-    Response(JSONRPCResponse),
-    Error(JSONRPCError),
-}
-
-#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
-pub struct JSONRPCRequest {
-    #[serde(default = "jsonrpc_2_0")]
-    pub jsonrpc: JsonRpcVersion,
-    pub id: RequestId,
-    pub method: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub params: Option<rmpv::Value>,
-}
-
-#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
-pub struct JSONRPCNotification {
-    #[serde(default = "jsonrpc_2_0")]
-    pub jsonrpc: JsonRpcVersion,
-    pub method: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub params: Option<rmpv::Value>,
-}
-
-#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
-pub struct JSONRPCResponse {
-    #[serde(default = "jsonrpc_2_0")]
-    pub jsonrpc: JsonRpcVersion,
-    pub id: RequestId,
-    pub result: rmpv::Value,
-}
-
-#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
-pub struct JSONRPCError {
-    #[serde(default = "jsonrpc_2_0")]
-    pub jsonrpc: JsonRpcVersion,
-    pub error: JSONRPCErrorError,
-    pub id: RequestId,
-}
-
-#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub struct JSONRPCErrorError {
     pub code: i64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub data: Option<rmpv::Value>,
     pub message: String,
-}
-
-fn jsonrpc_2_0() -> JsonRpcVersion {
-    JsonRpcVersion
 }
 
 // ── Filesystem wire types ──

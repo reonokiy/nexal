@@ -65,8 +65,7 @@ pub struct ContainerSpec {
 #[derive(Debug, Clone)]
 pub struct ContainerHandle {
     pub name: String,
-    /// Reachable URL from the gateway process. For WebTransport this
-    /// is `https://<host>:<port>`, for legacy WS `ws://<host>:<port>`.
+    /// Reachable URL from the gateway process (e.g. `ws://<host>:<port>`).
     pub url: String,
     /// Mappings for extra published ports: container_port → reachable address.
     /// e.g. `{ 3389 → "127.0.0.1:49201", 9222 → "127.0.0.1:49202" }`.

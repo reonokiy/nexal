@@ -24,7 +24,7 @@ futures = { workspace = true }
 http = { workspace = true }
 http-body-util = { workspace = true }
 ring = { workspace = true }
-nexal-utils-json-transport = { workspace = true, features = ["webtransport"] }
+nexal-utils-json-transport = { workspace = true }
 reqwest = { workspace = true }
 rmp-serde = { workspace = true }
 rmpv = { workspace = true }

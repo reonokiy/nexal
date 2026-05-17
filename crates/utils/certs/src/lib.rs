@@ -1,4 +1,4 @@
-//! Self-signed TLS certificate generation for WebTransport.
+//! Self-signed TLS certificate generation.
 //!
 //! Generates a CA + server certificate pair stored at `~/.nexal/certs/`.
 //! The CA cert can be distributed to clients for verification.

@@ -1,14 +1,15 @@
+use rmpv::Value;
 use serde::Serialize;
 use tokio::sync::mpsc;
 
 use crate::transport::protocol::JSONRPCErrorError;
-use crate::transport::protocol::JSONRPCNotification;
-use crate::transport::protocol::JsonRpcVersion;
-use crate::transport::protocol::{ERROR_CODE_INTERNAL, ERROR_CODE_INVALID_PARAMS, ERROR_CODE_INVALID_REQUEST};
+use crate::transport::protocol::{
+    ERROR_CODE_INTERNAL, ERROR_CODE_INVALID_PARAMS, ERROR_CODE_INVALID_REQUEST,
+};
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum RpcServerOutboundMessage {
-    Notification(JSONRPCNotification),
+    Notification(Value),
 }
 
 #[derive(Clone)]
@@ -27,14 +28,13 @@ impl RpcNotificationSender {
         params: &P,
     ) -> Result<(), JSONRPCErrorError> {
         let params = rmpv::ext::to_value(params).map_err(|err| internal_error(err.to_string()))?;
+        let msg = Value::Map(vec![
+            (Value::String("jsonrpc".into()), Value::String("2.0".into())),
+            (Value::String("method".into()), Value::String(method.into())),
+            (Value::String("params".into()), params),
+        ]);
         self.outgoing_tx
-            .send(RpcServerOutboundMessage::Notification(
-                JSONRPCNotification {
-                    jsonrpc: JsonRpcVersion,
-                    method: method.to_string(),
-                    params: Some(params),
-                },
-            ))
+            .send(RpcServerOutboundMessage::Notification(msg))
             .await
             .map_err(|_| internal_error("RPC connection closed while sending notification".into()))
     }
