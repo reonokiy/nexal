@@ -9,7 +9,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
  *   NEXAL_TEST_DB=postgres://… bun test src/settings.test.ts
  */
 
-const TEST_DB = process.env.NEXAL_TEST_DB ?? process.env.NEXAL_WORKERS_URL ?? "";
+const TEST_DB = process.env.NEXAL_TEST_DB ?? process.env.DATABASE_URL ?? "";
 const suite = TEST_DB ? describe : describe.skip;
 
 const TOUCHED_CHANNELS = ["telegram", "github", "cron", "heartbeat"];

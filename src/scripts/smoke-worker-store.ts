@@ -1,7 +1,7 @@
 /**
  * Smoke the WorkerStore CRUD against a real Postgres.
  *
- *   NEXAL_WORKERS_URL=postgres://user:pw@host:5432/db \
+ *   DATABASE_URL=postgres://user:pw@host:5432/db \
  *     bun run src/scripts/smoke-worker-store.ts
  *
  * The smoke uses random UUIDs so successive runs don't collide on the
@@ -13,8 +13,8 @@ import {
 } from "../workers/serialize.ts";
 import { createWorkerStore } from "../workers/store.ts";
 
-const URL = process.env.NEXAL_WORKERS_URL;
-if (!URL) throw new Error("NEXAL_WORKERS_URL env var required (postgres connection string)");
+const URL = process.env.DATABASE_URL;
+if (!URL) throw new Error("DATABASE_URL env var required (postgres connection string)");
 
 function assertEq<T>(actual: T, expected: T, label: string): void {
 	if (JSON.stringify(actual) !== JSON.stringify(expected)) {

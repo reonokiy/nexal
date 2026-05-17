@@ -5,7 +5,7 @@
  * is now mandatory.
  *
  * The connection string comes from `cfg.workers.url` (set via
- * `setDbUrl`) or `NEXAL_WORKERS_URL`. Missing → hard error (no silent
+ * `setDbUrl`) or `DATABASE_URL`. Missing → hard error (no silent
  * embedded fallback anymore).
  *
  * Schema is owned by drizzle-kit migrations in `drizzle/`; `runMigrations`
@@ -30,10 +30,10 @@ export function setDbUrl(url: string): void {
 }
 
 function resolveUrl(): string {
-	const url = _configuredUrl || process.env.NEXAL_WORKERS_URL || "";
+	const url = _configuredUrl || process.env.DATABASE_URL || "";
 	if (!url) {
 		throw new Error(
-			"NEXAL_WORKERS_URL (Postgres connection string) is required — " +
+			"DATABASE_URL (Postgres connection string) is required — " +
 				"PGlite support was removed. Set it via env or `[workers] url` " +
 				"in ~/.nexal/config.toml, e.g. postgres://user:pw@host:5432/db",
 		);

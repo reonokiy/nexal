@@ -48,8 +48,8 @@ async function main(): Promise<void> {
 	if (!GATEWAY_ACCESS_KEY || !GATEWAY_SECRET_KEY) {
 		throw new Error("NEXAL_GATEWAY_ACCESS_KEY + NEXAL_GATEWAY_SECRET_KEY env vars are required");
 	}
-	const dbUrl = process.env.NEXAL_WORKERS_URL;
-	if (!dbUrl) throw new Error("NEXAL_WORKERS_URL env var required (postgres connection string)");
+	const dbUrl = process.env.DATABASE_URL;
+	if (!dbUrl) throw new Error("DATABASE_URL env var required (postgres connection string)");
 	const store = await createWorkerStore({ url: dbUrl });
 	console.log(`[smoke] gateway=${GATEWAY_URL}`);
 

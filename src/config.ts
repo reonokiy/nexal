@@ -88,7 +88,7 @@ const DEFAULTS: NexalConfig = {
 	channel: {},
 	providers: {},
 	workers: {
-		url: process.env.NEXAL_WORKERS_URL ?? "",
+		url: process.env.DATABASE_URL ?? "",
 		maxConcurrent: 5,
 	},
 	gateway: {
