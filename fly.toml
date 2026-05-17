@@ -17,24 +17,18 @@ primary_region = "ams"
   size   = "shared-cpu-1x"
   memory = "256mb"
 
-# TCP service with HTTP handlers (Host routing + WebSocket) and TCP-level
-# health checks (port-open only, no HTTP probes).
-[[services]]
-  protocol = "tcp"
+# HTTP-service layer enables TLS termination + Host routing (required for
+# shared anycast IPs). TCP-level health checks avoid HTTP probes that the
+# WebSocket-only server cannot answer.
+[http_service]
   internal_port = 5500
+  force_https = false
   auto_stop_machines = false
   auto_start_machines = true
   min_machines_running = 1
 
-  [[services.tcp_checks]]
+  [[http_service.checks]]
+    type = "tcp"
     interval = "15s"
     timeout = "3s"
     grace_period = "5s"
-
-  [[services.ports]]
-    port = 80
-    handlers = ["http"]
-
-  [[services.ports]]
-    port = 443
-    handlers = ["tls", "http"]
