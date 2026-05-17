@@ -17,21 +17,11 @@ primary_region = "ams"
   size   = "shared-cpu-1x"
   memory = "256mb"
 
-# Public WebSocket endpoint — raw TCP forwarding on port 80 so Fly proxy
-# does not inspect/modify HTTP headers (WebSocket upgrade passes through).
-# Port 443 with TLS termination for wss:// clients.
-[[services]]
+# Native HTTP service — Fly proxy handles TLS termination and WebSocket
+# upgrade automatically. Forces HTTPS (301 redirect on HTTP).
+[http_service]
   internal_port = 5500
-  protocol      = "tcp"
-  auto_stop_machines = "off"
+  force_https = true
+  auto_stop_machines = false
   auto_start_machines = true
   min_machines_running = 1
-
-  # Raw TCP on 80 — no handlers so Fly does byte-for-byte forwarding.
-  [[services.ports]]
-    port = 80
-
-  # TLS-terminated WebSocket on 443.
-  [[services.ports]]
-    port     = 443
-    handlers = ["tls", "http"]
