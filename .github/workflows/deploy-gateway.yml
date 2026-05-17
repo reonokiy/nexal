@@ -59,4 +59,4 @@ jobs:
           flyctl secrets set -a "$APP" --stage "${ARGS[@]}"
 
       - name: Deploy
-        run: flyctl deploy --remote-only -a "$APP" --regions "$REGION"
+        run: flyctl deploy --remote-only -a "$APP" --regions "$REGION" --ha=false
