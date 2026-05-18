@@ -30,7 +30,7 @@
 	function autoResize() {
 		if (!textareaEl) return;
 		textareaEl.style.height = "auto";
-		textareaEl.style.height = Math.min(textareaEl.scrollHeight, 240) + "px";
+		textareaEl.style.height = textareaEl.scrollHeight + "px";
 	}
 
 	function onkeydown(e: KeyboardEvent) {
@@ -58,16 +58,20 @@
 </script>
 
 <div class="border-border bg-background rounded-2xl border shadow-sm">
+	<div class="flex items-center gap-1.5 px-4 pt-2">
+		<span class="bg-primary/10 text-primary text-[10px] font-medium rounded px-1.5 py-0.5">Coordinator</span>
+		<span class="text-muted-foreground/50 text-[10px]">all messages go here</span>
+	</div>
 	<textarea
 		bind:this={textareaEl}
 		bind:value
 		oninput={autoResize}
 		{onkeydown}
 		placeholder={settings.sendKey === "shift-enter"
-			? "Ask nexal anything · Shift+Enter to send"
-			: "Ask nexal anything · / for commands"}
+			? "Message Coordinator · Shift+Enter to send"
+			: "Message Coordinator · / for commands"}
 		rows="1"
-		class="text-foreground placeholder:text-muted-foreground/80 w-full resize-none bg-transparent px-4 pt-3.5 text-[15px] focus:outline-none"
+		class="text-foreground placeholder:text-muted-foreground/80 w-full resize-none bg-transparent px-4 pt-2 pb-1 text-[15px] focus:outline-none"
 		disabled={chat.status !== "open"}
 	></textarea>
 

@@ -1,5 +1,4 @@
 <script lang="ts">
-	import ChevronDown from "@lucide/svelte/icons/chevron-down";
 	import X from "@lucide/svelte/icons/x";
 	import { cn } from "$lib/utils";
 	import { fade, fly } from "svelte/transition";
@@ -20,19 +19,19 @@
 
 	const SUGGESTIONS: Suggestion[] = [
 		{
-			emoji: "🎮",
-			text: "Build a classic Snake game in this repo.",
-			fill: "Build a classic Snake game in this repo.",
+			emoji: "🚀",
+			text: "Deploy my app to production.",
+			fill: "Deploy my app to production.",
 		},
 		{
-			emoji: "📄",
-			text: "Create a one-page summary that describes this app.",
-			fill: "Create a one-page summary of this app.",
+			emoji: "🐛",
+			text: "Find and fix bugs in the codebase.",
+			fill: "Find and fix bugs in the codebase.",
 		},
 		{
-			emoji: "✏️",
-			text: "Create a plan to ship the next milestone.",
-			fill: "Create a plan to ",
+			emoji: "🧪",
+			text: "Run tests and analyze failures.",
+			fill: "Run tests and analyze failures.",
 		},
 	];
 </script>
@@ -63,15 +62,11 @@
 			</svg>
 		</div>
 		<h1 class="text-foreground text-3xl font-medium tracking-tight">
-			Let's build
+			Your Coordinator
 		</h1>
-		<button
-			type="button"
-			class="text-muted-foreground hover:text-foreground mt-1 inline-flex items-center gap-1 text-3xl font-medium tracking-tight transition-colors"
-		>
-			<span>New project</span>
-			<ChevronDown class="size-6 opacity-70" />
-		</button>
+		<p class="text-muted-foreground mt-2 text-sm max-w-xs text-center">
+			Send any task. The coordinator will use tools and spawn workers as needed.
+		</p>
 	</div>
 
 	{#if !dismissed}

@@ -4,11 +4,15 @@
 	import { fade } from "svelte/transition";
 	import { cubicOut } from "svelte/easing";
 	import Message from "$lib/components/message.svelte";
+	import type { Source } from "$lib/components/message.svelte";
 	import Composer from "$lib/components/composer.svelte";
 	import EmptyState from "$lib/components/empty-state.svelte";
+	import SandboxList from "$lib/components/sandbox-list.svelte";
 	import MoreHorizontal from "@lucide/svelte/icons/more-horizontal";
 	import PanelLeft from "@lucide/svelte/icons/panel-left";
 	import Plug from "@lucide/svelte/icons/plug";
+	import Box from "@lucide/svelte/icons/box";
+	import { cn } from "$lib/utils";
 	import { settings } from "$lib/settings.svelte";
 	import type { Chat, Message as Msg } from "$lib/client.svelte";
 
@@ -21,22 +25,85 @@
 
 	let input = $state("");
 	let modelLabel = $state("model");
+	let showSandboxes = $state(false);
 
-	type DisplayItem =
-		| (Msg & { kind: "msg" })
-		| { kind: "typing"; id: number };
+	interface MsgItem {
+		id: number;
+		streamId?: string;
+		role: "user" | "agent";
+		text: string;
+		ts: number;
+		streaming?: boolean;
+		kind: "msg";
+		source?: Source;
+		toolName?: string;
+		workerId?: string;
+		workerStatus?: string;
+	}
+
+	type DisplayItem = MsgItem | { kind: "typing"; id: number };
+
+	/** Parse source from message text (short-term until backend sends metadata). */
+	function parseSource(text: string): {
+		source?: Source;
+		text: string;
+		toolName?: string;
+		workerId?: string;
+		workerStatus?: string;
+	} {
+		const toolMatch = text.match(/^\[tool:(\w+)\]\s*/);
+		if (toolMatch) {
+			return {
+				source: "tool",
+				toolName: toolMatch[1],
+				text: text.slice(toolMatch[0].length),
+			};
+		}
+		const workerMatch = text.match(/^\[worker:([^\]]+)\]\s*status:(\w+)\s*/);
+		if (workerMatch) {
+			return {
+				source: "worker",
+				workerId: workerMatch[1],
+				workerStatus: workerMatch[2],
+				text: text.slice(workerMatch[0].length),
+			};
+		}
+		return { text };
+	}
 
 	const visibleMessages = $derived(
-		settings.showSystem
-			? chat.messages
-			: chat.messages.filter((m) => m.role !== "system"),
+		chat.messages.filter((m) => m.role !== "system"),
 	);
 
 	const displayItems = $derived.by<DisplayItem[]>(() => {
-		const out: DisplayItem[] = visibleMessages.map((m) => ({
-			...m,
-			kind: "msg" as const,
-		}));
+		const out: DisplayItem[] = visibleMessages.map((m) => {
+			if (m.role === "agent") {
+				const parsed = parseSource(m.text);
+				return {
+					id: m.id,
+					streamId: m.streamId,
+					role: m.role,
+					text: parsed.text,
+					ts: m.ts,
+					streaming: m.streaming,
+					kind: "msg" as const,
+					source: parsed.source ?? "coordinator",
+					toolName: parsed.toolName,
+					workerId: parsed.workerId,
+					workerStatus: parsed.workerStatus,
+				};
+			}
+			// visibleMessages filters out system, so m.role must be "user" here
+			return {
+				id: m.id,
+				streamId: m.streamId,
+				role: m.role as "user",
+				text: m.text,
+				ts: m.ts,
+				streaming: m.streaming,
+				kind: "msg" as const,
+			};
+		});
 		if (chat.typing && !chat.messages.some((m) => m.streaming)) {
 			out.push({ kind: "typing", id: -1 });
 		}
@@ -45,6 +112,10 @@
 
 	const empty = $derived(
 		chat.messages.filter((m) => m.role !== "system").length === 0,
+	);
+
+	const systemMessages = $derived(
+		chat.messages.filter((m) => m.role === "system"),
 	);
 
 	let vlist: VListHandle | undefined = $state();
@@ -57,7 +128,6 @@
 	}
 
 	$effect(() => {
-		// Re-run on count or last item growth (streaming text) and typing flips.
 		const last = displayItems[displayItems.length - 1];
 		void displayItems.length;
 		if (last && "text" in last) void last.text;
@@ -143,6 +213,20 @@
 			{/if}
 			<button
 				type="button"
+				aria-label={showSandboxes ? "hide sandboxes" : "show sandboxes"}
+				title={showSandboxes ? "Hide sandboxes" : "Show sandboxes"}
+				class={cn(
+					"flex size-8 items-center justify-center rounded-md transition-colors duration-150 active:scale-90",
+					showSandboxes
+						? "bg-accent text-foreground"
+						: "text-muted-foreground hover:bg-accent",
+				)}
+				onclick={() => (showSandboxes = !showSandboxes)}
+			>
+				<Box class="size-4" />
+			</button>
+			<button
+				type="button"
 				aria-label={sidebarOpen ? "hide sidebar" : "show sidebar"}
 				title={sidebarOpen ? "Hide sidebar" : "Show sidebar"}
 				class="text-muted-foreground hover:bg-accent flex size-8 items-center justify-center rounded-md transition-colors duration-150 active:scale-90"
@@ -153,8 +237,20 @@
 		</div>
 	</header>
 
+	<!-- System messages banner -->
+	{#if systemMessages.length > 0}
+		<div class="bg-muted/30 border-b border-border px-4 py-1 flex items-center gap-2 text-[11px] text-muted-foreground">
+			<span class="size-1.5 rounded-full bg-amber-400"></span>
+			<span class="truncate">{systemMessages[systemMessages.length - 1]!.text}</span>
+		</div>
+	{/if}
+
 	<main class="flex min-h-0 flex-1 flex-col">
-		{#if empty}
+		{#if showSandboxes}
+			<div class="flex flex-1 overflow-y-auto">
+				<SandboxList />
+			</div>
+		{:else if empty}
 			<div
 				class="flex flex-1 overflow-y-auto"
 				in:fade={{ duration: 200, easing: cubicOut }}
@@ -184,16 +280,16 @@
 									style="animation-delay: 0.3s"
 								></span>
 							</div>
-						{:else if item.role === "system"}
-							<div class="text-muted-foreground py-2 text-center text-xs">
-								{item.text}
-							</div>
 						{:else}
 							<Message
 								role={item.role}
+								source={item.source}
 								text={item.text}
 								ts={item.ts}
 								streaming={item.streaming ?? false}
+								toolName={item.toolName}
+								workerId={item.workerId}
+								workerStatus={item.workerStatus}
 							/>
 						{/if}
 					</div>

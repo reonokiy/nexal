@@ -21,7 +21,7 @@
 			const raw = localStorage.getItem("nexal.backendUrl");
 			if (raw) {
 				const url: string = JSON.parse(raw);
-				return url.replace(/^ws/, "http").replace(/:3001/, ":3000");
+				return url.replace(/^ws/, "http");
 			}
 		} catch { /* use fallback */ }
 		return `${window.location.protocol}//${window.location.hostname}:3000`;
@@ -63,35 +63,35 @@
 	}
 </script>
 
-<div class="flex flex-col gap-6 p-6 max-w-4xl">
+<div class="flex flex-col gap-4 p-4 max-w-3xl mx-auto w-full">
 	<div class="flex items-center justify-between">
-		<div class="flex items-center gap-3">
-			<Box class="size-5 text-muted-foreground" />
-			<h1 class="text-lg font-semibold">Sandboxes</h1>
+		<div class="flex items-center gap-2">
+			<Box class="size-4 text-muted-foreground" />
+			<h2 class="text-sm font-semibold">Sandboxes</h2>
 		</div>
 		<button
-			class="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm
+			class="flex items-center gap-1.5 px-2 py-1 rounded-md text-xs
 				bg-secondary text-secondary-foreground hover:bg-secondary/80 transition-colors"
 			onclick={fetchAgents}
 		>
-			<RefreshCw class="size-3.5" />
+			<RefreshCw class="size-3" />
 			Refresh
 		</button>
 	</div>
 
 	{#if loading}
-		<div class="flex items-center gap-3 py-12 justify-center text-muted-foreground text-sm">
+		<div class="flex items-center gap-2 py-8 justify-center text-muted-foreground text-sm">
 			<Circle class="size-4 animate-spin" />
 			Loading sandboxes…
 		</div>
 	{:else if error}
-		<div class="flex items-center gap-3 py-12 justify-center text-red-400 text-sm">
+		<div class="flex items-center gap-2 py-8 justify-center text-red-400 text-sm">
 			<Server class="size-4" />
 			{error}
 		</div>
 	{:else if agents.length === 0}
-		<div class="flex flex-col items-center gap-2 py-16 text-muted-foreground">
-			<Box class="size-8 opacity-30" />
+		<div class="flex flex-col items-center gap-2 py-10 text-muted-foreground">
+			<Box class="size-6 opacity-30" />
 			<p class="text-sm">No sandboxes running</p>
 			<p class="text-xs opacity-55">Sandboxes are created when an agent spawns a worker</p>
 		</div>
@@ -100,21 +100,21 @@
 			<table class="w-full text-sm">
 				<thead class="bg-muted/50">
 					<tr>
-						<th class="text-left px-4 py-2.5 font-medium text-muted-foreground">Container</th>
-						<th class="text-left px-4 py-2.5 font-medium text-muted-foreground">Agent ID</th>
-						<th class="text-left px-4 py-2.5 font-medium text-muted-foreground">Age</th>
-						<th class="text-left px-4 py-2.5 font-medium text-muted-foreground">Status</th>
+						<th class="text-left px-3 py-2 font-medium text-muted-foreground text-xs">Container</th>
+						<th class="text-left px-3 py-2 font-medium text-muted-foreground text-xs">Agent ID</th>
+						<th class="text-left px-3 py-2 font-medium text-muted-foreground text-xs">Age</th>
+						<th class="text-left px-3 py-2 font-medium text-muted-foreground text-xs">Status</th>
 					</tr>
 				</thead>
 				<tbody>
 					{#each agents as agent}
 						<tr class="border-t border-border hover:bg-muted/30 transition-colors">
-							<td class="px-4 py-2.5 font-mono text-xs">{agent.container_name}</td>
-							<td class="px-4 py-2.5 font-mono text-xs text-muted-foreground">
+							<td class="px-3 py-2 font-mono text-xs">{agent.container_name}</td>
+							<td class="px-3 py-2 font-mono text-xs text-muted-foreground">
 								{shortId(agent.agent_id)}
 							</td>
-							<td class="px-4 py-2.5 text-muted-foreground">{formatAge(agent.created_at_unix_ms)}</td>
-							<td class="px-4 py-2.5">
+							<td class="px-3 py-2 text-muted-foreground text-xs">{formatAge(agent.created_at_unix_ms)}</td>
+							<td class="px-3 py-2">
 								<span class="inline-flex items-center gap-1.5">
 									<span class="size-1.5 rounded-full bg-emerald-400 inline-block"></span>
 									<span class="text-xs text-emerald-400">running</span>

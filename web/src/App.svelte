@@ -4,7 +4,6 @@
 	import { settings, applyTheme } from "$lib/settings.svelte";
 	import ChatView from "$lib/views/chat-view.svelte";
 	import SettingsPage from "$lib/components/settings-page.svelte";
-	import SandboxPage from "$lib/views/sandbox-page.svelte";
 	import Sidebar from "$lib/components/sidebar.svelte";
 	import { onMount } from "svelte";
 	import { slide } from "svelte/transition";
@@ -28,14 +27,11 @@
 	}
 
 	const onSettings = $derived(router.current.startsWith("settings"));
-	const onSandboxes = $derived(router.current.startsWith("sandboxes"));
 </script>
 
 <div class="bg-background text-foreground flex h-screen">
 	{#if onSettings}
 		<SettingsPage {chat} />
-	{:else if onSandboxes}
-		<SandboxPage />
 	{:else}
 		{#if sidebarOpen}
 			<div

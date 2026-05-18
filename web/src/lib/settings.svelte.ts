@@ -45,7 +45,7 @@ class SettingsStore {
 	#sendKey = $state<SendKey>(read<SendKey>("sendKey", "enter"));
 	#autoReconnect = $state(read<boolean>("autoReconnect", true));
 	#backendUrl = $state(
-		read<string>("backendUrl", "ws://127.0.0.1:3001"),
+		read<string>("backendUrl", "wss://gateway.nexal.nokiy.net"),
 	);
 	#chatId = $state(read<string>("chatId", "default"));
 	#sender = $state(read<string>("sender", "web-user"));
@@ -130,7 +130,7 @@ class SettingsStore {
 		this.theme = "system";
 		this.sendKey = "enter";
 		this.autoReconnect = true;
-		this.backendUrl = "ws://127.0.0.1:3001";
+		this.backendUrl = "wss://gateway.nexal.nokiy.net";
 		this.chatId = "default";
 		this.sender = "web-user";
 		this.showTimestamps = true;
