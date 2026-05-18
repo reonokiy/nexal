@@ -255,17 +255,6 @@ async function launchGateway(): Promise<{
 
 async function main(): Promise<void> {
 	const cfg = await loadConfig();
-
-	// Start a minimal TCP listener on the health-check port so Fly.io
-	// probes pass regardless of channel config or DB state.
-	const healthPort = parseInt(process.env.NEXAL_HTTP_PORT || "3000");
-	const healthServer = Bun.serve({
-		port: healthPort,
-		hostname: "0.0.0.0",
-		fetch() { return new Response("ok"); },
-	});
-	log.info(`health listener on 0.0.0.0:${healthPort}`);
-
 	// Open the shared Postgres connection and apply migrations before
 	// anything reads the DB. No embedded fallback — fail fast with a
 	// clear message if no Postgres URL is configured.
