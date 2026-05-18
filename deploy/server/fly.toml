@@ -20,5 +20,5 @@ primary_region = "ams"
     interval = "15s"
     timeout = "5s"
     grace_period = "10s"
-    method = "tcp"
-    port = 3000
+    method = "get"
+    path = "/health"
