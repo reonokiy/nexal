@@ -99,6 +99,17 @@ export async function signOut(): Promise<void> {
 	saveSession(null);
 }
 
+export async function signInWithProvider(
+	provider: "google" | "github" | "azure" | "gitlab" | "bitbucket" | "discord",
+): Promise<{ error?: string }> {
+	const { error } = await (supabase.auth as any).signInWithOAuth({
+		provider,
+		options: { redirectTo: window.location.origin },
+	});
+	if (error) return { error: error.message };
+	return {};
+}
+
 // ── Session recovery on load ────────────────────────────────────────
 
 supabase.auth.onAuthStateChange((_event, session) => {
