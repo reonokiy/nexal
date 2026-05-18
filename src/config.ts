@@ -80,7 +80,7 @@ export interface ProxySpec {
 }
 
 export interface GatewayConfig {
-	/** Gateway URL. `"https://..."` for WebTransport, `"ws://..."` for legacy WS. */
+	/** Gateway URL. `"wss://..."` for WebSocket, `"ws://..."` for local. */
 	url: string;
 	/** Credential id sent in `gateway/hello`. */
 	accessKey: string;
@@ -111,7 +111,7 @@ const DEFAULTS: NexalConfig = {
 		maxConcurrent: 5,
 	},
 	gateway: {
-		url: "https://127.0.0.1:5500",
+		url: "https://gateway.nexal.nokiy.net",
 		accessKey: "",
 		secretKey: "",
 		clientName: "nexal-bun",

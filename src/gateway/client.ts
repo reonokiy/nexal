@@ -1,5 +1,5 @@
 /**
- * GatewayClient — single WebTransport multiplexer between the Bun
+ * GatewayClient — WebSocket-based multiplexer between the Bun
  * frontend and a `nexal-gateway` instance.
  *
  * Wire protocol: JSON-RPC 2.0, snake_case keys, fully typed via
@@ -7,8 +7,8 @@
  * `AgentNotifications` discriminated maps.
  *
  * Transport:
- *   - TCP mode: WebTransport (QUIC/HTTP3) via @webtransport-bun/webtransport
- *   - Unix socket mode: raw newline-delimited JSON over a Unix stream
+ *   - TCP mode: WebSocket to the gateway (wss:// or ws://).
+ *   - Unix socket mode: raw newline-delimited JSON over a Unix stream.
  *
  * Lifecycle:
  *   1. `connect()` — open transport, wait for handshake.
@@ -71,7 +71,7 @@ export class GatewayError extends Error {
 }
 
 export interface GatewayClientOptions {
-	/** WebTransport URL, e.g. `"https://127.0.0.1:5500"`. */
+	/** WebSocket URL, e.g. `"wss://nexal.fly.dev"`. */
 	url: string;
 	/** Unix domain socket path. When set, `url` is ignored for transport. */
 	unix?: string;
@@ -94,7 +94,6 @@ const NOTIFICATION_METHODS = new Set<keyof AgentNotifications>([
 	"process/closed",
 ]);
 
-/** Minimal interface for send/close — works for both WS wrapper and stream wrapper. */
 interface Transport {
 	send(data: string): void;
 	close(): void;
@@ -107,7 +106,6 @@ export class GatewayClient {
 	private helloPromise: Promise<void> | null = null;
 	private readonly handlers = new Set<NotificationHandler>();
 
-	// ── Agent session management ──────────────────────────────────────
 	private readonly agents = new Map<string, AgentEntry>();
 	private readonly agentInflight = new Map<string, Promise<AgentEntry>>();
 
@@ -117,51 +115,48 @@ export class GatewayClient {
 		if (this.readyPromise) return this.readyPromise;
 		this.readyPromise = this.options.unix
 			? this.connectUnix()
-			: this.connectWebTransport();
+			: this.connectWebSocket();
 		return this.readyPromise;
 	}
 
-	private async connectWebTransport(): Promise<void> {
-		const { WebTransport } = await import("@webtransport-bun/webtransport");
-		const wt = new WebTransport(this.options.url, {
-			tls: { insecureSkipVerify: true },
-		} as never);
-		await wt.ready;
-		const stream = await wt.createBidirectionalStream();
+	private async connectWebSocket(): Promise<void> {
+		const url = this.options.url.replace(/^http/, "ws");
+		return new Promise<void>((resolve, reject) => {
+			const timeout = setTimeout(() => {
+				reject(new Error(`gateway WebSocket connect timeout to ${url}`));
+			}, this.options.connectTimeoutMs ?? 10_000);
 
-		// Build a line-oriented reader from the readable side.
-		const reader = stream.readable.getReader();
-		let buffer = "";
-		const readLoop = async () => {
-			try {
-				while (true) {
-					const { value, done } = await reader.read();
-					if (done) break;
-					buffer += new TextDecoder().decode(value);
-					const lines = buffer.split("\n");
-					buffer = lines.pop()!;
-					for (const line of lines) {
-						if (line.trim()) this.dispatch(line);
-					}
+			const ws = new WebSocket(url);
+			ws.binaryType = "arraybuffer";
+
+			ws.onopen = () => {
+				clearTimeout(timeout);
+				this.transport = {
+					send: (data: string) => {
+						if (ws.readyState === 1) ws.send(data);
+					},
+					close: () => ws.close(),
+				};
+				resolve();
+			};
+
+			ws.onerror = () => {
+				clearTimeout(timeout);
+				reject(new Error(`gateway WebSocket error connecting to ${url}`));
+			};
+
+			ws.onmessage = (ev: MessageEvent) => {
+				const text =
+					typeof ev.data === "string"
+						? ev.data
+						: new TextDecoder().decode(ev.data as ArrayBuffer);
+				for (const line of text.split("\n")) {
+					if (line.trim()) this.dispatch(line);
 				}
-			} catch {
-				// stream closed
-			}
-			this.onDisconnect();
-		};
-		readLoop();
+			};
 
-		const writer = stream.writable.getWriter();
-		const encoder = new TextEncoder();
-		this.transport = {
-			send: (data: string) => {
-				writer.write(encoder.encode(data + "\n"));
-			},
-			close: () => {
-				writer.close();
-				wt.close();
-			},
-		};
+			ws.onclose = () => this.onDisconnect();
+		});
 	}
 
 	private async connectUnix(): Promise<void> {

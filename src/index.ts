@@ -284,6 +284,7 @@ async function main(): Promise<void> {
 
 	// Load external tool API keys from DB (Tavily, Jina, Gemini, …).
 	await applySavedToolKeys();
+
 	const coordinatorPrompt =
 		process.env.NEXAL_COORDINATOR_SYSTEM_PROMPT ?? DEFAULT_COORDINATOR_PROMPT;
 	const executorPrompt =
@@ -304,15 +305,22 @@ async function main(): Promise<void> {
 		gatewayProc = launched.proc;
 	}
 
-	const gateway = new GatewayClient({
+	// ── Gateway connection (best-effort, does not block startup) ──────
+
+	const gwOpts = {
 		url: gatewayUrl,
 		unix: gatewayUnix,
 		accessKey: gatewayAccessKey,
 		secretKey: gatewaySecretKey,
 		clientName: cfg.gateway.clientName,
-	});
-	await gateway.hello();
-	log.info(`connected to gateway at ${gatewayUnix ? gatewayUnix : gatewayUrl} as "${cfg.gateway.clientName}"`);
+	};
+	let gateway = new GatewayClient(gwOpts);
+	try {
+		await gateway.hello();
+		log.info(`connected to gateway at ${gatewayUnix ? gatewayUnix : gatewayUrl}`);
+	} catch (err) {
+		log.warn(`gateway hello failed — sandbox workers unavailable: ${err instanceof Error ? err.message : err}`);
+	}
 
 	// Channel config lives exclusively in the DB (settings KV). The
 	// manager (created after `pool`) constructs/starts channels from it
