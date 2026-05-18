@@ -29,7 +29,7 @@
 	}
 </script>
 
-<div class="bg-background flex min-h-screen items-center justify-center">
+<div class="flex h-full w-full items-center justify-center">
 	<div
 		in:fade={{ duration: 300, easing: cubicOut }}
 		class="border-border w-full max-w-sm rounded-2xl border p-8"
