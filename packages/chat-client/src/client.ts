@@ -27,12 +27,16 @@ export interface NexalChatClientOptions {
 	sender?: string;
 	/** Auto-reconnect delay in ms (only applied when `autoReconnect` is set). */
 	reconnectDelayMs?: number;
+	/** Supabase JWT access token sent in auth frame on connect. */
+	authToken?: string;
 }
 
 export type ChatEvent =
 	| { type: "open" }
 	| { type: "close" }
 	| { type: "error"; error: unknown }
+	| { type: "auth_ok"; userId: string; email?: string }
+	| { type: "auth_error"; error: string }
 	| { type: "reply"; text: string; metadata?: ReplyMetadata }
 	| { type: "reply_chunk"; messageId: string; delta: string }
 	| { type: "reply_end"; messageId: string }
@@ -57,12 +61,15 @@ export class NexalChatClient {
 	private readonly reconnectDelayMs: number;
 	private autoReconnect = false;
 	private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+	private authToken: string | undefined;
+	private authOk = false;
 
 	constructor(opts: NexalChatClientOptions) {
 		this.urlValue = opts.url;
 		this.chatId = opts.chatId ?? "default";
 		this.sender = opts.sender ?? "client";
 		this.reconnectDelayMs = opts.reconnectDelayMs ?? 2000;
+		this.authToken = opts.authToken;
 	}
 
 	get url(): string {
@@ -101,6 +108,7 @@ export class NexalChatClient {
 		socket.onopen = () => {
 			this.statusValue = "open";
 			this.emit({ type: "open" });
+			this.sendAuth();
 		};
 		socket.onerror = (e) => this.emit({ type: "error", error: e });
 		socket.onclose = () => {
@@ -151,8 +159,17 @@ export class NexalChatClient {
 
 	private sendFrame(frame: ClientFrame): boolean {
 		if (!this.ws || this.ws.readyState !== 1 /* OPEN */) return false;
+		if (!this.authOk && frame.type !== "auth") {
+			// Queue instead of dropping? For simplicity, drop non-auth frames before auth.
+			return false;
+		}
 		this.ws.send(JSON.stringify(frame));
 		return true;
+	}
+
+	private sendAuth(): void {
+		if (!this.authToken || this.authOk) return;
+		this.sendFrame({ type: "auth", token: this.authToken });
 	}
 
 	private dispatch(raw: unknown): void {
@@ -169,6 +186,17 @@ export class NexalChatClient {
 			return;
 		}
 		switch (frame.type) {
+			case "auth_ok":
+				this.authOk = true;
+				this.emit({
+					type: "auth_ok",
+					userId: frame.user_id,
+					email: frame.email,
+				});
+				return;
+			case "auth_error":
+				this.emit({ type: "auth_error", error: frame.error });
+				return;
 			case "reply":
 				this.emit({
 					type: "reply",

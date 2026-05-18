@@ -3,11 +3,11 @@ app = "nexal-server"
 primary_region = "ams"
 
 [build]
-  dockerfile = "server.Dockerfile"
+  dockerfile = "../../server.Dockerfile"
 
 [[vm]]
   size   = "shared-cpu-1x"
-  memory = "512mb"
+  memory = "256mb"
 
 [http_service]
   internal_port = 3000
@@ -20,4 +20,4 @@ primary_region = "ams"
     interval = "15s"
     timeout = "5s"
     method = "get"
-    path = "/messages"
+    path = "/health"

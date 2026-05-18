@@ -13,6 +13,7 @@
   "dependencies": {
     "@lucide/svelte": "^1.0.0",
     "@nexal/chat-client": "workspace:*",
+    "@supabase/supabase-js": "^2.105.4",
     "bits-ui": "^2.0.0",
     "clsx": "^2.1.1",
     "dompurify": "^3.4.2",

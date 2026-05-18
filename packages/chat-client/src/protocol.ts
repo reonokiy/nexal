@@ -18,6 +18,11 @@ export interface ImageBlock {
 	mimeType: string;
 }
 
+export interface AuthFrame {
+	type: "auth";
+	token: string;
+}
+
 export interface SendFrame {
 	type: "send";
 	chat_id?: string;
@@ -34,7 +39,7 @@ export interface CommandFrame {
 	args?: string[];
 }
 
-export type ClientFrame = SendFrame | CommandFrame;
+export type ClientFrame = AuthFrame | SendFrame | CommandFrame;
 
 // ── Server → Client ────────────────────────────────────────────────
 
@@ -81,9 +86,22 @@ export interface CommandResultFrame {
 	data?: unknown;
 }
 
+export interface AuthResultFrame {
+	type: "auth_ok";
+	user_id: string;
+	email?: string;
+}
+
+export interface AuthErrorFrame {
+	type: "auth_error";
+	error: string;
+}
+
 export type ServerFrame =
 	| ReplyFrame
 	| TypingFrame
 	| ReplyChunkFrame
 	| ReplyEndFrame
-	| CommandResultFrame;
+	| CommandResultFrame
+	| AuthResultFrame
+	| AuthErrorFrame;

@@ -14,6 +14,7 @@ import { mkdirSync, unlinkSync } from "node:fs";
 import { dirname } from "node:path";
 
 import { createLog } from "../log.ts";
+import { verifySupabaseJwt, isAuthEnabled } from "../auth.ts";
 import type {
 	Channel,
 	IncomingMessage,
@@ -47,6 +48,8 @@ export interface WsChannelConfig {
 
 interface WsData {
 	chatId: string;
+	authed: boolean;
+	userId?: string;
 }
 
 export class WsChannel implements Channel {
@@ -85,9 +88,14 @@ export class WsChannel implements Channel {
 			fetch(req, server) {
 				const url = new URL(req.url);
 
+				// Health check for Fly.io probes.
+				if (req.method === "GET" && url.pathname === "/health") {
+					return new Response("ok", { status: 200 });
+				}
+
 				// WebSocket upgrade — any GET request.
 				if (req.method === "GET" && req.headers.get("upgrade") === "websocket") {
-					if (server.upgrade(req, { data: { chatId: "default" } as WsData })) {
+					if (server.upgrade(req, { data: { chatId: "default", authed: false } as WsData })) {
 						return undefined as unknown as Response;
 					}
 					return new Response("WebSocket upgrade failed", { status: 500 });
@@ -123,37 +131,75 @@ export class WsChannel implements Channel {
 					raw: string | Buffer,
 				) {
 					const text = typeof raw === "string" ? raw : raw.toString("utf-8");
-					let frame: WsClientFrame;
+					let frame: WsClientFrame & { type: string; token?: string };
 					try {
 						frame = JSON.parse(text);
 					} catch {
 						return;
 					}
 
-					const chatId = frame.chat_id ?? "default";
+					// Auth enforcement: first frame must be "auth" if auth is enabled.
+					if (isAuthEnabled() && !ws.data.authed) {
+						if (frame.type !== "auth" || !frame.token) {
+							ws.send(
+								JSON.stringify({
+									type: "auth_error",
+									error: "authentication required — send auth frame first",
+								}),
+							);
+							ws.close(4001, "auth required");
+							return;
+						}
+						void verifySupabaseJwt(frame.token).then((user) => {
+							if (user) {
+								ws.data.authed = true;
+								ws.data.userId = user.sub;
+								ws.send(
+									JSON.stringify({
+										type: "auth_ok",
+										user_id: user.sub,
+										email: user.email,
+									}),
+								);
+							} else {
+								ws.send(
+									JSON.stringify({
+										type: "auth_error",
+										error: "invalid or expired token",
+									}),
+								);
+								ws.close(4001, "bad token");
+							}
+						});
+						return;
+					}
+
+					// At this point frame is SendFrame | CommandFrame (not auth).
+					const f = frame as { chat_id?: string; type: string; sender?: string; name?: string; args?: string[]; text?: string; images?: { data: string; mimeType: string }[] };
+					const chatId = f.chat_id ?? "default";
 					if (chatId !== ws.data.chatId) {
 						self.removeClient(ws.data.chatId, ws);
 						ws.data.chatId = chatId;
 						self.addClient(chatId, ws);
 					}
 
-					if (frame.type === "command") {
+					if (f.type === "command") {
 						self.handleCommand(
 							ws,
 							chatId,
-							frame.sender ?? "ws-user",
-							frame.name,
-							frame.args ?? [],
+							f.sender ?? "ws-user",
+							f.name!,
+							f.args ?? [],
 						);
 						return;
 					}
 
-					if (frame.type === "send") {
+					if (f.type === "send") {
 						self.fireIncoming(
 							chatId,
-							frame.sender ?? "ws-user",
-							frame.text ?? "",
-							frame.images,
+							f.sender ?? "ws-user",
+							f.text ?? "",
+							f.images,
 						);
 					}
 				},

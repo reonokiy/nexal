@@ -23,12 +23,14 @@ export function createChat(
 	initialUrl: string,
 	chatId = "default",
 	sender = "web-user",
+	initialAuthToken = "",
 ) {
 	const client = new NexalChatClient({
 		url: initialUrl,
 		chatId,
 		sender,
 		reconnectDelayMs: 0, // web stays manual; status drives the UI
+		authToken: initialAuthToken,
 	});
 
 	let url = $state(initialUrl);
