@@ -22,10 +22,10 @@ jobs:
 
       - uses: superfly/flyctl-actions/setup-flyctl@1.6
 
-      - name: Create Fly app (if new)
+      - name: Deploy to Fly (creates app on first run)
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_KEY }}
-        run: flyctl apps create nexal-server || true
+        run: flyctl deploy -c deploy/server/fly.toml --ha=false
 
       - name: Sync secrets
         env:
@@ -48,7 +48,7 @@ jobs:
             NEXAL_HTTP_PORT=3000 \
             --stage
 
-      - name: Deploy to Fly
+      - name: Re-deploy (picks up secrets)
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_KEY }}
         run: flyctl deploy -c deploy/server/fly.toml --ha=false
