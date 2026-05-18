@@ -18,4 +18,4 @@ COPY drizzle ./drizzle
 ENV NEXAL_HTTP_PORT=3000
 EXPOSE 3000
 
-CMD ["bun", "run", "src/cli.ts"]
+ENTRYPOINT ["bun", "run", "src/cli.ts"]
