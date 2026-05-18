@@ -11,6 +11,7 @@ on:
       - tsconfig.json
       - drizzle.config.ts
       - server.Dockerfile
+      - .github/workflows/deploy-server.yml
   workflow_dispatch:
 
 jobs:
