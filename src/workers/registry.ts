@@ -34,6 +34,7 @@ import type { UserContent } from "../content.ts";
 import type { Channel } from "../channels/types.ts";
 import type { ProxySpec } from "../config.ts";
 import type { GatewayClient } from "../gateway/client.ts";
+import type { TapeStore } from "../tape/store.ts";
 import { WorkerAgent } from "./agent.ts";
 import type {
 	SendPolicy,
@@ -51,6 +52,8 @@ export interface WorkerRegistryConfig {
 	modelId: string;
 	channels: Map<string, Channel>;
 	maxConcurrent: number;
+	tapeStore: TapeStore;
+	getApiKey?: (provider: string) => Promise<string | undefined> | string | undefined;
 	/** Default system prompt for executors with no override. */
 	executorSystemPromptDefault: string;
 	/** Default system prompt for sub-coordinators with no override. */
@@ -301,6 +304,8 @@ export class WorkerRegistry {
 				this.agents.delete(tid);
 				this.pump();
 			},
+			tapeStore: this.cfg.tapeStore,
+			getApiKey: this.cfg.getApiKey,
 		});
 		this.agents.set(id, runner);
 		try {

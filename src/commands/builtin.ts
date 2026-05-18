@@ -9,10 +9,15 @@ import {
 	loadModelConfig,
 	saveAuth,
 	saveModelConfig,
+	saveProviderConfig,
+	loadProviderConfig,
+	loadAllProviderConfigs,
+	saveToolApiKey,
+	loadAllToolApiKeys,
 } from "../settings.ts";
 import { apiKeyEnvKey } from "../index.ts";
 
-const KNOWN_PROVIDERS = ["openrouter", "kimi-coding", "deepseek"] as const;
+const KNOWN_PROVIDERS = ["openrouter", "kimi-coding", "deepseek", "opencode-go"] as const;
 
 interface ProvidersPayload {
 	active: { provider: string; modelId: string } | null;
@@ -156,4 +161,93 @@ export function registerBuiltins(registry: CommandRegistry, gateway?: GatewayCli
 			},
 		});
 	}
+
+	// ── Settings management commands ─────────────────────────────────
+
+	registry.register({
+		name: "settings",
+		description: "Manage provider config, auth, and tool keys (stored in DB)",
+		async execute(_ctx, args) {
+			const [sub, ...rest] = args;
+			if (!sub) {
+				// Show summary of all settings
+				const model = await loadModelConfig();
+				const providers = await loadAllProviderConfigs();
+				const toolKeys = await loadAllToolApiKeys();
+				const data = {
+					model: model ?? null,
+					providers: Object.entries(providers).map(([name, cfg]) => ({ name, ...cfg })),
+					toolKeys: Object.keys(toolKeys),
+				};
+				const lines: string[] = [];
+				if (model) lines.push(`model: ${model.provider} / ${model.modelId}`);
+				else lines.push("model: not set");
+				for (const [name, cfg] of Object.entries(providers)) {
+					lines.push(`provider ${name}: ${String(cfg.base_url ?? "(default)")}`);
+				}
+				for (const name of Object.keys(toolKeys)) {
+					lines.push(`tool key: ${name} ✓`);
+				}
+				lines.push("", "/settings provider <name> url <url>", "/settings auth <provider> <key>", "/settings toolkey <name> <key>");
+				return { text: lines.join("\n"), data };
+			}
+
+			switch (sub) {
+				case "provider": {
+					const [name, prop, ...vals] = rest;
+					if (!name) {
+						return { text: "Usage: /settings provider <name> [url <url>]", error: "missing name" };
+					}
+					if (!prop) {
+						const cfg = await loadProviderConfig(name);
+						return {
+							text: cfg ? `provider ${name}: ${JSON.stringify(cfg, null, 2)}` : `provider ${name}: not configured`,
+							data: cfg ?? null,
+						};
+					}
+					if (prop === "url" && vals.length > 0) {
+						const url = vals.join(" ");
+						const existing = await loadProviderConfig(name);
+						await saveProviderConfig(name, { ...existing, base_url: url });
+						return { text: `provider ${name} base_url set to ${url}` };
+					}
+					return { text: `Unknown provider option: ${prop}. Use "url"` };
+				}
+				case "auth": {
+					const [provider, ...keyParts] = rest;
+					if (!provider) {
+						return { text: "Usage: /settings auth <provider> <apiKey>" };
+					}
+					if (keyParts.length === 0) {
+						const auth = await loadAuth(provider);
+						return { text: auth ? `auth ${provider}: key saved ✓` : `auth ${provider}: not set` };
+					}
+					const key = keyParts.join(" ");
+					await saveAuth({ provider, apiKey: key });
+					// Also set env var at runtime so it takes effect immediately.
+					const envKey = apiKeyEnvKey(provider);
+					if (envKey) process.env[envKey] = key;
+					return { text: `auth ${provider} saved and applied.` };
+				}
+				case "toolkey": {
+					const [name, ...keyParts] = rest;
+					if (!name) {
+						return { text: "Usage: /settings toolkey <name> <apiKey>" };
+					}
+					if (keyParts.length === 0) {
+						const keys = await loadAllToolApiKeys();
+						return { text: keys[name] ? `tool key ${name}: saved ✓` : `tool key ${name}: not set` };
+					}
+					const key = keyParts.join(" ");
+					await saveToolApiKey(name, key);
+					const envMap: Record<string, string> = { tavily: "TAVILY_API_KEY", jina: "JINA_API_KEY", gemini: "GEMINI_API_KEY" };
+					const envKey = envMap[name] ?? `${name.toUpperCase()}_API_KEY`;
+					process.env[envKey] = key;
+					return { text: `tool key ${name} saved and applied.` };
+				}
+				default:
+					return { text: `Unknown sub-command: ${sub}. Use provider, auth, or toolkey.` };
+			}
+		},
+	});
 }

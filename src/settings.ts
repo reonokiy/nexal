@@ -129,3 +129,74 @@ export async function loadAllChannelConfigs(): Promise<Record<string, ChannelCon
 	}
 	return out;
 }
+
+// ── Provider config helpers ──────────────────────────────────────────
+//
+// Provider config lives in the DB under `provider:<name>` keys. Each
+// holds a JSON blob with baseUrl, wireApi, thinkingMode, etc.
+// Loaded on startup and merged into `cfg.providers`.
+
+type ProviderConfigBucket = Record<string, unknown>;
+
+export async function saveProviderConfig(name: string, config: ProviderConfigBucket): Promise<void> {
+	await setSetting(`provider:${name}`, JSON.stringify(config));
+}
+
+export async function loadProviderConfig(name: string): Promise<ProviderConfigBucket | null> {
+	const raw = await getSetting(`provider:${name}`);
+	if (!raw) return null;
+	return JSON.parse(raw) as ProviderConfigBucket;
+}
+
+export async function loadAllProviderConfigs(): Promise<Record<string, ProviderConfigBucket>> {
+	const rows = await getDb()
+		.select()
+		.from(settings)
+		.where(like(settings.key, "provider:%"));
+	const out: Record<string, ProviderConfigBucket> = {};
+	for (const row of rows) {
+		const name = row.key.slice("provider:".length);
+		try {
+			out[name] = JSON.parse(row.value) as ProviderConfigBucket;
+		} catch {
+			// skip corrupt
+		}
+	}
+	return out;
+}
+
+// ── Tool API key helpers ────────────────────────────────────────────
+//
+// External tool keys (Tavily, Jina, Gemini, …) stored as
+// `tool:apikey:<name>` → { name, apiKey }.
+
+export async function saveToolApiKey(name: string, apiKey: string): Promise<void> {
+	await setSetting(`tool:apikey:${name}`, JSON.stringify({ name, apiKey }));
+}
+
+export async function loadToolApiKey(name: string): Promise<string | null> {
+	const raw = await getSetting(`tool:apikey:${name}`);
+	if (!raw) return null;
+	try {
+		const { apiKey } = JSON.parse(raw);
+		return typeof apiKey === "string" ? apiKey : null;
+	} catch {
+		return null;
+	}
+}
+
+export async function loadAllToolApiKeys(): Promise<Record<string, string>> {
+	const rows = await getDb()
+		.select()
+		.from(settings)
+		.where(like(settings.key, "tool:apikey:%"));
+	const out: Record<string, string> = {};
+	for (const row of rows) {
+		const name = row.key.slice("tool:apikey:".length);
+		try {
+			const { apiKey } = JSON.parse(row.value);
+			if (typeof apiKey === "string") out[name] = apiKey;
+		} catch {}
+	}
+	return out;
+}

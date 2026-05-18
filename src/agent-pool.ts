@@ -31,6 +31,8 @@ import {
 	extractTextFromContent,
 	imageContentToAttachment,
 } from "./content.ts";
+import type { TapeStore } from "./tape/store.ts";
+import { entriesToMessages, truncateMessages } from "./tape/serialize.ts";
 
 export interface AgentPoolConfig {
 	systemPrompt: string;
@@ -49,6 +51,10 @@ export interface AgentPoolConfig {
 	}>;
 	channels: Map<string, Channel>;
 	debounce?: DebounceConfig;
+	/** Tape store for persistent conversation history. */
+	tapeStore: TapeStore;
+	/** Optional: resolve API keys from DB instead of env vars. */
+	getApiKey?: (provider: string) => Promise<string | undefined> | string | undefined;
 }
 
 interface Session {
@@ -115,6 +121,22 @@ export class AgentPool {
 
 		const content = buildUserContent(msg.text, msg.images);
 
+		// Persist user message to tape before handing to agent.
+		try {
+			await this.config.tapeStore.append(key, {
+				kind: "message",
+				payload: {
+					role: "user",
+					content: typeof content === "string" ? content : content.map((c) => ({ ...c })),
+					timestamp: msg.timestamp,
+				},
+				meta: { channel: msg.channel, sender: msg.sender },
+				date: new Date(msg.timestamp).toISOString(),
+			});
+		} catch (err) {
+			log.error(`failed to persist user message to tape for ${key}`, err);
+		}
+
 		if (session.agent.state.isStreaming) {
 			session.agent.steer({ role: "user", content, timestamp: msg.timestamp });
 			return;
@@ -165,7 +187,29 @@ export class AgentPool {
 					(m) => m.role === "user" || m.role === "assistant" || m.role === "toolResult",
 				),
 			sessionId: key,
+			getApiKey: this.config.getApiKey,
 		});
+
+		// Load persistent history from tape.
+		try {
+			const entries = await this.config.tapeStore.read(key);
+			if (entries.length > 0) {
+				const messages = truncateMessages(entriesToMessages(entries));
+				if (messages.length > 0) {
+					agent.state.messages = messages;
+					log.info(`restored ${messages.length} messages from tape for session ${key}`);
+				}
+			} else {
+				// Bootstrap anchor so context reconstruction has a starting point.
+				await this.config.tapeStore.handoff(key, "session/start", {
+					owner: "human",
+					channel: msg.channel,
+					chatId: msg.chatId,
+				});
+			}
+		} catch (err) {
+			log.error(`failed to load tape for session ${key}`, err);
+		}
 
 		const session: Session = {
 			agent,
@@ -216,40 +260,87 @@ export class AgentPool {
 				return;
 			}
 
-			if (event.type !== "message_end" || event.message.role !== "assistant") return;
+			if (event.type === "message_end" && event.message.role === "assistant") {
+				// Persist assistant message to tape.
+				try {
+					const am = event.message as Extract<AgentMessage, { role: "assistant" }>;
+					await this.config.tapeStore.append(key, {
+						kind: "message",
+						payload: {
+							role: "assistant",
+							content: am.content.map((c: any) => ({ ...c })),
+							api: (am as any).api ?? "",
+							provider: (am as any).provider ?? "",
+							model: (am as any).model ?? "",
+							responseId: (am as any).responseId,
+							usage: (am as any).usage,
+							stopReason: (am as any).stopReason ?? "stop",
+							errorMessage: (am as any).errorMessage,
+							timestamp: (am as any).timestamp ?? Date.now(),
+						},
+						meta: {},
+						date: new Date().toISOString(),
+					});
+				} catch (err) {
+					log.error(`failed to persist assistant message to tape for ${key}`, err);
+				}
 
-			const text = extractText(event.message);
+				const text = extractText(event.message);
 
-			// Flush any tail not yet streamed (final delta after last update).
-			if (supportsStream && streamMsgId && text.length > streamSent) {
-				const delta = text.slice(streamSent);
-				streamSent = text.length;
-				streamed = true;
-				channel.sendChunk!(last.chatId, streamMsgId, delta);
-			}
+				// Flush any tail not yet streamed (final delta after last update).
+				if (supportsStream && streamMsgId && text.length > streamSent) {
+					const delta = text.slice(streamSent);
+					streamSent = text.length;
+					streamed = true;
+					channel.sendChunk!(last.chatId, streamMsgId, delta);
+				}
 
-			if (supportsStream && streamed && streamMsgId) {
-				channel.sendEnd!(last.chatId, streamMsgId);
+				if (supportsStream && streamed && streamMsgId) {
+					channel.sendEnd!(last.chatId, streamMsgId);
+					streamMsgId = null;
+					return;
+				}
+
+				// Non-streaming path (or empty stream) → fall back to full reply.
+				if (!text) return;
+				const reply: OutgoingReply = {
+					chatId: last.chatId,
+					text,
+					replyTo:
+						typeof last.metadata["message_id"] === "string" || typeof last.metadata["message_id"] === "number"
+							? String(last.metadata["message_id"])
+							: undefined,
+				};
+				try {
+					await channel.send(reply);
+				} catch (err) {
+					log.error(`failed to send reply via ${session.channelName} to chat ${last.chatId}`, err);
+				}
 				streamMsgId = null;
 				return;
 			}
 
-			// Non-streaming path (or empty stream) → fall back to full reply.
-			if (!text) return;
-			const reply: OutgoingReply = {
-				chatId: last.chatId,
-				text,
-				replyTo:
-					typeof last.metadata["message_id"] === "string" || typeof last.metadata["message_id"] === "number"
-						? String(last.metadata["message_id"])
-						: undefined,
-			};
-			try {
-				await channel.send(reply);
-			} catch (err) {
-				log.error(`failed to send reply via ${session.channelName} to chat ${last.chatId}`, err);
+			// Persist tool results to tape.
+			if (event.type === "tool_execution_end") {
+				try {
+					await this.config.tapeStore.append(key, {
+						kind: "tool_result",
+						payload: {
+							role: "toolResult",
+							toolCallId: event.toolCallId,
+							toolName: event.toolName,
+							content: (event.result as any)?.content ?? [],
+							details: (event.result as any)?.details,
+							isError: event.isError,
+							timestamp: Date.now(),
+						},
+						meta: {},
+						date: new Date().toISOString(),
+					});
+				} catch (err) {
+					log.error(`failed to persist tool result to tape for ${key}`, err);
+				}
 			}
-			streamMsgId = null;
 		});
 
 		return session;

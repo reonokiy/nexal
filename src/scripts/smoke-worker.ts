@@ -26,6 +26,7 @@ import { createSendUpdateTool } from "../tools/send_update.ts";
 import { WorkerRegistry } from "../workers/registry.ts";
 import type { WorkerAgent } from "../workers/agent.ts";
 import { createWorkerStore } from "../workers/store.ts";
+import { createTapeStore } from "../tape/store.ts";
 
 const GATEWAY_URL = process.env.NEXAL_GATEWAY_URL ?? "ws://127.0.0.1:5500";
 const GATEWAY_ACCESS_KEY = process.env.NEXAL_GATEWAY_ACCESS_KEY;
@@ -65,6 +66,7 @@ async function main(): Promise<void> {
 	const channels = new Map<string, Channel>([["stub", stub]]);
 	const model = getModel(PROVIDER as any, MODEL_ID);
 
+	const tapeStore = createTapeStore();
 	const registry = new WorkerRegistry({
 		store,
 		gateway,
@@ -73,6 +75,7 @@ async function main(): Promise<void> {
 		modelId: MODEL_ID,
 		channels,
 		maxConcurrent: 1,
+		tapeStore,
 		executorSystemPromptDefault:
 			"You are a test executor. Do exactly what the user asks using bash, then call send_update with a short confirmation.",
 		coordinatorSystemPromptDefault: "You are a test coordinator (unused in this smoke).",

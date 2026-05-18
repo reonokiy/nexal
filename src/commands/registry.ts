@@ -24,6 +24,8 @@ export interface CommandResult {
 	/** Optional structured payload — channels that support it (e.g. WS)
 	 * forward it verbatim so UIs can render rich responses. */
 	data?: unknown;
+	/** Optional error message. */
+	error?: string;
 }
 
 export interface CommandDef {

@@ -8,6 +8,20 @@
       "when": 1779003193138,
       "tag": "0000_colossal_silver_surfer",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1779080240540,
+      "tag": "0001_glamorous_scrambler",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1779080519213,
+      "tag": "0002_nostalgic_liz_osborn",
+      "breakpoints": true
     }
   ]
 }

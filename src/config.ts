@@ -19,6 +19,23 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 
+export interface StorageConfig {
+	/** Storage backend: "s3" (Supabase S3-compatible) or "local". */
+	provider: "s3" | "local";
+	/** S3-compatible endpoint, e.g. `https://<project>.storage.supabase.co/storage/v1/s3`. */
+	s3Endpoint: string;
+	/** Bucket name. */
+	s3Bucket: string;
+	/** S3 access key id. */
+	s3AccessKey: string;
+	/** S3 secret access key. */
+	s3SecretKey: string;
+	/** S3 region, e.g. "eu-central-1". */
+	s3Region: string;
+	/** Files under this size (bytes) are inlined into the tape entry payload instead of uploaded to storage. Default 100 KiB. */
+	maxInlineSize: number;
+}
+
 export interface NexalConfig {
 	/** Workspace root directory (default: cwd). */
 	workspace: string;
@@ -42,6 +59,8 @@ export interface NexalConfig {
 	gateway: GatewayConfig;
 	/** Per-executor sandbox extras (proxies, …). */
 	executor: ExecutorConfig;
+	/** Tape + binary file storage. */
+	storage: StorageConfig;
 }
 
 export interface ExecutorConfig {
@@ -100,6 +119,15 @@ const DEFAULTS: NexalConfig = {
 	executor: {
 		proxies: [],
 	},
+	storage: {
+		provider: "s3",
+		s3Endpoint: process.env.STORAGE_S3_ENDPOINT ?? "",
+		s3Bucket: process.env.STORAGE_S3_BUCKET ?? "tape-files",
+		s3AccessKey: process.env.STORAGE_S3_ACCESS_KEY ?? "",
+		s3SecretKey: process.env.STORAGE_S3_SECRET_KEY ?? "",
+		s3Region: process.env.STORAGE_S3_REGION ?? "eu-central-1",
+		maxInlineSize: 102400,
+	},
 };
 
 export async function loadConfig(): Promise<NexalConfig> {
@@ -144,6 +172,7 @@ function applyOverlay(cfg: NexalConfig, source: Record<string, unknown>): void {
 	if (isObject(source.workers)) applyWorkersOverlay(cfg.workers, source.workers);
 	if (isObject(source.gateway)) applyGatewayOverlay(cfg.gateway, source.gateway);
 	if (isObject(source.executor)) applyExecutorOverlay(cfg.executor, source.executor);
+	if (isObject(source.storage)) applyStorageOverlay(cfg.storage, source.storage);
 }
 
 function applyExecutorOverlay(
@@ -189,6 +218,26 @@ function applyWorkersOverlay(
 	if (typeof url === "string") workers.url = url;
 	const maxC = source.maxConcurrent ?? source.max_concurrent;
 	if (typeof maxC === "number") workers.maxConcurrent = maxC;
+}
+
+function applyStorageOverlay(
+	storage: NexalConfig["storage"],
+	source: Record<string, unknown>,
+): void {
+	const provider = source.provider ?? source.provider;
+	if (provider === "s3" || provider === "local") storage.provider = provider;
+	if (typeof source.s3_endpoint === "string") storage.s3Endpoint = source.s3_endpoint;
+	if (typeof source.s3Endpoint === "string") storage.s3Endpoint = source.s3Endpoint;
+	if (typeof source.s3_bucket === "string") storage.s3Bucket = source.s3_bucket;
+	if (typeof source.s3Bucket === "string") storage.s3Bucket = source.s3Bucket;
+	if (typeof source.s3_access_key === "string") storage.s3AccessKey = source.s3_access_key;
+	if (typeof source.s3AccessKey === "string") storage.s3AccessKey = source.s3AccessKey;
+	if (typeof source.s3_secret_key === "string") storage.s3SecretKey = source.s3_secret_key;
+	if (typeof source.s3SecretKey === "string") storage.s3SecretKey = source.s3SecretKey;
+	if (typeof source.s3_region === "string") storage.s3Region = source.s3_region;
+	if (typeof source.s3Region === "string") storage.s3Region = source.s3Region;
+	if (typeof source.max_inline_size === "number") storage.maxInlineSize = source.max_inline_size;
+	if (typeof source.maxInlineSize === "number") storage.maxInlineSize = source.maxInlineSize;
 }
 
 function applyEnv(cfg: NexalConfig, env: Record<string, string | undefined>): void {
@@ -262,6 +311,33 @@ function setDeep(cfg: NexalConfig, path: string[], value: unknown): void {
 				return;
 			case "clientName":
 				if (typeof value === "string") cfg.gateway.clientName = value;
+				return;
+		}
+		return;
+	}
+	if (path[0] === "storage" && path.length >= 2) {
+		const key = snakeToCamel(path.slice(1).join("_"));
+		switch (key) {
+			case "provider":
+				if (value === "s3" || value === "local") cfg.storage.provider = value;
+				return;
+			case "s3Endpoint":
+				if (typeof value === "string") cfg.storage.s3Endpoint = value;
+				return;
+			case "s3Bucket":
+				if (typeof value === "string") cfg.storage.s3Bucket = value;
+				return;
+			case "s3AccessKey":
+				if (typeof value === "string") cfg.storage.s3AccessKey = value;
+				return;
+			case "s3SecretKey":
+				if (typeof value === "string") cfg.storage.s3SecretKey = value;
+				return;
+			case "s3Region":
+				if (typeof value === "string") cfg.storage.s3Region = value;
+				return;
+			case "maxInlineSize":
+				if (typeof value === "number") cfg.storage.maxInlineSize = value;
 				return;
 		}
 		return;

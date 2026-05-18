@@ -20,9 +20,11 @@ import { createReportToParentTool } from "./tools/report_to_parent.ts";
 import { createSendUpdateTool } from "./tools/send_update.ts";
 import { createCoordinatorTools } from "./tools/worker.ts";
 import { WorkerRegistry } from "./workers/registry.ts";
-import { loadAuth, loadModelConfig } from "./settings.ts";
+import { loadAuth, loadModelConfig, loadProviderConfig, loadAllToolApiKeys } from "./settings.ts";
 import { setDbUrl, runMigrations, closeDb } from "./db.ts";
 import { createWorkerStore } from "./workers/store.ts";
+import { createTapeStore } from "./tape/store.ts";
+import { createFileStore } from "./tape/file-store.ts";
 import {
 	isCompiled,
 	COORDINATOR_PROMPT,
@@ -35,11 +37,79 @@ import {
 const DEFAULT_COORDINATOR_PROMPT = COORDINATOR_PROMPT;
 const DEFAULT_EXECUTOR_PROMPT = EXECUTOR_PROMPT;
 
-// ── Saved auth bootstrap ────────────────────────────────────────────
+// ── Model & auth from DB ─────────────────────────────────────────────
+//
+// Providers are totally configured in the database — no env vars needed
+// for base URLs or API keys. The settings KV stores:
+//   model:provider  → "opencode-go"
+//   model:id        → "kimi-k2.6"
+//   provider:<name> → { base_url, wire_api, thinking_mode }
+//   auth:<name>     → { provider, apiKey }
+//
+// Fallback: if no DB config exists, pi-ai's built-in models + env vars
+// are used (backward compatible).
+
+interface ModelFromDb {
+	model: import("@mariozechner/pi-ai").Model<any>;
+	getApiKey: (provider: string) => Promise<string | undefined>;
+}
+
+async function buildModelFromDb(): Promise<ModelFromDb | null> {
+	try {
+		const saved = await loadModelConfig();
+		if (!saved) return null;
+
+		const providerCfg = await loadProviderConfig(saved.provider);
+		const auth = await loadAuth(saved.provider);
+
+		const baseUrl = providerCfg?.base_url ? String(providerCfg.base_url) : undefined;
+		const wireApi = providerCfg?.wire_api ? String(providerCfg.wire_api) : "chat";
+
+		if (baseUrl) {
+			// DB has a custom provider config → build a synthetic Model.
+			const model: import("@mariozechner/pi-ai").Model<"openai-completions"> = {
+				id: `${saved.provider}/${saved.modelId}`,
+				name: saved.modelId,
+				api: "openai-completions",
+				provider: saved.provider as any,
+				baseUrl,
+				reasoning: Boolean(providerCfg?.thinking_mode),
+				input: ["text"],
+				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+				contextWindow: 128000,
+				maxTokens: 8192,
+			};
+			return {
+				model,
+				getApiKey: async (p) => {
+					const a = await loadAuth(p);
+					return a?.apiKey;
+				},
+			};
+		}
+
+		// No custom base URL → try pi-ai's built-in model registry.
+		const m = getModel(saved.provider as any, saved.modelId as any);
+		if (m) {
+			return {
+				model: m,
+				getApiKey: async (p) => {
+					const a = await loadAuth(p);
+					return a?.apiKey;
+				},
+			};
+		}
+		return null;
+	} catch (err) {
+		log.error("failed to build model from DB", err);
+		return null;
+	}
+}
+
+// ── Legacy: env-var fallback (kept for backward compat) ────────────
 
 async function applySavedAuth(): Promise<void> {
 	try {
-		// Restore model config if not overridden by env.
 		const saved = await loadModelConfig();
 		if (saved) {
 			if (!process.env.NEXAL_MODEL_PROVIDER) process.env.NEXAL_MODEL_PROVIDER = saved.provider;
@@ -62,11 +132,35 @@ async function applySavedAuth(): Promise<void> {
 	}
 }
 
+// ── Tool API key bootstrap ─────────────────────────────────────────
+
+async function applySavedToolKeys(): Promise<void> {
+	try {
+		const keys = await loadAllToolApiKeys();
+		if (Object.keys(keys).length === 0) return;
+		const envMap: Record<string, string> = {
+			tavily: "TAVILY_API_KEY",
+			jina: "JINA_API_KEY",
+			gemini: "GEMINI_API_KEY",
+		};
+		for (const [name, apiKey] of Object.entries(keys)) {
+			const envKey = envMap[name] ?? `${name.toUpperCase()}_API_KEY`;
+			if (!process.env[envKey]) {
+				process.env[envKey] = apiKey;
+				log.info(`loaded tool API key for ${name}`);
+			}
+		}
+	} catch (err) {
+		log.error("failed to load tool API keys from DB", err);
+	}
+}
+
 export function apiKeyEnvKey(provider: string): string | null {
 	switch (provider) {
 		case "openrouter": return "OPENROUTER_API_KEY";
 		case "kimi-coding": return "KIMI_API_KEY";
 		case "deepseek": return "DEEPSEEK_API_KEY";
+		case "opencode-go": return "OPENCODE_API_KEY";
 		// kept for users who still have these set in env / config:
 		case "anthropic": return "ANTHROPIC_API_KEY";
 		case "openai": return "OPENAI_API_KEY";
@@ -172,12 +266,24 @@ async function main(): Promise<void> {
 		process.exit(1);
 	}
 
-	// Load saved auth & model config from the settings DB (Postgres).
-	await applySavedAuth();
-
-	const provider = process.env.NEXAL_MODEL_PROVIDER ?? "openrouter";
-	const modelId = process.env.NEXAL_MODEL ?? "openai/gpt-4o";
+	// Load model + auth from DB. Falls back to env vars if DB is empty.
+	const dbModel = await buildModelFromDb();
+	if (!dbModel) {
+		// Legacy path: DB has no config → try env vars.
+		await applySavedAuth();
+	}
+	const provider = dbModel
+		? (dbModel.model.provider as string)
+		: (process.env.NEXAL_MODEL_PROVIDER ?? "openrouter");
+	const modelId = dbModel
+		? dbModel.model.id
+		: (process.env.NEXAL_MODEL ?? "openai/gpt-4o");
+	const getApiKeyFromDb = dbModel?.getApiKey;
+	const model = dbModel?.model ?? getModel(provider as any, modelId as any);
 	log.info(`using model ${modelId} via ${provider}`);
+
+	// Load external tool API keys from DB (Tavily, Jina, Gemini, …).
+	await applySavedToolKeys();
 	const coordinatorPrompt =
 		process.env.NEXAL_COORDINATOR_SYSTEM_PROMPT ?? DEFAULT_COORDINATOR_PROMPT;
 	const executorPrompt =
@@ -208,8 +314,6 @@ async function main(): Promise<void> {
 	await gateway.hello();
 	log.info(`connected to gateway at ${gatewayUnix ? gatewayUnix : gatewayUrl} as "${cfg.gateway.clientName}"`);
 
-	const model = getModel(provider as any, modelId);
-
 	// Channel config lives exclusively in the DB (settings KV). The
 	// manager (created after `pool`) constructs/starts channels from it
 	// and hot-reloads on every saveChannelConfig/deleteChannelConfig
@@ -223,6 +327,11 @@ async function main(): Promise<void> {
 	// so live workers resume automatically.
 	const workerStore = await createWorkerStore({ url: cfg.workers.url });
 	log.info(`worker store ready, up to ${cfg.workers.maxConcurrent} concurrent workers`);
+
+	// Tape store — persistent conversation history (AgentPool + workers).
+	const tapeStore = createTapeStore();
+	const fileStore = createFileStore(cfg.storage);
+	log.info(`tape store ready (storage provider: ${cfg.storage.provider})`);
 	// `WorkerRegistry` is constructed BEFORE the factories close over it
 	// because the coordinator factory recursively builds dispatcher
 	// tools that reference the same registry — sub-coordinators can
@@ -240,6 +349,8 @@ async function main(): Promise<void> {
 		modelId,
 		channels,
 		maxConcurrent: cfg.workers.maxConcurrent,
+		tapeStore,
+		getApiKey: getApiKeyFromDb,
 		executorSystemPromptDefault: executorPrompt,
 		coordinatorSystemPromptDefault: coordinatorPrompt,
 		executorProxies: cfg.executor.proxies,
@@ -281,6 +392,8 @@ async function main(): Promise<void> {
 		systemPrompt: coordinatorPrompt,
 		model,
 		tools: [],
+		tapeStore,
+		getApiKey: getApiKeyFromDb,
 		toolsFor: async (key) => {
 			// Top-level coordinator: NO sandbox, NO bash. Just the
 			// dispatcher tool surface scoped to this chat.

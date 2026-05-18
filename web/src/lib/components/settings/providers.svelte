@@ -83,6 +83,16 @@
 			],
 			warn: "Not natively routed by pi-ai yet — pick it under OpenRouter for now.",
 		},
+		"opencode-go": {
+			label: "OpenCode Go",
+			icon: "openrouter",
+			summary: "OpenCode Zen API — OpenAI-compatible endpoint. Specify custom base URL.",
+			signupUrl: "https://opencode.ai",
+			models: [
+				{ id: "kimi-k2.6", label: "Kimi K2.6", hint: "reasoning" },
+				{ id: "kimi-k2.5", label: "Kimi K2.5", hint: "balanced" },
+			],
+		},
 	};
 
 	let providers = $state<ProviderInfo[]>([]);
@@ -99,6 +109,7 @@
 				reveal: boolean;
 				busy: boolean;
 				flash: string | null;
+				baseUrl: string;
 			}
 		>
 	>({});
@@ -113,6 +124,7 @@
 			reveal: false,
 			busy: false,
 			flash: null,
+			baseUrl: "",
 		};
 	}
 
@@ -197,6 +209,48 @@
 			await chat.runCommandAwait("model", [name, id]);
 			flash(name, `using ${id} · restart nexal`);
 			await refresh();
+		} finally {
+			f.busy = false;
+		}
+	}
+
+	async function saveBaseUrl(name: string) {
+		const f = form[name]!;
+		const url = f.baseUrl.trim();
+		if (!url) return;
+		f.busy = true;
+		try {
+			await chat.runCommandAwait("settings", ["provider", name, "url", url]);
+			flash(name, `base URL saved · restart nexal`);
+		} finally {
+			f.busy = false;
+		}
+	}
+
+	// ── Tool API keys ────────────────────────────────────────────
+
+	const TOOL_KEYS = ["tavily", "jina", "gemini"] as const;
+
+	const toolForm = $state<
+		Record<string, { key: string; reveal: boolean; busy: boolean; flash: string | null }>
+	>({});
+
+	function ensureTool(name: string) {
+		if (toolForm[name]) return;
+		toolForm[name] = { key: "", reveal: false, busy: false, flash: null };
+	}
+
+	for (const t of TOOL_KEYS) ensureTool(t);
+
+	async function saveToolKey(name: string) {
+		const f = toolForm[name]!;
+		if (!f.key.trim()) return;
+		f.busy = true;
+		try {
+			await chat.runCommandAwait("settings", ["toolkey", name, f.key.trim()]);
+			f.key = "";
+			f.flash = "saved ✓";
+			setTimeout(() => { if (toolForm[name]?.flash === "saved ✓") toolForm[name]!.flash = null; }, 2500);
 		} finally {
 			f.busy = false;
 		}
@@ -442,6 +496,26 @@
 								</Button>
 							</div>
 
+							<!-- Base URL row -->
+							<div class="flex items-start gap-2">
+								<label for="url-{p.name}" class={labelCls}>base URL</label>
+								<Input
+									id="url-{p.name}"
+									class={cn(inputCls, "flex-1 font-mono")}
+									placeholder="https://opencode.ai/zen/go/v1/chat/completions"
+									bind:value={f.baseUrl}
+									disabled={f.busy}
+								/>
+								<Button
+									variant="outline"
+									size="sm"
+									onclick={() => saveBaseUrl(p.name)}
+									disabled={f.busy || !f.baseUrl.trim()}
+								>
+									save
+								</Button>
+							</div>
+
 							<div class="flex items-center justify-between gap-2 pt-1">
 								{#if p.envKey}
 									<span class="text-muted-foreground font-mono text-[10px]">
@@ -465,8 +539,57 @@
 				</section>
 			{/each}
 
-		<p class="text-muted-foreground text-xs">
-			API keys are stored locally in <code>~/.nexal/data/</code> (PGlite).
+			<!-- ── Tool API Keys ── -->
+			<section class="border-border rounded-2xl border p-5 mt-4">
+				<h2 class="text-base font-medium mb-1">Tool API keys</h2>
+				<p class="text-muted-foreground mb-4 text-sm">
+					Keys for external search tools. Stored in the database.
+				</p>
+				<div class="flex flex-col gap-3">
+					{#each TOOL_KEYS as name (name)}
+						{@const tf = toolForm[name]}
+						<div class="flex items-start gap-2">
+							<label for="toolkey-{name}" class={cn(labelCls, "font-mono")}>
+								{name}
+							</label>
+							<div class="relative flex-1">
+								<Input
+									id="toolkey-{name}"
+									type={tf.reveal ? "text" : "password"}
+									class={cn(inputCls, "pr-9 font-mono")}
+									placeholder="paste key"
+									bind:value={tf.key}
+									disabled={tf.busy}
+								/>
+								<button
+									type="button"
+									class="text-muted-foreground hover:text-foreground absolute right-2 top-1/2 -translate-y-1/2"
+									onclick={() => (tf.reveal = !tf.reveal)}
+								>
+									{#if tf.reveal}
+										<EyeOff class="size-4" />
+									{:else}
+										<Eye class="size-4" />
+									{/if}
+								</button>
+							</div>
+							<Button
+								size="sm"
+								onclick={() => saveToolKey(name)}
+								disabled={tf.busy || !tf.key.trim()}
+							>
+								save
+							</Button>
+							{#if tf.flash}
+								<span class="text-foreground/70 pt-2 text-xs">{tf.flash}</span>
+							{/if}
+						</div>
+					{/each}
+				</div>
+			</section>
+
+		<p class="text-muted-foreground pt-4 text-xs">
+			API keys are stored in the Postgres database.
 		</p>
 	</div>
 </section>

@@ -4,6 +4,17 @@ import type { Model } from "@mariozechner/pi-ai";
 
 import { AgentPool } from "./agent-pool.ts";
 import type { Channel, IncomingMessage } from "./channels/types.ts";
+import type { TapeStore } from "./tape/store.ts";
+
+const mockTapeStore: TapeStore = {
+	listTapes: async () => [],
+	read: async () => [],
+	append: async () => {},
+	reset: async () => {},
+	info: async () => ({ name: "", entries: 0, anchors: 0, lastAnchor: null, entriesSinceLastAnchor: 0, lastTokenUsage: null }),
+	handoff: async () => {},
+	search: async () => [],
+};
 
 /**
  * forwardChildReport lives on AgentPool but forwards straight into
@@ -18,6 +29,7 @@ class SpyPool extends AgentPool {
 			model: {} as Model<any>,
 			tools: [],
 			channels: new Map<string, Channel>(),
+			tapeStore: mockTapeStore,
 		});
 	}
 	override handle(msg: IncomingMessage): void {
