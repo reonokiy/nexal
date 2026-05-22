@@ -28,7 +28,8 @@ function isMissingSettingsTableError(err: unknown): boolean {
 function isRecoverableConnectionError(err: unknown): boolean {
 	const message = err instanceof Error ? err.message : String(err);
 	return (
-		message.includes("prepared statement") && message.includes("does not exist")
+		message.includes("prepared statement") &&
+		(message.includes("does not exist") || message.includes("already exists"))
 	);
 }
 
