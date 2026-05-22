@@ -1,39 +1,7 @@
 <script lang="ts">
-	import X from "@lucide/svelte/icons/x";
-	import { cn } from "$lib/utils";
 	import { fade, fly } from "svelte/transition";
 	import { cubicOut } from "svelte/easing";
 
-	interface Suggestion {
-		emoji: string;
-		text: string;
-		fill: string;
-	}
-
-	interface Props {
-		onPick: (text: string) => void;
-	}
-	let { onPick }: Props = $props();
-
-	let dismissed = $state(false);
-
-	const SUGGESTIONS: Suggestion[] = [
-		{
-			emoji: "🚀",
-			text: "Deploy my app to production.",
-			fill: "Deploy my app to production.",
-		},
-		{
-			emoji: "🐛",
-			text: "Find and fix bugs in the codebase.",
-			fill: "Find and fix bugs in the codebase.",
-		},
-		{
-			emoji: "🧪",
-			text: "Run tests and analyze failures.",
-			fill: "Run tests and analyze failures.",
-		},
-	];
 </script>
 
 <div
@@ -44,70 +12,124 @@
 		class="flex flex-1 flex-col items-center justify-center"
 		in:fly={{ y: 6, duration: 260, easing: cubicOut }}
 	>
-		<div
-			class="bg-foreground/[0.04] text-foreground/70 mb-5 flex size-12 items-center justify-center rounded-full"
-		>
-			<svg
-				viewBox="0 0 24 24"
-				fill="none"
-				stroke="currentColor"
-				stroke-width="1.7"
-				stroke-linecap="round"
-				stroke-linejoin="round"
-				class="size-6"
-				aria-hidden="true"
-			>
-				<path d="M5 8a4 4 0 0 1 4-4h6a4 4 0 0 1 4 4v3a4 4 0 0 1-4 4H9.5L6 18v-3.2A4 4 0 0 1 5 11Z" />
-				<path d="M9 11h6" />
-			</svg>
+		<div class="nexal-lockup relative flex flex-col items-center">
+			<div class="nexal-mark" aria-hidden="true">
+				<span class="nexal-mark__frame"></span>
+				<span class="nexal-mark__halo"></span>
+				<span class="nexal-mark__rail nexal-mark__rail--left"></span>
+				<span class="nexal-mark__rail nexal-mark__rail--right"></span>
+				<span class="nexal-mark__beam"></span>
+				<span class="nexal-mark__beam nexal-mark__beam--echo"></span>
+				<span class="nexal-mark__core"></span>
+			</div>
+			<div class="relative isolate mt-5">
+				<div
+					aria-hidden="true"
+					class="pointer-events-none absolute inset-x-[-14%] top-1/2 h-16 -translate-y-1/2 rounded-full bg-[radial-gradient(circle,rgba(19,19,19,0.09)_0%,rgba(19,19,19,0)_74%)] blur-3xl"
+				></div>
+				<h1 class="nexal-wordmark relative text-[3.35rem] font-semibold tracking-[0.24em] sm:text-[4.4rem]">
+					NEXAL
+				</h1>
+			</div>
 		</div>
-		<h1 class="text-foreground text-3xl font-medium tracking-tight">
-			Your Coordinator
-		</h1>
-		<p class="text-muted-foreground mt-2 text-sm max-w-xs text-center">
-			Send any task. The coordinator will use tools and spawn workers as needed.
+		<p class="nexal-subtitle text-muted-foreground mt-4 max-w-md text-center text-sm leading-relaxed">
+			A multi-computer agent workspace for coordinating tasks, tools, and running workers.
 		</p>
 	</div>
-
-	{#if !dismissed}
-		<div
-			class="w-full pb-6"
-			in:fly={{ y: 8, duration: 240, easing: cubicOut, delay: 80 }}
-			out:fade={{ duration: 160 }}
-		>
-			<div class="mb-1.5 flex justify-end">
-				<button
-					type="button"
-					class="text-muted-foreground hover:text-foreground hover:bg-accent flex size-6 items-center justify-center rounded-full transition-colors"
-					aria-label="dismiss suggestions"
-					onclick={() => (dismissed = true)}
-				>
-					<X class="size-3.5" />
-				</button>
-			</div>
-			<div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
-				{#each SUGGESTIONS as s, i (s.text)}
-					<button
-						type="button"
-						in:fly={{
-							y: 8,
-							duration: 240,
-							easing: cubicOut,
-							delay: 100 + i * 50,
-						}}
-						class={cn(
-							"border-border bg-background hover:bg-accent/40",
-							"flex flex-col gap-3 rounded-2xl border p-4 text-left transition-all duration-150 hover:-translate-y-0.5 active:translate-y-0",
-						)}
-						onclick={() => onPick(s.fill)}
-					>
-						<span class="text-xl leading-none">{s.emoji}</span>
-						<span class="text-foreground/85 text-sm leading-snug">
-							{s.text}
-						</span>
-					</button>
-				{/each}
-			</div>
-		</div>
-	{/if}
 </div>
+
+<style>
+	.nexal-lockup {
+		animation: nexal-fade-up 0.9s cubic-bezier(0.16, 1, 0.3, 1) both;
+	}
+
+	.nexal-mark {
+		position: relative;
+		width: 5.5rem;
+		height: 5.5rem;
+		filter: drop-shadow(0 18px 34px rgba(15, 23, 42, 0.06));
+		animation: nexal-drift-in 1s cubic-bezier(0.16, 1, 0.3, 1) both;
+	}
+
+	.nexal-mark__frame {
+		position: absolute;
+		inset: 0;
+		border-radius: 1.6rem;
+		border: 1px solid rgba(15, 23, 42, 0.08);
+		background:
+			linear-gradient(145deg, rgba(255, 255, 255, 0.98), rgba(244, 244, 245, 0.68));
+		box-shadow:
+			inset 0 1px 0 rgba(255, 255, 255, 0.9),
+			0 10px 30px rgba(15, 23, 42, 0.03);
+	}
+
+	.nexal-mark__halo {
+		position: absolute;
+		inset: 0.42rem;
+		border-radius: 1.25rem;
+		border: 1px solid rgba(255, 255, 255, 0.65);
+		background: linear-gradient(180deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0));
+	}
+
+	.nexal-mark__rail,
+	.nexal-mark__beam,
+	.nexal-mark__core {
+		position: absolute;
+		display: block;
+		border-radius: 999px;
+		background: linear-gradient(180deg, rgba(17, 24, 39, 0.92), rgba(55, 65, 81, 0.76));
+	}
+
+	.nexal-mark__rail {
+		top: 0.92rem;
+		width: 0.44rem;
+		height: 3.66rem;
+	}
+
+	.nexal-mark__rail--left {
+		left: 1.32rem;
+	}
+
+	.nexal-mark__rail--right {
+		right: 1.32rem;
+	}
+
+	.nexal-mark__beam {
+		left: 1.7rem;
+		top: 1.7rem;
+		width: 2.28rem;
+		height: 0.42rem;
+		transform: rotate(34deg);
+		transform-origin: left center;
+	}
+
+	.nexal-mark__beam--echo {
+		top: 2.72rem;
+		width: 1.78rem;
+		opacity: 0.24;
+	}
+
+	.nexal-mark__core {
+		left: 2.28rem;
+		top: 2.18rem;
+		width: 0.94rem;
+		height: 0.94rem;
+		background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(226, 232, 240, 0.88));
+		box-shadow:
+			0 0 0 4px rgba(17, 24, 39, 0.03),
+			0 0 20px rgba(255, 255, 255, 0.78);
+	}
+
+	.nexal-wordmark {
+		animation: nexal-drift-in 1s cubic-bezier(0.16, 1, 0.3, 1) 0.08s both;
+		background: linear-gradient(180deg, rgba(15, 23, 42, 0.98), rgba(71, 85, 105, 0.78));
+		-webkit-background-clip: text;
+		background-clip: text;
+		color: transparent;
+		text-shadow: 0 16px 30px rgba(15, 23, 42, 0.06);
+	}
+
+	.nexal-subtitle {
+		animation: nexal-fade-up 0.9s cubic-bezier(0.16, 1, 0.3, 1) 0.18s both;
+	}
+</style>

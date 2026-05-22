@@ -7,12 +7,11 @@
 	import type { Source } from "$lib/components/message.svelte";
 	import Composer from "$lib/components/composer.svelte";
 	import EmptyState from "$lib/components/empty-state.svelte";
-	import SandboxList from "$lib/components/sandbox-list.svelte";
-	import MoreHorizontal from "@lucide/svelte/icons/more-horizontal";
-	import PanelLeft from "@lucide/svelte/icons/panel-left";
-	import Plug from "@lucide/svelte/icons/plug";
-	import Box from "@lucide/svelte/icons/box";
-	import { cn } from "$lib/utils";
+	import Icon from "@iconify/svelte";
+	import {
+		plugCircleLinear,
+		sidebarCodeLinear,
+	} from "$lib/icons/solar";
 	import { settings } from "$lib/settings.svelte";
 	import type { Chat, Message as Msg } from "$lib/client.svelte";
 
@@ -25,7 +24,6 @@
 
 	let input = $state("");
 	let modelLabel = $state("model");
-	let showSandboxes = $state(false);
 
 	interface MsgItem {
 		id: number;
@@ -114,10 +112,6 @@
 		chat.messages.filter((m) => m.role !== "system").length === 0,
 	);
 
-	const systemMessages = $derived(
-		chat.messages.filter((m) => m.role === "system"),
-	);
-
 	let vlist: VListHandle | undefined = $state();
 	let stickToBottom = $state(true);
 
@@ -141,10 +135,6 @@
 		chat.sendText(input);
 		input = "";
 		stickToBottom = true;
-	}
-
-	function pickSuggestion(text: string) {
-		input = text;
 	}
 
 	function newChat() {
@@ -179,7 +169,16 @@
 </script>
 
 <div class="flex h-screen flex-1 flex-col">
-	<header class="border-border flex h-12 items-center gap-2 border-b px-4">
+	<header class="flex h-12 items-center gap-2 px-4">
+		<button
+			type="button"
+			aria-label={sidebarOpen ? "hide sidebar" : "show sidebar"}
+			title={sidebarOpen ? "Hide sidebar" : "Show sidebar"}
+			class="text-muted-foreground hover:bg-accent flex size-8 items-center justify-center rounded-md transition-colors duration-150 active:scale-90"
+			onclick={onToggleSidebar}
+		>
+			<Icon icon={sidebarCodeLinear} class="size-4" />
+		</button>
 		<button
 			type="button"
 			class="text-foreground/85 hover:bg-accent rounded-md px-2 py-1 text-sm font-medium transition-colors duration-150 active:scale-[0.97]"
@@ -187,15 +186,6 @@
 			title="Clear chat"
 		>
 			New chat
-		</button>
-		<button
-			type="button"
-			disabled
-			aria-label="thread menu (coming soon)"
-			title="Coming soon"
-			class="text-muted-foreground/50 flex size-7 cursor-not-allowed items-center justify-center rounded-md"
-		>
-			<MoreHorizontal class="size-4" />
 		</button>
 		<div class="ml-auto flex items-center gap-1">
 			{#if chat.status !== "open"}
@@ -207,56 +197,21 @@
 					onclick={() => chat.connect(chat.url)}
 					title="Reconnect to backend"
 				>
-					<Plug class="size-3.5" />
+					<Icon icon={plugCircleLinear} class="size-3.5" />
 					reconnect
 				</button>
 			{/if}
-			<button
-				type="button"
-				aria-label={showSandboxes ? "hide sandboxes" : "show sandboxes"}
-				title={showSandboxes ? "Hide sandboxes" : "Show sandboxes"}
-				class={cn(
-					"flex size-8 items-center justify-center rounded-md transition-colors duration-150 active:scale-90",
-					showSandboxes
-						? "bg-accent text-foreground"
-						: "text-muted-foreground hover:bg-accent",
-				)}
-				onclick={() => (showSandboxes = !showSandboxes)}
-			>
-				<Box class="size-4" />
-			</button>
-			<button
-				type="button"
-				aria-label={sidebarOpen ? "hide sidebar" : "show sidebar"}
-				title={sidebarOpen ? "Hide sidebar" : "Show sidebar"}
-				class="text-muted-foreground hover:bg-accent flex size-8 items-center justify-center rounded-md transition-colors duration-150 active:scale-90"
-				onclick={onToggleSidebar}
-			>
-				<PanelLeft class="size-4" />
-			</button>
 		</div>
 	</header>
 
-	<!-- System messages banner -->
-	{#if systemMessages.length > 0}
-		<div class="bg-muted/30 border-b border-border px-4 py-1 flex items-center gap-2 text-[11px] text-muted-foreground">
-			<span class="size-1.5 rounded-full bg-amber-400"></span>
-			<span class="truncate">{systemMessages[systemMessages.length - 1]!.text}</span>
-		</div>
-	{/if}
-
 	<main class="flex min-h-0 flex-1 flex-col">
-		{#if showSandboxes}
-			<div class="flex flex-1 overflow-y-auto">
-				<SandboxList />
-			</div>
-		{:else if empty}
+		{#if empty}
 			<div
 				class="flex flex-1 overflow-y-auto"
 				in:fade={{ duration: 200, easing: cubicOut }}
 				out:fade={{ duration: 120 }}
 			>
-				<EmptyState onPick={pickSuggestion} />
+				<EmptyState />
 			</div>
 		{:else}
 			<VList

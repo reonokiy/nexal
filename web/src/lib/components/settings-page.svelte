@@ -3,16 +3,20 @@
 	import { cn } from "$lib/utils";
 	import { fade } from "svelte/transition";
 	import { cubicOut } from "svelte/easing";
-	import ArrowLeft from "@lucide/svelte/icons/arrow-left";
-	import Settings from "@lucide/svelte/icons/settings";
-	import Palette from "@lucide/svelte/icons/palette";
-	import MessageSquare from "@lucide/svelte/icons/message-square";
-	import Sparkles from "@lucide/svelte/icons/sparkles";
-	import SlidersHorizontal from "@lucide/svelte/icons/sliders-horizontal";
+	import Icon from "@iconify/svelte";
+	import {
+		altArrowLeftLinear,
+		chatRoundLineLinear,
+		paletteLinear,
+		settingsLinear,
+		sliderHorizontalLinear,
+		starsMinimalisticLinear,
+	} from "$lib/icons/solar";
 	import General from "$lib/components/settings/general.svelte";
 	import Appearance from "$lib/components/settings/appearance.svelte";
 	import ChatSection from "$lib/components/settings/chat.svelte";
 	import Providers from "$lib/components/settings/providers.svelte";
+	import Tools from "$lib/components/settings/tools.svelte";
 	import Advanced from "$lib/components/settings/advanced.svelte";
 	import type { Chat } from "$lib/client.svelte";
 
@@ -23,14 +27,16 @@
 		| "appearance"
 		| "chat"
 		| "providers"
+		| "tools"
 		| "advanced";
 
 	const SECTIONS: { id: SectionId; label: string; icon: any }[] = [
-		{ id: "general", label: "General", icon: Settings },
-		{ id: "appearance", label: "Appearance", icon: Palette },
-		{ id: "chat", label: "Chat", icon: MessageSquare },
-		{ id: "providers", label: "Model providers", icon: Sparkles },
-		{ id: "advanced", label: "Advanced", icon: SlidersHorizontal },
+		{ id: "general", label: "General", icon: settingsLinear },
+		{ id: "appearance", label: "Appearance", icon: paletteLinear },
+		{ id: "chat", label: "Chat", icon: chatRoundLineLinear },
+		{ id: "providers", label: "Model providers", icon: starsMinimalisticLinear },
+		{ id: "tools", label: "Tools", icon: sliderHorizontalLinear },
+		{ id: "advanced", label: "Advanced", icon: sliderHorizontalLinear },
 	];
 
 	const section = $derived.by<SectionId>(() => {
@@ -46,27 +52,23 @@
 	}
 </script>
 
-<div class="bg-muted/30 text-foreground flex h-screen flex-1 flex-col">
-	<!-- Top bar — spans full width like Codex's window header -->
-	<header
-		class="border-border/60 bg-muted/30 flex h-12 shrink-0 items-center gap-3 border-b px-4"
-	>
-		<button
-			type="button"
-			class="text-muted-foreground hover:text-foreground hover:bg-accent/60 flex items-center gap-2 rounded-md px-2.5 py-1.5 text-sm transition-colors duration-150 active:scale-[0.98]"
-			onclick={() => router.go("home")}
-		>
-			<ArrowLeft class="size-4" />
-			Back to app
-		</button>
-	</header>
-
+<div class="bg-[#f3f3f3] text-foreground flex h-screen flex-1">
 	<div class="flex min-h-0 flex-1">
 		<!-- Sub-nav rail -->
 		<aside
-			class="bg-muted/30 flex h-full w-60 shrink-0 flex-col py-3"
+			class="flex h-full w-60 shrink-0 flex-col bg-[#f3f3f3] py-3"
 		>
-			<nav class="flex flex-col gap-0.5 px-2">
+			<div class="px-2 pb-3">
+				<button
+					type="button"
+					class="text-muted-foreground hover:text-foreground hover:bg-black/[0.04] flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-sm transition-colors duration-150 active:scale-[0.98]"
+					onclick={() => router.go("home")}
+				>
+					<Icon icon={altArrowLeftLinear} class="size-4" />
+					Back to app
+				</button>
+			</div>
+			<nav class="flex flex-col gap-0.5 px-2 pt-3">
 				{#each SECTIONS as s (s.id)}
 					{@const active = section === s.id}
 					<button
@@ -74,12 +76,13 @@
 						class={cn(
 							"flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm transition-colors duration-150 active:scale-[0.98]",
 							active
-								? "bg-accent text-foreground"
-								: "text-foreground/80 hover:bg-accent/50",
+								? "bg-black/[0.05] text-foreground"
+								: "text-foreground/80 hover:bg-black/[0.04]",
 						)}
 						onclick={() => goSection(s.id)}
 					>
-						<s.icon
+						<Icon
+							icon={s.icon}
 							class={cn(
 								"size-4",
 								active ? "text-foreground" : "text-muted-foreground",
@@ -93,7 +96,14 @@
 
 		<!-- Active section -->
 		<main class="bg-background flex-1 overflow-y-auto">
-			<div class="mx-auto max-w-2xl px-10 py-10">
+			<div
+				class={cn(
+					"mx-auto px-10 py-10",
+					section === "providers" || section === "tools"
+						? "max-w-6xl"
+						: "max-w-2xl",
+				)}
+			>
 				{#key section}
 					<div in:fade={{ duration: 160, easing: cubicOut }}>
 						{#if section === "general"}
@@ -104,6 +114,8 @@
 							<ChatSection />
 						{:else if section === "providers"}
 							<Providers {chat} />
+						{:else if section === "tools"}
+							<Tools {chat} />
 						{:else if section === "advanced"}
 							<Advanced {chat} />
 						{/if}

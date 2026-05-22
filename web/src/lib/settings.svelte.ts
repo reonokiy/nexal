@@ -13,6 +13,8 @@ export type Theme = "light" | "dark" | "system";
 export type SendKey = "enter" | "shift-enter";
 
 const PREFIX = "nexal.";
+const DEFAULT_BACKEND_URL =
+	import.meta.env.VITE_NEXAL_BACKEND ?? "wss://nexal-server.fly.dev";
 
 function read<T>(key: string, fallback: T): T {
 	if (typeof localStorage === "undefined") return fallback;
@@ -45,7 +47,7 @@ class SettingsStore {
 	#sendKey = $state<SendKey>(read<SendKey>("sendKey", "enter"));
 	#autoReconnect = $state(read<boolean>("autoReconnect", true));
 	#backendUrl = $state(
-		read<string>("backendUrl", "wss://gateway.nexal.nokiy.net"),
+		read<string>("backendUrl", DEFAULT_BACKEND_URL),
 	);
 	#chatId = $state(read<string>("chatId", "default"));
 	#sender = $state(read<string>("sender", "web-user"));
@@ -130,7 +132,7 @@ class SettingsStore {
 		this.theme = "system";
 		this.sendKey = "enter";
 		this.autoReconnect = true;
-		this.backendUrl = "wss://gateway.nexal.nokiy.net";
+		this.backendUrl = DEFAULT_BACKEND_URL;
 		this.chatId = "default";
 		this.sender = "web-user";
 		this.showTimestamps = true;

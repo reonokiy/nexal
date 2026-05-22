@@ -10,28 +10,65 @@
  * (Previously PGlite-backed; PGlite was removed in favour of a single
  * external Postgres shared with the worker store.)
  */
-import { eq, like } from "drizzle-orm";
+import { eq, like, sql } from "drizzle-orm";
 
 import { getDb } from "./db.ts";
 import { settings } from "./schema.ts";
 
+let ensuredSettingsTable = false;
+
+function isMissingSettingsTableError(err: unknown): boolean {
+	const message = err instanceof Error ? err.message : String(err);
+	return (
+		message.includes('relation "settings" does not exist') ||
+		message.includes('no such table: settings')
+	);
+}
+
+async function ensureSettingsTable(): Promise<void> {
+	if (ensuredSettingsTable) return;
+	await getDb().execute(sql`
+		CREATE TABLE IF NOT EXISTS "settings" (
+			"key" text PRIMARY KEY NOT NULL,
+			"value" text NOT NULL
+		)
+	`);
+	ensuredSettingsTable = true;
+}
+
+async function withSettingsTableRecovery<T>(fn: () => Promise<T>): Promise<T> {
+	try {
+		return await fn();
+	} catch (err) {
+		if (!isMissingSettingsTableError(err)) throw err;
+		await ensureSettingsTable();
+		return await fn();
+	}
+}
+
 export async function getSetting(key: string): Promise<string | null> {
-	const rows = await getDb()
-		.select({ value: settings.value })
-		.from(settings)
-		.where(eq(settings.key, key));
+	const rows = await withSettingsTableRecovery(() =>
+		getDb()
+			.select({ value: settings.value })
+			.from(settings)
+			.where(eq(settings.key, key)),
+	);
 	return rows[0]?.value ?? null;
 }
 
 export async function setSetting(key: string, value: string): Promise<void> {
-	await getDb()
-		.insert(settings)
-		.values({ key, value })
-		.onConflictDoUpdate({ target: settings.key, set: { value } });
+	await withSettingsTableRecovery(() =>
+		getDb()
+			.insert(settings)
+			.values({ key, value })
+			.onConflictDoUpdate({ target: settings.key, set: { value } }),
+	);
 }
 
 export async function deleteSetting(key: string): Promise<void> {
-	await getDb().delete(settings).where(eq(settings.key, key));
+	await withSettingsTableRecovery(() =>
+		getDb().delete(settings).where(eq(settings.key, key)),
+	);
 }
 
 // ── Auth helpers ────────────────────────────────────────────────────
@@ -114,10 +151,12 @@ export async function deleteChannelConfig(name: string): Promise<void> {
 }
 
 export async function loadAllChannelConfigs(): Promise<Record<string, ChannelConfigBucket>> {
-	const rows = await getDb()
-		.select()
-		.from(settings)
-		.where(like(settings.key, "channel:%"));
+	const rows = await withSettingsTableRecovery(() =>
+		getDb()
+			.select()
+			.from(settings)
+			.where(like(settings.key, "channel:%")),
+	);
 	const out: Record<string, ChannelConfigBucket> = {};
 	for (const row of rows) {
 		const name = row.key.slice("channel:".length);
@@ -149,10 +188,12 @@ export async function loadProviderConfig(name: string): Promise<ProviderConfigBu
 }
 
 export async function loadAllProviderConfigs(): Promise<Record<string, ProviderConfigBucket>> {
-	const rows = await getDb()
-		.select()
-		.from(settings)
-		.where(like(settings.key, "provider:%"));
+	const rows = await withSettingsTableRecovery(() =>
+		getDb()
+			.select()
+			.from(settings)
+			.where(like(settings.key, "provider:%")),
+	);
 	const out: Record<string, ProviderConfigBucket> = {};
 	for (const row of rows) {
 		const name = row.key.slice("provider:".length);
@@ -186,10 +227,12 @@ export async function loadToolApiKey(name: string): Promise<string | null> {
 }
 
 export async function loadAllToolApiKeys(): Promise<Record<string, string>> {
-	const rows = await getDb()
-		.select()
-		.from(settings)
-		.where(like(settings.key, "tool:apikey:%"));
+	const rows = await withSettingsTableRecovery(() =>
+		getDb()
+			.select()
+			.from(settings)
+			.where(like(settings.key, "tool:apikey:%")),
+	);
 	const out: Record<string, string> = {};
 	for (const row of rows) {
 		const name = row.key.slice("tool:apikey:".length);

@@ -1,12 +1,15 @@
 <script lang="ts">
 	import { router } from "$lib/router.svelte";
 	import { cn } from "$lib/utils";
-	import Plus from "@lucide/svelte/icons/plus";
-	import Mic from "@lucide/svelte/icons/mic";
-	import ArrowUp from "@lucide/svelte/icons/arrow-up";
-	import ChevronDown from "@lucide/svelte/icons/chevron-down";
-	import Monitor from "@lucide/svelte/icons/monitor";
-	import Sparkles from "@lucide/svelte/icons/sparkles";
+	import Icon from "@iconify/svelte";
+	import {
+		addCircleLinear,
+		altArrowDownLinear,
+		arrowUpLinear,
+		microphoneLinear,
+		monitorLinear,
+		starsMinimalisticLinear,
+	} from "$lib/icons/solar";
 	import { settings } from "$lib/settings.svelte";
 	import type { Chat } from "$lib/client.svelte";
 
@@ -58,10 +61,6 @@
 </script>
 
 <div class="border-border bg-background rounded-2xl border shadow-sm">
-	<div class="flex items-center gap-1.5 px-4 pt-2">
-		<span class="bg-primary/10 text-primary text-[10px] font-medium rounded px-1.5 py-0.5">Coordinator</span>
-		<span class="text-muted-foreground/50 text-[10px]">all messages go here</span>
-	</div>
 	<textarea
 		bind:this={textareaEl}
 		bind:value
@@ -71,7 +70,7 @@
 			? "Message Coordinator · Shift+Enter to send"
 			: "Message Coordinator · / for commands"}
 		rows="1"
-		class="text-foreground placeholder:text-muted-foreground/80 w-full resize-none bg-transparent px-4 pt-2 pb-1 text-[15px] focus:outline-none"
+		class="text-foreground placeholder:text-muted-foreground/80 w-full resize-none bg-transparent px-4 pt-3 pb-1 text-[15px] focus:outline-none"
 		disabled={chat.status !== "open"}
 	></textarea>
 
@@ -83,7 +82,7 @@
 			title="Coming soon"
 			class="text-muted-foreground/50 flex size-8 cursor-not-allowed items-center justify-center rounded-full"
 		>
-			<Plus class="size-4" />
+			<Icon icon={addCircleLinear} class="size-4" />
 		</button>
 
 		<button
@@ -92,9 +91,9 @@
 			onclick={() => router.go("settings/providers")}
 			title="Configure model"
 		>
-			<Sparkles class="size-3.5" />
+			<Icon icon={starsMinimalisticLinear} class="size-3.5" />
 			<span>{modelLabel}</span>
-			<ChevronDown class="size-3.5 opacity-60" />
+			<Icon icon={altArrowDownLinear} class="size-3.5 opacity-60" />
 		</button>
 
 		<span
@@ -102,7 +101,7 @@
 			title="Coming soon"
 		>
 			<span>Medium</span>
-			<ChevronDown class="size-3.5 opacity-60" />
+			<Icon icon={altArrowDownLinear} class="size-3.5 opacity-60" />
 		</span>
 
 		<div class="ml-auto flex items-center gap-1">
@@ -113,7 +112,7 @@
 				title="Coming soon"
 				class="text-muted-foreground/50 flex size-8 cursor-not-allowed items-center justify-center rounded-full"
 			>
-				<Mic class="size-4" />
+				<Icon icon={microphoneLinear} class="size-4" />
 			</button>
 			<button
 				type="button"
@@ -128,7 +127,7 @@
 						: "bg-muted text-muted-foreground",
 				)}
 			>
-				<ArrowUp class="size-4 transition-transform duration-150" />
+				<Icon icon={arrowUpLinear} class="size-4 transition-transform duration-150" />
 			</button>
 		</div>
 	</div>
@@ -139,9 +138,9 @@
 		class="text-muted-foreground/60 flex cursor-not-allowed items-center gap-1 rounded-md px-2 py-1"
 		title="Coming soon"
 	>
-		<Monitor class="size-3.5" />
+		<Icon icon={monitorLinear} class="size-3.5" />
 		<span>Local</span>
-		<ChevronDown class="size-3 opacity-60" />
+		<Icon icon={altArrowDownLinear} class="size-3 opacity-60" />
 	</span>
 	<span class="ml-auto inline-flex items-center gap-1 rounded-md px-2 py-1">
 		<span

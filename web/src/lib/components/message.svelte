@@ -2,10 +2,13 @@
 	import { renderMarkdown } from "$lib/markdown";
 	import { cn } from "$lib/utils";
 	import { settings } from "$lib/settings.svelte";
-	import ChevronDown from "@lucide/svelte/icons/chevron-down";
-	import ChevronRight from "@lucide/svelte/icons/chevron-right";
-	import Terminal from "@lucide/svelte/icons/terminal";
-	import Bot from "@lucide/svelte/icons/bot";
+	import Icon from "@iconify/svelte";
+	import {
+		altArrowDownLinear,
+		altArrowRightLinear,
+		codeSquareLinear,
+		userRoundedLinear,
+	} from "$lib/icons/solar";
 
 	export type Source = "coordinator" | "tool" | "worker";
 
@@ -77,9 +80,9 @@
 	<div class="text-muted-foreground flex items-baseline gap-2 text-xs">
 		<span class={cn("font-semibold flex items-center gap-1", labelColor())}>
 			{#if source === "tool"}
-				<Terminal class="size-3" />
+				<Icon icon={codeSquareLinear} class="size-3" />
 			{:else if source === "worker"}
-				<Bot class="size-3" />
+				<Icon icon={userRoundedLinear} class="size-3" />
 			{/if}
 			{displayLabel()}
 		</span>
@@ -107,9 +110,9 @@
 				onclick={() => (expanded = !expanded)}
 			>
 				{#if expanded}
-					<ChevronDown class="size-3" />
+					<Icon icon={altArrowDownLinear} class="size-3" />
 				{:else}
-					<ChevronRight class="size-3" />
+					<Icon icon={altArrowRightLinear} class="size-3" />
 				{/if}
 				<span>{expanded ? "Hide output" : "Show output"}</span>
 			</button>

@@ -67,6 +67,12 @@ export function createChat(
 				status = client.status;
 				pushSystem(`connected to ${url}`);
 				break;
+			case "auth_ok":
+				pushSystem(`authenticated as ${ev.email ?? ev.userId}`);
+				break;
+			case "auth_error":
+				pushSystem(`authentication failed: ${ev.error}`);
+				break;
 			case "close":
 				status = client.status;
 				pushSystem("disconnected");
@@ -210,6 +216,12 @@ export function createChat(
 		},
 		get status() {
 			return status;
+		},
+		get authToken() {
+			return client.token ?? "";
+		},
+		set authToken(v: string) {
+			client.token = v;
 		},
 		get typing() {
 			return typing;

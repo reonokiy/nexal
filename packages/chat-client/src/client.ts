@@ -84,6 +84,17 @@ export class NexalChatClient {
 		return this.statusValue;
 	}
 
+	get token(): string | undefined {
+		return this.authToken;
+	}
+
+	set token(v: string | undefined) {
+		this.authToken = v;
+		if (v && this.ws?.readyState === 1 /* OPEN */ && !this.authOk) {
+			this.sendAuth();
+		}
+	}
+
 	on(listener: ChatListener): () => void {
 		this.listeners.add(listener);
 		return () => this.listeners.delete(listener);
@@ -91,6 +102,7 @@ export class NexalChatClient {
 
 	connect(opts: { autoReconnect?: boolean } = {}): void {
 		this.autoReconnect = opts.autoReconnect ?? false;
+		this.authOk = false;
 		this.closeSocket();
 		this.statusValue = "connecting";
 
@@ -106,18 +118,23 @@ export class NexalChatClient {
 		this.ws = socket;
 
 		socket.onopen = () => {
+			if (this.ws !== socket) return;
 			this.statusValue = "open";
 			this.emit({ type: "open" });
 			this.sendAuth();
 		};
 		socket.onerror = (e) => this.emit({ type: "error", error: e });
 		socket.onclose = () => {
+			if (this.ws !== socket) return;
 			this.statusValue = "closed";
 			this.ws = null;
 			this.emit({ type: "close" });
 			this.scheduleReconnect();
 		};
-		socket.onmessage = (ev: MessageEvent) => this.dispatch(ev.data);
+		socket.onmessage = (ev: MessageEvent) => {
+			if (this.ws !== socket) return;
+			this.dispatch(ev.data);
+		};
 	}
 
 	disconnect(): void {
@@ -240,6 +257,7 @@ export class NexalChatClient {
 	}
 
 	private closeSocket(): void {
+		this.authOk = false;
 		if (this.ws) {
 			try {
 				this.ws.close();

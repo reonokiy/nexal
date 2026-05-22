@@ -6,6 +6,7 @@
 	import moonshotRaw from "simple-icons/icons/moonshotai.svg?raw";
 	import anthropicRaw from "simple-icons/icons/anthropic.svg?raw";
 	import claudeRaw from "simple-icons/icons/claude.svg?raw";
+	import coderRaw from "simple-icons/icons/coder.svg?raw";
 	import openaiRaw from "simple-icons/icons/openaigym.svg?raw";
 	import huggingfaceRaw from "simple-icons/icons/huggingface.svg?raw";
 
@@ -13,6 +14,7 @@
 		openrouter: openrouterRaw,
 		deepseek: deepseekRaw,
 		"kimi-coding": moonshotRaw,
+		"opencode-go": coderRaw,
 		moonshot: moonshotRaw,
 		anthropic: anthropicRaw,
 		claude: claudeRaw,
