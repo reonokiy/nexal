@@ -9,6 +9,7 @@ import type { Session } from "@supabase/supabase-js";
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL ?? "https://oiucjptwjncfbzotwgbg.supabase.co";
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY ?? "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9pdWNqcHR3am5jZmJ6b3R3Z2JnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDc2NTg4MDAsImV4cCI6MjA2MzIzNDgwMH0.bxWvfnWHTLRcXL7UbKKBljxX4Qe8bYgSE4r0FJNHjxk";
+const APP_URL = import.meta.env.VITE_APP_URL?.replace(/\/+$/, "");
 const PENDING_ROUTE_KEY = "nexal.auth.redirect";
 const AUTH_CALLBACK_PATH = "/auth/callback";
 
@@ -95,10 +96,17 @@ function consumePostAuthUrl(fallbackToHome = false): string | null {
 	const saved = localStorage.getItem(PENDING_ROUTE_KEY);
 	localStorage.removeItem(PENDING_ROUTE_KEY);
 	if (!saved && !fallbackToHome) return null;
-	const url = new URL(window.location.origin);
+	const url = new URL(APP_URL || window.location.origin);
 	url.pathname = "/";
 	url.hash = saved || "#/";
 	return url.toString();
+}
+
+function getAuthRedirectUrl() {
+	if (typeof window === "undefined" && !APP_URL) {
+		return `http://localhost:5173${AUTH_CALLBACK_PATH}`;
+	}
+	return `${APP_URL || window.location.origin}${AUTH_CALLBACK_PATH}`;
 }
 
 function redirectAfterAuth(fallbackToHome = false) {
@@ -123,7 +131,8 @@ function stripAuthQueryParams() {
 
 function formatAuthError(message: string): string {
 	if (message.includes("PKCE code verifier not found in storage")) {
-		return "Login session expired or was started from a different host. Start again from http://localhost:5173 and keep the whole flow in the same browser tab.";
+		const origin = APP_URL || (typeof window !== "undefined" ? window.location.origin : "the same site");
+		return `Login session expired or was started from a different host. Start again from ${origin} and keep the whole flow in the same browser tab.`;
 	}
 	return message;
 }
@@ -183,7 +192,7 @@ export async function signInWithProvider(
 	const { error } = await (supabase.auth as any).signInWithOAuth({
 		provider,
 		options: {
-			redirectTo: `${window.location.origin}${AUTH_CALLBACK_PATH}`,
+			redirectTo: getAuthRedirectUrl(),
 		},
 	});
 	if (error) return { error: formatAuthError(error.message) };

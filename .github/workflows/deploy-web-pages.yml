@@ -26,6 +26,7 @@ jobs:
     env:
       GITHUB_PAGES: "true"
       PAGES_BASE_PATH: "/"
+      VITE_APP_URL: "https://nexal.nokiy.net"
     steps:
       - uses: actions/checkout@v4
 
