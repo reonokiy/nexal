@@ -2,7 +2,7 @@
  * CommandRegistry — shared slash-command registry.
  *
  * Channels parse commands according to their own protocol (Telegram bot
- * commands, WS/TUI text prefix, HTTP body field) and call
+ * commands, WS text prefix, HTTP body field) and call
  * `registry.execute()` with a unified `CommandContext`.
  *
  * Commands are registered once at startup; the registry is passed to

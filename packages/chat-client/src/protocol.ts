@@ -6,7 +6,7 @@
  *
  * Used by:
  *   - server: `src/channels/ws.ts` (re-exports through `ws-protocol.ts`)
- *   - clients: TUI (`src/tui.ts`) and web frontend
+ *   - clients: web frontend
  */
 
 // ── Client → Server ────────────────────────────────────────────────

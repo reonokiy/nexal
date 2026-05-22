@@ -1,7 +1,7 @@
 {
   "name": "@nexal/chat-client",
   "version": "0.1.0",
-  "description": "Shared WebSocket chat-client for nexal (TUI + web)",
+  "description": "Shared WebSocket chat-client for nexal web frontend",
   "type": "module",
   "private": true,
   "main": "./src/index.ts",

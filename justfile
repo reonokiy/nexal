@@ -40,7 +40,3 @@ compile: agent gateway
 # Typecheck Bun frontend.
 typecheck:
     bun run typecheck
-
-# Run the TUI client.
-tui:
-    bun run src/tui.ts

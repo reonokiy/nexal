@@ -24,7 +24,6 @@
     "@anthropic-ai/sdk": "^0.90.0",
     "@mariozechner/pi-agent-core": "^0.67.1",
     "@mariozechner/pi-ai": "^0.67.1",
-    "@mariozechner/pi-tui": "^0.67.3",
     "@nexal/chat-client": "workspace:*",
     "chalk": "^5.6.0",
     "consola": "^3.4.2",
