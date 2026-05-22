@@ -253,6 +253,20 @@ async function launchGateway(): Promise<{
 	throw new Error("nexal-gateway did not start within 10s");
 }
 
+async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	try {
+		return await Promise.race([
+			promise,
+			new Promise<T>((_, reject) => {
+				timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+			}),
+		]);
+	} finally {
+		if (timer) clearTimeout(timer);
+	}
+}
+
 async function main(): Promise<void> {
 	const cfg = await loadConfig();
 	// Open the shared Postgres connection and apply migrations before
@@ -316,7 +330,7 @@ async function main(): Promise<void> {
 	};
 	let gateway = new GatewayClient(gwOpts);
 	try {
-		await gateway.hello();
+		await withTimeout(gateway.hello(), 5_000, "gateway hello");
 		log.info(`connected to gateway at ${gatewayUnix ? gatewayUnix : gatewayUrl}`);
 	} catch (err) {
 		log.warn(`gateway hello failed — sandbox workers unavailable: ${err instanceof Error ? err.message : err}`);
