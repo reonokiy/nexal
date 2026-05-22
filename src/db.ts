@@ -5,19 +5,17 @@
  * is now mandatory.
  *
  * The connection string comes from `cfg.workers.url` (set via
- * `setDbUrl`) or `DATABASE_URL`. Missing → hard error (no silent
- * embedded fallback anymore).
+ * `setDbUrl`) or `DATABASE_URL`. Missing → hard error.
  *
  * Schema is owned by drizzle-kit migrations in `drizzle/`; `runMigrations`
- * applies them once at startup (dev reads `./drizzle`, the compiled
- * single-binary reads migrations extracted from embedded assets).
+ * applies them once at startup by reading from the on-disk `./drizzle`
+ * folder.
  */
 import { drizzle } from "drizzle-orm/bun-sql";
 import { migrate } from "drizzle-orm/bun-sql/migrator";
 import { join } from "node:path";
 
 import * as schema from "./schema.ts";
-import { isCompiled, extractMigrations } from "./embedded.ts";
 import { createLog } from "./log.ts";
 
 const log = createLog("db");
@@ -60,12 +58,7 @@ export function getDb() {
 export async function runMigrations(): Promise<void> {
 	if (_migrated) return;
 	const db = getDb();
-	const folder = isCompiled
-		? await extractMigrations()
-		: join(import.meta.dir, "..", "drizzle");
-	if (!folder) {
-		throw new Error("migrations folder unavailable (compiled build missing embedded migrations)");
-	}
+	const folder = join(import.meta.dir, "..", "drizzle");
 	await migrate(db, { migrationsFolder: folder });
 	_migrated = true;
 	log.success("database migrations applied");

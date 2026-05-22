@@ -29,17 +29,10 @@ jobs:
       - name: Build Rust binaries
         run: cargo build --release
 
-      - name: Build compiled nexal binary
-        run: bun build --compile src/compile-entry.ts --outfile dist/nexal
-
       - name: Package release assets
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           mkdir -p release
-
-          # nexal (single compiled binary)
-          tar -czf "release/nexal-${VERSION}-linux-x64.tar.gz" \
-            -C dist nexal
 
           # nexal-gateway
           tar -czf "release/nexal-gateway-${VERSION}-linux-x64.tar.gz" \

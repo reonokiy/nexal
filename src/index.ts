@@ -2,10 +2,6 @@
  * nexal entry — load config, connect to nexal-gateway, start channels,
  * wire them into the AgentPool.
  */
-import { spawn, type Subprocess } from "bun";
-import { existsSync } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
 import type { AgentTool } from "@mariozechner/pi-agent-core";
 import { log } from "./log.ts";
 import { getModel } from "@mariozechner/pi-ai";
@@ -25,14 +21,8 @@ import { setDbUrl, runMigrations, closeDb } from "./db.ts";
 import { createWorkerStore } from "./workers/store.ts";
 import { createTapeStore } from "./tape/store.ts";
 import { createFileStore } from "./tape/file-store.ts";
-import {
-	isCompiled,
-	COORDINATOR_PROMPT,
-	EXECUTOR_PROMPT,
-	embeddedGatewayPath,
-	embeddedAgentPath,
-	extractEmbeddedBinaries,
-} from "./embedded.ts";
+import COORDINATOR_PROMPT from "./prompts/coordinator.md" with { type: "text" };
+import EXECUTOR_PROMPT from "./prompts/executor.md" with { type: "text" };
 
 const DEFAULT_COORDINATOR_PROMPT = COORDINATOR_PROMPT;
 const DEFAULT_EXECUTOR_PROMPT = EXECUTOR_PROMPT;
@@ -170,89 +160,6 @@ export function apiKeyEnvKey(provider: string): string | null {
 	}
 }
 
-// ── Embedded gateway for local dev ──────────────────────────────────
-
-async function launchGateway(): Promise<{
-	url: string;
-	accessKey: string;
-	secretKey: string;
-	proc: Subprocess;
-}> {
-	const accessKey = crypto.randomUUID();
-	const secretKey = crypto.randomUUID();
-	const url = "https://127.0.0.1:15500";
-	const proxyUrl = "http://127.0.0.1:15501";
-
-	// Resolve binary paths: compiled mode uses extracted embedded binaries,
-	// dev mode reads from target/release/.
-	let gatewayBin: string;
-	let agentBin: string | null;
-
-	if (isCompiled) {
-		const extracted = await extractEmbeddedBinaries();
-		if (!extracted.gatewayBin) {
-			throw new Error("nexal-gateway was not embedded in this binary — rebuild with `just compile`");
-		}
-		gatewayBin = extracted.gatewayBin;
-		agentBin = extracted.agentBin;
-	} else {
-		const projectRoot = join(import.meta.dir, "..");
-		gatewayBin = join(projectRoot, "target/release/nexal-gateway");
-		agentBin = join(projectRoot, "target/release/nexal-agent");
-		if (!existsSync(gatewayBin)) {
-			throw new Error(
-				`nexal-gateway binary not found at ${gatewayBin} — run 'cargo build --release -p nexal-gateway' first`,
-			);
-		}
-		if (!existsSync(agentBin)) agentBin = null;
-	}
-
-	log.info(`no gateway credentials configured, auto-starting embedded gateway from ${gatewayBin}`);
-
-	// Kill any stale gateway from a previous run (e.g. bun --watch restart).
-	try {
-		const stale = Bun.spawnSync(["lsof", "-ti", ":15500"]);
-		for (const pid of stale.stdout.toString().trim().split("\n").filter(Boolean)) {
-			process.kill(Number(pid), "SIGTERM");
-		}
-	} catch { /* ok */ }
-
-	const proc = spawn({
-		cmd: [
-			gatewayBin,
-			"--listen", "127.0.0.1:15500",
-			"--proxy-listen", "127.0.0.1:15501",
-			...(agentBin ? ["--agent-bin", agentBin] : []),
-		],
-		stdout: "inherit",
-		stderr: "inherit",
-		env: {
-			...process.env,
-			NEXAL_LOG: process.env.NEXAL_LOG ?? "info",
-			NEXAL_GATEWAY_ACCESS_KEY: accessKey,
-			NEXAL_GATEWAY_SECRET_KEY: secretKey,
-		},
-	});
-
-	// Poll the plain-HTTP proxy port — it comes up alongside the WebTransport
-	// listener and any TCP response (even 404) means the gateway is ready.
-	const deadline = Date.now() + 10_000;
-	while (Date.now() < deadline) {
-		try {
-			const ctrl = new AbortController();
-			const t = setTimeout(() => ctrl.abort(), 800);
-			await fetch(proxyUrl, { signal: ctrl.signal });
-			clearTimeout(t);
-			log.success(`embedded gateway ready at ${url}`);
-			return { url, accessKey, secretKey, proc };
-		} catch {
-			await new Promise((r) => setTimeout(r, 300));
-		}
-	}
-	proc.kill("SIGTERM");
-	throw new Error("nexal-gateway did not start within 10s");
-}
-
 async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	try {
@@ -270,8 +177,8 @@ async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): P
 async function main(): Promise<void> {
 	const cfg = await loadConfig();
 	// Open the shared Postgres connection and apply migrations before
-	// anything reads the DB. No embedded fallback — fail fast with a
-	// clear message if no Postgres URL is configured.
+	// anything reads the DB. Fail fast with a clear message if no
+	// Postgres URL is configured.
 	setDbUrl(cfg.workers.url);
 	try {
 		await runMigrations();
@@ -304,19 +211,17 @@ async function main(): Promise<void> {
 	const executorPrompt =
 		process.env.NEXAL_EXECUTOR_SYSTEM_PROMPT ?? DEFAULT_EXECUTOR_PROMPT;
 
-	let gatewayUrl = process.env.NEXAL_GATEWAY_URL ?? cfg.gateway.url;
-	let gatewayUnix: string | undefined = process.env.NEXAL_GATEWAY_UNIX ?? (cfg.gateway as any).unix;
-	let gatewayAccessKey = process.env.NEXAL_GATEWAY_ACCESS_KEY ?? cfg.gateway.accessKey;
-	let gatewaySecretKey = process.env.NEXAL_GATEWAY_SECRET_KEY ?? cfg.gateway.secretKey;
-	let gatewayProc: Subprocess | null = null;
+	const gatewayUrl = process.env.NEXAL_GATEWAY_URL ?? cfg.gateway.url;
+	const gatewayUnix: string | undefined = process.env.NEXAL_GATEWAY_UNIX ?? (cfg.gateway as any).unix;
+	const gatewayAccessKey = process.env.NEXAL_GATEWAY_ACCESS_KEY ?? cfg.gateway.accessKey;
+	const gatewaySecretKey = process.env.NEXAL_GATEWAY_SECRET_KEY ?? cfg.gateway.secretKey;
 
 	if (!gatewayAccessKey || !gatewaySecretKey) {
-		// Auto-start an embedded gateway for local dev.
-		const launched = await launchGateway();
-		gatewayUrl = launched.url;
-		gatewayAccessKey = launched.accessKey;
-		gatewaySecretKey = launched.secretKey;
-		gatewayProc = launched.proc;
+		log.warn(
+			"no gateway credentials configured — sandbox workers will be unavailable. " +
+				"Start nexal-gateway manually and set NEXAL_GATEWAY_URL / NEXAL_GATEWAY_ACCESS_KEY / " +
+				"NEXAL_GATEWAY_SECRET_KEY (or the equivalent [gateway] entries in ~/.nexal/config.toml).",
+		);
 	}
 
 	// ── Gateway connection (best-effort, does not block startup) ──────
@@ -468,10 +373,6 @@ async function main(): Promise<void> {
 		await manager.stopAll();
 		await gateway.releaseAllAgents();
 		await closeDb().catch(() => undefined);
-		if (gatewayProc) {
-			gatewayProc.kill("SIGTERM");
-			log.info("stopped embedded gateway");
-		}
 		process.exit(0);
 	};
 	process.on("SIGINT", () => void shutdown("SIGINT"));
