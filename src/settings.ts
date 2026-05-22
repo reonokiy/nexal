@@ -12,7 +12,7 @@
  */
 import { eq, like, sql } from "drizzle-orm";
 
-import { getDb } from "./db.ts";
+import { closeDb, getDb } from "./db.ts";
 import { settings } from "./schema.ts";
 
 let ensuredSettingsTable = false;
@@ -22,6 +22,13 @@ function isMissingSettingsTableError(err: unknown): boolean {
 	return (
 		message.includes('relation "settings" does not exist') ||
 		message.includes('no such table: settings')
+	);
+}
+
+function isRecoverableConnectionError(err: unknown): boolean {
+	const message = err instanceof Error ? err.message : String(err);
+	return (
+		message.includes("prepared statement") && message.includes("does not exist")
 	);
 }
 
@@ -40,9 +47,17 @@ async function withSettingsTableRecovery<T>(fn: () => Promise<T>): Promise<T> {
 	try {
 		return await fn();
 	} catch (err) {
-		if (!isMissingSettingsTableError(err)) throw err;
-		await ensureSettingsTable();
-		return await fn();
+		if (isMissingSettingsTableError(err)) {
+			await ensureSettingsTable();
+			return await fn();
+		}
+		if (isRecoverableConnectionError(err)) {
+			// Bun SQL can surface stale prepared-statement state after a
+			// connection reset. Rebuild the shared pool and retry once.
+			await closeDb().catch(() => undefined);
+			return await fn();
+		}
+		throw err;
 	}
 }
 
