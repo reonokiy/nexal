@@ -5,10 +5,10 @@
  *   - Default: Unix domain socket at `~/.nexal/nexal.sock` (local dev)
  *   - Fallback: TCP on configurable host:port
  *
- * Wire protocol: see `ws-protocol.ts` for typed frame definitions.
+ * Wire protocol: canonical types live in `@nexal/chat-client`.
  *
  * The `fetch` handler also accepts `POST /send` for curl debugging,
- * same schema as the WsSendFrame.
+ * same schema as the SendFrame.
  */
 import { mkdirSync, unlinkSync } from "node:fs";
 import { dirname } from "node:path";
@@ -25,17 +25,24 @@ import { waitUntilStopped } from "./types.ts";
 import type { CommandRegistry } from "../commands/registry.ts";
 import { registerChannel } from "./factory.ts";
 import type {
-	WsClientFrame,
-	WsSendFrame,
-	WsCommandFrame,
-	WsReplyFrame,
-	WsTypingFrame,
-	WsCommandResultFrame,
-	WsReplyChunkFrame,
-	WsReplyEndFrame,
-} from "./ws-protocol.ts";
+	ClientFrame,
+	SendFrame,
+	CommandFrame,
+	ReplyFrame,
+	TypingFrame,
+	CommandResultFrame,
+	ListCommandsResultFrame,
+	ReplyChunkFrame,
+	ReplyEndFrame,
+	ImageBlock,
+} from "@nexal/chat-client";
+import { ClientFrameType, ServerFrameType } from "@nexal/chat-client";
+import { encodeFrame, decodeFrame } from "@nexal/chat-client";
 
 const log = createLog("ws");
+
+const DEFAULT_CHAT_ID = "default";
+const DEFAULT_SENDER = "ws-user";
 
 type BunServer = ReturnType<typeof Bun.serve>;
 
@@ -99,7 +106,7 @@ export class WsChannel implements Channel {
 
 				// WebSocket upgrade — any GET request.
 				if (req.method === "GET" && req.headers.get("upgrade") === "websocket") {
-					if (server.upgrade(req, { data: { chatId: "default", authed: false } as WsData })) {
+					if (server.upgrade(req, { data: { chatId: DEFAULT_CHAT_ID, authed: false } as WsData })) {
 						return undefined as unknown as Response;
 					}
 					return new Response("WebSocket upgrade failed", { status: 500 });
@@ -114,8 +121,8 @@ export class WsChannel implements Channel {
 							text?: string;
 						};
 						self.fireIncoming(
-							body.chat_id ?? "default",
-							body.sender ?? "ws-user",
+							body.chat_id ?? DEFAULT_CHAT_ID,
+							body.sender ?? DEFAULT_SENDER,
 							body.text ?? "",
 						);
 						return Response.json({ ok: true });
@@ -134,20 +141,19 @@ export class WsChannel implements Channel {
 					ws: import("bun").ServerWebSocket<WsData>,
 					raw: string | Buffer,
 				) {
-					const text = typeof raw === "string" ? raw : raw.toString("utf-8");
-					let frame: WsClientFrame & { type: string; token?: string };
+					let frame: ClientFrame & { token?: string };
 					try {
-						frame = JSON.parse(text);
+						frame = decodeFrame(raw) as ClientFrame & { token?: string };
 					} catch {
 						return;
 					}
 
 					// Auth enforcement: first frame must be "auth" if auth is enabled.
 					if (isAuthEnabled() && !ws.data.authed) {
-						if (frame.type !== "auth" || !frame.token) {
+						if (frame.type !== ClientFrameType.Auth || !frame.token) {
 							ws.send(
-								JSON.stringify({
-									type: "auth_error",
+								encodeFrame({
+									type: ServerFrameType.AuthError,
 									error: "authentication required — send auth frame first",
 								}),
 							);
@@ -159,16 +165,16 @@ export class WsChannel implements Channel {
 								ws.data.authed = true;
 								ws.data.userId = user.sub;
 								ws.send(
-									JSON.stringify({
-										type: "auth_ok",
+									encodeFrame({
+										type: ServerFrameType.AuthOk,
 										user_id: user.sub,
 										email: user.email,
 									}),
 								);
 							} else {
 								ws.send(
-									JSON.stringify({
-										type: "auth_error",
+									encodeFrame({
+										type: ServerFrameType.AuthError,
 										error: "invalid or expired token",
 									}),
 								);
@@ -178,30 +184,35 @@ export class WsChannel implements Channel {
 						return;
 					}
 
-					// At this point frame is SendFrame | CommandFrame (not auth).
-					const f = frame as WsSendFrame | WsCommandFrame;
-					const chatId = f.chat_id ?? "default";
+					// At this point frame is SendFrame | CommandFrame | ListCommandsFrame.
+					if (frame.type === ClientFrameType.ListCommands) {
+						self.handleListCommands(ws);
+						return;
+					}
+
+					const f = frame as SendFrame | CommandFrame;
+					const chatId = f.chat_id ?? DEFAULT_CHAT_ID;
 					if (chatId !== ws.data.chatId) {
 						self.removeClient(ws.data.chatId, ws);
 						ws.data.chatId = chatId;
 						self.addClient(chatId, ws);
 					}
 
-					if (f.type === "command") {
+					if (f.type === ClientFrameType.Command) {
 						self.handleCommand(
 							ws,
 							chatId,
-							f.sender ?? "ws-user",
-							f.name!,
+							f.sender ?? DEFAULT_SENDER,
+							f.name,
 							f.args ?? [],
 						);
 						return;
 					}
 
-					if (f.type === "send") {
+					if (f.type === ClientFrameType.Send) {
 						self.fireIncoming(
 							chatId,
-							f.sender ?? "ws-user",
+							f.sender ?? DEFAULT_SENDER,
 							f.text ?? "",
 							f.images,
 						);
@@ -227,52 +238,52 @@ export class WsChannel implements Channel {
 	async send(reply: OutgoingReply): Promise<void> {
 		const set = this.clients.get(reply.chatId);
 		if (!set || set.size === 0) return;
-		const frame: WsReplyFrame = {
-			type: "reply",
+		const frame: ReplyFrame = {
+			type: ServerFrameType.Reply,
 			chat_id: reply.chatId,
 			text: reply.text,
-			...(reply.metadata ? { metadata: reply.metadata as WsReplyFrame["metadata"] } : {}),
+			...(reply.metadata ? { metadata: reply.metadata as ReplyFrame["metadata"] } : {}),
 		};
-		const json = JSON.stringify(frame);
+		const bin = encodeFrame(frame);
 		for (const ws of set) {
-			ws.send(json);
+			ws.send(bin);
 		}
 	}
 
 	sendChunk(chatId: string, messageId: string, delta: string): void {
 		const set = this.clients.get(chatId);
 		if (!set || set.size === 0) return;
-		const frame: WsReplyChunkFrame = {
-			type: "reply_chunk",
+		const frame: ReplyChunkFrame = {
+			type: ServerFrameType.ReplyChunk,
 			chat_id: chatId,
 			message_id: messageId,
 			delta,
 		};
-		const json = JSON.stringify(frame);
-		for (const ws of set) ws.send(json);
+		const bin = encodeFrame(frame);
+		for (const ws of set) ws.send(bin);
 	}
 
 	sendEnd(chatId: string, messageId: string): void {
 		const set = this.clients.get(chatId);
 		if (!set || set.size === 0) return;
-		const frame: WsReplyEndFrame = {
-			type: "reply_end",
+		const frame: ReplyEndFrame = {
+			type: ServerFrameType.ReplyEnd,
 			chat_id: chatId,
 			message_id: messageId,
 		};
-		const json = JSON.stringify(frame);
-		for (const ws of set) ws.send(json);
+		const bin = encodeFrame(frame);
+		for (const ws of set) ws.send(bin);
 	}
 
 	startTyping(chatId: string): TypingHandle | null {
 		const set = this.clients.get(chatId);
 		if (!set || set.size === 0) return null;
-		const frame: WsTypingFrame = { type: "typing", chat_id: chatId };
-		const json = JSON.stringify(frame);
+		const frame: TypingFrame = { type: ServerFrameType.Typing, chat_id: chatId };
+		const bin = encodeFrame(frame);
 		const send = () => {
 			const current = this.clients.get(chatId);
 			if (!current) return;
-			for (const ws of current) ws.send(json);
+			for (const ws of current) ws.send(bin);
 		};
 		send();
 		const timer = setInterval(send, 4_000);
@@ -316,9 +327,9 @@ export class WsChannel implements Channel {
 
 	private sendCommandResult(
 		ws: import("bun").ServerWebSocket<WsData>,
-		frame: WsCommandResultFrame,
+		frame: CommandResultFrame,
 	): void {
-		ws.send(JSON.stringify(frame));
+		ws.send(encodeFrame(frame));
 	}
 
 	private handleCommand(
@@ -331,7 +342,7 @@ export class WsChannel implements Channel {
 		const cmds = this.config.commands;
 		if (!cmds || !cmds.has(name)) {
 			this.sendCommandResult(ws, {
-				type: "command_result",
+				type: ServerFrameType.CommandResult,
 				chat_id: chatId,
 				name,
 				error: `unknown command: /${name}`,
@@ -342,7 +353,7 @@ export class WsChannel implements Channel {
 			.execute(name, { channel: "ws", chatId, sender }, args)
 			.then((result) => {
 				this.sendCommandResult(ws, {
-					type: "command_result",
+					type: ServerFrameType.CommandResult,
 					chat_id: chatId,
 					name,
 					text: result?.text ?? "",
@@ -352,7 +363,7 @@ export class WsChannel implements Channel {
 			.catch((err) => {
 				log.error(`command /${name} failed`, err);
 				this.sendCommandResult(ws, {
-					type: "command_result",
+					type: ServerFrameType.CommandResult,
 					chat_id: chatId,
 					name,
 					error: err instanceof Error ? err.message : String(err),
@@ -360,11 +371,25 @@ export class WsChannel implements Channel {
 			});
 	}
 
+	private handleListCommands(
+		ws: import("bun").ServerWebSocket<WsData>,
+	): void {
+		const cmds = this.config.commands;
+		const commands = cmds
+			? cmds.list().map((c) => ({ name: c.name, description: c.description }))
+			: [];
+		const frame: ListCommandsResultFrame = {
+			type: ServerFrameType.ListCommandsResult,
+			commands,
+		};
+		ws.send(encodeFrame(frame));
+	}
+
 	private fireIncoming(
 		chatId: string,
 		sender: string,
 		text: string,
-		images?: { data: string; mimeType: string }[],
+		images?: ImageBlock[],
 	): void {
 		this.onMessage?.({
 			channel: "ws",

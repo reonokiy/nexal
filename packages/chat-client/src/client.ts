@@ -15,7 +15,20 @@ import type {
 	ImageBlock,
 	ReplyMetadata,
 	ServerFrame,
+	CommandInfo,
 } from "./protocol";
+import { ClientFrameType, ServerFrameType } from "./protocol";
+import { encodeFrame, decodeFrame } from "./codec";
+
+// ── Constants ──────────────────────────────────────────────────────
+
+const DEFAULT_CHAT_ID = "default";
+const DEFAULT_SENDER = "client";
+const DEFAULT_RECONNECT_DELAY_MS = 2_000;
+
+const WS_STATE_OPEN = 1;
+
+// ── Types ──────────────────────────────────────────────────────────
 
 export type Status = "idle" | "connecting" | "open" | "closed";
 
@@ -51,6 +64,14 @@ export type ChatEvent =
 
 export type ChatListener = (event: ChatEvent) => void;
 
+// ── Handler map for server frames ──────────────────────────────────
+
+type FrameHandler = (frame: ServerFrame) => void;
+
+const NOOP_HANDLER: FrameHandler = () => {};
+
+// ── Client ─────────────────────────────────────────────────────────
+
 export class NexalChatClient {
 	private ws: WebSocket | null = null;
 	private statusValue: Status = "idle";
@@ -63,12 +84,17 @@ export class NexalChatClient {
 	private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 	private authToken: string | undefined;
 	private authOk = false;
+	private pendingListCommands: {
+		resolve: (cmds: CommandInfo[]) => void;
+		reject: (err: Error) => void;
+		timer: ReturnType<typeof setTimeout>;
+	} | null = null;
 
 	constructor(opts: NexalChatClientOptions) {
 		this.urlValue = opts.url;
-		this.chatId = opts.chatId ?? "default";
-		this.sender = opts.sender ?? "client";
-		this.reconnectDelayMs = opts.reconnectDelayMs ?? 2000;
+		this.chatId = opts.chatId ?? DEFAULT_CHAT_ID;
+		this.sender = opts.sender ?? DEFAULT_SENDER;
+		this.reconnectDelayMs = opts.reconnectDelayMs ?? DEFAULT_RECONNECT_DELAY_MS;
 		this.authToken = opts.authToken;
 	}
 
@@ -90,7 +116,7 @@ export class NexalChatClient {
 
 	set token(v: string | undefined) {
 		this.authToken = v;
-		if (v && this.ws?.readyState === 1 /* OPEN */ && !this.authOk) {
+		if (v && this.ws?.readyState === WS_STATE_OPEN && !this.authOk) {
 			this.sendAuth();
 		}
 	}
@@ -116,6 +142,7 @@ export class NexalChatClient {
 			return;
 		}
 		this.ws = socket;
+		socket.binaryType = "arraybuffer";
 
 		socket.onopen = () => {
 			if (this.ws !== socket) return;
@@ -152,7 +179,7 @@ export class NexalChatClient {
 		opts?: { chatId?: string; sender?: string },
 	): boolean {
 		return this.sendFrame({
-			type: "send",
+			type: ClientFrameType.Send,
 			chat_id: opts?.chatId ?? this.chatId,
 			sender: opts?.sender ?? this.sender,
 			text,
@@ -166,7 +193,7 @@ export class NexalChatClient {
 		opts?: { chatId?: string; sender?: string },
 	): boolean {
 		return this.sendFrame({
-			type: "command",
+			type: ClientFrameType.Command,
 			chat_id: opts?.chatId ?? this.chatId,
 			sender: opts?.sender ?? this.sender,
 			name,
@@ -174,77 +201,110 @@ export class NexalChatClient {
 		});
 	}
 
+	/**
+	 * Request the list of available commands from the server.
+	 * Returns a promise that resolves with the command metadata.
+	 */
+	listCommands(timeoutMs = 5_000): Promise<CommandInfo[]> {
+		return new Promise((resolve, reject) => {
+			if (!this.ws || this.ws.readyState !== WS_STATE_OPEN) {
+				reject(new Error("not connected"));
+				return;
+			}
+			if (!this.authOk) {
+				reject(new Error("not authenticated"));
+				return;
+			}
+			// Reject any existing pending request before creating a new one.
+			if (this.pendingListCommands) {
+				clearTimeout(this.pendingListCommands.timer);
+				this.pendingListCommands.reject(new Error("superseded by new listCommands call"));
+				this.pendingListCommands = null;
+			}
+			const timer = setTimeout(() => {
+				this.pendingListCommands = null;
+				reject(new Error("list_commands timed out"));
+			}, timeoutMs);
+			this.pendingListCommands = { resolve, reject, timer };
+			this.ws.send(encodeFrame({ type: ClientFrameType.ListCommands }));
+		});
+	}
+
 	private sendFrame(frame: ClientFrame): boolean {
-		if (!this.ws || this.ws.readyState !== 1 /* OPEN */) return false;
-		if (!this.authOk && frame.type !== "auth") {
-			// Queue instead of dropping? For simplicity, drop non-auth frames before auth.
+		if (!this.ws || this.ws.readyState !== WS_STATE_OPEN) return false;
+		if (!this.authOk && frame.type !== ClientFrameType.Auth) {
 			return false;
 		}
-		this.ws.send(JSON.stringify(frame));
+		this.ws.send(encodeFrame(frame));
 		return true;
 	}
 
 	private sendAuth(): void {
 		if (!this.authToken || this.authOk) return;
-		this.sendFrame({ type: "auth", token: this.authToken });
+		this.sendFrame({ type: ClientFrameType.Auth, token: this.authToken });
 	}
 
 	private dispatch(raw: unknown): void {
-		const text =
-			typeof raw === "string"
-				? raw
-				: raw instanceof ArrayBuffer
-				  ? new TextDecoder().decode(raw)
-				  : (raw as { toString(): string }).toString();
 		let frame: ServerFrame;
 		try {
-			frame = JSON.parse(text);
+			frame = decodeFrame(raw) as ServerFrame;
 		} catch {
 			return;
 		}
-		switch (frame.type) {
-			case "auth_ok":
-				this.authOk = true;
-				this.emit({
-					type: "auth_ok",
-					userId: frame.user_id,
-					email: frame.email,
-				});
-				return;
-			case "auth_error":
-				this.emit({ type: "auth_error", error: frame.error });
-				return;
-			case "reply":
-				this.emit({
-					type: "reply",
-					text: frame.text,
-					metadata: frame.metadata,
-				});
-				return;
-			case "reply_chunk":
-				this.emit({
-					type: "reply_chunk",
-					messageId: frame.message_id,
-					delta: frame.delta,
-				});
-				return;
-			case "reply_end":
-				this.emit({ type: "reply_end", messageId: frame.message_id });
-				return;
-			case "typing":
-				this.emit({ type: "typing" });
-				return;
-			case "command_result":
-				this.emit({
-					type: "command_result",
-					name: frame.name,
-					text: frame.text,
-					error: frame.error,
-					data: frame.data,
-				});
-				return;
-		}
+
+		const handler = this.frameHandlers[frame.type] ?? NOOP_HANDLER;
+		handler(frame);
 	}
+
+	private readonly frameHandlers: Record<ServerFrameType, FrameHandler> = {
+		[ServerFrameType.AuthOk]: (frame) => {
+			const f = frame as Extract<ServerFrame, { type: typeof ServerFrameType.AuthOk }>;
+			this.authOk = true;
+			this.emit({ type: "auth_ok", userId: f.user_id, email: f.email });
+		},
+		[ServerFrameType.AuthError]: (frame) => {
+			const f = frame as Extract<ServerFrame, { type: typeof ServerFrameType.AuthError }>;
+			this.emit({ type: "auth_error", error: f.error });
+		},
+		[ServerFrameType.Reply]: (frame) => {
+			const f = frame as Extract<ServerFrame, { type: typeof ServerFrameType.Reply }>;
+			this.emit({ type: "reply", text: f.text, metadata: f.metadata });
+		},
+		[ServerFrameType.ReplyChunk]: (frame) => {
+			const f = frame as Extract<ServerFrame, { type: typeof ServerFrameType.ReplyChunk }>;
+			this.emit({
+				type: "reply_chunk",
+				messageId: f.message_id,
+				delta: f.delta,
+			});
+		},
+		[ServerFrameType.ReplyEnd]: (frame) => {
+			const f = frame as Extract<ServerFrame, { type: typeof ServerFrameType.ReplyEnd }>;
+			this.emit({ type: "reply_end", messageId: f.message_id });
+		},
+		[ServerFrameType.Typing]: () => {
+			this.emit({ type: "typing" });
+		},
+		[ServerFrameType.CommandResult]: (frame) => {
+			const f = frame as Extract<ServerFrame, { type: typeof ServerFrameType.CommandResult }>;
+			this.emit({
+				type: "command_result",
+				name: f.name,
+				text: f.text,
+				error: f.error,
+				data: f.data,
+			});
+		},
+		[ServerFrameType.ListCommandsResult]: (frame) => {
+			const f = frame as Extract<ServerFrame, { type: typeof ServerFrameType.ListCommandsResult }>;
+			if (this.pendingListCommands) {
+				const { resolve, timer } = this.pendingListCommands;
+				this.pendingListCommands = null;
+				clearTimeout(timer);
+				resolve(f.commands);
+			}
+		},
+	};
 
 	private emit(ev: ChatEvent): void {
 		for (const l of this.listeners) {
@@ -258,6 +318,11 @@ export class NexalChatClient {
 
 	private closeSocket(): void {
 		this.authOk = false;
+		if (this.pendingListCommands) {
+			clearTimeout(this.pendingListCommands.timer);
+			this.pendingListCommands.reject(new Error("disconnected"));
+			this.pendingListCommands = null;
+		}
 		if (this.ws) {
 			try {
 				this.ws.close();

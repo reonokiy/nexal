@@ -4,7 +4,7 @@
  * file only translates the client's events into runes-backed state
  * (messages, status, typing) consumed by the UI.
  */
-import { NexalChatClient, type Status } from "@nexal/chat-client";
+import { NexalChatClient, type Status, type CommandInfo } from "@nexal/chat-client";
 
 export type Role = "user" | "agent" | "system";
 
@@ -206,6 +206,11 @@ export function createChat(
 		});
 	}
 
+	/** Fetch available commands from the server. */
+	function listCommands(): Promise<CommandInfo[]> {
+		return client.listCommands();
+	}
+
 	return {
 		get url() {
 			return url;
@@ -234,6 +239,7 @@ export function createChat(
 		sendText,
 		runCommand,
 		runCommandAwait,
+		listCommands,
 	};
 }
 

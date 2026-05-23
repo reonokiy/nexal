@@ -15,5 +15,8 @@
       "types": "./src/protocol.ts",
       "import": "./src/protocol.ts"
     }
+  },
+  "dependencies": {
+    "@msgpack/msgpack": "^3.1.1"
   }
 }
