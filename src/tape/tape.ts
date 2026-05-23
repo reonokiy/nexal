@@ -224,29 +224,35 @@ export class Tape {
 	// ── Redaction & Amendment ───────────────────────────────────────
 
 	/**
-	 * Redact an entry — exclude from LLM conversion.
-	 * Original entry preserved in tape, only hidden from model.
+	 * Redact entries — exclude from LLM conversion.
+	 * Original entries preserved in tape, only hidden from model.
 	 */
-	async redact(entryId: number, reason?: string): Promise<void> {
-		await this.append({
-			kind: "redaction",
-			payload: { targetId: entryId, reason, redactedAt: Date.now() },
-			meta: {},
-			date: new Date().toISOString(),
-		});
+	async redact(entryIds: number | number[], reason?: string): Promise<void> {
+		const ids = Array.isArray(entryIds) ? entryIds : [entryIds];
+		for (const id of ids) {
+			await this.append({
+				kind: "redaction",
+				payload: { targetId: id, reason, redactedAt: Date.now() },
+				meta: {},
+				date: new Date().toISOString(),
+			});
+		}
 	}
 
 	/**
-	 * Amend an entry — replace content for LLM conversion.
-	 * Original entry preserved in tape, model sees new content.
+	 * Amend entries — replace content for LLM conversion.
+	 * Original entries preserved in tape, model sees new content.
 	 */
-	async amend(entryId: number, content: unknown, reason?: string): Promise<void> {
-		await this.append({
-			kind: "amendment",
-			payload: { targetId: entryId, content, reason, amendedAt: Date.now() },
-			meta: {},
-			date: new Date().toISOString(),
-		});
+	async amend(entryIds: number | number[], content: unknown, reason?: string): Promise<void> {
+		const ids = Array.isArray(entryIds) ? entryIds : [entryIds];
+		for (const id of ids) {
+			await this.append({
+				kind: "amendment",
+				payload: { targetId: id, content, reason, amendedAt: Date.now() },
+				meta: {},
+				date: new Date().toISOString(),
+			});
+		}
 	}
 
 	// ── Legacy compatibility ────────────────────────────────────────
