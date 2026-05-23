@@ -136,7 +136,7 @@ export class WorkerAgent {
 		try {
 			const entries = await tape.load();
 			if (entries.length > 0) {
-				initialMessages = tape.toLlmMessages(entries) as any;
+				initialMessages = tape.toMessages(entries) as any;
 				this.lastPersistedMsgCount = initialMessages.length;
 				this.log.info(`restored ${initialMessages.length} messages from tape for ${tapeName}`);
 			}

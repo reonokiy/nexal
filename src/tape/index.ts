@@ -7,7 +7,7 @@
  * - TapeSlice: filtered read-only view of a tape
  *
  * Tape is the canonical memory format. Conversion to LLM Message[]
- * happens only at the model boundary via Tape.toLlmMessages().
+ * happens only at the model boundary via Tape.toMessages().
  */
 export { Tape } from "./tape.ts";
 export type { TapeOptions } from "./tape.ts";

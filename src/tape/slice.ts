@@ -30,7 +30,7 @@ import { entriesToLlmMessages, entriesToMessages } from "./convert.ts";
  * const userEntries = await userSlice.entries();
  *
  * // Convert to LLM format
- * const llmMessages = await userSlice.toLlmMessages();
+ * const llmMessages = await userSlice.toMessages();
  * ```
  */
 export class TapeSlice {
@@ -84,7 +84,7 @@ export class TapeSlice {
 	/**
 	 * Convert filtered entries to LLM Message format.
 	 */
-	async toLlmMessages(maxMessages?: number): Promise<Message[]> {
+	async toMessages(maxMessages?: number): Promise<Message[]> {
 		const entries = await this.context(maxMessages);
 		return entriesToLlmMessages(entries);
 	}

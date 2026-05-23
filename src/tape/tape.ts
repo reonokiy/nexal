@@ -5,7 +5,7 @@
  * including conversion to LLM format and context window management.
  *
  * Tape is the canonical memory format. Conversion to LLM Message[]
- * happens only at the model boundary via `toLlmMessages()`.
+ * happens only at the model boundary via `toMessages()`.
  */
 import type { Message } from "@mariozechner/pi-ai";
 import type { TapeStore } from "./store.ts";
@@ -97,7 +97,7 @@ export class Tape {
 	 * Convert entries to LLM Message format.
 	 * If no entries provided, loads from tape.
 	 */
-	toLlmMessages(entries?: TapeEntry[]): Message[] {
+	toMessages(entries?: TapeEntry[]): Message[] {
 		const e = entries ?? [];
 		return entriesToLlmMessages(e);
 	}
@@ -106,9 +106,9 @@ export class Tape {
 	 * Load entries, truncate, and convert to LLM format in one call.
 	 * This is the primary method for model interaction.
 	 */
-	async toLlmContext(maxMessages?: number): Promise<Message[]> {
+	async toContext(maxMessages?: number): Promise<Message[]> {
 		const entries = await this.loadContext(maxMessages);
-		return this.toLlmMessages(entries);
+		return this.toMessages(entries);
 	}
 
 	// ── Legacy compatibility ────────────────────────────────────────

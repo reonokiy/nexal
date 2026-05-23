@@ -196,7 +196,7 @@ export class AgentPool {
 		try {
 			const entries = await tape.load();
 			if (entries.length > 0) {
-				const llmMessages = tape.toLlmMessages(entries);
+				const llmMessages = tape.toMessages(entries);
 				agent.state.messages = llmMessages as any;
 				log.info(`restored ${llmMessages.length} messages from tape for session ${key}`);
 			} else {
