@@ -4,7 +4,7 @@ import type { Channel } from "../channels/types.ts";
 import type { AgentClient } from "../gateway/agent_client.ts";
 import type { GatewayClient } from "../gateway/index.ts";
 import { createMessageSender } from "../messaging/index.ts";
-import type { TapeStore } from "../tape/store.ts";
+import type { TapeStore } from "../tape/index.ts";
 import { fakeRow } from "./test-helpers.ts";
 
 const mockTapeStore: TapeStore = {

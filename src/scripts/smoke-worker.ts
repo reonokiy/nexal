@@ -27,7 +27,7 @@ import { createSendUpdateTool } from "../tools/send_update.ts";
 import { WorkerRegistry } from "../workers/registry.ts";
 import type { WorkerAgent } from "../workers/agent.ts";
 import { createWorkerStore } from "../workers/store.ts";
-import { createTapeStore } from "../tape/store.ts";
+import { createTapeStore } from "../tape/index.ts";
 
 const GATEWAY_URL = process.env.NEXAL_GATEWAY_URL ?? "ws://127.0.0.1:5500";
 const GATEWAY_ACCESS_KEY = process.env.NEXAL_GATEWAY_ACCESS_KEY;

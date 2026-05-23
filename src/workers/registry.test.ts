@@ -2,7 +2,7 @@ import { describe, expect, mock, test } from "bun:test";
 
 import type { GatewayClient } from "../gateway/index.ts";
 import { createMessageSender } from "../messaging/index.ts";
-import type { TapeStore } from "../tape/store.ts";
+import type { TapeStore } from "../tape/index.ts";
 import { WorkerRegistry } from "./registry.ts";
 import { fakeRow } from "./test-helpers.ts";
 import type {

@@ -1,10 +1,9 @@
 /**
  * TapeStore — Postgres-backed append-only tape storage.
  *
- * Ports the SQLAlchemy backend from bub-tapestore-sqlalchemy to
- * Drizzle ORM + Postgres. Every operation is a single transaction
- * where needed (append does read-then-write inside a transaction
- * to allocate monotonic entry_ids safely).
+ * Drizzle ORM + Postgres implementation of the TapeStore interface.
+ * Every operation is a single transaction where needed (append does
+ * read-then-write inside a transaction to allocate monotonic entry_ids).
  *
  * Optional `fileStore`: image blocks whose base64 payload exceeds
  * `maxInlineSize` bytes are off-loaded to the FileStore (S3 or local)
@@ -12,36 +11,13 @@
  * placeholder in the entry payload. On `read`, those placeholders are
  * hydrated back to `{type:"image", data:<base64>, mimeType}` so the
  * caller never has to know the file lives outside the DB.
- *
- * Invariants:
- *   1. History is append-only — entries are never overwritten.
- *   2. Derivatives never replace original facts.
- *   3. Context is constructed, not inherited wholesale.
  */
 import { eq, and, desc, sql } from "drizzle-orm";
 import { createHash } from "node:crypto";
 
 import { getDb } from "../db.ts";
 import * as schema from "./schema.ts";
-import type { TapeEntry, TapeInfo } from "./types.ts";
-import type { FileStore } from "./file-store.ts";
-
-export interface TapeStore {
-	/** Return all tape names ordered alphabetically. */
-	listTapes(): Promise<string[]>;
-	/** Read every entry for a tape, ordered by entry_id. */
-	read(tape: string): Promise<TapeEntry[]>;
-	/** Append one entry to the tail of a tape (allocates entry_id). */
-	append(tape: string, entry: Omit<TapeEntry, "id">): Promise<void>;
-	/** Delete all entries for a tape (hard reset). */
-	reset(tape: string): Promise<void>;
-	/** Runtime summary (entry count, anchors, last anchor, …). */
-	info(tape: string): Promise<TapeInfo>;
-	/** Write a new anchor entry (handoff). */
-	handoff(tape: string, name: string, state?: Record<string, unknown>): Promise<void>;
-	/** Search entries by fuzzy text match in payload (simple LIKE). */
-	search(tape: string, query: string, limit?: number): Promise<TapeEntry[]>;
-}
+import type { TapeEntry, TapeInfo, TapeStore, FileStore } from "@nexal/tape";
 
 export interface TapeStoreOptions {
 	/** Off-load oversized binary blocks to this store. Optional. */
@@ -219,12 +195,10 @@ export function createTapeStore(opts: TapeStoreOptions = {}): TapeStore {
 		if (block.type !== "image") return block;
 		const data = block.data;
 		if (typeof data !== "string") return block;
-		// base64 length × 3/4 ≈ decoded byte size; cheap upper-bound check.
 		if (data.length * 0.75 < threshold) return block;
 		const mimeType = typeof block.mimeType === "string" ? block.mimeType : "application/octet-stream";
 		const bytes = Buffer.from(data, "base64");
 		const ref = await store.upload(bytes, mimeType, "tape-image");
-		// Idempotent insert keyed on fileHash; ignore conflict (already present).
 		await dbConn
 			.insert(tapeFiles)
 			.values({

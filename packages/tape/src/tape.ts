@@ -1,25 +1,21 @@
 /**
  * Tape — high-level wrapper around TapeStore.
  *
- * Provides an object-oriented interface for tape operations,
- * including conversion to LLM format and context window management.
+ * Provides an object-oriented interface for tape operations.
+ * Tape is the canonical memory format — this class only deals
+ * with TapeEntry[], conversion to LLM format happens at the
+ * model boundary on the consumer side.
  *
- * Tape is the canonical memory format. Conversion to LLM Message[]
- * happens only at the model boundary via `toMessages()`.
- *
- * Redactions and amendments are automatically applied when converting
- * to LLM format — redacted entries are excluded, amended entries use
- * their new content. All history is preserved in the tape.
+ * Redactions and amendments are automatically applied when
+ * calling loadContext() — redacted entries are excluded,
+ * amended entries use their new content. All history is
+ * preserved in the tape.
  */
-import type { Message } from "@mariozechner/pi-ai";
 import type { TapeStore } from "./store.ts";
 import type { TapeEntry, TapeInfo, TapeRef, TapeRange } from "./types.ts";
 import { TapeSlice } from "./slice.ts";
-import {
-	entriesToLlmMessages,
-	entriesToMessages,
-	messagesToEntries,
-} from "./convert.ts";
+import { TapeView } from "./tape-view.ts";
+import { applyEdits } from "./apply-edits.ts";
 
 const DEFAULT_MAX_CONTEXT = 200;
 
@@ -37,8 +33,8 @@ export interface TapeOptions {
  * ```typescript
  * const tape = await Tape.load(store, "session:123");
  *
- * // Convert to LLM format (auto-applies redactions/amendments)
- * const messages = await tape.toContext(200);
+ * // Load entries with redactions/amendments applied
+ * const entries = await tape.loadContext(200);
  *
  * // Edit tape
  * await tape.redact(42, { reason: "PII" });
@@ -143,37 +139,23 @@ export class Tape {
 		return this.store.search(this.name, query, limit);
 	}
 
+	/** Return a read-only view with redactions/amendments applied. */
+	view(): TapeView {
+		return new TapeView(this);
+	}
+
 	// ── Context management ──────────────────────────────────────────
 
 	/**
-	 * Load entries and truncate to context window.
+	 * Load entries and apply redactions/amendments, then truncate to
+	 * context window. This is the primary method for consumers.
 	 */
 	async loadContext(maxMessages?: number): Promise<TapeEntry[]> {
 		const entries = await this.load();
+		const cleaned = applyEdits(entries);
 		const limit = maxMessages ?? this.maxContext;
-		if (entries.length <= limit) return entries;
-		return entries.slice(-limit);
-	}
-
-	/**
-	 * Convert entries to LLM Message format.
-	 * Automatically applies redactions and amendments:
-	 * - Redacted entries are excluded
-	 * - Amended entries use new content
-	 */
-	toMessages(entries?: TapeEntry[]): Message[] {
-		const raw = entries ?? [];
-		const cleaned = applyEdits(raw);
-		return entriesToLlmMessages(cleaned);
-	}
-
-	/**
-	 * Load entries, truncate, and convert to LLM format.
-	 * Primary method for model interaction.
-	 */
-	async toContext(maxMessages?: number): Promise<Message[]> {
-		const entries = await this.loadContext(maxMessages);
-		return this.toMessages(entries);
+		if (cleaned.length <= limit) return cleaned;
+		return cleaned.slice(-limit);
 	}
 
 	// ── Cross-tape references ───────────────────────────────────────
@@ -255,18 +237,8 @@ export class Tape {
 	// ── Redaction & Amendment ───────────────────────────────────────
 
 	/**
-	 * Redact entries — exclude from LLM conversion.
-	 * Original entries preserved in tape, only hidden from model.
-	 *
-	 * @param target - Entry id, array of ids, or range { from, to }
-	 * @param reason - Why entries were redacted
-	 *
-	 * @example
-	 * ```typescript
-	 * await tape.redact(42, "PII");
-	 * await tape.redact([42, 43, 44], "PII");
-	 * await tape.redact({ from: 10, to: 20 }, "sensitive data");
-	 * ```
+	 * Redact entries — exclude from loadContext().
+	 * Original entries preserved in tape, only hidden from context.
 	 */
 	async redact(target: number | number[] | TapeRange, reason?: string): Promise<void> {
 		const ids = resolveRange(target);
@@ -281,26 +253,8 @@ export class Tape {
 	}
 
 	/**
-	 * Amend entries — replace with new tape entries for LLM conversion.
-	 * Original entries preserved in tape, model sees replacement content.
-	 *
-	 * @param target - Entry id, array of ids, or range { from, to }
-	 * @param replacement - New tape entries to use instead
-	 * @param reason - Why entries were amended
-	 *
-	 * @example
-	 * ```typescript
-	 * // Replace single entry
-	 * await tape.amend(42, [
-	 *   { kind: "message", payload: { role: "assistant", content: "corrected" }, meta: {}, date: "..." },
-	 * ]);
-	 *
-	 * // Replace range with new conversation
-	 * await tape.amend({ from: 10, to: 20 }, [
-	 *   { kind: "message", payload: { role: "user", content: "fixed question" }, meta: {}, date: "..." },
-	 *   { kind: "message", payload: { role: "assistant", content: "fixed answer" }, meta: {}, date: "..." },
-	 * ], "fix conversation");
-	 * ```
+	 * Amend entries — replace with new tape entries for context.
+	 * Original entries preserved in tape, context sees replacement content.
 	 */
 	async amend(
 		target: number | number[] | TapeRange,
@@ -308,7 +262,6 @@ export class Tape {
 		reason?: string,
 	): Promise<void> {
 		const ids = resolveRange(target);
-		// Store one amendment entry that covers the whole range
 		await this.append({
 			kind: "amendment",
 			payload: {
@@ -320,20 +273,6 @@ export class Tape {
 			meta: {},
 			date: new Date().toISOString(),
 		});
-	}
-
-	// ── Legacy compatibility ────────────────────────────────────────
-
-	toAgentMessages(entries?: TapeEntry[]) {
-		const e = entries ?? [];
-		return entriesToMessages(e);
-	}
-
-	static fromAgentMessages(messages: any[]): Omit<TapeEntry, "id">[] {
-		return messagesToEntries(messages).map((e) => ({
-			...e,
-			date: new Date().toISOString(),
-		}));
 	}
 
 	// ── Slicing ─────────────────────────────────────────────────────
@@ -374,99 +313,12 @@ export class Tape {
 
 // ── Internal helpers ───────────────────────────────────────────────
 
-/** Resolve a target (id, array, or range) to an array of ids. */
 function resolveRange(target: number | number[] | TapeRange): number[] {
 	if (typeof target === "number") return [target];
 	if (Array.isArray(target)) return target;
-	// TapeRange: { from, to } inclusive
 	const ids: number[] = [];
 	for (let i = target.from; i <= target.to; i++) {
 		ids.push(i);
 	}
 	return ids;
-}
-
-/**
- * Apply redactions and amendments to entries.
- * - Redacted entries → excluded
- * - Amended entries → replaced with new entries
- * - All history preserved in tape
- */
-function applyEdits(entries: TapeEntry[]): TapeEntry[] {
-	const redacted = new Set<number>();
-	// Amendment maps a set of target ids to replacement entries
-	const amendments: Array<{ targetIds: Set<number>; replacement: TapeEntry[] }> = [];
-
-	for (const entry of entries) {
-		if (entry.kind === "redaction") {
-			const targetId = entry.payload.targetId as number;
-			if (targetId) redacted.add(targetId);
-		}
-		if (entry.kind === "amendment") {
-			const targetIds = entry.payload.targetIds as number[];
-			const replacement = entry.payload.replacement as TapeEntry[];
-			if (targetIds?.length && replacement?.length) {
-				amendments.push({
-					targetIds: new Set(targetIds),
-					replacement,
-				});
-			}
-		}
-	}
-
-	// No edits → return as-is
-	if (redacted.size === 0 && amendments.length === 0) return entries;
-
-	// Build a set of all amended target ids
-	const amendedIds = new Set<number>();
-	for (const a of amendments) {
-		for (const id of a.targetIds) {
-			amendedIds.add(id);
-		}
-	}
-
-	// Process entries
-	const result: TapeEntry[] = [];
-	let i = 0;
-
-	while (i < entries.length) {
-		const entry = entries[i]!;
-
-		// Skip redaction/amendment markers
-		if (entry.kind === "redaction" || entry.kind === "amendment") {
-			i++;
-			continue;
-		}
-
-		// Skip redacted entries
-		if (redacted.has(entry.id)) {
-			i++;
-			continue;
-		}
-
-		// Check if this entry is part of an amendment
-		if (amendedIds.has(entry.id)) {
-			// Find the amendment that covers this entry
-			const amendment = amendments.find((a) => a.targetIds.has(entry.id));
-			if (amendment) {
-				// Add all replacement entries
-				result.push(...amendment.replacement);
-				// Skip all entries covered by this amendment
-				for (const id of amendment.targetIds) {
-					amendedIds.delete(id);
-				}
-				// Skip entries until we pass the last amended id
-				const maxId = Math.max(...amendment.targetIds);
-				while (i < entries.length && entries[i]!.id <= maxId) {
-					i++;
-				}
-				continue;
-			}
-		}
-
-		result.push(entry);
-		i++;
-	}
-
-	return result;
 }

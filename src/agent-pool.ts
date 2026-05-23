@@ -32,8 +32,7 @@ import {
 	extractTextFromContent,
 	imageContentToAttachment,
 } from "./content.ts";
-import { Tape } from "./tape/index.ts";
-import type { TapeStore } from "./tape/store.ts";
+import { Tape, type TapeStore, entriesToLlmMessages } from "./tape/index.ts";
 
 export interface AgentPoolConfig {
 	systemPrompt: string;
@@ -194,9 +193,9 @@ export class AgentPool {
 
 		// Load history from tape and convert directly to LLM format.
 		try {
-			const entries = await tape.load();
+			const entries = await tape.view().load();
 			if (entries.length > 0) {
-				const llmMessages = tape.toMessages(entries);
+				const llmMessages = entriesToLlmMessages(entries);
 				agent.state.messages = llmMessages as any;
 				log.info(`restored ${llmMessages.length} messages from tape for session ${key}`);
 			} else {

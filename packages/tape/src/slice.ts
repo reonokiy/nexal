@@ -11,10 +11,8 @@
  * A slice does not copy data — it reads from the parent tape
  * and filters in-memory.
  */
-import type { Message } from "@mariozechner/pi-ai";
 import type { TapeEntry } from "./types.ts";
 import type { Tape } from "./tape.ts";
-import { entriesToLlmMessages, entriesToMessages } from "./convert.ts";
 
 /**
  * A filtered, read-only view of a Tape.
@@ -28,9 +26,6 @@ import { entriesToLlmMessages, entriesToMessages } from "./convert.ts";
  *
  * // Get filtered entries
  * const userEntries = await userSlice.entries();
- *
- * // Convert to LLM format
- * const llmMessages = await userSlice.toMessages();
  * ```
  */
 export class TapeSlice {
@@ -79,84 +74,27 @@ export class TapeSlice {
 		return entries.some(this.predicate);
 	}
 
-	// ── Conversion ──────────────────────────────────────────────────
-
-	/**
-	 * Convert filtered entries to LLM Message format.
-	 */
-	async toMessages(maxMessages?: number): Promise<Message[]> {
-		const entries = await this.context(maxMessages);
-		return entriesToLlmMessages(entries);
-	}
-
-	/**
-	 * Convert filtered entries to AgentMessage format (legacy).
-	 */
-	async toAgentMessages(maxMessages?: number) {
-		const entries = await this.context(maxMessages);
-		return entriesToMessages(entries);
-	}
-
 	// ── Composition ─────────────────────────────────────────────────
 
-	/**
-	 * Compose with another predicate (AND logic).
-	 * Returns a new slice that only includes entries matching both predicates.
-	 *
-	 * @example
-	 * ```typescript
-	 * const recentUsers = tape
-	 *   .slice(e => e.payload.role === "user")
-	 *   .and(e => new Date(e.date) > cutoff);
-	 * ```
-	 */
 	and(predicate: (entry: TapeEntry) => boolean): TapeSlice {
 		return new TapeSlice(this.tape, (e) => this.predicate(e) && predicate(e));
 	}
 
-	/**
-	 * Compose with another predicate (OR logic).
-	 * Returns a new slice that includes entries matching either predicate.
-	 *
-	 * @example
-	 * ```typescript
-	 * const messages = tape
-	 *   .slice(e => e.kind === "message")
-	 *   .or(e => e.kind === "tool_result");
-	 * ```
-	 */
 	or(predicate: (entry: TapeEntry) => boolean): TapeSlice {
 		return new TapeSlice(this.tape, (e) => this.predicate(e) || predicate(e));
 	}
 
-	/**
-	 * Negate the predicate.
-	 * Returns a new slice that excludes entries matching the current predicate.
-	 *
-	 * @example
-	 * ```typescript
-	 * const nonUser = tape.slice(e => e.payload.role === "user").not();
-	 * ```
-	 */
 	not(): TapeSlice {
 		return new TapeSlice(this.tape, (e) => !this.predicate(e));
 	}
 
 	// ── Common slice factories ──────────────────────────────────────
 
-	/**
-	 * Create a slice with only the last N entries (after filtering).
-	 */
 	last(n: number): TapeSlice {
-		// We need to override the entries() method behavior
-		// Create a new slice that wraps this one
 		const parent = this;
 		return new TapeSliceLast(parent, n);
 	}
 
-	/**
-	 * Get the parent tape.
-	 */
 	get parent(): Tape {
 		return this.tape;
 	}
@@ -171,7 +109,6 @@ class TapeSliceLast extends TapeSlice {
 	private readonly n: number;
 
 	constructor(parent: TapeSlice, n: number) {
-		// Pass through to parent's tape with parent's predicate
 		super(parent.parent, () => true);
 		this.parentSlice = parent;
 		this.n = n;

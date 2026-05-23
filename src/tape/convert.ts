@@ -10,7 +10,7 @@
  */
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import type { Message, TextContent, ImageContent, UserMessage, AssistantMessage, ToolResultMessage } from "@mariozechner/pi-ai";
-import type { TapeEntry } from "./types.ts";
+import type { TapeEntry } from "@nexal/tape";
 
 const MAX_CONTEXT_MESSAGES = 200;
 const BYTES_MARKER = "__nexal_bytes_b64__";
@@ -164,7 +164,6 @@ export function jsonToMessages(s: string): AgentMessage[] {
 
 // ── content serialization ──────────────────────────────────────────
 
-/** Normalize UserMessage content for JSON storage. */
 function serializeContent(content: UserMessage["content"]): unknown {
 	if (typeof content === "string") return content;
 	return content.map((block) => {
@@ -174,7 +173,6 @@ function serializeContent(content: UserMessage["content"]): unknown {
 	});
 }
 
-/** Restore UserMessage content from JSON. */
 function reviveContent(raw: unknown): UserMessage["content"] {
 	if (typeof raw === "string") return raw;
 	if (!Array.isArray(raw)) return String(raw);
@@ -191,7 +189,6 @@ function reviveContent(raw: unknown): UserMessage["content"] {
 	});
 }
 
-/** Normalize AssistantMessage content (text | thinking | toolCall). */
 function serializeAssistantContent(content: AssistantMessage["content"]): unknown {
 	return content.map((block) => {
 		if (block.type === "text") return { type: "text", text: block.text, textSignature: block.textSignature };

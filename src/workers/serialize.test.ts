@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { messagesToJson, jsonToMessages } from "../tape/convert.ts";
+import { messagesToJson, jsonToMessages } from "../tape/index.ts";
 
 describe("messagesToJson / jsonToMessages", () => {
 	test("empty array round-trips", () => {

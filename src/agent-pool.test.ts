@@ -4,7 +4,7 @@ import type { Model } from "@mariozechner/pi-ai";
 
 import { AgentPool } from "./agent-pool.ts";
 import type { IncomingMessage } from "./channels/types.ts";
-import type { TapeStore } from "./tape/store.ts";
+import type { TapeStore } from "./tape/index.ts";
 import type { MessageSender } from "./messaging/index.ts";
 
 const mockTapeStore: TapeStore = {

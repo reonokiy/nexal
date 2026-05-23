@@ -34,7 +34,7 @@ import type { UserContent } from "../content.ts";
 import type { MessageSender } from "../messaging/index.ts";
 import type { ProxySpec } from "../config.ts";
 import type { GatewayClient } from "../gateway/index.ts";
-import type { TapeStore } from "../tape/store.ts";
+import type { TapeStore } from "../tape/index.ts";
 import { WorkerAgent } from "./agent.ts";
 import type {
 	SendPolicy,

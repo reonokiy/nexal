@@ -10,7 +10,7 @@
 import {
 	jsonToMessages,
 	messagesToJson,
-} from "../tape/convert.ts";
+} from "../tape/index.ts";
 import { createWorkerStore } from "../workers/store.ts";
 
 const URL = process.env.DATABASE_URL;

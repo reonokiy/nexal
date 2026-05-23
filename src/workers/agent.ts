@@ -45,8 +45,7 @@ import type { ProxySpec } from "../config.ts";
 import type { GatewayClient } from "../gateway/index.ts";
 import type { AgentClient } from "../gateway/agent_client.ts";
 import { createBashTool } from "../tools/bash.ts";
-import { Tape, jsonToMessages, messagesToJson, messagesToEntries } from "../tape/index.ts";
-import type { TapeStore } from "../tape/store.ts";
+import { Tape, type TapeStore, jsonToMessages, messagesToJson, messagesToEntries, entriesToLlmMessages } from "../tape/index.ts";
 import type { SendPolicy, WorkerKind, WorkerLifetime, WorkerRow, WorkerStore } from "./store.ts";
 
 const PERSIST_DEBOUNCE_MS = 250;
@@ -134,9 +133,9 @@ export class WorkerAgent {
 		// Tape is the canonical format; convert directly to LLM format.
 		let initialMessages = jsonToMessages(row.messagesJson);
 		try {
-			const entries = await tape.load();
+			const entries = await tape.view().load();
 			if (entries.length > 0) {
-				initialMessages = tape.toMessages(entries) as any;
+				initialMessages = entriesToLlmMessages(entries) as any;
 				this.lastPersistedMsgCount = initialMessages.length;
 				this.log.info(`restored ${initialMessages.length} messages from tape for ${tapeName}`);
 			}

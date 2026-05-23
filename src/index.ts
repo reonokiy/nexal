@@ -20,8 +20,7 @@ import { WorkerRegistry } from "./workers/registry.ts";
 import { loadAuth, loadModelConfig, loadProviderConfig } from "./settings.ts";
 import { setDbUrl, runMigrations, closeDb } from "./db.ts";
 import { createWorkerStore } from "./workers/store.ts";
-import { createTapeStore } from "./tape/store.ts";
-import { createFileStore } from "./tape/file-store.ts";
+import { createTapeStore, createFileStore } from "./tape/index.ts";
 import COORDINATOR_PROMPT from "./prompts/coordinator.md" with { type: "text" };
 import EXECUTOR_PROMPT from "./prompts/executor.md" with { type: "text" };
 
