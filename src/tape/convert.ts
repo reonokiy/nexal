@@ -9,7 +9,7 @@
  * the LLM model. Tape (TapeEntry) is the canonical memory format.
  */
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
-import type { TextContent, ImageContent, UserMessage, AssistantMessage, ToolResultMessage } from "@mariozechner/pi-ai";
+import type { Message, TextContent, ImageContent, UserMessage, AssistantMessage, ToolResultMessage } from "@mariozechner/pi-ai";
 import type { TapeEntry } from "./types.ts";
 
 const MAX_CONTEXT_MESSAGES = 200;
@@ -228,11 +228,88 @@ function reviveAssistantContent(raw: unknown): AssistantMessage["content"] {
 	});
 }
 
+// ── TapeEntry → LLM Message (direct, no AgentMessage intermediate) ──
+
+/**
+ * Convert TapeEntry[] directly to LLM Message[] for model interaction.
+ * This is the preferred path — tape is the canonical format, and we
+ * convert to LLM format only at the model boundary.
+ */
+export function entriesToLlmMessages(entries: TapeEntry[]): Message[] {
+	const out: Message[] = [];
+	for (const e of entries) {
+		const m = entryToLlmMessage(e);
+		if (m) out.push(m);
+	}
+	return out;
+}
+
+function entryToLlmMessage(entry: TapeEntry): Message | null {
+	const p = entry.payload;
+	switch (entry.kind) {
+		case "message": {
+			const role = p.role as string;
+			if (role === "user") {
+				return {
+					role: "user",
+					content: reviveContent(p.content),
+					timestamp: Number(p.timestamp ?? Date.now()),
+				} satisfies UserMessage;
+			}
+			if (role === "assistant") {
+				return {
+					role: "assistant",
+					content: reviveAssistantContent(p.content),
+					api: String(p.api ?? ""),
+					provider: String(p.provider ?? ""),
+					model: String(p.model ?? ""),
+					responseId: p.responseId ? String(p.responseId) : undefined,
+					usage: (p.usage as any) ?? {
+						input: 0,
+						output: 0,
+						cacheRead: 0,
+						cacheWrite: 0,
+						totalTokens: 0,
+						cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+					},
+					stopReason: (p.stopReason as any) ?? "stop",
+					errorMessage: p.errorMessage ? String(p.errorMessage) : undefined,
+					timestamp: Number(p.timestamp ?? Date.now()),
+				} satisfies AssistantMessage;
+			}
+			return null;
+		}
+		case "tool_result": {
+			return {
+				role: "toolResult",
+				toolCallId: String(p.toolCallId ?? ""),
+				toolName: String(p.toolName ?? ""),
+				content: reviveContent(p.content) as (TextContent | ImageContent)[],
+				details: p.details,
+				isError: Boolean(p.isError),
+				timestamp: Number(p.timestamp ?? Date.now()),
+			} satisfies ToolResultMessage;
+		}
+		default:
+			return null;
+	}
+}
+
 // ── context window helpers ─────────────────────────────────────────
+
+/**
+ * Truncate tape entries to MAX_CONTEXT_MESSAGES if it exceeds the budget.
+ * Keeps the most recent entries (tail).
+ */
+export function truncateEntries(entries: TapeEntry[]): TapeEntry[] {
+	if (entries.length <= MAX_CONTEXT_MESSAGES) return entries;
+	return entries.slice(-MAX_CONTEXT_MESSAGES);
+}
 
 /**
  * Truncate message list to MAX_CONTEXT_MESSAGES if it exceeds the budget.
  * Keeps the most recent messages (tail).
+ * @deprecated Use truncateEntries for tape-native code.
  */
 export function truncateMessages(messages: AgentMessage[]): AgentMessage[] {
 	if (messages.length <= MAX_CONTEXT_MESSAGES) return messages;

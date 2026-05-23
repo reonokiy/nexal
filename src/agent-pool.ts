@@ -34,7 +34,7 @@ import {
 } from "./content.ts";
 import type { TapeStore } from "./tape/store.ts";
 import type { MemoryStore } from "./context/index.ts";
-import { entriesToMessages, truncateMessages } from "./tape/convert.ts";
+import { entriesToLlmMessages, truncateEntries } from "./tape/convert.ts";
 
 export interface AgentPoolConfig {
 	systemPrompt: string;
@@ -183,7 +183,9 @@ export class AgentPool {
 				model: this.config.model,
 				tools: allTools,
 			},
-			convertToLlm: (messages: AgentMessage[]) =>
+			// Tape-native: convertToLlm receives AgentMessage[] but we load
+			// fresh from tape in transformContext for the actual LLM call.
+			convertToLlm: (messages) =>
 				messages.filter(
 					(m) => m.role === "user" || m.role === "assistant" || m.role === "toolResult",
 				),
@@ -192,11 +194,14 @@ export class AgentPool {
 		});
 
 		// Load persistent history from tape via memory store.
+		// Tape is the canonical format; we convert to LLM Message[] directly.
 		try {
 			const entries = await this.config.memoryStore.load(key);
 			if (entries.length > 0) {
-				const messages = truncateMessages(entriesToMessages(entries));
-				agent.state.messages = messages;
+				const truncated = truncateEntries(entries);
+				// Convert tape entries directly to AgentMessage for agent.state.messages
+				const messages = entriesToLlmMessages(truncated);
+				agent.state.messages = messages as any;
 				log.info(`restored ${messages.length} messages from tape for session ${key}`);
 			} else {
 				// Bootstrap anchor so context reconstruction has a starting point.

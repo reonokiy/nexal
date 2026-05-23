@@ -45,7 +45,7 @@ import type { ProxySpec } from "../config.ts";
 import type { GatewayClient } from "../gateway/index.ts";
 import type { AgentClient } from "../gateway/agent_client.ts";
 import { createBashTool } from "../tools/bash.ts";
-import { jsonToMessages, messagesToJson, entriesToMessages, messagesToEntries } from "../tape/convert.ts";
+import { jsonToMessages, messagesToJson, entriesToLlmMessages, messagesToEntries, truncateEntries } from "../tape/convert.ts";
 import type { MemoryStore } from "../context/index.ts";
 import type { SendPolicy, WorkerKind, WorkerLifetime, WorkerRow, WorkerStore } from "./store.ts";
 
@@ -127,12 +127,14 @@ export class WorkerAgent {
 		}
 
 		// Load history from memory store (tape); fallback to DB messages_json.
+		// Tape is the canonical format; convert to LLM Message[] directly.
 		let initialMessages = jsonToMessages(row.messagesJson);
 		try {
 			const tapeName = `worker:${row.id}`;
 			const entries = await this.deps.memoryStore.load(tapeName);
 			if (entries.length > 0) {
-				initialMessages = entriesToMessages(entries);
+				const truncated = truncateEntries(entries);
+				initialMessages = entriesToLlmMessages(truncated) as any;
 				this.lastPersistedMsgCount = initialMessages.length;
 				this.log.info(`restored ${initialMessages.length} messages from tape for ${tapeName}`);
 			}
