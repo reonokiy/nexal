@@ -62,4 +62,4 @@ export { Connection, Stream, WireErrorMessage } from "./connection.ts";
 export type { RequestHandler } from "./connection.ts";
 
 export { createWebSocketTransport } from "./transport.ts";
-export type { Transport } from "./transport.ts";
+export type { Transport, TransportOptions, HeartbeatOptions } from "./transport.ts";
