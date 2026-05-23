@@ -111,7 +111,7 @@ const DEFAULTS: NexalConfig = {
 		maxConcurrent: 5,
 	},
 	gateway: {
-		url: "https://gateway.nexal.nokiy.net",
+		url: "https://nexal.fly.dev",
 		accessKey: "",
 		secretKey: "",
 		clientName: "nexal-bun",

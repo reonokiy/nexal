@@ -1,53 +1,61 @@
-# nexal crates
+# Nexal Rust Workspace
 
-## Two-tier architecture
+This workspace contains the Rust pieces of Nexal: the sandbox gateway, the sandbox agent, and shared utilities used by both.
 
-The workspace is split into two tiers:
+## Workspace Members
 
-### Tier 1 — nexal-own crates (~5,600 LOC)
+| Crate | Purpose |
+|-------|---------|
+| `crates/nexal-gateway` | WebSocket gateway that authenticates LLM server clients, manages sandbox backends, and proxies traffic to agents. |
+| `crates/nexal-agent` | JSON-RPC server that runs inside a sandbox and exposes bash/process/filesystem operations. |
+| `crates/utils/absolute-path` | Absolute path helpers. |
+| `crates/utils/cargo-bin` | Cargo binary path helpers for tests and tooling. |
+| `crates/utils/certs` | TLS certificate helpers. |
+| `crates/utils/json-transport` | JSON-RPC transport helpers. |
+| `crates/utils/pty` | PTY-backed subprocess management. |
 
-These crates are written specifically for nexal. They own the product
-layer: channel adapters, config, agent orchestration, and the binary.
+Channels, model orchestration, worker orchestration, and high-level application runtime live in the Bun/TypeScript server under `src/`, not in Rust crates.
 
-| Crate | Package | Purpose |
-|-------|---------|---------|
-| `nexal` | `nexal` | Main binary — wires channels, TUI, and agent together |
-| `nexal-config` | `nexal-config` | Top-level config loaded from TOML + env |
-| `agent` | `nexal-agent` | Bot orchestrator — debounce, routing, agent pool |
-| `nexal-state` | `nexal-state` | SQLite state DB (cron jobs, chat log) |
-| `channel-core` | `nexal-channel-core` | `Channel` trait, `IncomingMessage`, debounce |
-| `channel-telegram` | `nexal-channel-telegram` | Telegram adapter (teloxide) |
-| `channel-discord` | `nexal-channel-discord` | Discord adapter (serenity) |
-| `channel-http` | `nexal-channel-http` | HTTP test adapter (axum) |
-| `channel-heartbeat` | `nexal-channel-heartbeat` | Periodic heartbeat tick |
-| `channel-cron` | `nexal-channel-cron` | Agent-scheduled cron jobs |
+## Gateway
 
-### Tier 2 — Forked Codex engine (~370K LOC)
+`nexal-gateway` is the network boundary between the LLM server and sandbox agents.
 
-These crates are forked from [codex-rs](https://github.com/openai/codex-rs)
-at commit `315e7d6`. All types were renamed from `codex → nexal` at fork
-time. They implement the session engine, TUI shell, exec sandbox, MCP
-client, and tool system.
+Key files:
 
-Key crates in this tier: `core`, `tui`, `tui-render`, `app-server`,
-`protocol`, `exec-server`, `rmcp-client`, and ~30 utility crates under
-`utils/`.
+- `crates/nexal-gateway/src/bin/nexal-gateway.rs` — binary entry point.
+- `crates/nexal-gateway/src/server.rs` — HTTP/WebSocket server.
+- `crates/nexal-gateway/src/config.rs` — gateway config loading.
+- `crates/nexal-gateway/src/backend/` — Fly.io, Podman, and Kubernetes backends.
+- `crates/nexal-gateway/src/proxy/` — proxying between clients and sandbox agents.
 
-#### Important: `crates/core/src/nexal.rs`
+## Agent
 
-This file is **not** nexal-product code. It is the session engine that
-was originally `crates/core/src/codex.rs` in the upstream repo — renamed
-to `nexal.rs` at fork commit `315e7d6`. The `nexal` struct is the upstream
-`Codex` struct under a different name. Do not add nexal-product logic here.
+`nexal-agent` runs inside the sandbox environment and serves JSON-RPC over WebSocket.
 
-## Crate boundaries
+Key files:
 
-- **Tier 1 → Tier 2**: Allowed. nexal channels use `nexal-core` types
-  (e.g. `Config`) only through `nexal-agent`, which uses
-  `nexal-app-server-client` for in-process RPC.
-- **Tier 2 → Tier 1**: Not allowed. Forked crates must not import
-  channel, heartbeat, cron, or product-specific modules.
-- **Config fan-in**: Each channel crate owns its own typed config struct
-  (e.g. `TelegramChannelConfig` lives in `channel-telegram/src/config.rs`).
-  `nexal-config` stores a raw `HashMap<String, toml::Value>` for channel
-  config so touching one channel's config doesn't rebuild all channels.
+- `crates/nexal-agent/src/bin/nexal-agent.rs` — binary entry point.
+- `crates/nexal-agent/src/server.rs` and `src/server/` — WebSocket server and RPC services.
+- `crates/nexal-agent/src/protocol/` — wire protocol types and errors.
+- `crates/nexal-agent/src/process/` — process execution backend.
+- `crates/nexal-agent/src/fs/` — filesystem operations.
+- `crates/nexal-agent/src/proxy.rs` — proxy support.
+
+## Commands
+
+```bash
+# Check the full Rust workspace
+cargo check
+
+# Run Rust tests
+cargo test
+
+# Build all release binaries
+cargo build --release
+
+# Build individual binaries
+cargo build --release -p nexal-agent
+cargo build --release -p nexal-gateway
+```
+
+The root `justfile` also exposes `just agent`, `just gateway`, `just check`, and `just test` wrappers.

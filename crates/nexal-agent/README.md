@@ -1,33 +1,23 @@
-# nexal-exec-server
+# nexal-agent
 
-`nexal-exec-server` is a small standalone JSON-RPC server for spawning
-and controlling subprocesses through `nexal-utils-pty`.
+`nexal-agent` is the sandbox-side JSON-RPC server for Nexal. It runs inside a sandbox container and exposes process execution, PTY I/O, and filesystem operations to the LLM server through the gateway.
 
-This PR intentionally lands only the standalone binary, client, wire protocol,
-and docs. Exec and filesystem methods are stubbed server-side here and are
-implemented in follow-up PRs.
+It provides:
 
-It currently provides:
-
-- a standalone binary: `nexal-exec-server`
-- a Rust client: `ExecServerClient`
-- a small protocol module with shared request/response types
-
-This crate is intentionally narrow. It is not wired into the main nexal CLI or
-unified-exec in this PR; it is only the standalone transport layer.
+- a standalone binary: `nexal-agent`
+- a WebSocket JSON-RPC server
+- protocol types for initialize, process, and filesystem methods
+- process execution backed by `nexal-utils-pty`
+- filesystem services used by sandbox tools
 
 ## Transport
 
-The server speaks the shared `nexal-app-server-protocol` message envelope on
-the wire.
-
-The standalone binary supports:
-
-- `ws://IP:PORT` (default)
+The server listens on a WebSocket URL, defaulting to `ws://127.0.0.1:8765` unless configured otherwise by the binary options or embedding code.
 
 Wire framing:
 
-- websocket: one JSON-RPC message per websocket text frame
+- WebSocket text frames carry one JSON-RPC message each.
+- Clients must complete the `initialize` / `initialized` lifecycle before normal RPC calls.
 
 ## Lifecycle
 
@@ -36,15 +26,11 @@ Each connection follows this sequence:
 1. Send `initialize`.
 2. Wait for the `initialize` response.
 3. Send `initialized`.
-4. Call exec or filesystem RPCs once the follow-up implementation PRs land.
+4. Call process or filesystem RPCs.
 
-If the server receives any notification other than `initialized`, it replies
-with an error using request id `-1`.
+If the WebSocket connection closes, the server terminates remaining managed processes for that client connection.
 
-If the websocket connection closes, the server terminates any remaining managed
-processes for that client connection.
-
-## API
+## Process API
 
 ### `initialize`
 
@@ -66,11 +52,7 @@ Response:
 
 ### `initialized`
 
-Handshake acknowledgement notification sent by the client after a successful
-`initialize` response.
-
-Params are currently ignored. Sending any other notification method is treated
-as an invalid request.
+Handshake acknowledgement notification sent by the client after a successful `initialize` response.
 
 ### `command/exec`
 
@@ -98,10 +80,8 @@ Field definitions:
 - `argv`: command vector. It must be non-empty.
 - `cwd`: absolute working directory used for the child process.
 - `env`: environment variables passed to the child process.
-- `tty`: when `true`, spawn a PTY-backed interactive process; when `false`,
-  spawn a pipe-backed process with closed stdin.
-- `outputBytesCap`: maximum retained stdout/stderr bytes per stream for the
-  in-memory buffer. Defaults to `nexal_utils_pty::DEFAULT_OUTPUT_BYTES_CAP`.
+- `tty`: when `true`, spawn a PTY-backed interactive process; when `false`, spawn a pipe-backed process with closed stdin.
+- `outputBytesCap`: maximum retained stdout/stderr bytes per stream for the in-memory buffer.
 - `arg0`: optional argv0 override forwarded to `nexal-utils-pty`.
 
 Response:
@@ -147,11 +127,6 @@ Response:
 }
 ```
 
-Behavior notes:
-
-- Writes to an unknown `processId` are rejected.
-- Writes to a non-PTY process are rejected because stdin is already closed.
-
 ### `command/exec/terminate`
 
 Terminates a running managed process.
@@ -196,12 +171,6 @@ Params:
 }
 ```
 
-Fields:
-
-- `processId`: process identifier
-- `stream`: `"stdout"` or `"stderr"`
-- `chunk`: base64-encoded output bytes
-
 ### `command/exec/exited`
 
 Final process exit notification.
@@ -215,37 +184,33 @@ Params:
 }
 ```
 
+## Filesystem API
+
+Filesystem RPC services are implemented under `crates/nexal-agent/src/server/services/file_system.rs` and use the types exported from `crates/nexal-agent/src/fs/`. See the protocol module and service implementation for the exact method names and params when adding or updating clients.
+
 ## Errors
 
-The server returns JSON-RPC errors with these codes:
+The server returns JSON-RPC errors with standard JSON-RPC codes such as:
 
 - `-32600`: invalid request
 - `-32602`: invalid params
 - `-32603`: internal error
 
-Typical error cases:
+Typical error cases include unknown methods, malformed params, empty `argv`, duplicate `processId`, writes to unknown processes, and writes to non-PTY processes.
 
-- unknown method
-- malformed params
-- empty `argv`
-- duplicate `processId`
-- writes to unknown processes
-- writes to non-PTY processes
+## Rust Surface
 
-## Rust surface
+The crate exports server, protocol, process, filesystem, and environment types from `src/lib.rs`, including:
 
-The crate exports:
-
-- `ExecServerClient`
+- `Environment`
 - `ExecServerError`
-- `ExecServerClientConnectOptions`
-- `RemoteExecServerConnectArgs`
-- protocol structs `InitializeParams` and `InitializeResponse`
-- `DEFAULT_LISTEN_URL` and `ExecServerListenUrlParseError`
-- `run_main_with_listen_url()`
-- `run_main()` for embedding the websocket server in a binary
+- `ProcessId`
+- `ExecutorFileSystem` and filesystem option/result types
+- `ExecBackend`, `ExecProcess`, and `StartedExecProcess`
+- protocol wire and error types
+- `DEFAULT_LISTEN_URL`, `run_main()`, and `run_main_with_listen_url()`
 
-## Example session
+## Example Session
 
 Initialize:
 

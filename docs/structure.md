@@ -1,168 +1,139 @@
 # Nexal Project Structure
 
-> Last updated: 2026-05-18
+> Last updated: 2026-05-23
 
 ## Overview
 
-**Nexal** is a multi-channel AI agent runtime. It consists of:
+Nexal is a multi-channel AI agent runtime with four main components:
 
-1. **LLM Server** (`src/`) — Bun/TypeScript daemon that hosts Agents, channels, and tools.
-2. **Gateway** (`crates/nexal-gateway/`) — Rust WebSocket gateway that routes traffic and manages sandbox containers.
-3. **Agent** (`crates/nexal-agent/`) — Rust sandbox executor that runs inside a container and exposes bash/filesystem/process tools via JSON-RPC over WebSocket.
-4. **Web UI** (`web/`) — Svelte 5 frontend that connects to the LLM server via WebSocket.
+1. **LLM Server** (`src/`) — Bun/TypeScript daemon that hosts agents, channels, commands, workers, and tools.
+2. **Gateway** (`crates/nexal-gateway/`) — Rust WebSocket gateway that authenticates clients and manages sandbox backends.
+3. **Agent** (`crates/nexal-agent/`) — Rust sandbox executor exposing bash, filesystem, and process JSON-RPC tools.
+4. **Web UI** (`web/`) — Svelte 5 frontend that connects to the LLM server over WebSocket.
 
 ## Architecture
 
-```
-Input Channels         Core (LLM Server)            Gateway              Sandbox Agent
-├─ Web UI (Svelte)     ├─ Agent Pool                ├─ WebSocket Proxy     ├─ Bash Tool
-├─ Telegram            │   └─ pi-agent-core         │   └─ HMAC Auth       ├─ File System
-├─ Discord             ├─ Channel Manager           ├─ Session Manager     ├─ Process Manager
-├─ HTTP REST           ├─ Tool Registry             ├─ Backend (Fly.io)    └─ JSON-RPC Server
-├─ Cron                │   ├─ bash                  └─ Agent Registry
-└─ Heartbeat           │   ├─ worker
-                       │   └─ report_to_parent
+```text
+Input Channels         Core (LLM Server)             Gateway                  Sandbox Agent
+├─ Web UI              ├─ Channel Manager            ├─ HMAC Auth             ├─ JSON-RPC Server
+├─ WebSocket           ├─ Agent Pool                 ├─ WebSocket Proxy       ├─ Bash/Exec
+├─ HTTP                ├─ Worker Registry            ├─ Session Registry      ├─ File System
+├─ Telegram            ├─ Slash Commands             ├─ Backends              └─ Process Manager
+├─ GitHub              ├─ Tools                      │  ├─ Fly.io Machines
+├─ Cron                │  ├─ bash                    │  ├─ Podman
+└─ Heartbeat           │  ├─ coordinator             │  └─ Kubernetes
+                       │  ├─ send_update
+                       │  └─ report_to_parent
                        └─ Gateway Client
-                           └─ WebSocket (HMAC-signed)
-
-Data Flow:
-  User Message → Channel → ChannelManager → AgentPool → Agent (pi-agent-core) → LLM
-                                                                  │
-                                                                  ▼
-                                                           Tool Call (bash/worker)
-                                                                  │
-                                                                  ▼
-                                                           GatewayClient ──► Gateway ──► Sandbox Agent
-                                                                  WebSocket        JSON-RPC
-                                                                  HMAC-signed      over WS
 ```
 
-- **LLM Server** (`src/`) — Bun/TypeScript daemon. Receives messages from channels, routes them through `AgentPool` (one `pi-agent-core` Agent per chat), proxies tool calls to the Gateway.
-- **Gateway** (`crates/nexal-gateway/`) — Rust WebSocket proxy. HMAC-authenticates LLM server connections, spawns sandbox containers (Fly Machines / Podman / K8s), tunnels traffic to Agents.
-- **Agent** (`crates/nexal-agent/`) — Rust sandbox executor. Runs inside a container, exposes JSON-RPC methods for bash, file I/O, and process management over a local WebSocket.
-- **Web UI** (`web/`) — Svelte 5 frontend. Connects to the LLM server via WebSocket for chat, or directly polls the Gateway for sandbox monitoring.
+Data flow:
+
+```text
+User Message
+  -> Channel
+  -> ChannelManager
+  -> AgentPool
+  -> pi-agent-core Agent
+  -> LLM
+  -> Tool Call
+  -> GatewayClient
+  -> nexal-gateway
+  -> nexal-agent in sandbox
+```
 
 ## Directory Layout
 
-```
+```text
 nexal/
-├── src/                          # TypeScript core (LLM daemon)
-│   ├── index.ts                  # Entry: load config, connect gateway, start channels
-│   ├── cli.ts                    # CLI entry point
-│   ├── agent-pool.ts             # One Agent per (channel, chatId); lifecycle + debounce
-│   ├── config.ts                 # TOML + env config loader (NEXAL_* env vars)
-│   ├── settings.ts               # Persisted settings (model config, API keys) in Postgres
-│   ├── db.ts                     # Postgres connection (Drizzle ORM)
-│   ├── schema.ts                 # Drizzle database schema
-│   ├── content.ts                # Message content parsing (images, text)
-│   ├── log.ts                    # Structured logging
-│   ├── channels/                 # Channel abstraction and implementations
-│   │   ├── types.ts              # Channel interface, IncomingMessage, OutgoingReply
-│   │   ├── manager.ts            # ChannelManager: starts all channels, routes replies
-│   │   ├── telegram.ts           # Telegram bot channel (Bot API)
-│   │   ├── discord.ts            # Discord bot channel
-│   │   ├── http.ts               # HTTP REST channel + /sandboxes endpoint
-│   │   ├── ws.ts                 # WebSocket sub-channel (for web UI)
-│   │   ├── cron.ts               # Agent-scheduled cron jobs
-│   │   ├── heartbeat.ts          # Periodic heartbeat tick
-│   │   └── debounce.ts           # SessionDebouncer: batches follow-up messages
-│   ├── commands/                 # Built-in slash commands
-│   │   ├── builtin.ts            # /help, /model, /providers, /sandboxes, etc.
-│   │   └── registry.ts           # Command registry
-│   ├── tools/                    # Agent tools (passed to pi-agent-core)
-│   │   ├── bash.ts               # Bash execution via gateway sandbox
-│   │   ├── worker.ts             # Spawn/cancel persistent sub-agents
-│   │   ├── report_to_parent.ts   # Worker → parent chat reporting
-│   │   └── send_update.ts        # Send progress updates mid-turn
+├── src/                          # TypeScript LLM server
+│   ├── cli.ts                    # CLI entry point used by package scripts/bin
+│   ├── index.ts                  # Startup implementation
+│   ├── agent-pool.ts             # Agent lifecycle and per-chat sessions
+│   ├── auth.ts                   # Supabase/JWT auth helpers
+│   ├── config.ts                 # Defaults, TOML, NEXAL_* config overlay
+│   ├── db.ts                     # Postgres/Drizzle connection
+│   ├── schema.ts                 # Schema barrel
+│   ├── settings.ts               # DB-backed settings KV
+│   ├── channels/                 # Channel implementations
+│   │   ├── factory.ts
+│   │   ├── manager.ts
+│   │   ├── ws.ts
+│   │   ├── http.ts
+│   │   ├── github.ts
+│   │   ├── heartbeat.ts
+│   │   ├── cron.ts
+│   │   └── telegram/
+│   │       ├── channel.ts
+│   │       ├── api.ts
+│   │       └── types.ts
+│   ├── commands/
+│   │   ├── builtin.ts            # /help, /model, /apikey, /providers, /status, /sandboxes, /settings
+│   │   └── registry.ts
+│   ├── gateway/
+│   │   ├── client.ts             # HMAC-signed gateway client
+│   │   ├── agent_client.ts       # Per-session agent client
+│   │   ├── protocol.ts
+│   │   ├── transport.ts
+│   │   └── errors.ts
+│   ├── tools/
+│   │   ├── bash.ts
+│   │   ├── send_update.ts
+│   │   ├── report_to_parent.ts
+│   │   └── coordinator/
+│   │       ├── index.ts
+│   │       ├── spawn.ts
+│   │       └── manage.ts
 │   ├── workers/                  # Persistent worker subsystem
-│   │   ├── registry.ts           # WorkerRegistry: spawn/route/cancel/list
-│   │   ├── store.ts              # Database persistence for workers
-│   │   ├── agent.ts              # WorkerAgent: isolated sub-agent runner
-│   │   ├── schema.ts             # Worker DB schema
-│   │   └── serialize.ts          # Worker state serialization
-│   ├── gateway/                  # Gateway WebSocket client
-│   │   ├── client.ts             # GatewayClient (HMAC-signed handshake)
-│   │   ├── agent_client.ts       # Per-session Agent WebSocket client
-│   │   └── protocol.ts           # Gateway wire protocol types
-│   ├── prompts/                  # System prompts
-│   │   ├── coordinator.md
-│   │   └── executor.md
-│   ├── scripts/                  # Debug / smoke test scripts
-│   │   ├── smoke-gateway.ts
-│   │   ├── smoke-worker.ts
-│   │   └── smoke-worker-store.ts
-│   └── e2e/                      # End-to-end tests
-│       └── gateway.e2e.test.ts
+│   ├── tape/                     # Server-side tape handling
+│   ├── prompts/
+│   ├── scripts/
+│   └── e2e/
 │
 ├── crates/                       # Rust workspace
-│   ├── nexal-agent/              # Sandbox executor agent
-│   │   ├── src/
-│   │   │   ├── lib.rs
-│   │   │   ├── server.rs         # WebSocket server (JSON-RPC)
-│   │   │   ├── executor.rs       # Process execution (via pty)
-│   │   │   ├── environment.rs    # Sandbox env setup
-│   │   │   ├── transport.rs      # Wire protocol (msgpack)
-│   │   │   └── proxy.rs          # Proxy forwarding
-│   │   ├── tests/                # Integration tests
-│   │   └── Cargo.toml
+│   ├── nexal-agent/              # Sandbox JSON-RPC agent
+│   │   └── src/
+│   │       ├── bin/nexal-agent.rs
+│   │       ├── server.rs
+│   │       ├── server/
+│   │       ├── protocol/
+│   │       ├── process/
+│   │       ├── fs/
+│   │       └── proxy.rs
 │   ├── nexal-gateway/            # Gateway server
-│   │   ├── src/
-│   │   │   ├── bin/nexal-gateway.rs  # CLI binary entry
-│   │   │   ├── server.rs         # HTTP + WebSocket server (PrefixedStream)
-│   │   │   ├── session.rs        # Session management (HMAC auth)
-│   │   │   ├── backend.rs        # Backend trait (spawn sandboxes)
-│   │   │   ├── backend/fly.rs    # Fly.io Machines API backend
-│   │   │   ├── backend/podman.rs # Podman backend
-│   │   │   ├── backend/kubernetes.rs # Kubernetes backend
-│   │   │   ├── agent_conn.rs     # Agent connection handling
-│   │   │   ├── registry.rs       # Agent registry
-│   │   │   ├── pool.rs           # Connection pool
-│   │   │   ├── proxy.rs          # Proxy forwarding
-│   │   │   ├── config.rs         # Gateway config (TOML)
-│   │   │   └── protocol.rs       # Gateway protocol types
-│   │   └── Cargo.toml
-│   └── utils/                    # Shared Rust utilities
-│       ├── pty/                  # PTY subprocess management
-│       ├── json-transport/       # JSON-RPC transport helpers
-│       ├── absolute-path/        # Path utilities
-│       ├── cargo-bin/            # Cargo binary helpers
-│       └── certs/                # TLS certificate helpers
+│   │   └── src/
+│   │       ├── bin/nexal-gateway.rs
+│   │       ├── server.rs
+│   │       ├── config.rs
+│   │       ├── backend/
+│   │       ├── proxy/
+│   │       └── protocol.rs
+│   └── utils/                    # absolute-path, cargo-bin, certs, json-transport, pty
 │
 ├── web/                          # Svelte 5 Web UI
-│   ├── src/
-│   │   ├── App.svelte            # Root layout (sidebar + chat view)
-│   │   ├── main.ts               # Entry
-│   │   ├── lib/
-│   │   │   ├── client.svelte.ts      # Chat reactive state wrapper
-│   │   │   ├── settings.svelte.ts    # localStorage-backed settings
-│   │   │   ├── router.svelte.ts      # Hash router (#/settings)
-│   │   │   ├── markdown.ts           # Markdown rendering
-│   │   │   ├── utils.ts              # Tailwind class merging
-│   │   │   ├── components/
-│   │   │   │   ├── sidebar.svelte        # Left navigation
-│   │   │   │   ├── composer.svelte       # Chat input
-│   │   │   │   ├── message.svelte        # Chat message bubble
-│   │   │   │   ├── empty-state.svelte    # Empty chat placeholder
-│   │   │   │   ├── settings-page.svelte  # Settings modal/page
-│   │   │   │   ├── sandbox-list.svelte   # Sandbox monitoring panel
-│   │   │   │   └── settings/             # Settings sub-components
-│   │   │   └── views/
-│   │   │       └── chat-view.svelte      # Main chat view
-│   │   └── app.css
-│   ├── package.json
-│   ├── vite.config.ts
-│   ├── svelte.config.js
-│   └── tsconfig.json
+│   └── src/
+│       ├── main.ts
+│       ├── App.svelte
+│       └── lib/
+│           ├── client.svelte.ts
+│           ├── settings.svelte.ts
+│           ├── supabase.svelte.ts
+│           ├── router.svelte.ts
+│           ├── components/
+│           │   ├── auth-form.svelte
+│           │   ├── composer.svelte
+│           │   ├── computers-page.svelte
+│           │   ├── message.svelte
+│           │   ├── sidebar.svelte
+│           │   └── settings/
+│           └── views/chat-view.svelte
 │
-├── packages/                     # Shared TypeScript packages
-│   └── chat-client/              # WebSocket chat client library
-│       ├── src/
-│       │   ├── client.ts         # NexalChatClient (WebSocket + msgpack)
-│       │   ├── protocol.ts       # Wire protocol
-│       │   └── index.ts
-│       └── package.json
+├── packages/
+│   ├── chat-client/              # MsgPack WebSocket chat client
+│   └── tape/                     # Shared tape interfaces/types
 │
-├── skills/                       # opencode agent skills (external)
+├── skills/                       # Built-in agent skills served to sandboxes
+│   ├── chatlog/
 │   ├── cli/
 │   ├── coding/
 │   ├── cron/
@@ -174,130 +145,97 @@ nexal/
 │   ├── skill-manager/
 │   ├── soul/
 │   ├── telegram/
-│   ├── chatlog/
 │   └── toollog/
 │
-├── deploy/                       # Deployment configs
-│   └── server/
-│       └── fly.toml              # LLM server Fly.io config
-│
-├── docker/                       # Docker scripts
-│   └── gateway-entrypoint.sh
-│
-├── drizzle/                      # Database migrations (Drizzle)
-│   ├── meta/
-│   └── *.sql
-│
-├── .github/workflows/            # CI/CD
-│   ├── deploy-gateway.yml        # Deploy gateway to Fly.io
-│   ├── deploy-server.yml         # Deploy LLM server to Fly.io
-│   ├── docker.yml                # Build Docker images
-│   └── release.yml               # Release workflow
-│
-├── Cargo.toml                    # Rust workspace manifest
-├── package.json                  # Bun/TS root package + workspaces
-├── tsconfig.json                 # TypeScript config
-├── fly.toml                      # Gateway Fly.io config (app = "nexal")
-├── gateway.Dockerfile            # Gateway Docker image (Rust binary)
-├── server.Dockerfile             # LLM server Docker image (Bun)
-├── sandbox.Dockerfile            # Sandbox image (includes nexal-agent binary)
-├── .env                          # Environment variables (not committed)
-├── .env.example                  # Env var template
-├── rust-toolchain.toml           # Rust toolchain pin
-├── rustfmt.toml                  # Rust formatter config
-└── README.md
+├── deploy/server/fly.toml        # LLM server Fly config
+├── drizzle/                      # Drizzle migrations
+├── .github/workflows/            # Deploy, build, Docker, release workflows
+├── fly.toml                      # Gateway Fly config
+├── gateway.Dockerfile
+├── server.Dockerfile
+├── sandbox.Dockerfile
+├── agent.Dockerfile
+├── package.json
+├── Cargo.toml
+└── justfile
 ```
 
 ## Key Technologies
 
 | Layer | Stack |
 |-------|-------|
-| LLM Server | Bun ≥ 1.3, TypeScript, `pi-agent-core`, `pi-ai`, Drizzle ORM |
-| Gateway | Rust, Tokio, Axum, `tokio-tungstenite` |
-| Agent | Rust, Tokio, `tokio-tungstenite`, `portable-pty` |
-| Web UI | Svelte 5, Tailwind CSS 4, Vite, `virtua` |
-| Database | Postgres (Neon) |
+| LLM Server | Bun >= 1.3, TypeScript, `pi-agent-core`, `pi-ai`, Drizzle ORM |
+| Gateway | Rust, Tokio, Axum, WebSocket, HMAC auth |
+| Agent | Rust, JSON-RPC, WebSocket, `portable-pty` |
+| Web UI | Svelte 5, Tailwind CSS 4, Vite |
+| Database | Postgres/Neon |
+| Auth | Supabase Auth/JWT |
 | Deployment | Fly.io, GitHub Actions |
-
-## Data Flow
-
-### Chat Message Flow
-
-1. User sends message via Telegram / Discord / Web UI
-2. `Channel` converts it to `IncomingMessage`
-3. `ChannelManager` routes to `AgentPool`
-4. `AgentPool.SessionDebouncer` batches follow-ups
-5. `Agent.prompt()` drives one LLM turn via `pi-agent-core`
-6. LLM may call tools (bash, worker, etc.)
-7. Tool calls proxy through `GatewayClient` → Gateway → Agent in sandbox
-8. Tool results return to LLM
-9. Final reply sent back via `Channel.send()`
-
-### WebSocket Protocol
-
-- **Gateway handshake**: HMAC-SHA256 signed `{ access_key, client_name, ts, nonce, signature }`
-- **Wire format**: msgpack (not JSON) for binary efficiency
-- **Agent protocol**: JSON-RPC over WebSocket (`initialize` → `initialized` → method calls)
 
 ## Configuration
 
-Configuration is loaded from three sources (lowest → highest priority):
+The Bun server loads structural config from these sources, lowest to highest priority:
 
 1. Built-in defaults
-2. `~/.nexal/config.toml`
-3. Environment variables prefixed with `NEXAL_` (`__` as nesting separator)
+2. `~/.nexal/config.toml` or `NEXAL_CONFIG_PATH`
+3. Environment variables prefixed with `NEXAL_`, using `__` as the nesting separator
 
-Key env vars (see `.env.example`):
+Important runtime values include:
 
 | Variable | Purpose |
 |----------|---------|
-| `NEXAL_GATEWAY_ACCESS_KEY` | Gateway credential ID |
-| `NEXAL_GATEWAY_SECRET_KEY` | Gateway credential secret (HMAC signing) |
 | `DATABASE_URL` | Postgres connection string |
-| `LLM_API_KEY` | LLM provider API key |
-| `NEXAL_MODEL_PROVIDER` | Active provider (e.g., `moonshot`) |
-| `NEXAL_MODEL` | Active model ID (e.g., `kimi-k2.5`) |
-| `TELEGRAM_BOT_TOKEN` | Telegram Bot API token |
-| `DISCORD_BOT_TOKEN` | Discord Bot token |
+| `NEXAL_GATEWAY_ACCESS_KEY` | Gateway credential ID |
+| `NEXAL_GATEWAY_SECRET_KEY` | Gateway credential secret for HMAC signing |
+| `SUPABASE_JWT_SECRET` / Supabase env | Auth integration, depending on deployment |
+| `STORAGE_S3_*` or `NEXAL_STORAGE__*` | Object storage settings |
+
+Model, provider, auth provider, channel, and tool API key configuration is primarily stored in Postgres settings KV. Relevant keys include `model:provider`, `model:id`, `provider:<name>`, `auth:<provider>`, `channel:<name>`, and `tool:apikey:<name>`. Manage these from the Web UI or slash commands such as `/model`, `/apikey`, `/providers`, and `/settings`.
+
+The gateway has its own Rust config path and CLI/env handling. It commonly reads `~/.nexal/gateway.toml` plus CLI and environment values.
 
 ## Development
 
-### Local Development
-
 ```bash
-# Start Postgres (or use Neon)
-# Set DATABASE_URL in .env
-
-# Run LLM server (dev mode with auto-reload)
+# LLM server with auto-reload
 bun run dev
 
-# Build Rust workspace
+# TypeScript checks and tests
+bun run typecheck
+bun test
+
+# Web UI
+cd web && bun run dev
+cd web && bun run check
+cd web && bun run build
+
+# Rust
+cargo check
+cargo test
 cargo build --release
 
-# Start web UI
-cd web && bun run dev
+# Aggregated wrappers
+just check
+just test
 ```
 
-### Web UI Default Backend
+## Web UI Defaults
 
-The Web UI defaults to `wss://gateway.nexal.nokiy.net` as the backend URL. Users can override this in Settings.
+The Web UI defaults to `wss://nexal-server.fly.dev` as the backend URL. Users can override it with `VITE_NEXAL_BACKEND` or from the Settings page. Browser-side settings are stored in `localStorage` with the `nexal.` prefix.
 
-### Deploying
+## Deployment
 
-- **Gateway**: `flyctl deploy` (auto-deploys on push via GitHub Actions)
-- **LLM Server**: `flyctl deploy -c deploy/server/fly.toml`
-- **Custom domain**: `gateway.nexal.nokiy.net` (CNAME → `nexal.fly.dev`)
+- **Gateway**: `fly.toml`, `gateway.Dockerfile`, `.github/workflows/deploy-gateway.yml`.
+- **LLM Server**: `deploy/server/fly.toml`, `server.Dockerfile`, `.github/workflows/deploy-server.yml`.
+- **Web UI**: `.github/workflows/deploy-web-pages.yml`, `.github/workflows/web-build.yml`.
+- **Sandbox images**: `sandbox.Dockerfile`, `agent.Dockerfile`, `.github/workflows/docker.yml`.
+- **Release**: `.github/workflows/release.yml`.
 
-## Testing
+## Reference Files
 
-```bash
-# TypeScript type check
-bun run typecheck
-
-# Rust tests
-cargo test
-
-# Smoke tests
-bun run src/scripts/smoke-gateway.ts
-bun run src/scripts/smoke-worker.ts
-```
+- Root scripts: `package.json`, `justfile`
+- Server config/settings: `src/config.ts`, `src/settings.ts`, `src/index.ts`
+- Channel registry: `src/channels/manager.ts`, `src/channels/factory.ts`
+- Gateway backends: `crates/nexal-gateway/src/backend/`
+- Agent protocol/server: `crates/nexal-agent/src/protocol/`, `crates/nexal-agent/src/server.rs`
+- Web settings/auth: `web/src/lib/settings.svelte.ts`, `web/src/lib/supabase.svelte.ts`
