@@ -107,6 +107,42 @@ export class Tape {
 		await this.store.handoff(this.name, name, state);
 	}
 
+	/** Write an anchor (checkpoint) to the tape. */
+	async anchor(name: string, state?: Record<string, unknown>): Promise<void> {
+		await this.store.handoff(this.name, name, state);
+	}
+
+	/** Find an anchor by name. */
+	async findAnchor(name: string): Promise<TapeEntry | null> {
+		const entries = await this.load();
+		return entries.findLast(
+			(e) => e.kind === "anchor" && e.payload.name === name,
+		) ?? null;
+	}
+
+	/** Load entries after a specific anchor. */
+	async loadAfterAnchor(anchorName: string): Promise<TapeEntry[]> {
+		const entries = await this.load();
+		const idx = entries.findLastIndex(
+			(e) => e.kind === "anchor" && e.payload.name === anchorName,
+		);
+		if (idx === -1) return [];
+		return entries.slice(idx + 1);
+	}
+
+	/** Load entries between two anchors. */
+	async loadBetween(fromAnchor: string, toAnchor: string): Promise<TapeEntry[]> {
+		const entries = await this.load();
+		const fromIdx = entries.findIndex(
+			(e) => e.kind === "anchor" && e.payload.name === fromAnchor,
+		);
+		const toIdx = entries.findLastIndex(
+			(e) => e.kind === "anchor" && e.payload.name === toAnchor,
+		);
+		if (fromIdx === -1 || toIdx === -1 || fromIdx >= toIdx) return [];
+		return entries.slice(fromIdx + 1, toIdx);
+	}
+
 	/** Search entries by text pattern. */
 	async search(query: string, limit?: number): Promise<TapeEntry[]> {
 		return this.store.search(this.name, query, limit);
