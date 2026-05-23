@@ -11,7 +11,7 @@
  *   NEXAL_GATEWAY_URL    (default ws://127.0.0.1:5500)
  *   NEXAL_GATEWAY_TOKEN  (REQUIRED)
  */
-import { GatewayClient } from "../gateway/client.ts";
+import { GatewayClient } from "../gateway/index.ts";
 
 const URL = process.env.NEXAL_GATEWAY_URL ?? "ws://127.0.0.1:5500";
 const ACCESS_KEY = process.env.NEXAL_GATEWAY_ACCESS_KEY;

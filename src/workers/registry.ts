@@ -33,7 +33,7 @@ import type { UserContent } from "../content.ts";
 
 import type { Channel } from "../channels/types.ts";
 import type { ProxySpec } from "../config.ts";
-import type { GatewayClient } from "../gateway/client.ts";
+import type { GatewayClient } from "../gateway/index.ts";
 import type { TapeStore } from "../tape/store.ts";
 import { WorkerAgent } from "./agent.ts";
 import type {

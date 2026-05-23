@@ -2,7 +2,7 @@ import { describe, expect, mock, test } from "bun:test";
 
 import type { WorkerRegistry } from "../workers/registry.ts";
 import type { WorkerRow } from "../workers/store.ts";
-import { createCoordinatorTools, type CoordinatorCtx } from "./worker.ts";
+import { createCoordinatorTools, type CoordinatorCtx } from "./coordinator/index.ts";
 
 const CTX: CoordinatorCtx = {
 	parentSessionKey: "telegram:-1001",

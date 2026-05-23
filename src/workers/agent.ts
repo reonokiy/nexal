@@ -42,7 +42,7 @@ import {
 
 import type { Channel } from "../channels/types.ts";
 import type { ProxySpec } from "../config.ts";
-import type { GatewayClient } from "../gateway/client.ts";
+import type { GatewayClient } from "../gateway/index.ts";
 import type { AgentClient } from "../gateway/agent_client.ts";
 import { createBashTool } from "../tools/bash.ts";
 import { deserializeMessages, serializeMessages } from "./serialize.ts";

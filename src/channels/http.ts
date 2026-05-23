@@ -20,7 +20,7 @@
 import type { Channel, IncomingMessage, OutgoingReply } from "./types.ts";
 import { waitUntilStopped } from "./types.ts";
 import type { CommandRegistry } from "../commands/registry.ts";
-import type { GatewayClient } from "../gateway/client.ts";
+import type { GatewayClient } from "../gateway/index.ts";
 import { createLog } from "../log.ts";
 
 const log = createLog("http");

@@ -25,91 +25,20 @@ import type {
 	IncomingMessage,
 	OutgoingReply,
 	TypingHandle,
+} from "../types.ts";
+import { createLog } from "../../log.ts";
+import type {
+	TelegramChannelConfig,
+	TelegramMessage,
+	TelegramUpdate,
+	TelegramUser,
+	PendingGroup,
 } from "./types.ts";
-import type { CommandRegistry } from "../commands/registry.ts";
-import { createLog } from "../log.ts";
+import { apiCall, downloadFile, getMe } from "./api.ts";
 
 const log = createLog("telegram");
 
 const TG = "https://api.telegram.org";
-
-export interface TelegramChannelConfig {
-	botToken: string;
-	/** Allowed usernames (e.g. "alice"). Empty = no filter. */
-	allowFrom?: string[];
-	/** Allowed chat ids (string form). Empty = no filter. */
-	allowChats?: string[];
-	/** Long-poll timeout in seconds (passed to getUpdates). */
-	longPollTimeoutSec?: number;
-	/** Shared command registry for slash commands. */
-	commands?: CommandRegistry;
-}
-
-interface TelegramChat {
-	id: number;
-	type: string;
-	username?: string;
-	title?: string;
-}
-
-interface TelegramUser {
-	id: number;
-	is_bot?: boolean;
-	username?: string;
-	first_name?: string;
-	last_name?: string;
-}
-
-interface TelegramPhotoSize {
-	file_id: string;
-	file_unique_id: string;
-	width: number;
-	height: number;
-	file_size?: number;
-}
-
-interface TelegramSticker {
-	file_id: string;
-	file_unique_id: string;
-	is_animated: boolean;
-	is_video: boolean;
-	emoji?: string;
-	set_name?: string;
-	thumbnail?: TelegramPhotoSize;
-}
-
-interface TelegramMessage {
-	message_id: number;
-	from?: TelegramUser;
-	sender_chat?: TelegramChat;
-	chat: TelegramChat;
-	date: number;
-	media_group_id?: string;
-	text?: string;
-	caption?: string;
-	author_signature?: string;
-	reply_to_message?: TelegramMessage;
-	forward_from?: TelegramUser;
-	photo?: TelegramPhotoSize[];
-	document?: { file_id: string; file_name?: string; mime_type?: string };
-	sticker?: TelegramSticker;
-	video?: { file_id: string; file_name?: string };
-	voice?: { file_id: string };
-	animation?: { file_id: string };
-	audio?: { file_id: string; title?: string };
-}
-
-interface TelegramUpdate {
-	update_id: number;
-	message?: TelegramMessage;
-	edited_message?: TelegramMessage;
-	channel_post?: TelegramMessage;
-}
-
-interface PendingGroup {
-	items: Array<{ text: string; images: ImageAttachment[]; msg: TelegramMessage }>;
-	timer: ReturnType<typeof setTimeout>;
-}
 
 export class TelegramChannel implements Channel {
 	readonly name = "telegram";
@@ -124,7 +53,7 @@ export class TelegramChannel implements Channel {
 	async start(onMessage: (msg: IncomingMessage) => void): Promise<void> {
 		if (!this.config.botToken) throw new Error("telegram: botToken is required");
 
-		this.botUsername = (await this.getMe()).username ?? "";
+		this.botUsername = (await getMe(this.config.botToken)).username ?? "";
 		log.info(`logged in as @${this.botUsername || "<unknown>"}, polling for updates`);
 
 		// Register slash commands with Telegram so they appear in the
@@ -134,7 +63,7 @@ export class TelegramChannel implements Channel {
 				command: c.name,
 				description: c.description.slice(0, 256),
 			}));
-			await this.apiCall("setMyCommands", { commands: cmds }).catch((err) =>
+			await this.call("setMyCommands", { commands: cmds }).catch((err) =>
 				log.error("failed to register bot commands with Telegram", err),
 			);
 		}
@@ -161,7 +90,7 @@ export class TelegramChannel implements Channel {
 		}
 
 		if (reply.text) {
-			await this.apiCall("sendMessage", {
+			await this.call("sendMessage", {
 				chat_id: reply.chatId,
 				text: reply.text,
 				...replyParams,
@@ -201,7 +130,7 @@ export class TelegramChannel implements Channel {
 		const tick = async () => {
 			while (!stopped) {
 				try {
-					await this.apiCall("sendChatAction", { chat_id: chatId, action: "typing" });
+					await this.call("sendChatAction", { chat_id: chatId, action: "typing" });
 				} catch {
 					// swallow — the loop will retry
 				}
@@ -232,7 +161,7 @@ export class TelegramChannel implements Channel {
 		while (!this.stopping) {
 			let updates: TelegramUpdate[];
 			try {
-				updates = await this.apiCall<TelegramUpdate[]>("getUpdates", {
+				updates = await this.call<TelegramUpdate[]>("getUpdates", {
 					offset: this.offset,
 					timeout,
 					allowed_updates: ["message", "channel_post", "edited_message"],
@@ -266,7 +195,7 @@ export class TelegramChannel implements Channel {
 			this.config.allowFrom.includes(username);
 
 		if (!allowChat && !allowUser) {
-			await this.apiCall("sendMessage", {
+			await this.call("sendMessage", {
 				chat_id: chatId,
 				text: `⚠️ Not authorized.\nchat_id: ${chatId}\nuser: @${username} (id: ${userId})`,
 			}).catch(() => undefined);
@@ -292,7 +221,7 @@ export class TelegramChannel implements Channel {
 							return { text: `Command failed: ${err instanceof Error ? err.message : err}` };
 						});
 					if (result) {
-						await this.apiCall("sendMessage", {
+						await this.call("sendMessage", {
 							chat_id: chatId,
 							text: result.text,
 							...(msg.message_id ? { reply_parameters: { message_id: msg.message_id } } : {}),
@@ -382,7 +311,7 @@ export class TelegramChannel implements Channel {
 
 		if (msg.photo && msg.photo.length > 0) {
 			const largest = msg.photo[msg.photo.length - 1]!;
-			const data = await this.downloadFile(largest.file_id).catch(() => null);
+			const data = await downloadFile(this.config.botToken, largest.file_id).catch(() => null);
 			const images: ImageAttachment[] =
 				data === null
 					? []
@@ -418,7 +347,7 @@ export class TelegramChannel implements Channel {
 					? { id: s.file_id, mime: "image/webp", ext: "webp", uid: s.file_unique_id }
 					: null;
 			if (target) {
-				const data = await this.downloadFile(target.id).catch(() => null);
+				const data = await downloadFile(this.config.botToken, target.id).catch(() => null);
 				if (data)
 					images = [
 						{
@@ -446,28 +375,8 @@ export class TelegramChannel implements Channel {
 		return { text: "", images: [] };
 	}
 
-	private async getMe(): Promise<TelegramUser> {
-		return this.apiCall<TelegramUser>("getMe", {});
-	}
-
-	private async downloadFile(fileId: string): Promise<Buffer> {
-		const file = await this.apiCall<{ file_path: string }>("getFile", { file_id: fileId });
-		const url = `${TG}/file/bot${this.config.botToken}/${file.file_path}`;
-		const resp = await fetch(url);
-		if (!resp.ok) throw new Error(`getFile download failed: ${resp.status}`);
-		return Buffer.from(await resp.arrayBuffer());
-	}
-
-	private async apiCall<T>(method: string, params: Record<string, unknown>): Promise<T> {
-		const url = `${TG}/bot${this.config.botToken}/${method}`;
-		const resp = await fetch(url, {
-			method: "POST",
-			headers: { "content-type": "application/json" },
-			body: JSON.stringify(params),
-		});
-		const body = (await resp.json()) as { ok: boolean; result?: T; description?: string };
-		if (!body.ok) throw new Error(`telegram ${method}: ${body.description ?? resp.status}`);
-		return body.result as T;
+	private call<T>(method: string, params: Record<string, unknown>): Promise<T> {
+		return apiCall<T>(this.config.botToken, method, params);
 	}
 }
 

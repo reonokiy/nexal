@@ -27,6 +27,9 @@ import type {
 	UnknownAgentNotification,
 } from "./protocol.ts";
 import type { AgentClient } from "./agent_client.ts";
+import type { JsonRpcId, JsonRpcResponse, JsonRpcNotification, Pending, Transport } from "./errors.ts";
+import { GatewayError } from "./errors.ts";
+import { createWebSocketTransport, createUnixTransport } from "./transport.ts";
 import { GatewayAgentClient } from "./agent_client.ts";
 import { createLog } from "../log.ts";
 import { createHmac, randomBytes } from "node:crypto";
@@ -39,36 +42,7 @@ interface AgentEntry {
 	client: AgentClient;
 }
 
-type JsonRpcId = string | number;
-
-interface JsonRpcResponse {
-	jsonrpc: "2.0";
-	id: JsonRpcId;
-	result?: unknown;
-	error?: { code: number; message: string; data?: unknown };
-}
-
-interface JsonRpcNotification {
-	jsonrpc: "2.0";
-	method: string;
-	params?: unknown;
-}
-
-interface Pending {
-	resolve: (v: unknown) => void;
-	reject: (err: Error) => void;
-}
-
-export class GatewayError extends Error {
-	constructor(
-		message: string,
-		readonly code: number,
-		readonly data?: unknown,
-	) {
-		super(message);
-		this.name = "GatewayError";
-	}
-}
+export { GatewayError };
 
 export interface GatewayClientOptions {
 	/** WebSocket URL, e.g. `"wss://nexal.fly.dev"`. */
@@ -94,11 +68,6 @@ const NOTIFICATION_METHODS = new Set<keyof AgentNotifications>([
 	"process/closed",
 ]);
 
-interface Transport {
-	send(data: string): void;
-	close(): void;
-}
-
 export class GatewayClient {
 	private transport: Transport | null = null;
 	private readonly pending = new Map<JsonRpcId, Pending>();
@@ -121,70 +90,23 @@ export class GatewayClient {
 	}
 
 	private async connectWebSocket(): Promise<void> {
-		const url = this.options.url.replace(/^http/, "ws");
-		return new Promise<void>((resolve, reject) => {
-			const timeout = setTimeout(() => {
-				reject(new Error(`gateway WebSocket connect timeout to ${url}`));
-			}, this.options.connectTimeoutMs ?? 10_000);
-
-			const ws = new WebSocket(url);
-			ws.binaryType = "arraybuffer";
-
-			ws.onopen = () => {
-				clearTimeout(timeout);
-				this.transport = {
-					send: (data: string) => {
-						if (ws.readyState === 1) ws.send(data);
-					},
-					close: () => ws.close(),
-				};
-				resolve();
-			};
-
-			ws.onerror = () => {
-				clearTimeout(timeout);
-				reject(new Error(`gateway WebSocket error connecting to ${url}`));
-			};
-
-			ws.onmessage = (ev: MessageEvent) => {
-				const text =
-					typeof ev.data === "string"
-						? ev.data
-						: this.decoder.decode(ev.data as ArrayBuffer);
-				for (const line of text.split("\n")) {
-					if (line.trim()) this.dispatch(line);
-				}
-			};
-
-			ws.onclose = () => this.onDisconnect();
-		});
+		const handle = await createWebSocketTransport(
+			this.options.url,
+			{ connectTimeoutMs: this.options.connectTimeoutMs },
+			this.decoder,
+			(line) => this.dispatch(line),
+			() => this.onDisconnect(),
+		);
+		this.transport = handle.transport;
 	}
 
 	private async connectUnix(): Promise<void> {
-		const { createConnection } = await import("node:net");
-		return new Promise<void>((resolve, reject) => {
-			const sock = createConnection(this.options.unix!, () => {
-				this.transport = {
-					send: (data: string) => sock.write(data + "\n"),
-					close: () => sock.destroy(),
-				};
-				resolve();
-			});
-			sock.on("error", (err: Error) => {
-				reject(new Error(`gateway unix connect error: ${err.message}`));
-			});
-
-			let buffer = "";
-			sock.on("data", (chunk: Buffer) => {
-				buffer += chunk.toString("utf-8");
-				const lines = buffer.split("\n");
-				buffer = lines.pop()!;
-				for (const line of lines) {
-					if (line.trim()) this.dispatch(line);
-				}
-			});
-			sock.on("close", () => this.onDisconnect());
-		});
+		const handle = await createUnixTransport(
+			this.options.unix!,
+			(line) => this.dispatch(line),
+			() => this.onDisconnect(),
+		);
+		this.transport = handle.transport;
 	}
 
 	private onDisconnect(): void {

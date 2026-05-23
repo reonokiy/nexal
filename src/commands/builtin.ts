@@ -2,7 +2,7 @@
  * Built-in slash commands registered at startup.
  */
 import type { CommandRegistry } from "./registry.ts";
-import type { GatewayClient } from "../gateway/client.ts";
+import type { GatewayClient } from "../gateway/index.ts";
 import {
 	deleteAuth,
 	loadAuth,

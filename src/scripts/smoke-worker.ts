@@ -20,7 +20,7 @@
 import { getModel } from "@mariozechner/pi-ai";
 
 import type { Channel, OutgoingReply } from "../channels/types.ts";
-import { GatewayClient } from "../gateway/client.ts";
+import { GatewayClient } from "../gateway/index.ts";
 import { createBashTool } from "../tools/bash.ts";
 import { createSendUpdateTool } from "../tools/send_update.ts";
 import { WorkerRegistry } from "../workers/registry.ts";

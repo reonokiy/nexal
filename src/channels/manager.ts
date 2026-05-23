@@ -22,7 +22,7 @@
 import type { Channel } from "./types.ts";
 import { HttpChannel } from "./http.ts";
 import { WsChannel } from "./ws.ts";
-import { TelegramChannel } from "./telegram.ts";
+import { TelegramChannel } from "./telegram/index.ts";
 import { HeartbeatChannel } from "./heartbeat.ts";
 import { CronChannel } from "./cron.ts";
 import { GitHubChannel } from "./github.ts";
@@ -30,7 +30,7 @@ import { CommandRegistry } from "../commands/registry.ts";
 import { registerBuiltins } from "../commands/builtin.ts";
 import { loadAllChannelConfigs, onChannelConfigChange } from "../settings.ts";
 import type { IncomingMessage } from "./types.ts";
-import type { GatewayClient } from "../gateway/client.ts";
+import type { GatewayClient } from "../gateway/index.ts";
 import { createLog } from "../log.ts";
 
 const log = createLog("channels");

@@ -1,7 +1,7 @@
 import { describe, expect, mock, test } from "bun:test";
 
 import type { Channel } from "../channels/types.ts";
-import type { GatewayClient } from "../gateway/client.ts";
+import type { GatewayClient } from "../gateway/index.ts";
 import { WorkerRegistry } from "./registry.ts";
 import type {
 	SendPolicy,

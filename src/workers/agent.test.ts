@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { Channel } from "../channels/types.ts";
 import type { AgentClient } from "../gateway/agent_client.ts";
-import type { GatewayClient } from "../gateway/client.ts";
+import type { GatewayClient } from "../gateway/index.ts";
 
 // Stubbing Agent at module scope — see the "Agent lifecycle paths" note
 // below. The real Agent lives in @mariozechner/pi-agent-core; we replace

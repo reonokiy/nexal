@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import { TelegramChannel } from "./telegram.ts";
+import { TelegramChannel } from "./telegram/index.ts";
 import type { IncomingMessage } from "./types.ts";
 
 /**

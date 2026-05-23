@@ -14,7 +14,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 
-import { GatewayClient } from "../gateway/client.ts";
+import { GatewayClient } from "../gateway/index.ts";
 import { GatewayAgentClient } from "../gateway/agent_client.ts";
 
 // ── Paths ───────────────────────────────────────────────────────────
