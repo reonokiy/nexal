@@ -1,25 +1,28 @@
-//! JSON-RPC dispatch over WebSocket (MessagePack binary frames).
+//! Bidirectional WS + msgpack channel dispatch.
 //!
-//! Manual method dispatch over a MessagePack binary stream via
-//! `JsonMessageConnection`. Handles serialization, method routing,
-//! and notification forwarding to connected clients.
+//! Handles request/response correlation, method routing, and
+//! notification forwarding over a single binary WebSocket stream.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use nexal_utils_json_transport::{JsonMessageConnection, JsonMessageConnectionEvent};
 use rmpv::Value;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, warn};
 
-use crate::transport::protocol::{
-    EXEC_CLOSED_METHOD, EXEC_EXITED_METHOD, EXEC_OUTPUT_DELTA_METHOD, ExecParams, FsCopyParams,
-    FsCreateDirectoryParams, FsGetMetadataParams, FsMethod, FsReadDirectoryParams, FsReadFileParams,
-    FsRemoveParams, FsWriteFileParams, InitializeParams, JSONRPCErrorError, LifecycleMethod, Method,
-    ProcessMethod, ProxyMethod, ProxyRegisterParams, ProxyUnregisterParams, ReadParams,
-    TerminateParams, WriteParams, parse_method, ERROR_CODE_METHOD_NOT_FOUND,
-    ERROR_CODE_INVALID_PARAMS, ERROR_CODE_INTERNAL, ERROR_CODE_PARSE,
+use crate::process::events::ProcessEvent;
+use crate::protocol::errors::{ChannelError, ChannelErrorKind};
+use crate::protocol::methods::{
+    EXEC_CLOSED_METHOD, EXEC_EXITED_METHOD, EXEC_OUTPUT_DELTA_METHOD, FsMethod, LifecycleMethod,
+    Method, ProcessMethod, ProxyMethod, parse_method,
 };
-use crate::server::services::{ExecServerHandler, ProcessEvent};
+use crate::protocol::wire::{
+    ExecParams, FsCopyParams, FsCreateDirectoryParams, FsGetMetadataParams, FsReadDirectoryParams,
+    FsReadFileParams, FsRemoveParams, FsWriteFileParams, InitializeParams, ProxyRegisterParams,
+    ProxyUnregisterParams, ReadParams, TerminateParams, WriteParams,
+};
+use crate::server::services::ExecServerHandler;
 
 /// Look up a string value by key in a map.
 fn map_str<'a>(v: &'a Value, key: &str) -> Option<&'a str> {
@@ -43,18 +46,117 @@ fn mp_map(pairs: Vec<(&str, Value)>) -> Value {
     Value::Map(pairs.into_iter().map(|(k, v)| (k.into(), v)).collect())
 }
 
-fn mp_error(code: i64, message: &str, data: Option<Value>) -> Value {
+fn mp_error(err: ChannelError) -> Value {
     let mut fields = vec![
-        ("code", Value::Integer(code.into())),
-        ("message", Value::String(message.into())),
+        ("kind", Value::String(err.kind.to_string().into())),
+        ("message", Value::String(err.message.into())),
     ];
-    if let Some(d) = data {
+    if let Some(d) = err.data {
         fields.push(("data", d));
     }
     Value::Map(fields.into_iter().map(|(k, v)| (k.into(), v)).collect())
 }
 
-/// Run the JSON-RPC dispatch loop over a `JsonMessageConnection`.
+// ── MsgpackChannel: agent → gateway requests ───────────────────────
+
+type PendingOutgoing = HashMap<u64, oneshot::Sender<Result<Value, String>>>;
+
+/// Bidirectional channel handle for sending requests from the agent to
+/// the gateway over the existing WebSocket connection.
+pub(crate) struct MsgpackChannel {
+    outgoing_tx: mpsc::Sender<Value>,
+    pending: std::sync::Mutex<PendingOutgoing>,
+    next_id: std::sync::Mutex<u64>,
+}
+
+impl MsgpackChannel {
+    pub(crate) fn new(outgoing_tx: mpsc::Sender<Value>) -> Self {
+        Self {
+            outgoing_tx,
+            pending: std::sync::Mutex::new(HashMap::new()),
+            next_id: std::sync::Mutex::new(1),
+        }
+    }
+
+    /// Send a request to the gateway and await the response.
+    pub(crate) async fn request(&self, method: &str, params: Value) -> Result<Value, String> {
+        let id = {
+            let mut n = self.next_id.lock().unwrap();
+            let v = *n;
+            *n += 1;
+            v
+        };
+        let (tx, rx) = oneshot::channel();
+        self.pending.lock().unwrap().insert(id, tx);
+
+        let request = mp_map(vec![
+            ("id", Value::Integer(id.into())),
+            ("method", Value::String(method.into())),
+            ("params", params),
+        ]);
+        self.outgoing_tx
+            .send(request)
+            .await
+            .map_err(|_| "connection closed".to_string())?;
+
+        rx.await.map_err(|_| "connection closed".to_string())?
+    }
+
+    pub(crate) fn request_blocking(&self, method: &str, params: Value) -> Result<Value, String> {
+        let id = {
+            let mut n = self.next_id.lock().unwrap();
+            let v = *n;
+            *n += 1;
+            v
+        };
+        let (tx, rx) = oneshot::channel();
+        self.pending.lock().unwrap().insert(id, tx);
+
+        let request = mp_map(vec![
+            ("id", Value::Integer(id.into())),
+            ("method", Value::String(method.into())),
+            ("params", params),
+        ]);
+        if self.outgoing_tx.blocking_send(request).is_err() {
+            self.pending.lock().unwrap().remove(&id);
+            return Err("connection closed".to_string());
+        }
+
+        rx.blocking_recv()
+            .map_err(|_| "connection closed".to_string())?
+    }
+
+    /// Try to resolve a pending outgoing request. Returns true if the
+    /// frame was a response to one of our requests.
+    fn try_resolve_pending(&self, value: &Value) -> bool {
+        if map_get(value, "method").is_some() {
+            return false;
+        }
+
+        let Some(id_val) = map_get(value, "id") else {
+            return false;
+        };
+        let Some(id) = id_val.as_u64() else {
+            return false;
+        };
+        let Some(tx) = self.pending.lock().unwrap().remove(&id) else {
+            return false;
+        };
+        if let Some(err) = map_get(value, "error") {
+            let msg = map_get(err, "message")
+                .and_then(Value::as_str)
+                .unwrap_or("gateway error")
+                .to_string();
+            let _ = tx.send(Err(msg));
+        } else {
+            let result = map_get(value, "result").cloned().unwrap_or(Value::Nil);
+            let _ = tx.send(Ok(result));
+        }
+        true
+    }
+}
+
+/// Run the channel dispatch loop over a `JsonMessageConnection`.
 ///
 /// Reads requests, dispatches to the handler, writes responses, and
 /// forwards process event notifications. Returns when the connection
@@ -64,6 +166,9 @@ pub(crate) async fn run_dispatch(
     outgoing_tx: mpsc::Sender<Value>,
     mut incoming_rx: mpsc::Receiver<JsonMessageConnectionEvent<Value>>,
 ) {
+    let channel = Arc::new(MsgpackChannel::new(outgoing_tx.clone()));
+    handler.set_channel(channel.clone());
+
     let notify_tx = outgoing_tx.clone();
     let handler_for_events = handler.clone();
     let events_task = tokio::spawn(async move {
@@ -86,7 +191,6 @@ pub(crate) async fn run_dispatch(
                         ),
                     };
                     let notif = mp_map(vec![
-                        ("jsonrpc", Value::String("2.0".into())),
                         ("method", Value::String(method.into())),
                         ("params", params),
                     ]);
@@ -103,10 +207,14 @@ pub(crate) async fn run_dispatch(
     while let Some(event) = incoming_rx.recv().await {
         match event {
             JsonMessageConnectionEvent::Message(value) => {
+                // Check if this is a response to an outgoing request.
+                if channel.try_resolve_pending(&value) {
+                    continue;
+                }
+
+                // Otherwise it's an incoming request — dispatch it.
                 let id = map_get(&value, "id").cloned();
-                let method = map_str(&value, "method")
-                    .unwrap_or("")
-                    .to_string();
+                let method = map_str(&value, "method").unwrap_or("").to_string();
                 let params = map_get(&value, "params").cloned().unwrap_or(Value::Nil);
 
                 let params = unwrap_positional(params);
@@ -115,16 +223,8 @@ pub(crate) async fn run_dispatch(
 
                 if let Some(req_id) = id {
                     let response = match result {
-                        Ok(val) => mp_map(vec![
-                            ("jsonrpc", Value::String("2.0".into())),
-                            ("id", req_id),
-                            ("result", val),
-                        ]),
-                        Err(err) => mp_map(vec![
-                            ("jsonrpc", Value::String("2.0".into())),
-                            ("id", req_id),
-                            ("error", mp_error(err.code, &err.message, err.data)),
-                        ]),
+                        Ok(val) => mp_map(vec![("id", req_id), ("result", val)]),
+                        Err(err) => mp_map(vec![("id", req_id), ("error", mp_error(err))]),
                     };
                     if outgoing_tx.send(response).await.is_err() {
                         break;
@@ -134,9 +234,15 @@ pub(crate) async fn run_dispatch(
             JsonMessageConnectionEvent::MalformedMessage { reason } => {
                 warn!("malformed message: {reason}");
                 let response = mp_map(vec![
-                    ("jsonrpc", Value::String("2.0".into())),
                     ("id", Value::Nil),
-                    ("error", mp_error(ERROR_CODE_PARSE, "Parse error", Some(Value::String(reason.into())))),
+                    (
+                        "error",
+                        mp_error(ChannelError {
+                            kind: ChannelErrorKind::Parse,
+                            message: "parse error".into(),
+                            data: Some(Value::String(reason.into())),
+                        }),
+                    ),
                 ]);
                 if outgoing_tx.send(response).await.is_err() {
                     break;
@@ -171,10 +277,10 @@ async fn dispatch(
     handler: &ExecServerHandler,
     method: &str,
     params: Value,
-) -> Result<Value, JSONRPCErrorError> {
+) -> Result<Value, ChannelError> {
     let Some(method) = parse_method(method) else {
-        return Err(JSONRPCErrorError {
-            code: ERROR_CODE_METHOD_NOT_FOUND,
+        return Err(ChannelError {
+            kind: ChannelErrorKind::MethodNotFound,
             message: format!("method not found: {method}"),
             data: None,
         });
@@ -265,17 +371,17 @@ async fn dispatch(
     }
 }
 
-fn parse_params<T: serde::de::DeserializeOwned>(params: Value) -> Result<T, JSONRPCErrorError> {
-    rmpv::ext::from_value(params).map_err(|err| JSONRPCErrorError {
-        code: ERROR_CODE_INVALID_PARAMS,
+fn parse_params<T: serde::de::DeserializeOwned>(params: Value) -> Result<T, ChannelError> {
+    rmpv::ext::from_value(params).map_err(|err| ChannelError {
+        kind: ChannelErrorKind::InvalidParams,
         message: format!("invalid params: {err}"),
         data: None,
     })
 }
 
-fn internal_error(msg: String) -> JSONRPCErrorError {
-    JSONRPCErrorError {
-        code: ERROR_CODE_INTERNAL,
+fn internal_error(msg: String) -> ChannelError {
+    ChannelError {
+        kind: ChannelErrorKind::Internal,
         message: msg,
         data: None,
     }

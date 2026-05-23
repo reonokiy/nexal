@@ -1,24 +1,34 @@
+//! Filesystem component — trait definition and implementations.
+
+pub mod local;
+pub mod skills;
+
+use std::io;
+
 use async_trait::async_trait;
 use nexal_utils_absolute_path::AbsolutePathBuf;
-use tokio::io;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+// ── Trait ──────────────────────────────────────────────────────────
+
+pub type FileSystemResult<T> = io::Result<T>;
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct CreateDirectoryOptions {
     pub recursive: bool,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct RemoveOptions {
     pub recursive: bool,
     pub force: bool,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct CopyOptions {
     pub recursive: bool,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FileMetadata {
     pub is_directory: bool,
     pub is_file: bool,
@@ -26,14 +36,12 @@ pub struct FileMetadata {
     pub modified_at_ms: i64,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReadDirectoryEntry {
     pub file_name: String,
     pub is_directory: bool,
     pub is_file: bool,
 }
-
-pub type FileSystemResult<T> = io::Result<T>;
 
 #[async_trait]
 pub trait ExecutorFileSystem: Send + Sync {

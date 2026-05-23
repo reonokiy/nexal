@@ -5,7 +5,6 @@ use std::time::Duration;
 
 use anyhow::anyhow;
 use futures::{SinkExt, StreamExt};
-use nexal_agent::RequestId;
 use nexal_utils_cargo_bin::cargo_bin;
 use rmpv::Value;
 use serde::Serialize;
@@ -17,8 +16,8 @@ use tokio::process::Command;
 use tokio::time::Instant;
 use tokio::time::sleep;
 use tokio::time::timeout;
-use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::WebSocketStream;
+use tokio_tungstenite::tungstenite::Message;
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 const CONNECT_RETRY_INTERVAL: Duration = Duration::from_millis(100);
@@ -75,7 +74,6 @@ impl ExecServerHarness {
         let id = self.next_request_id;
         self.next_request_id += 1;
         let msg = mp_map(vec![
-            ("jsonrpc", Value::String("2.0".into())),
             ("id", Value::Integer(id.into())),
             ("method", Value::String(method.into())),
             ("params", to_msgpack(&params)),
@@ -104,10 +102,7 @@ impl ExecServerHarness {
         self.next_event_with_timeout(EVENT_TIMEOUT).await
     }
 
-    pub(crate) async fn wait_for_event<F>(
-        &mut self,
-        mut predicate: F,
-    ) -> anyhow::Result<Value>
+    pub(crate) async fn wait_for_event<F>(&mut self, mut predicate: F) -> anyhow::Result<Value>
     where
         F: FnMut(&Value) -> bool,
     {
@@ -155,11 +150,18 @@ impl ExecServerHarness {
 }
 
 fn map_str<'a>(v: &'a Value, key: &str) -> Option<&'a str> {
-    v.as_map()?.iter().find(|(k, _)| k.as_str() == Some(key))?.1.as_str()
+    v.as_map()?
+        .iter()
+        .find(|(k, _)| k.as_str() == Some(key))?
+        .1
+        .as_str()
 }
 
 fn map_get<'a>(v: &'a Value, key: &str) -> Option<&'a Value> {
-    v.as_map()?.iter().find(|(k, _)| k.as_str() == Some(key)).map(|(_, v)| v)
+    v.as_map()?
+        .iter()
+        .find(|(k, _)| k.as_str() == Some(key))
+        .map(|(_, v)| v)
 }
 
 pub(crate) fn event_id(event: &Value) -> Option<i64> {
@@ -177,7 +179,9 @@ pub(crate) fn event_get<'a>(event: &'a Value, key: &str) -> Option<&'a Value> {
 async fn connect_websocket_when_ready(
     url: &str,
 ) -> anyhow::Result<WebSocketStream<tokio::net::TcpStream>> {
-    let addr = url.strip_prefix("ws://").ok_or_else(|| anyhow!("expected ws:// URL, got {url}"))?;
+    let addr = url
+        .strip_prefix("ws://")
+        .ok_or_else(|| anyhow!("expected ws:// URL, got {url}"))?;
     let deadline = Instant::now() + CONNECT_TIMEOUT;
     loop {
         match TcpStream::connect(addr).await {
@@ -202,7 +206,9 @@ async fn read_listen_url_from_stdout(child: &mut Child) -> anyhow::Result<String
     loop {
         let now = Instant::now();
         if now >= deadline {
-            return Err(anyhow!("timed out waiting for listen URL after {CONNECT_TIMEOUT:?}"));
+            return Err(anyhow!(
+                "timed out waiting for listen URL after {CONNECT_TIMEOUT:?}"
+            ));
         }
         let remaining = deadline.duration_since(now);
         let line = timeout(remaining, lines.next_line())

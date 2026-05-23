@@ -4,7 +4,6 @@ mod common;
 
 use common::exec_server::{event_get, event_id, exec_server};
 use nexal_agent::InitializeResponse;
-use rmpv::Value;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn exec_server_accepts_initialize() -> anyhow::Result<()> {

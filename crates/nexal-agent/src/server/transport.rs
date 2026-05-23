@@ -7,7 +7,7 @@ use tokio::net::TcpListener;
 use tracing::{info, warn};
 
 use crate::server::ExecServerHandler;
-use crate::server::rpc::dispatch;
+use crate::server::channel::dispatch;
 
 pub const DEFAULT_LISTEN_URL: &str = "ws://127.0.0.1:0";
 

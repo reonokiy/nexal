@@ -1,17 +1,11 @@
-use crate::transport::protocol::JSONRPCErrorError;
-
-use crate::executor::local_process::LocalProcess;
-use crate::transport::protocol::ExecParams;
-use crate::transport::protocol::ExecResponse;
-use crate::transport::protocol::InitializeResponse;
-use crate::transport::protocol::ReadParams;
-use crate::transport::protocol::ReadResponse;
-use crate::transport::protocol::TerminateParams;
-use crate::transport::protocol::TerminateResponse;
-use crate::transport::protocol::WriteParams;
-use crate::transport::protocol::WriteResponse;
-use crate::transport::rpc::RpcNotificationSender;
-use crate::server::services::{ProcessEvent, ProcessEventBroadcaster};
+use crate::process::events::{ProcessEvent, ProcessEventBroadcaster};
+use crate::process::local::LocalProcess;
+use crate::protocol::channel::ChannelNotificationSender;
+use crate::protocol::errors::ChannelError;
+use crate::protocol::wire::{
+    ExecParams, ExecResponse, InitializeResponse, ReadParams, ReadResponse, TerminateParams,
+    TerminateResponse, WriteParams, WriteResponse,
+};
 
 #[derive(Clone)]
 pub(crate) struct ProcessHandler {
@@ -20,7 +14,7 @@ pub(crate) struct ProcessHandler {
 
 impl ProcessHandler {
     pub(crate) fn new(
-        notifications: RpcNotificationSender,
+        notifications: ChannelNotificationSender,
         process_events: ProcessEventBroadcaster,
     ) -> Self {
         Self {
@@ -32,7 +26,7 @@ impl ProcessHandler {
         self.process.shutdown().await;
     }
 
-    pub(crate) fn initialize(&self) -> Result<InitializeResponse, JSONRPCErrorError> {
+    pub(crate) fn initialize(&self) -> Result<InitializeResponse, ChannelError> {
         self.process.initialize()
     }
 
@@ -40,35 +34,29 @@ impl ProcessHandler {
         self.process.initialized()
     }
 
-    pub(crate) fn require_initialized_for(
-        &self,
-        method_family: &str,
-    ) -> Result<(), JSONRPCErrorError> {
+    pub(crate) fn require_initialized_for(&self, method_family: &str) -> Result<(), ChannelError> {
         self.process.require_initialized_for(method_family)
     }
 
-    pub(crate) async fn exec(&self, params: ExecParams) -> Result<ExecResponse, JSONRPCErrorError> {
+    pub(crate) async fn exec(&self, params: ExecParams) -> Result<ExecResponse, ChannelError> {
         self.process.exec(params).await
     }
 
-    pub(crate) async fn exec_read(
-        &self,
-        params: ReadParams,
-    ) -> Result<ReadResponse, JSONRPCErrorError> {
+    pub(crate) async fn exec_read(&self, params: ReadParams) -> Result<ReadResponse, ChannelError> {
         self.process.exec_read(params).await
     }
 
     pub(crate) async fn exec_write(
         &self,
         params: WriteParams,
-    ) -> Result<WriteResponse, JSONRPCErrorError> {
+    ) -> Result<WriteResponse, ChannelError> {
         self.process.exec_write(params).await
     }
 
     pub(crate) async fn terminate(
         &self,
         params: TerminateParams,
-    ) -> Result<TerminateResponse, JSONRPCErrorError> {
+    ) -> Result<TerminateResponse, ChannelError> {
         self.process.terminate_process(params).await
     }
 

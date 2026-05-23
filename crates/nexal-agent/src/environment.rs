@@ -1,10 +1,10 @@
 use std::sync::Arc;
 
-use crate::ExecServerError;
-use crate::executor::file_system::ExecutorFileSystem;
-use crate::executor::local_file_system::LocalFileSystem;
-use crate::executor::local_process::LocalProcess;
-use crate::executor::process::ExecBackend;
+use crate::core::ExecServerError;
+use crate::fs::ExecutorFileSystem;
+use crate::fs::local::LocalFileSystem;
+use crate::process::ExecBackend;
+use crate::process::local::LocalProcess;
 
 #[derive(Clone)]
 pub struct Environment {

@@ -1,8 +1,8 @@
-mod rpc;
+pub(crate) mod channel;
 mod services;
 mod transport;
 
-pub(crate) use services::{ExecServerHandler, ProcessEvent, ProcessEventBroadcaster};
+pub(crate) use services::ExecServerHandler;
 pub use transport::DEFAULT_LISTEN_URL;
 pub use transport::ExecServerListenUrlParseError;
 

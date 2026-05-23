@@ -1,13 +1,13 @@
+pub mod events;
+pub mod local;
+
 use std::sync::Arc;
 
 use async_trait::async_trait;
 use tokio::sync::watch;
 
-use crate::ExecServerError;
-use crate::ProcessId;
-use crate::transport::protocol::ExecParams;
-use crate::transport::protocol::ReadResponse;
-use crate::transport::protocol::WriteResponse;
+use crate::core::{ExecServerError, ProcessId};
+use crate::protocol::wire::{ExecParams, ReadResponse, WriteResponse};
 
 pub struct StartedExecProcess {
     pub process: Arc<dyn ExecProcess>,

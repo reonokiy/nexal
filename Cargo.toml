@@ -33,6 +33,7 @@ async-trait = "0.1.89"
 base64 = "0.22.1"
 clap = { version = "4", features = ["derive", "env"] }
 dirs = "6"
+fuser = { version = "0.15", default-features = false, features = ["abi-7-31"] }
 futures = { version = "0.3", default-features = false, features = ["std", "async-await"] }
 libc = "0.2.182"
 path-absolutize = "3.1.1"

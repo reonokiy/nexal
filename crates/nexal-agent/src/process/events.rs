@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use tokio::sync::broadcast;
 
-use crate::transport::protocol::{
+use crate::protocol::wire::{
     ExecClosedNotification, ExecExitedNotification, ExecOutputDeltaNotification,
 };
 

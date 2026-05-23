@@ -5,7 +5,6 @@ mod common;
 use common::exec_server::{event_get, event_id, exec_server};
 use nexal_agent::ExecResponse;
 use nexal_agent::ProcessId;
-use rmpv::Value;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn exec_server_starts_process_over_websocket() -> anyhow::Result<()> {

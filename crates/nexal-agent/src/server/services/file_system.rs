@@ -1,28 +1,15 @@
 use std::io;
 
-use crate::transport::protocol::FsCopyParams;
-use crate::transport::protocol::FsCopyResponse;
-use crate::transport::protocol::FsCreateDirectoryParams;
-use crate::transport::protocol::FsCreateDirectoryResponse;
-use crate::transport::protocol::FsGetMetadataParams;
-use crate::transport::protocol::FsGetMetadataResponse;
-use crate::transport::protocol::FsReadDirectoryEntry;
-use crate::transport::protocol::FsReadDirectoryParams;
-use crate::transport::protocol::FsReadDirectoryResponse;
-use crate::transport::protocol::FsReadFileParams;
-use crate::transport::protocol::FsReadFileResponse;
-use crate::transport::protocol::FsRemoveParams;
-use crate::transport::protocol::FsRemoveResponse;
-use crate::transport::protocol::FsWriteFileParams;
-use crate::transport::protocol::FsWriteFileResponse;
-use crate::transport::protocol::JSONRPCErrorError;
-use crate::CopyOptions;
-use crate::CreateDirectoryOptions;
-use crate::ExecutorFileSystem;
-use crate::RemoveOptions;
-use crate::executor::local_file_system::LocalFileSystem;
-use crate::transport::rpc::internal_error;
-use crate::transport::rpc::invalid_request;
+use crate::fs::local::LocalFileSystem;
+use crate::fs::{CopyOptions, CreateDirectoryOptions, ExecutorFileSystem, RemoveOptions};
+use crate::protocol::channel::{internal_error, invalid_request};
+use crate::protocol::errors::ChannelError;
+use crate::protocol::wire::{
+    FsCopyParams, FsCopyResponse, FsCreateDirectoryParams, FsCreateDirectoryResponse,
+    FsGetMetadataParams, FsGetMetadataResponse, FsReadDirectoryEntry, FsReadDirectoryParams,
+    FsReadDirectoryResponse, FsReadFileParams, FsReadFileResponse, FsRemoveParams,
+    FsRemoveResponse, FsWriteFileParams, FsWriteFileResponse,
+};
 
 #[derive(Clone, Default)]
 pub(crate) struct FileSystemHandler {
@@ -33,21 +20,19 @@ impl FileSystemHandler {
     pub(crate) async fn read_file(
         &self,
         params: FsReadFileParams,
-    ) -> Result<FsReadFileResponse, JSONRPCErrorError> {
+    ) -> Result<FsReadFileResponse, ChannelError> {
         let bytes = self
             .file_system
             .read_file(&params.path)
             .await
             .map_err(map_fs_error)?;
-        Ok(FsReadFileResponse {
-            data: bytes,
-        })
+        Ok(FsReadFileResponse { data: bytes })
     }
 
     pub(crate) async fn write_file(
         &self,
         params: FsWriteFileParams,
-    ) -> Result<FsWriteFileResponse, JSONRPCErrorError> {
+    ) -> Result<FsWriteFileResponse, ChannelError> {
         self.file_system
             .write_file(&params.path, params.data)
             .await
@@ -58,7 +43,7 @@ impl FileSystemHandler {
     pub(crate) async fn create_directory(
         &self,
         params: FsCreateDirectoryParams,
-    ) -> Result<FsCreateDirectoryResponse, JSONRPCErrorError> {
+    ) -> Result<FsCreateDirectoryResponse, ChannelError> {
         self.file_system
             .create_directory(
                 &params.path,
@@ -74,7 +59,7 @@ impl FileSystemHandler {
     pub(crate) async fn get_metadata(
         &self,
         params: FsGetMetadataParams,
-    ) -> Result<FsGetMetadataResponse, JSONRPCErrorError> {
+    ) -> Result<FsGetMetadataResponse, ChannelError> {
         let metadata = self
             .file_system
             .get_metadata(&params.path)
@@ -91,7 +76,7 @@ impl FileSystemHandler {
     pub(crate) async fn read_directory(
         &self,
         params: FsReadDirectoryParams,
-    ) -> Result<FsReadDirectoryResponse, JSONRPCErrorError> {
+    ) -> Result<FsReadDirectoryResponse, ChannelError> {
         let entries = self
             .file_system
             .read_directory(&params.path)
@@ -112,7 +97,7 @@ impl FileSystemHandler {
     pub(crate) async fn remove(
         &self,
         params: FsRemoveParams,
-    ) -> Result<FsRemoveResponse, JSONRPCErrorError> {
+    ) -> Result<FsRemoveResponse, ChannelError> {
         self.file_system
             .remove(
                 &params.path,
@@ -126,10 +111,7 @@ impl FileSystemHandler {
         Ok(FsRemoveResponse {})
     }
 
-    pub(crate) async fn copy(
-        &self,
-        params: FsCopyParams,
-    ) -> Result<FsCopyResponse, JSONRPCErrorError> {
+    pub(crate) async fn copy(&self, params: FsCopyParams) -> Result<FsCopyResponse, ChannelError> {
         self.file_system
             .copy(
                 &params.source_path,
@@ -144,7 +126,7 @@ impl FileSystemHandler {
     }
 }
 
-fn map_fs_error(err: io::Error) -> JSONRPCErrorError {
+fn map_fs_error(err: io::Error) -> ChannelError {
     if err.kind() == io::ErrorKind::InvalidInput {
         invalid_request(err.to_string())
     } else {

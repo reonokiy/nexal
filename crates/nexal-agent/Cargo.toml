@@ -18,6 +18,8 @@ workspace = true
 arc-swap = { workspace = true }
 async-trait = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
+fuser = { workspace = true }
+libc = { workspace = true }
 nexal-utils-absolute-path = { workspace = true }
 nexal-utils-pty = { workspace = true }
 nexal-utils-certs = { workspace = true }

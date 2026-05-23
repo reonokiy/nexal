@@ -13,34 +13,20 @@ use tokio::sync::Notify;
 use tokio::sync::mpsc;
 use tokio::sync::watch;
 
-use crate::ExecBackend;
-use crate::ExecProcess;
-use crate::ExecServerError;
-use crate::ProcessId;
-use crate::StartedExecProcess;
-use crate::transport::protocol::ExecClosedNotification;
-use crate::transport::protocol::ExecExitedNotification;
-use crate::transport::protocol::ExecOutputDeltaNotification;
-use crate::transport::protocol::ExecOutputStream;
-use crate::transport::protocol::ExecParams;
-use crate::transport::protocol::ExecResponse;
-use crate::transport::protocol::InitializeResponse;
-use crate::transport::protocol::JSONRPCErrorError;
-use crate::transport::protocol::ProcessOutputChunk;
-use crate::transport::protocol::ReadParams;
-use crate::transport::protocol::ReadResponse;
-use crate::transport::protocol::TerminateParams;
-use crate::transport::protocol::TerminateResponse;
-use crate::transport::protocol::WriteParams;
-use crate::transport::protocol::WriteResponse;
-use crate::transport::protocol::WriteStatus;
-use crate::transport::protocol::EXEC_CLOSED_METHOD;
-use crate::transport::rpc::RpcNotificationSender;
-use crate::transport::rpc::RpcServerOutboundMessage;
-use crate::transport::rpc::internal_error;
-use crate::transport::rpc::invalid_params;
-use crate::transport::rpc::invalid_request;
-use crate::server::{ProcessEvent, ProcessEventBroadcaster};
+use crate::core::{ExecServerError, ProcessId};
+use crate::process::events::{ProcessEvent, ProcessEventBroadcaster};
+use crate::process::{ExecBackend, ExecProcess, StartedExecProcess};
+use crate::protocol::channel::{
+    ChannelNotificationSender, ChannelOutboundMessage, internal_error, invalid_params,
+    invalid_request,
+};
+use crate::protocol::errors::ChannelError;
+use crate::protocol::methods::{EXEC_CLOSED_METHOD, ExecOutputStream, WriteStatus};
+use crate::protocol::wire::{
+    ExecClosedNotification, ExecExitedNotification, ExecOutputDeltaNotification, ExecParams,
+    ExecResponse, InitializeResponse, ProcessOutputChunk, ReadParams, ReadResponse,
+    TerminateParams, TerminateResponse, WriteParams, WriteResponse,
+};
 
 const RETAINED_OUTPUT_BYTES_PER_PROCESS: usize = 1024 * 1024;
 const NOTIFICATION_CHANNEL_CAPACITY: usize = 256;
@@ -75,7 +61,7 @@ enum ProcessEntry {
 }
 
 struct Inner {
-    notifications: RpcNotificationSender,
+    notifications: ChannelNotificationSender,
     process_events: ProcessEventBroadcaster,
     processes: Mutex<HashMap<ProcessId, ProcessEntry>>,
     initialize_requested: AtomicBool,
@@ -96,10 +82,10 @@ struct LocalExecProcess {
 impl Default for LocalProcess {
     fn default() -> Self {
         let (outgoing_tx, mut outgoing_rx) =
-            mpsc::channel::<RpcServerOutboundMessage>(NOTIFICATION_CHANNEL_CAPACITY);
+            mpsc::channel::<ChannelOutboundMessage>(NOTIFICATION_CHANNEL_CAPACITY);
         tokio::spawn(async move { while outgoing_rx.recv().await.is_some() {} });
         Self::new(
-            RpcNotificationSender::new(outgoing_tx),
+            ChannelNotificationSender::new(outgoing_tx),
             ProcessEventBroadcaster::new(),
         )
     }
@@ -107,7 +93,7 @@ impl Default for LocalProcess {
 
 impl LocalProcess {
     pub(crate) fn new(
-        notifications: RpcNotificationSender,
+        notifications: ChannelNotificationSender,
         process_events: ProcessEventBroadcaster,
     ) -> Self {
         Self {
@@ -141,7 +127,7 @@ impl LocalProcess {
         self.inner.process_events.subscribe()
     }
 
-    pub(crate) fn initialize(&self) -> Result<InitializeResponse, JSONRPCErrorError> {
+    pub(crate) fn initialize(&self) -> Result<InitializeResponse, ChannelError> {
         if self.inner.initialize_requested.swap(true, Ordering::SeqCst) {
             return Err(invalid_request(
                 "initialize may only be sent once per connection".to_string(),
@@ -161,10 +147,7 @@ impl LocalProcess {
         Ok(())
     }
 
-    pub(crate) fn require_initialized_for(
-        &self,
-        method_family: &str,
-    ) -> Result<(), JSONRPCErrorError> {
+    pub(crate) fn require_initialized_for(&self, method_family: &str) -> Result<(), ChannelError> {
         if !self.inner.initialize_requested.load(Ordering::SeqCst) {
             return Err(invalid_request(format!(
                 "client must call initialize before using {method_family} methods"
@@ -181,7 +164,7 @@ impl LocalProcess {
     async fn start_process(
         &self,
         params: ExecParams,
-    ) -> Result<(ExecResponse, watch::Sender<u64>), JSONRPCErrorError> {
+    ) -> Result<(ExecResponse, watch::Sender<u64>), ChannelError> {
         self.require_initialized_for("exec")?;
         let process_id = params.process_id.clone();
         let (program, args) = params
@@ -283,16 +266,13 @@ impl LocalProcess {
         Ok((ExecResponse { process_id }, wake_tx))
     }
 
-    pub(crate) async fn exec(&self, params: ExecParams) -> Result<ExecResponse, JSONRPCErrorError> {
+    pub(crate) async fn exec(&self, params: ExecParams) -> Result<ExecResponse, ChannelError> {
         self.start_process(params)
             .await
             .map(|(response, _)| response)
     }
 
-    pub(crate) async fn exec_read(
-        &self,
-        params: ReadParams,
-    ) -> Result<ReadResponse, JSONRPCErrorError> {
+    pub(crate) async fn exec_read(&self, params: ReadParams) -> Result<ReadResponse, ChannelError> {
         self.require_initialized_for("exec")?;
         let _process_id = params.process_id.clone();
         let after_seq = params.after_seq.unwrap_or(0);
@@ -324,7 +304,7 @@ impl LocalProcess {
                     total_bytes += chunk_len;
                     chunks.push(ProcessOutputChunk {
                         seq: retained.seq,
-                        stream: retained.stream,
+                        stream: retained.stream.clone(),
                         chunk: retained.chunk.clone().into(),
                     });
                     next_seq = retained.seq + 1;
@@ -350,11 +330,8 @@ impl LocalProcess {
                 || response.exited
                 || tokio::time::Instant::now() >= deadline
             {
-                let _total_bytes: usize = response
-                    .chunks
-                    .iter()
-                    .map(|chunk| chunk.chunk.len())
-                    .sum();
+                let _total_bytes: usize =
+                    response.chunks.iter().map(|chunk| chunk.chunk.len()).sum();
                 return Ok(response);
             }
 
@@ -369,7 +346,7 @@ impl LocalProcess {
     pub(crate) async fn exec_write(
         &self,
         params: WriteParams,
-    ) -> Result<WriteResponse, JSONRPCErrorError> {
+    ) -> Result<WriteResponse, ChannelError> {
         self.require_initialized_for("exec")?;
         let _process_id = params.process_id.clone();
         let _input_bytes = params.chunk.len();
@@ -406,7 +383,7 @@ impl LocalProcess {
     pub(crate) async fn terminate_process(
         &self,
         params: TerminateParams,
-    ) -> Result<TerminateResponse, JSONRPCErrorError> {
+    ) -> Result<TerminateResponse, ChannelError> {
         self.require_initialized_for("exec")?;
         let _process_id = params.process_id.clone();
         let running = {
@@ -515,9 +492,9 @@ impl LocalProcess {
     }
 }
 
-fn map_handler_error(error: JSONRPCErrorError) -> ExecServerError {
+fn map_handler_error(error: ChannelError) -> ExecServerError {
     ExecServerError::Server {
-        code: error.code,
+        kind: error.kind.to_string(),
         message: error.message,
     }
 }
@@ -531,6 +508,7 @@ async fn stream_output(
 ) {
     while let Some(chunk) = receiver.recv().await {
         let _chunk_len = chunk.len();
+        let stream_clone = stream.clone();
         let notification = {
             let mut processes = inner.processes.lock().await;
             let Some(entry) = processes.get_mut(&process_id) else {
@@ -544,7 +522,7 @@ async fn stream_output(
             process.retained_bytes += chunk.len();
             process.output.push_back(RetainedOutputChunk {
                 seq,
-                stream,
+                stream: stream_clone.clone(),
                 chunk: chunk.clone(),
             });
             while process.retained_bytes > RETAINED_OUTPUT_BYTES_PER_PROCESS {
@@ -557,14 +535,17 @@ async fn stream_output(
             ExecOutputDeltaNotification {
                 process_id: process_id.clone(),
                 seq,
-                stream,
+                stream: stream_clone,
                 chunk: chunk.into(),
             }
         };
         output_notify.notify_waiters();
         if inner
             .notifications
-            .notify(crate::transport::protocol::EXEC_OUTPUT_DELTA_METHOD, &notification)
+            .notify(
+                crate::protocol::methods::EXEC_OUTPUT_DELTA_METHOD,
+                &notification,
+            )
             .await
             .is_err()
         {
@@ -603,7 +584,7 @@ async fn watch_exit(
     if let Some(notification) = notification.as_ref()
         && inner
             .notifications
-            .notify(crate::transport::protocol::EXEC_EXITED_METHOD, notification)
+            .notify(crate::protocol::methods::EXEC_EXITED_METHOD, notification)
             .await
             .is_err()
     {

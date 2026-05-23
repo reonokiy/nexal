@@ -1,32 +1,21 @@
+pub mod core;
+pub mod fs;
+pub mod process;
+pub mod protocol;
+pub mod proxy;
+pub mod server;
+
 mod environment;
-mod executor;
-pub(crate) mod proxy;
-mod server;
-mod transport;
 
+pub use core::{ExecServerError, ProcessId};
 pub use environment::Environment;
-
-pub use executor::file_system::{
+pub use fs::{
     CopyOptions, CreateDirectoryOptions, ExecutorFileSystem, FileMetadata, FileSystemResult,
     ReadDirectoryEntry, RemoveOptions,
 };
-
-pub use executor::process::{ExecBackend, ExecProcess, StartedExecProcess};
-pub use executor::process_id::ProcessId;
-
-pub use transport::protocol::{
-    ExecClosedNotification, ExecExitedNotification, ExecOutputDeltaNotification, ExecOutputStream,
-    ExecParams, ExecResponse, FsCopyParams, FsCopyResponse, FsCreateDirectoryParams,
-    FsCreateDirectoryResponse, FsGetMetadataParams, FsGetMetadataResponse, FsReadDirectoryParams,
-    FsReadDirectoryResponse, FsReadFileParams, FsReadFileResponse, FsRemoveParams,
-    FsRemoveResponse, FsWriteFileParams, FsWriteFileResponse, InitializeParams, InitializeResponse,
-    JSONRPCErrorError, ProxyRegisterParams, ProxyRegisterResponse,
-    ProxyUnregisterParams, ProxyUnregisterResponse, ReadParams, ReadResponse, RequestId,
-    TerminateParams, TerminateResponse, WriteParams, WriteResponse, WriteStatus,
-};
-
+pub use process::{ExecBackend, ExecProcess, StartedExecProcess};
+pub use protocol::errors::*;
+pub use protocol::wire::*;
 pub use server::{
     DEFAULT_LISTEN_URL, ExecServerListenUrlParseError, run_main, run_main_with_listen_url,
 };
-
-pub use transport::ExecServerError;
