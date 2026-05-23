@@ -45,8 +45,8 @@ import type { ProxySpec } from "../config.ts";
 import type { GatewayClient } from "../gateway/index.ts";
 import type { AgentClient } from "../gateway/agent_client.ts";
 import { createBashTool } from "../tools/bash.ts";
-import { jsonToMessages, messagesToJson, entriesToLlmMessages, messagesToEntries, truncateEntries } from "../tape/convert.ts";
-import type { MemoryStore } from "../context/index.ts";
+import { Tape, jsonToMessages, messagesToJson, messagesToEntries } from "../tape/index.ts";
+import type { TapeStore } from "../tape/store.ts";
 import type { SendPolicy, WorkerKind, WorkerLifetime, WorkerRow, WorkerStore } from "./store.ts";
 
 const PERSIST_DEBOUNCE_MS = 250;
@@ -77,8 +77,8 @@ export interface WorkerAgentDeps {
 	executorProxies?: ProxySpec[];
 	/** Called once a shot executor reaches a terminal state. */
 	onTerminal: (id: string) => void;
-	/** Memory store for tape-based persistence. */
-	memoryStore: MemoryStore;
+	/** Tape store for persistence. */
+	tapeStore: TapeStore;
 	/** Optional: resolve API keys from DB instead of env vars. */
 	getApiKey?: (provider: string) => Promise<string | undefined> | string | undefined;
 }
@@ -126,15 +126,17 @@ export class WorkerAgent {
 			await this.setupProxies();
 		}
 
-		// Load history from memory store (tape); fallback to DB messages_json.
-		// Tape is the canonical format; convert to LLM Message[] directly.
+		// Create a Tape instance for this worker.
+		const tapeName = `worker:${row.id}`;
+		const tape = new Tape({ store: this.deps.tapeStore, name: tapeName });
+
+		// Load history from tape; fallback to DB messages_json.
+		// Tape is the canonical format; convert directly to LLM format.
 		let initialMessages = jsonToMessages(row.messagesJson);
 		try {
-			const tapeName = `worker:${row.id}`;
-			const entries = await this.deps.memoryStore.load(tapeName);
+			const entries = await tape.load();
 			if (entries.length > 0) {
-				const truncated = truncateEntries(entries);
-				initialMessages = entriesToLlmMessages(truncated) as any;
+				initialMessages = tape.toLlmMessages(entries) as any;
 				this.lastPersistedMsgCount = initialMessages.length;
 				this.log.info(`restored ${initialMessages.length} messages from tape for ${tapeName}`);
 			}
@@ -159,7 +161,7 @@ export class WorkerAgent {
 		});
 		this.agent = agent;
 
-		this.wireEvents(agent);
+		this.wireEvents(agent, tape);
 
 		await store.markStarted(this.id);
 
@@ -364,12 +366,12 @@ export class WorkerAgent {
 		}
 	}
 
-	private wireEvents(agent: Agent): void {
+	private wireEvents(agent: Agent, tape: Tape): void {
 		agent.subscribe(async (event) => {
 			try {
 				if (event.type === "turn_end") {
 					this.latestTurnCount += 1;
-					this.scheduleFlush();
+					this.scheduleFlush(tape);
 					return;
 				}
 				if (event.type === "message_end" && event.message.role === "assistant") {
@@ -380,7 +382,7 @@ export class WorkerAgent {
 					return;
 				}
 				if (event.type === "agent_end") {
-					await this.handleAgentEnd(agent, event.messages);
+					await this.handleAgentEnd(agent, event.messages, tape);
 				}
 			} catch (err) {
 				this.log.error(`error handling "${event.type}" event`, err);
@@ -388,11 +390,11 @@ export class WorkerAgent {
 		});
 	}
 
-	private async handleAgentEnd(agent: Agent, messages: AgentMessage[]): Promise<void> {
+	private async handleAgentEnd(agent: Agent, messages: AgentMessage[], tape: Tape): Promise<void> {
 		if (this.disposed) return;
 		const errorMessage = agent.state.errorMessage;
 		const policy = this.deps.row.sendPolicy as SendPolicy;
-		await this.flushNow(messages);
+		await this.flushNow(messages, tape);
 
 		if (errorMessage) {
 			// Distinguish intentional cancellation (abort()) from real errors.
@@ -434,15 +436,15 @@ export class WorkerAgent {
 		await this.deps.store.markIdle(this.id, messagesToJson(messages));
 	}
 
-	private scheduleFlush(): void {
+	private scheduleFlush(tape: Tape): void {
 		if (this.persistTimer) return;
 		this.persistTimer = setTimeout(() => {
 			this.persistTimer = null;
-			void this.flushNow();
+			void this.flushNow(undefined, tape);
 		}, PERSIST_DEBOUNCE_MS);
 	}
 
-	private async flushNow(messagesOverride?: AgentMessage[]): Promise<void> {
+	private async flushNow(messagesOverride?: AgentMessage[], tape?: Tape): Promise<void> {
 		if (this.persistTimer) {
 			clearTimeout(this.persistTimer);
 			this.persistTimer = null;
@@ -461,21 +463,22 @@ export class WorkerAgent {
 			this.log.error(`failed to persist messages_json after turn ${this.latestTurnCount}`, err);
 		}
 
-		// Persist incremental delta to tape via memory store.
-		try {
-			const newMessages = messages.slice(this.lastPersistedMsgCount);
-			if (newMessages.length > 0) {
-				const tapeName = `worker:${this.id}`;
-				const entries = messagesToEntries(newMessages).map((e) => ({
-					...e,
-					date: new Date().toISOString(),
-				}));
-				await this.deps.memoryStore.append(tapeName, entries);
-				this.lastPersistedMsgCount = messages.length;
-				this.log.info(`appended ${newMessages.length} messages to tape for ${tapeName}`);
+		// Persist incremental delta to tape.
+		if (tape) {
+			try {
+				const newMessages = messages.slice(this.lastPersistedMsgCount);
+				if (newMessages.length > 0) {
+					const entries = messagesToEntries(newMessages).map((e) => ({
+						...e,
+						date: new Date().toISOString(),
+					}));
+					await tape.append(...entries);
+					this.lastPersistedMsgCount = messages.length;
+					this.log.info(`appended ${newMessages.length} messages to tape for ${tape.name}`);
+				}
+			} catch (err) {
+				this.log.error(`failed to persist tape delta for worker ${this.id}`, err);
 			}
-		} catch (err) {
-			this.log.error(`failed to persist tape delta for worker ${this.id}`, err);
 		}
 	}
 }

@@ -32,9 +32,8 @@ import {
 	extractTextFromContent,
 	imageContentToAttachment,
 } from "./content.ts";
+import { Tape } from "./tape/index.ts";
 import type { TapeStore } from "./tape/store.ts";
-import type { MemoryStore } from "./context/index.ts";
-import { entriesToLlmMessages, truncateEntries } from "./tape/convert.ts";
 
 export interface AgentPoolConfig {
 	systemPrompt: string;
@@ -53,10 +52,8 @@ export interface AgentPoolConfig {
 	}>;
 	sender: MessageSender;
 	debounce?: DebounceConfig;
-	/** Tape store for handoff anchors. */
+	/** Tape store for persistence. */
 	tapeStore: TapeStore;
-	/** Memory store for tape-based persistence. */
-	memoryStore: MemoryStore;
 	/** Optional: resolve API keys from DB instead of env vars. */
 	getApiKey?: (provider: string) => Promise<string | undefined> | string | undefined;
 }
@@ -126,8 +123,9 @@ export class AgentPool {
 		const content = buildUserContent(msg.text, msg.images);
 
 		// Persist user message to tape before handing to agent.
+		const tape = new Tape({ store: this.config.tapeStore, name: key });
 		try {
-			await this.config.memoryStore.append(key, [{
+			await tape.append({
 				kind: "message",
 				payload: {
 					role: "user",
@@ -136,7 +134,7 @@ export class AgentPool {
 				},
 				meta: { channel: msg.channel, sender: msg.sender },
 				date: new Date(msg.timestamp).toISOString(),
-			}]);
+			});
 		} catch (err) {
 			log.error(`failed to persist user message to tape for ${key}`, err);
 		}
@@ -177,14 +175,15 @@ export class AgentPool {
 		const perSession = this.config.toolsFor ? await this.config.toolsFor(key) : undefined;
 		const allTools = [...this.config.tools, ...(perSession?.tools ?? [])];
 
+		// Create a Tape instance for this session.
+		const tape = new Tape({ store: this.config.tapeStore, name: key });
+
 		const agent = new Agent({
 			initialState: {
 				systemPrompt: this.config.systemPrompt,
 				model: this.config.model,
 				tools: allTools,
 			},
-			// Tape-native: convertToLlm receives AgentMessage[] but we load
-			// fresh from tape in transformContext for the actual LLM call.
 			convertToLlm: (messages) =>
 				messages.filter(
 					(m) => m.role === "user" || m.role === "assistant" || m.role === "toolResult",
@@ -193,19 +192,15 @@ export class AgentPool {
 			getApiKey: this.config.getApiKey,
 		});
 
-		// Load persistent history from tape via memory store.
-		// Tape is the canonical format; we convert to LLM Message[] directly.
+		// Load history from tape and convert directly to LLM format.
 		try {
-			const entries = await this.config.memoryStore.load(key);
+			const entries = await tape.load();
 			if (entries.length > 0) {
-				const truncated = truncateEntries(entries);
-				// Convert tape entries directly to AgentMessage for agent.state.messages
-				const messages = entriesToLlmMessages(truncated);
-				agent.state.messages = messages as any;
-				log.info(`restored ${messages.length} messages from tape for session ${key}`);
+				const llmMessages = tape.toLlmMessages(entries);
+				agent.state.messages = llmMessages as any;
+				log.info(`restored ${llmMessages.length} messages from tape for session ${key}`);
 			} else {
-				// Bootstrap anchor so context reconstruction has a starting point.
-				await this.config.tapeStore.handoff(key, "session/start", {
+				await tape.handoff("session/start", {
 					owner: "human",
 					channel: msg.channel,
 					chatId: msg.chatId,
@@ -265,9 +260,9 @@ export class AgentPool {
 
 			if (event.type === "message_end" && event.message.role === "assistant") {
 				// Persist assistant message to tape.
+				const am = event.message as Extract<AgentMessage, { role: "assistant" }>;
 				try {
-					const am = event.message as Extract<AgentMessage, { role: "assistant" }>;
-					await this.config.memoryStore.append(key, [{
+					await tape.append({
 						kind: "message",
 						payload: {
 							role: "assistant",
@@ -283,7 +278,7 @@ export class AgentPool {
 						},
 						meta: {},
 						date: new Date().toISOString(),
-					}]);
+					});
 				} catch (err) {
 					log.error(`failed to persist assistant message to tape for ${key}`, err);
 				}
@@ -326,7 +321,7 @@ export class AgentPool {
 			// Persist tool results to tape.
 			if (event.type === "tool_execution_end") {
 				try {
-					await this.config.memoryStore.append(key, [{
+					await tape.append({
 						kind: "tool_result",
 						payload: {
 							role: "toolResult",
@@ -339,7 +334,7 @@ export class AgentPool {
 						},
 						meta: {},
 						date: new Date().toISOString(),
-					}]);
+					});
 				} catch (err) {
 					log.error(`failed to persist tool result to tape for ${key}`, err);
 				}

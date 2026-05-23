@@ -1,9 +1,8 @@
 import { describe, expect, mock, test } from "bun:test";
 
 import type { GatewayClient } from "../gateway/index.ts";
-import { createStubSender } from "../test-utils/helpers.ts";
-import { mockTapeStore } from "../test-utils/mock-tape-store.ts";
-import { createMemoryStore } from "../context/store.ts";
+import { createMessageSender } from "../messaging/index.ts";
+import type { TapeStore } from "../tape/store.ts";
 import { WorkerRegistry } from "./registry.ts";
 import { fakeRow } from "./test-helpers.ts";
 import type {
@@ -15,6 +14,23 @@ import type {
 	WorkerStatus,
 	WorkerStore,
 } from "./store.ts";
+
+const mockTapeStore: TapeStore = {
+	listTapes: async () => [],
+	read: async () => [],
+	append: async () => {},
+	reset: async () => {},
+	info: async () => ({
+		name: "",
+		entries: 0,
+		anchors: 0,
+		lastAnchor: null,
+		entriesSinceLastAnchor: 0,
+		lastTokenUsage: null,
+	}),
+	handoff: async () => {},
+	search: async () => [],
+};
 
 /**
  * Tests focus on the public tree-edge API:
@@ -116,14 +132,14 @@ function buildRegistry(opts?: {
 		model: {} as any,
 		modelProvider: "openrouter",
 		modelId: "openai/gpt-4o",
-		sender: createStubSender(),
+		sender: createMessageSender(new Map()),
 		maxConcurrent: 0, // disable pump — we don't want runners to start
 		executorSystemPromptDefault: "exec prompt",
 		coordinatorSystemPromptDefault: "coord prompt",
 		executorTools: () => [],
 		coordinatorTools: () => [],
 		forwardToCoordinator: opts?.forwardToCoordinator,
-		memoryStore: createMemoryStore(mockTapeStore),
+		tapeStore: mockTapeStore,
 	});
 }
 

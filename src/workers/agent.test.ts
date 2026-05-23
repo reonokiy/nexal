@@ -4,10 +4,25 @@ import type { Channel } from "../channels/types.ts";
 import type { AgentClient } from "../gateway/agent_client.ts";
 import type { GatewayClient } from "../gateway/index.ts";
 import { createMessageSender } from "../messaging/index.ts";
-import { createStubSender } from "../test-utils/helpers.ts";
-import { mockTapeStore } from "../test-utils/mock-tape-store.ts";
-import { createMemoryStore } from "../context/store.ts";
+import type { TapeStore } from "../tape/store.ts";
 import { fakeRow } from "./test-helpers.ts";
+
+const mockTapeStore: TapeStore = {
+	listTapes: async () => [],
+	read: async () => [],
+	append: async () => {},
+	reset: async () => {},
+	info: async () => ({
+		name: "",
+		entries: 0,
+		anchors: 0,
+		lastAnchor: null,
+		entriesSinceLastAnchor: 0,
+		lastTokenUsage: null,
+	}),
+	handoff: async () => {},
+	search: async () => [],
+};
 
 // Stubbing Agent at module scope — see the "Agent lifecycle paths" note
 // below. The real Agent lives in @mariozechner/pi-agent-core; we replace
@@ -202,11 +217,11 @@ function makeRunner(over?: {
 		store: store.store,
 		gateway: gw.gateway,
 		model: {} as any,
-		sender: over?.sender ?? createStubSender(),
+		sender: over?.sender ?? createMessageSender(new Map()),
 		toolsForKind: over?.tools ?? (() => []),
 		resumed: over?.resumed ?? false,
 		onTerminal: over?.onTerminal ?? ((id) => terminalSeen.push(id)),
-		memoryStore: createMemoryStore(mockTapeStore),
+		tapeStore: mockTapeStore,
 	});
 	return { runner, store, gateway: gw, terminalSeen };
 }

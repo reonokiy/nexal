@@ -4,9 +4,29 @@ import type { Model } from "@mariozechner/pi-ai";
 
 import { AgentPool } from "./agent-pool.ts";
 import type { IncomingMessage } from "./channels/types.ts";
-import { createStubSender } from "./test-utils/helpers.ts";
-import { mockTapeStore } from "./test-utils/mock-tape-store.ts";
-import { createMemoryStore } from "./context/store.ts";
+import type { TapeStore } from "./tape/store.ts";
+import type { MessageSender } from "./messaging/index.ts";
+
+const mockTapeStore: TapeStore = {
+	listTapes: async () => [],
+	read: async () => [],
+	append: async () => {},
+	reset: async () => {},
+	info: async () => ({
+		name: "",
+		entries: 0,
+		anchors: 0,
+		lastAnchor: null,
+		entriesSinceLastAnchor: 0,
+		lastTokenUsage: null,
+	}),
+	handoff: async () => {},
+	search: async () => [],
+};
+
+const mockSender: MessageSender = {
+	send: async () => {},
+};
 
 class SpyPool extends AgentPool {
 	received: IncomingMessage[] = [];
@@ -15,9 +35,8 @@ class SpyPool extends AgentPool {
 			systemPrompt: "test",
 			model: {} as Model<any>,
 			tools: [],
-			sender: createStubSender(),
+			sender: mockSender,
 			tapeStore: mockTapeStore,
-			memoryStore: createMemoryStore(mockTapeStore),
 		});
 	}
 	override handle(msg: IncomingMessage): void {
