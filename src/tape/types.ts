@@ -6,6 +6,7 @@
  *   Entry    — immutable fact record (message, tool_call, tool_result, event, anchor)
  *   Anchor   — logical checkpoint carrying state payload
  *   FileRef  — external storage reference for binary attachments
+ *   TapeRef  — reference to another tape or entry within a tape
  */
 
 /** A single immutable record on a tape. */
@@ -16,7 +17,7 @@ export interface TapeEntry {
 	kind: TapeEntryKind;
 	/** Structured payload (message dict, anchor state, event data, …). */
 	payload: Record<string, unknown>;
-	/** Optional metadata (source channel, turn id, …). */
+	/** Optional metadata (source channel, turn id, tape refs, …). */
 	meta: Record<string, unknown>;
 	/** ISO-8601 timestamp. */
 	date: string;
@@ -27,7 +28,8 @@ export type TapeEntryKind =
 	| "message"
 	| "tool_call"
 	| "tool_result"
-	| "event";
+	| "event"
+	| "ref";
 
 /** Runtime summary for a tape (returned by tape.info). */
 export interface TapeInfo {
@@ -51,4 +53,21 @@ export interface FileRef {
 	sizeBytes: number;
 	/** Presigned URL or public URL (short-lived). */
 	url?: string;
+}
+
+/**
+ * Reference to another tape or a specific entry within a tape.
+ * Used for cross-tape linking (e.g., worker referencing session context).
+ */
+export interface TapeRef {
+	/** Target tape name. */
+	tape: string;
+	/** Specific entry id within the target tape (optional). */
+	entryId?: number;
+	/** Or reference by anchor name (optional). */
+	anchorName?: string;
+	/** Relationship to the referenced tape. */
+	relation?: "context" | "parent" | "fork" | "link";
+	/** Additional metadata for the reference. */
+	meta?: Record<string, unknown>;
 }
