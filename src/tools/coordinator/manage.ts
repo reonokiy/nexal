@@ -5,6 +5,8 @@ import type { WorkerRegistry } from "../../workers/registry.ts";
 import type { WorkerRow } from "../../workers/store.ts";
 import type { UserContent } from "../../content.ts";
 
+import { formatAge, truncate } from "../../utils/format.ts";
+
 import type { CoordinatorCtx } from "./schemas.ts";
 import { IdParams, ListParams, RouteParams } from "./schemas.ts";
 
@@ -143,20 +145,6 @@ export function cancelAgentTool(
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────
-
-function formatAge(ms: number): string {
-	const s = Math.floor(ms / 1000);
-	if (s < 60) return `${s}s`;
-	const m = Math.floor(s / 60);
-	if (m < 60) return `${m}m`;
-	const h = Math.floor(m / 60);
-	if (h < 24) return `${h}h`;
-	return `${Math.floor(h / 24)}d`;
-}
-
-function truncate(s: string, n: number): string {
-	return s.length > n ? `${s.slice(0, n - 1)}…` : s;
-}
 
 function extractTail(messagesJson: string): string {
 	try {

@@ -3,25 +3,10 @@ import { describe, expect, mock, test } from "bun:test";
 import type { Model } from "@mariozechner/pi-ai";
 
 import { AgentPool } from "./agent-pool.ts";
-import type { Channel, IncomingMessage } from "./channels/types.ts";
-import type { TapeStore } from "./tape/store.ts";
-import { createMessageSender } from "./messaging/index.ts";
+import type { IncomingMessage } from "./channels/types.ts";
+import { createStubSender } from "./test-utils/helpers.ts";
+import { mockTapeStore } from "./test-utils/mock-tape-store.ts";
 
-const mockTapeStore: TapeStore = {
-	listTapes: async () => [],
-	read: async () => [],
-	append: async () => {},
-	reset: async () => {},
-	info: async () => ({ name: "", entries: 0, anchors: 0, lastAnchor: null, entriesSinceLastAnchor: 0, lastTokenUsage: null }),
-	handoff: async () => {},
-	search: async () => [],
-};
-
-/**
- * forwardChildReport lives on AgentPool but forwards straight into
- * `this.handle(...)`. To avoid the full Agent/model stack we
- * subclass AgentPool and spy on `handle`.
- */
 class SpyPool extends AgentPool {
 	received: IncomingMessage[] = [];
 	constructor() {
@@ -29,7 +14,7 @@ class SpyPool extends AgentPool {
 			systemPrompt: "test",
 			model: {} as Model<any>,
 			tools: [],
-			sender: createMessageSender(new Map()),
+			sender: createStubSender(),
 			tapeStore: mockTapeStore,
 		});
 	}

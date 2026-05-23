@@ -1,7 +1,7 @@
 import { describe, expect, mock, test } from "bun:test";
 
 import type { WorkerRegistry } from "../workers/registry.ts";
-import type { WorkerRow } from "../workers/store.ts";
+import { fakeRow } from "../workers/test-helpers.ts";
 import { createCoordinatorTools, type CoordinatorCtx } from "./coordinator/index.ts";
 
 const CTX: CoordinatorCtx = {
@@ -18,31 +18,6 @@ function mockRegistry(): WorkerRegistry & {
 	listForParent: ReturnType<typeof mock>;
 	cancel: ReturnType<typeof mock>;
 } {
-	const fakeRow = (over?: Partial<WorkerRow>): WorkerRow => ({
-		id: "rowid",
-		kind: "executor",
-		lifetime: "persistent",
-		parentSessionKey: CTX.parentSessionKey,
-		sourceChannel: CTX.sourceChannel,
-		sourceChatId: CTX.sourceChatId,
-		sourceReplyTo: null,
-		name: "sample",
-		initialPrompt: null,
-		systemPrompt: "prompt",
-		modelProvider: "openrouter",
-		modelId: "openai/gpt-4o",
-		status: "spawning",
-		messagesJson: "[]",
-		containerName: "nexal-worker-sample",
-		createdAt: 1000,
-		startedAt: null,
-		updatedAt: 1000,
-		completedAt: null,
-		error: null,
-		turnCount: 0,
-		sendPolicy: "explicit",
-		...over,
-	});
 	return {
 		spawn: mock(async (req: any) => fakeRow({ id: `spawned-${req.name}`, kind: req.kind, lifetime: req.lifetime })),
 		routeFromCaller: mock(async () => undefined),

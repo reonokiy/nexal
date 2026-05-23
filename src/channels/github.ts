@@ -27,6 +27,7 @@
  */
 
 import type { Channel, IncomingMessage, OutgoingReply } from "./types.ts";
+import { interruptibleSleep, createIncomingMessage } from "./types.ts";
 import { createLog } from "../log.ts";
 import { registerChannel } from "./factory.ts";
 
@@ -169,23 +170,23 @@ export class GitHubChannel implements Channel {
 			`[github:${t.reason}] ${repo}#${number ?? "?"} "${title}"${state} by @${author}\n` +
 			`${htmlUrl}\n\n${content}`;
 
-		onMessage({
-			channel: "github",
-			chatId,
-			sender: author,
-			text,
-			timestamp: Date.parse(t.updated_at) || Date.now(),
-			isMentioned: true,
-			metadata: {
-				thread_id: t.id,
-				repo,
-				subject_type: t.subject.type,
-				reason: t.reason,
-				number: number ?? null,
-				html_url: htmlUrl,
-			},
-			images: [],
-		});
+		onMessage(
+			createIncomingMessage({
+				channel: "github",
+				chatId,
+				sender: author,
+				text,
+				timestamp: Date.parse(t.updated_at) || Date.now(),
+				metadata: {
+					thread_id: t.id,
+					repo,
+					subject_type: t.subject.type,
+					reason: t.reason,
+					number: number ?? null,
+					html_url: htmlUrl,
+				},
+			}),
+		);
 		log.info(`dispatched ${chatId} (${t.reason})`);
 
 		await this.markRead(t.id);
@@ -259,18 +260,11 @@ export class GitHubChannel implements Channel {
 	}
 
 	/** Interruptible sleep — `stop()` wakes it immediately. */
-	private sleep(ms: number): Promise<void> {
-		return new Promise<void>((resolve) => {
-			const timer = setTimeout(() => {
-				this.wake = null;
-				resolve();
-			}, ms);
-			this.wake = () => {
-				clearTimeout(timer);
-				this.wake = null;
-				resolve();
-			};
-		});
+	private async sleep(ms: number): Promise<void> {
+		const { promise, wake } = interruptibleSleep(ms);
+		this.wake = wake;
+		await promise;
+		this.wake = null;
 	}
 }
 

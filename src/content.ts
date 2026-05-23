@@ -76,6 +76,11 @@ export function extractImagesFromContent(content: UserContent): ImageContent[] {
 	return content.filter((b): b is ImageContent => b.type === "image");
 }
 
+/** Compute the byte-length of `UserContent` (string length or JSON byte length). */
+export function contentLength(content: UserContent): number {
+	return typeof content === "string" ? content.length : JSON.stringify(content).length;
+}
+
 /** Convert `ImageContent` back to channel-layer `ImageAttachment`. */
 export function imageContentToAttachment(img: ImageContent): ImageAttachment {
 	return { data: img.data, mimeType: img.mimeType, filename: "image" };

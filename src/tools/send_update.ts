@@ -10,7 +10,7 @@ import type { AgentTool, AgentToolResult } from "@mariozechner/pi-agent-core";
 import { type Static, Type } from "@mariozechner/pi-ai";
 
 import type { WorkerAgent } from "../workers/agent.ts";
-import { UserContentSchema, type UserContent } from "../content.ts";
+import { UserContentSchema, type UserContent, contentLength } from "../content.ts";
 
 const SendUpdateParams = Type.Object({
 	content: UserContentSchema,
@@ -36,7 +36,7 @@ export function createSendUpdateTool(
 		): Promise<AgentToolResult<{ bytes: number }>> {
 			const content = params.content as UserContent;
 			await runner.sendToChat(content);
-			const len = typeof content === "string" ? content.length : JSON.stringify(content).length;
+			const len = contentLength(content);
 			return {
 				content: [{ type: "text", text: "[sent]" }],
 				details: { bytes: len },

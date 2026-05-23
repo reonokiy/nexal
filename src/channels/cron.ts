@@ -16,8 +16,9 @@
  * other channel input.
  */
 
-import type { Channel, IncomingMessage, OutgoingReply } from "./types.ts";
-import { waitUntilStopped } from "./types.ts";
+import type { IncomingMessage } from "./types.ts";
+import { createIncomingMessage } from "./types.ts";
+import { PollingChannel } from "./polling-base.ts";
 import { createLog } from "../log.ts";
 import { registerChannel } from "./factory.ts";
 
@@ -39,13 +40,15 @@ export interface CronChannelConfig {
 	tickIntervalSecs?: number;
 }
 
-export class CronChannel implements Channel {
+export class CronChannel extends PollingChannel {
 	readonly name = "cron";
+	protected readonly tickIntervalMs: number;
 	private readonly jobs = new Map<string, CronJob>();
-	private timer: ReturnType<typeof setInterval> | null = null;
-	private stopped = false;
 
-	constructor(private readonly config: CronChannelConfig = {}) {}
+	constructor(private readonly config: CronChannelConfig = {}) {
+		super();
+		this.tickIntervalMs = (config.tickIntervalSecs ?? 15) * 1_000;
+	}
 
 	addJob(job: CronJob): void {
 		this.jobs.set(job.id, { ...job });
@@ -59,19 +62,11 @@ export class CronChannel implements Channel {
 		return [...this.jobs.values()];
 	}
 
-	async start(onMessage: (msg: IncomingMessage) => void): Promise<void> {
-		const tickSecs = this.config.tickIntervalSecs ?? 15;
-		log.info(`checking job schedules every ${tickSecs}s`);
-		this.timer = setInterval(() => {
-			if (this.stopped) return;
-			this.tick(onMessage);
-		}, tickSecs * 1_000);
-
-		// Block until stop()
-		await waitUntilStopped(() => this.stopped);
+	protected onStart(): void {
+		log.info(`checking job schedules every ${this.tickIntervalMs / 1_000}s`);
 	}
 
-	private tick(onMessage: (msg: IncomingMessage) => void): void {
+	protected onTick(): void {
 		const now = Date.now();
 		for (const job of this.jobs.values()) {
 			if (!job.enabled) continue;
@@ -80,32 +75,22 @@ export class CronChannel implements Channel {
 			let text = `[cron:${job.label}] ${job.message}`;
 			if (job.context) text += `\n\nContext from when this was scheduled:\n${job.context}`;
 
-			onMessage({
-				channel: job.targetChannel,
-				chatId: job.targetChatId,
-				sender: "cron",
-				text,
-				timestamp: now,
-				isMentioned: true,
-				metadata: { cron_job_id: job.id, cron_label: job.label },
-				images: [],
-			});
+			this.onMessage?.(
+				createIncomingMessage({
+					channel: job.targetChannel,
+					chatId: job.targetChatId,
+					sender: "cron",
+					text,
+					timestamp: now,
+					metadata: { cron_job_id: job.id, cron_label: job.label },
+				}),
+			);
 
 			job.lastRunAt = now;
 
 			// One-shot jobs self-delete after firing.
 			if (job.schedule.startsWith("once:")) this.jobs.delete(job.id);
 		}
-	}
-
-	async send(_reply: OutgoingReply): Promise<void> {
-		// Cron is input-only; replies go through the target channel.
-	}
-
-	async stop(): Promise<void> {
-		this.stopped = true;
-		if (this.timer !== null) clearInterval(this.timer);
-		this.timer = null;
 	}
 }
 

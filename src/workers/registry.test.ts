@@ -1,8 +1,10 @@
 import { describe, expect, mock, test } from "bun:test";
 
 import type { GatewayClient } from "../gateway/index.ts";
-import { createMessageSender } from "../messaging/index.ts";
+import { createStubSender } from "../test-utils/helpers.ts";
+import { mockTapeStore } from "../test-utils/mock-tape-store.ts";
 import { WorkerRegistry } from "./registry.ts";
+import { fakeRow } from "./test-helpers.ts";
 import type {
 	SendPolicy,
 	WorkerCreate,
@@ -26,34 +28,6 @@ import type {
  * which is enough to confirm the validation path took the right
  * branch).
  */
-
-function fakeRow(over?: Partial<WorkerRow>): WorkerRow {
-	return {
-		id: "row-id",
-		kind: "executor" as WorkerKind,
-		lifetime: "persistent" as WorkerLifetime,
-		parentSessionKey: "telegram:-1",
-		sourceChannel: "telegram",
-		sourceChatId: "-1",
-		sourceReplyTo: null,
-		name: "row",
-		initialPrompt: null,
-		systemPrompt: "sp",
-		modelProvider: "openrouter",
-		modelId: "openai/gpt-4o",
-		status: "idle" as WorkerStatus,
-		messagesJson: "[]",
-		containerName: "nexal-worker-row",
-		createdAt: 0,
-		startedAt: null,
-		updatedAt: 0,
-		completedAt: null,
-		error: null,
-		turnCount: 0,
-		sendPolicy: "explicit" as SendPolicy,
-		...over,
-	};
-}
 
 interface TrackingStore extends WorkerStore {
 	readonly rows: Map<string, WorkerRow>;
@@ -141,22 +115,14 @@ function buildRegistry(opts?: {
 		model: {} as any,
 		modelProvider: "openrouter",
 		modelId: "openai/gpt-4o",
-		sender: createMessageSender(new Map()),
+		sender: createStubSender(),
 		maxConcurrent: 0, // disable pump — we don't want runners to start
 		executorSystemPromptDefault: "exec prompt",
 		coordinatorSystemPromptDefault: "coord prompt",
 		executorTools: () => [],
 		coordinatorTools: () => [],
 		forwardToCoordinator: opts?.forwardToCoordinator,
-		tapeStore: {
-			listTapes: async () => [],
-			read: async () => [],
-			append: async () => {},
-			reset: async () => {},
-			info: async () => ({ name: "", entries: 0, anchors: 0, lastAnchor: null, entriesSinceLastAnchor: 0, lastTokenUsage: null }),
-			handoff: async () => {},
-			search: async () => [],
-		},
+		tapeStore: mockTapeStore,
 	});
 }
 

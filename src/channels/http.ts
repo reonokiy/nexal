@@ -18,7 +18,7 @@
  * here.
  */
 import type { Channel, IncomingMessage, OutgoingReply } from "./types.ts";
-import { waitUntilStopped } from "./types.ts";
+import { createIncomingMessage, waitUntilStopped } from "./types.ts";
 import type { CommandRegistry } from "../commands/registry.ts";
 import type { GatewayClient } from "../gateway/index.ts";
 import { createLog } from "../log.ts";
@@ -76,16 +76,12 @@ export class HttpChannel implements Channel {
 						}
 					}
 
-					const msg: IncomingMessage = {
+					const msg: IncomingMessage = createIncomingMessage({
 						channel: "http",
 						chatId,
 						sender,
 						text,
-						timestamp: Date.now(),
-						isMentioned: true,
-						metadata: {},
-						images: [],
-					};
+					});
 					onMessage(msg);
 					return Response.json({ ok: true });
 				}

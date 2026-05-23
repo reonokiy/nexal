@@ -43,6 +43,31 @@ export function sessionKey(msg: IncomingMessage): string {
 	return `${msg.channel}:${msg.chatId}`;
 }
 
+export function createIncomingMessage(
+	overrides: Pick<IncomingMessage, "channel" | "chatId" | "sender" | "text"> &
+		Partial<Pick<IncomingMessage, "timestamp" | "isMentioned" | "metadata" | "images">>,
+): IncomingMessage {
+	return {
+		timestamp: Date.now(),
+		isMentioned: true,
+		metadata: {},
+		images: [],
+		...overrides,
+	};
+}
+
+export function interruptibleSleep(ms: number): { promise: Promise<void>; wake: () => void } {
+	let wake!: () => void;
+	const promise = new Promise<void>((resolve) => {
+		const timer = setTimeout(() => resolve(), ms);
+		wake = () => {
+			clearTimeout(timer);
+			resolve();
+		};
+	});
+	return { promise, wake };
+}
+
 export interface OutgoingReply {
 	chatId: string;
 	text: string;

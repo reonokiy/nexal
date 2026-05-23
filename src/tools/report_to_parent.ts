@@ -25,7 +25,7 @@ import { type Static, Type } from "@mariozechner/pi-ai";
 
 import type { WorkerRegistry } from "../workers/registry.ts";
 import type { WorkerAgent } from "../workers/agent.ts";
-import { UserContentSchema, type UserContent } from "../content.ts";
+import { UserContentSchema, type UserContent, contentLength } from "../content.ts";
 
 const ReportParams = Type.Object({
 	content: UserContentSchema,
@@ -53,7 +53,7 @@ export function createReportToParentTool(
 		): Promise<AgentToolResult<{ bytes: number }>> {
 			const content = params.content as UserContent;
 			await registry.reportToParent(runner.id, content);
-			const len = typeof content === "string" ? content.length : JSON.stringify(content).length;
+			const len = contentLength(content);
 			return {
 				content: [{ type: "text", text: "[reported]" }],
 				details: { bytes: len },

@@ -2,10 +2,31 @@ import type { AgentTool, AgentToolResult } from "@mariozechner/pi-agent-core";
 import { type Static } from "@mariozechner/pi-ai";
 
 import type { WorkerRegistry } from "../../workers/registry.ts";
+import type { SpawnRequest } from "../../workers/registry.ts";
 import type { SendPolicy } from "../../workers/store.ts";
 
 import type { CoordinatorCtx } from "./schemas.ts";
 import { SpawnCoordinatorParams, SpawnExecutorParams, SpawnOneshotParams } from "./schemas.ts";
+
+// ── Shared helper ─────────────────────────────────────────────────────
+
+async function spawnAndReport(
+	registry: WorkerRegistry,
+	req: SpawnRequest,
+): Promise<AgentToolResult<{ id: string; status: string }>> {
+	const row = await registry.spawn(req);
+	return {
+		content: [
+			{
+				type: "text",
+				text: `spawned ${req.kind} (${req.lifetime}) id=${row.id} name=${row.name} status=${row.status}`,
+			},
+		],
+		details: { id: row.id, status: row.status },
+	};
+}
+
+// ── Tools ─────────────────────────────────────────────────────────────
 
 export function spawnExecutorTool(
 	registry: WorkerRegistry,
@@ -24,7 +45,7 @@ export function spawnExecutorTool(
 			_id: string,
 			params: Static<typeof SpawnExecutorParams>,
 		): Promise<AgentToolResult<{ id: string; status: string }>> {
-			const row = await registry.spawn({
+			return spawnAndReport(registry, {
 				kind: "executor",
 				lifetime: "persistent",
 				parentSessionKey: ctx.parentSessionKey,
@@ -36,15 +57,6 @@ export function spawnExecutorTool(
 				systemPrompt: params.system_prompt,
 				sendPolicy: (params.send_policy as SendPolicy | undefined) ?? "explicit",
 			});
-			return {
-				content: [
-					{
-						type: "text",
-						text: `spawned executor (persistent) id=${row.id} name=${row.name} status=${row.status}`,
-					},
-				],
-				details: { id: row.id, status: row.status },
-			};
 		},
 	};
 }
@@ -65,7 +77,7 @@ export function spawnOneshotTool(
 			_id: string,
 			params: Static<typeof SpawnOneshotParams>,
 		): Promise<AgentToolResult<{ id: string; status: string }>> {
-			const row = await registry.spawn({
+			return spawnAndReport(registry, {
 				kind: "executor",
 				lifetime: "oneshot",
 				parentSessionKey: ctx.parentSessionKey,
@@ -77,15 +89,6 @@ export function spawnOneshotTool(
 				systemPrompt: params.system_prompt,
 				sendPolicy: (params.send_policy as SendPolicy | undefined) ?? "explicit",
 			});
-			return {
-				content: [
-					{
-						type: "text",
-						text: `spawned executor (oneshot) id=${row.id} name=${row.name} status=${row.status}`,
-					},
-				],
-				details: { id: row.id, status: row.status },
-			};
 		},
 	};
 }
@@ -108,7 +111,7 @@ export function spawnCoordinatorTool(
 			_id: string,
 			params: Static<typeof SpawnCoordinatorParams>,
 		): Promise<AgentToolResult<{ id: string; status: string }>> {
-			const row = await registry.spawn({
+			return spawnAndReport(registry, {
 				kind: "coordinator",
 				lifetime: "persistent",
 				parentSessionKey: ctx.parentSessionKey,
@@ -120,15 +123,6 @@ export function spawnCoordinatorTool(
 				systemPrompt: params.system_prompt,
 				sendPolicy: "explicit",
 			});
-			return {
-				content: [
-					{
-						type: "text",
-						text: `spawned coordinator id=${row.id} name=${row.name} status=${row.status}`,
-					},
-				],
-				details: { id: row.id, status: row.status },
-			};
 		},
 	};
 }

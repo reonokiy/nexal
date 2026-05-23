@@ -5,8 +5,9 @@
  * `heartbeat:main` every N minutes, so the agent has a chance to
  * proactively review pending tasks and follow-ups.
  */
-import type { Channel, IncomingMessage, OutgoingReply } from "./types.ts";
-import { waitUntilStopped } from "./types.ts";
+import type { IncomingMessage } from "./types.ts";
+import { createIncomingMessage } from "./types.ts";
+import { PollingChannel } from "./polling-base.ts";
 import { createLog } from "../log.ts";
 import { registerChannel } from "./factory.ts";
 
@@ -24,48 +25,30 @@ const DEFAULT_TEXT =
 	"conversations, and proactively handle anything that needs attention. " +
 	"If there is nothing to do, call no_response.";
 
-export class HeartbeatChannel implements Channel {
+export class HeartbeatChannel extends PollingChannel {
 	readonly name = "heartbeat";
-	private timer: ReturnType<typeof setInterval> | null = null;
-	private stopped = false;
+	protected readonly tickIntervalMs: number;
+	private readonly text: string;
 
-	constructor(private readonly config: HeartbeatChannelConfig = {}) {}
+	constructor(private readonly config: HeartbeatChannelConfig = {}) {
+		super();
+		this.tickIntervalMs = (config.intervalMinutes ?? 30) * 60 * 1_000;
+		this.text = config.text ?? DEFAULT_TEXT;
+	}
 
-	async start(onMessage: (msg: IncomingMessage) => void): Promise<void> {
-		const minutes = this.config.intervalMinutes ?? 30;
-		const text = this.config.text ?? DEFAULT_TEXT;
-		log.info(`firing every ${minutes} minute(s)`);
+	protected onStart(): void {
+		log.info(`firing every ${this.tickIntervalMs / 60 / 1_000} minute(s)`);
+	}
 
-		const fire = () => {
-			if (this.stopped) return;
-			onMessage({
+	protected onTick(): void {
+		this.onMessage?.(
+			createIncomingMessage({
 				channel: "heartbeat",
 				chatId: "main",
 				sender: "system",
-				text,
-				timestamp: Date.now(),
-				isMentioned: true,
-				metadata: {},
-				images: [],
-			});
-		};
-
-		this.timer = setInterval(fire, minutes * 60 * 1_000);
-		// Skip the first immediate tick — let the system settle on startup
-		// (matches the Rust behavior: `ticker.tick().await` before the loop).
-		await waitUntilStopped(() => this.stopped);
-	}
-
-	async send(_reply: OutgoingReply): Promise<void> {
-		// Heartbeat is pure input — replies bubble back through the
-		// channel that originated the user-visible conversation. There's
-		// nothing to send here.
-	}
-
-	async stop(): Promise<void> {
-		this.stopped = true;
-		if (this.timer !== null) clearInterval(this.timer);
-		this.timer = null;
+				text: this.text,
+			}),
+		);
 	}
 }
 

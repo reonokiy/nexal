@@ -4,6 +4,9 @@ import type { Channel } from "../channels/types.ts";
 import type { AgentClient } from "../gateway/agent_client.ts";
 import type { GatewayClient } from "../gateway/index.ts";
 import { createMessageSender } from "../messaging/index.ts";
+import { createStubSender } from "../test-utils/helpers.ts";
+import { mockTapeStore } from "../test-utils/mock-tape-store.ts";
+import { fakeRow } from "./test-helpers.ts";
 
 // Stubbing Agent at module scope — see the "Agent lifecycle paths" note
 // below. The real Agent lives in @mariozechner/pi-agent-core; we replace
@@ -81,34 +84,6 @@ import type {
  *
  * This split keeps the vast majority of coverage driver-free.
  */
-
-function fakeRow(over: Partial<WorkerRow> = {}): WorkerRow {
-	return {
-		id: "w-1",
-		kind: "executor" as WorkerKind,
-		lifetime: "persistent" as WorkerLifetime,
-		parentSessionKey: "telegram:-1",
-		sourceChannel: "telegram",
-		sourceChatId: "-1",
-		sourceReplyTo: null,
-		name: "probe",
-		initialPrompt: null,
-		systemPrompt: "sp",
-		modelProvider: "openrouter",
-		modelId: "openai/gpt-4o",
-		status: "idle" as WorkerStatus,
-		messagesJson: "[]",
-		containerName: "nexal-worker-probe",
-		createdAt: 0,
-		startedAt: null,
-		updatedAt: 0,
-		completedAt: null,
-		error: null,
-		turnCount: 0,
-		sendPolicy: "explicit" as SendPolicy,
-		...over,
-	};
-}
 
 interface StoreSpy {
 	store: WorkerStore;
@@ -226,19 +201,11 @@ function makeRunner(over?: {
 		store: store.store,
 		gateway: gw.gateway,
 		model: {} as any,
-		sender: over?.sender ?? createMessageSender(new Map()),
+		sender: over?.sender ?? createStubSender(),
 		toolsForKind: over?.tools ?? (() => []),
 		resumed: over?.resumed ?? false,
 		onTerminal: over?.onTerminal ?? ((id) => terminalSeen.push(id)),
-		tapeStore: {
-			listTapes: async () => [],
-			read: async () => [],
-			append: async () => {},
-			reset: async () => {},
-			info: async () => ({ name: "", entries: 0, anchors: 0, lastAnchor: null, entriesSinceLastAnchor: 0, lastTokenUsage: null }),
-			handoff: async () => {},
-			search: async () => [],
-		},
+		tapeStore: mockTapeStore,
 	});
 	return { runner, store, gateway: gw, terminalSeen };
 }
@@ -355,6 +322,15 @@ describe("WorkerAgent.cancel() / suspend() — pre-Agent", () => {
 	});
 });
 
+function stubTelegramChannel(spy?: (opts: any) => void): { channels: Map<string, Channel>; sent: any[] } {
+	const sent: any[] = [];
+	const send = spy ?? ((opts: any) => sent.push(opts));
+	const channels = new Map<string, Channel>([
+		["telegram", { name: "telegram", start: () => {}, stop: async () => {}, send } as any],
+	]);
+	return { channels, sent };
+}
+
 describe("WorkerAgent.sendToChat()", () => {
 	test("no-op for empty / whitespace text", async () => {
 		const sendSpy = mock(() => Promise.resolve());
@@ -368,20 +344,7 @@ describe("WorkerAgent.sendToChat()", () => {
 	});
 
 	test("prefixes text with worker name and forwards to the source channel", async () => {
-		const sent: any[] = [];
-		const channels = new Map<string, Channel>([
-			[
-				"telegram",
-				{
-					name: "telegram",
-					start: () => {},
-					stop: async () => {},
-					send: async (opts: any) => {
-						sent.push(opts);
-					},
-				} as any,
-			],
-		]);
+		const { channels, sent } = stubTelegramChannel();
 		const { runner } = makeRunner({
 			sender: createMessageSender(channels),
 			row: { name: "refactor-bot", sourceChatId: "-42" },
@@ -393,18 +356,7 @@ describe("WorkerAgent.sendToChat()", () => {
 	});
 
 	test("uses opts.replyTo when provided, falls through to row.sourceReplyTo otherwise", async () => {
-		const sent: any[] = [];
-		const channels = new Map<string, Channel>([
-			[
-				"telegram",
-				{
-					name: "telegram",
-					start: () => {},
-					stop: async () => {},
-					send: async (opts: any) => sent.push(opts),
-				} as any,
-			],
-		]);
+		const { channels, sent } = stubTelegramChannel();
 		const { runner } = makeRunner({
 			sender: createMessageSender(channels),
 			row: { sourceReplyTo: "default-msg-id" },
@@ -422,19 +374,9 @@ describe("WorkerAgent.sendToChat()", () => {
 	});
 
 	test("logs and swallows when the channel.send throws", async () => {
-		const channels = new Map<string, Channel>([
-			[
-				"telegram",
-				{
-					name: "telegram",
-					start: () => {},
-					stop: async () => {},
-					send: async () => {
-						throw new Error("network down");
-					},
-				} as any,
-			],
-		]);
+		const { channels } = stubTelegramChannel(async () => {
+			throw new Error("network down");
+		});
 		const { runner } = makeRunner({ sender: createMessageSender(channels) });
 		// Should not throw — error is logged and swallowed.
 		await runner.sendToChat("bad day");
@@ -603,18 +545,7 @@ describe("WorkerAgent event wiring", () => {
 	});
 
 	test("assistant message_end with send_policy=all forwards text to chat", async () => {
-		const sent: any[] = [];
-		const channels = new Map<string, Channel>([
-			[
-				"telegram",
-				{
-					name: "telegram",
-					start: () => {},
-					stop: async () => {},
-					send: async (opts: any) => sent.push(opts),
-				} as any,
-			],
-		]);
+		const { channels, sent } = stubTelegramChannel();
 		const { runner } = makeRunner({
 			sender: createMessageSender(channels),
 			row: { sendPolicy: "all" as SendPolicy, name: "bot" },
@@ -630,18 +561,7 @@ describe("WorkerAgent event wiring", () => {
 	});
 
 	test("assistant message_end with send_policy=explicit does NOT forward", async () => {
-		const sent: any[] = [];
-		const channels = new Map<string, Channel>([
-			[
-				"telegram",
-				{
-					name: "telegram",
-					start: () => {},
-					stop: async () => {},
-					send: async (opts: any) => sent.push(opts),
-				} as any,
-			],
-		]);
+		const { channels, sent } = stubTelegramChannel();
 		const { runner } = makeRunner({
 			sender: createMessageSender(channels),
 			row: { sendPolicy: "explicit" as SendPolicy },
@@ -694,18 +614,7 @@ describe("WorkerAgent.handleAgentEnd (via agent_end event)", () => {
 	});
 
 	test("executor + send_policy=final → forwards the last assistant text", async () => {
-		const sent: any[] = [];
-		const channels = new Map<string, Channel>([
-			[
-				"telegram",
-				{
-					name: "telegram",
-					start: () => {},
-					stop: async () => {},
-					send: async (opts: any) => sent.push(opts),
-				} as any,
-			],
-		]);
+		const { channels, sent } = stubTelegramChannel();
 		const { runner } = makeRunner({
 			sender: createMessageSender(channels),
 			row: { sendPolicy: "final" as SendPolicy, name: "bot", lifetime: "oneshot" },
@@ -725,18 +634,7 @@ describe("WorkerAgent.handleAgentEnd (via agent_end event)", () => {
 	});
 
 	test("coordinator + send_policy=final → does NOT forward (dispatching prose suppressed)", async () => {
-		const sent: any[] = [];
-		const channels = new Map<string, Channel>([
-			[
-				"telegram",
-				{
-					name: "telegram",
-					start: () => {},
-					stop: async () => {},
-					send: async (opts: any) => sent.push(opts),
-				} as any,
-			],
-		]);
+		const { channels, sent } = stubTelegramChannel();
 		const { runner } = makeRunner({
 			sender: createMessageSender(channels),
 			row: {
@@ -754,18 +652,7 @@ describe("WorkerAgent.handleAgentEnd (via agent_end event)", () => {
 	});
 
 	test("errorMessage → markFailed + error message to chat + dispose + onTerminal", async () => {
-		const sent: any[] = [];
-		const channels = new Map<string, Channel>([
-			[
-				"telegram",
-				{
-					name: "telegram",
-					start: () => {},
-					stop: async () => {},
-					send: async (opts: any) => sent.push(opts),
-				} as any,
-			],
-		]);
+		const { channels, sent } = stubTelegramChannel();
 		const { runner, store, gateway, terminalSeen } = makeRunner({
 			sender: createMessageSender(channels),
 			row: { sendPolicy: "explicit" as SendPolicy, name: "bot", lifetime: "oneshot" },
