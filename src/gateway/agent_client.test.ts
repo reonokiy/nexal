@@ -6,7 +6,7 @@ import {
 	type ProcessReadResponse,
 	type ProcessStartResponse,
 	type ProcessTerminateResponse,
-} from "./protocol.ts";
+} from "@nexal/transport";
 import { GatewayAgentClient } from "./agent_client.ts";
 
 /**

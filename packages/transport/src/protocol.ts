@@ -22,7 +22,48 @@
  *   3. The generic `invoke` / `invokeAgent` will infer everything.
  */
 
-// ─── gateway/* params + responses ───────────────────────────────────
+// ── Wire envelope ──────────────────────────────────────────────────
+
+export type MessageId = string | number;
+
+export interface WireRequest {
+	id: MessageId;
+	method: string;
+	params?: unknown;
+}
+
+export interface WireResponse {
+	id: MessageId;
+	result?: unknown;
+	error?: WireError;
+}
+
+export interface WireError {
+	code: number;
+	message: string;
+	data?: unknown;
+}
+
+export interface WireNotification {
+	method: string;
+	params?: unknown;
+}
+
+export type WireMessage = WireRequest | WireResponse | WireNotification;
+
+export function isWireRequest(msg: WireMessage): msg is WireRequest {
+	return "id" in msg && "method" in msg;
+}
+
+export function isWireResponse(msg: WireMessage): msg is WireResponse {
+	return "id" in msg && ("result" in msg || "error" in msg);
+}
+
+export function isWireNotification(msg: WireMessage): msg is WireNotification {
+	return "method" in msg && !("id" in msg);
+}
+
+// ── gateway/* params + responses ───────────────────────────────────
 
 export interface HelloParams {
 	access_key: string;
@@ -74,7 +115,7 @@ export interface ListAgentsResponse {
 	agents: AgentSummary[];
 }
 
-// ─── gateway/register_proxy / unregister_proxy ──────────────────────
+// ── gateway/register_proxy / unregister_proxy ──────────────────────
 
 export interface RegisterProxyParams {
 	/** Owning agent. When the agent is killed, this proxy is dropped. */
@@ -102,7 +143,7 @@ export interface UnregisterProxyParams {
 	name: string;
 }
 
-// ─── gateway/register_stream_proxy / unregister_stream_proxy ────────
+// ── gateway/register_stream_proxy / unregister_stream_proxy ────────
 
 export interface RegisterStreamProxyParams {
 	agent_id: string;
@@ -134,7 +175,7 @@ export interface GatewayMethods {
 	"gateway/unregister_stream_proxy": { params: UnregisterStreamProxyParams; result: OkResponse };
 }
 
-// ─── agent/* params + responses ─────────────────────────────────────
+// ── agent/* params + responses ─────────────────────────────────────
 
 export interface InitializeParams {
 	client_name: string;
@@ -205,7 +246,7 @@ export interface AgentMethods {
 	"process/write": { params: ProcessWriteParams; result: ProcessWriteResponse };
 }
 
-// ─── notifications (agent → gateway → frontend) ──────────────────────
+// ── notifications (agent → gateway → frontend) ──────────────────────
 
 export interface ProcessOutputNotif {
 	process_id: string;

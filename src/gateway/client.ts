@@ -1,14 +1,14 @@
 /**
- * GatewayClient — WebSocket-based multiplexer between the Bun
+ * GatewayClient — binary-frame multiplexer between the Bun
  * frontend and a `nexal-gateway` instance.
  *
- * Wire protocol: JSON-RPC 2.0, snake_case keys, fully typed via
- * `protocol.ts`'s `GatewayMethods` / `AgentMethods` /
- * `AgentNotifications` discriminated maps.
+ * Wire protocol: msgpack binary frames with WireRequest / WireResponse /
+ * WireNotification envelope (from `@nexal/transport`). All keys are
+ * snake_case to match the Rust serde encoding.
  *
  * Transport:
  *   - TCP mode: WebSocket to the gateway (wss:// or ws://).
- *   - Unix socket mode: raw newline-delimited JSON over a Unix stream.
+ *   - Unix socket mode: length-prefixed binary frames over a Unix stream.
  *
  * Lifecycle:
  *   1. `connect()` — open transport, wait for handshake.
@@ -25,16 +25,30 @@ import type {
 	AgentNotifications,
 	GatewayMethods,
 	UnknownAgentNotification,
-} from "./protocol.ts";
+	WireRequest,
+	WireResponse,
+	WireNotification,
+	Transport,
+} from "@nexal/transport";
 import type { AgentClient } from "./agent_client.ts";
-import type { JsonRpcId, JsonRpcResponse, JsonRpcNotification, Pending, Transport } from "./errors.ts";
-import { GatewayError } from "./errors.ts";
-import { createWebSocketTransport, createUnixTransport } from "./transport.ts";
+import {
+	createWebSocketTransport,
+	createUnixTransport,
+	encodeFrame,
+	decodeFrame,
+	isWireResponse,
+	isWireNotification,
+} from "@nexal/transport";
 import { GatewayAgentClient } from "./agent_client.ts";
 import { createLog } from "../log.ts";
 import { createHmac, randomBytes } from "node:crypto";
 
 const log = createLog("gateway-client");
+
+interface Pending {
+	resolve: (v: unknown) => void;
+	reject: (err: Error) => void;
+}
 
 interface AgentEntry {
 	agentId: string;
@@ -42,7 +56,16 @@ interface AgentEntry {
 	client: AgentClient;
 }
 
-export { GatewayError };
+export class GatewayError extends Error {
+	constructor(
+		message: string,
+		readonly code: number,
+		readonly data?: unknown,
+	) {
+		super(message);
+		this.name = "GatewayError";
+	}
+}
 
 export interface GatewayClientOptions {
 	/** WebSocket URL, e.g. `"wss://nexal.fly.dev"`. */
@@ -70,7 +93,7 @@ const NOTIFICATION_METHODS = new Set<keyof AgentNotifications>([
 
 export class GatewayClient {
 	private transport: Transport | null = null;
-	private readonly pending = new Map<JsonRpcId, Pending>();
+	private readonly pending = new Map<string | number, Pending>();
 	private readyPromise: Promise<void> | null = null;
 	private helloPromise: Promise<void> | null = null;
 	private readonly handlers = new Set<NotificationHandler>();
@@ -143,13 +166,12 @@ export class GatewayClient {
 		const promise = new Promise<unknown>((resolve, reject) => {
 			this.pending.set(id, { resolve, reject });
 		});
-		this.requireOpen().send(
-			new TextEncoder().encode(JSON.stringify({ jsonrpc: "2.0", id, method, params })),
-		);
+		const frame: WireRequest = { id, method, params };
+		this.requireOpen().send(encodeFrame(frame));
 		return promise;
 	}
 
-	/** Typed JSON-RPC call to a gateway/* method. */
+	/** Typed call to a gateway/* method. */
 	async invoke<M extends keyof GatewayMethods>(
 		method: M,
 		params: GatewayMethods[M]["params"],
@@ -261,45 +283,46 @@ export class GatewayClient {
 	}
 
 	private dispatch(data: Uint8Array): void {
-		let msg: JsonRpcResponse | JsonRpcNotification;
+		let msg: WireResponse | WireNotification;
 		try {
-			msg = JSON.parse(new TextDecoder().decode(data));
+			msg = decodeFrame<WireResponse | WireNotification>(data);
 		} catch {
-			log.error(`received non-JSON frame from gateway, dropping: ${data.byteLength} bytes`);
+			log.error(`received invalid msgpack frame from gateway, dropping: ${data.byteLength} bytes`);
 			return;
 		}
-		if ("id" in msg && msg.id !== undefined) {
+
+		if (isWireResponse(msg)) {
 			const slot = this.pending.get(msg.id);
 			if (!slot) return;
 			this.pending.delete(msg.id);
 			if (msg.error) {
-				slot.reject(
-					new GatewayError(msg.error.message, msg.error.code, msg.error.data),
-				);
+				slot.reject(new GatewayError(msg.error.message, msg.error.code, msg.error.data));
 			} else {
 				slot.resolve(msg.result);
 			}
 			return;
 		}
-		const notif = msg as JsonRpcNotification;
-		if (notif.method !== "agent/notify") return;
-		const params = notif.params as
-			| { agent_id?: string; method?: string; params?: unknown }
-			| undefined;
-		if (!params?.agent_id || !params.method) return;
-		const base = {
-			agentId: params.agent_id,
-			method: params.method,
-			params: params.params,
-		};
-		const event = NOTIFICATION_METHODS.has(params.method as keyof AgentNotifications)
-			? (base as AgentNotification)
-			: (base as UnknownAgentNotification);
-		for (const h of this.handlers) {
-			try {
-				h(event);
-			} catch (err) {
-				log.error(`notification handler threw for ${event.method} on agent ${event.agentId}`, err);
+
+		if (isWireNotification(msg)) {
+			if (msg.method !== "agent/notify") return;
+			const params = msg.params as
+				| { agent_id?: string; method?: string; params?: unknown }
+				| undefined;
+			if (!params?.agent_id || !params.method) return;
+			const base = {
+				agentId: params.agent_id,
+				method: params.method,
+				params: params.params,
+			};
+			const event = NOTIFICATION_METHODS.has(params.method as keyof AgentNotifications)
+				? (base as AgentNotification)
+				: (base as UnknownAgentNotification);
+			for (const h of this.handlers) {
+				try {
+					h(event);
+				} catch (err) {
+					log.error(`notification handler threw for ${event.method} on agent ${event.agentId}`, err);
+				}
 			}
 		}
 	}
