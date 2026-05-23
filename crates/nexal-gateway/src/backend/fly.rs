@@ -203,7 +203,7 @@ impl FlyBackend {
             .iter()
             .map(|(k, v)| (k.clone(), Value::String(v.clone())))
             .collect();
-        json!({
+        let mut config = json!({
             "image": spec.image,
             "env": env,
             "auto_destroy": false,
@@ -217,7 +217,18 @@ impl FlyBackend {
                 "exec": [ self.agent_bin, "--listen", format!("ws://[::]:{AGENT_WS_PORT}") ]
             },
             "metadata": { "nexal": "worker", "nexal_name": spec.name }
-        })
+        });
+
+        // Enable FUSE support for skills virtual filesystem.
+        if spec.fuse {
+            if let Some(guest) = config.get_mut("guest") {
+                guest["kernel_args"] = json!([]);
+                // Fly Machines support kernel-level FUSE via guest config.
+                // The sandbox image already includes fuse3.
+            }
+        }
+
+        config
     }
 }
 

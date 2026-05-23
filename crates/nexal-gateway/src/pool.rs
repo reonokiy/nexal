@@ -97,6 +97,7 @@ impl WarmPool {
             network: self.network,
             workspace_volume: None,
             extra_ports: Vec::new(),
+            fuse: true,
         };
         match self.backend.ensure(spec).await {
             Ok(handle) => {

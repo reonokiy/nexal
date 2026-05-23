@@ -18,10 +18,11 @@ use thiserror::Error;
 use tokio::sync::{Mutex, broadcast, mpsc};
 use uuid::Uuid;
 
-use crate::agent_conn::{AgentConn, AgentConnError, AgentNotification};
+use crate::agent_conn::{AgentConn, AgentConnError, AgentNotification, AgentRequestHandler};
 use crate::backend::{BackendError, ContainerHandle, ContainerSpec, SharedBackend};
 use crate::pool::WarmPool;
 use crate::proxy::{SharedProxyRegistry, SharedTcpProxyRegistry};
+use crate::skills::SkillsService;
 
 pub type AgentId = String;
 
@@ -62,6 +63,8 @@ pub struct AgentRegistry {
     pub tcp_proxies: SharedTcpProxyRegistry,
     /// Optional warm container pool.
     warm_pool: Option<Arc<WarmPool>>,
+    /// Skills service — passed to agents for on-demand file access.
+    skills: Arc<SkillsService>,
 }
 
 #[derive(Clone)]
@@ -90,6 +93,7 @@ impl AgentRegistry {
         proxies: SharedProxyRegistry,
         tcp_proxies: SharedTcpProxyRegistry,
         warm_pool: Option<Arc<WarmPool>>,
+        skills: Arc<SkillsService>,
     ) -> Self {
         let (notify_tx, _) = broadcast::channel(256);
         Self {
@@ -100,6 +104,7 @@ impl AgentRegistry {
             proxies,
             tcp_proxies,
             warm_pool,
+            skills,
         }
     }
 
@@ -146,6 +151,7 @@ impl AgentRegistry {
             network: self.spawn_defaults.network,
             workspace_volume: self.spawn_defaults.workspace_volume.clone(),
             extra_ports,
+            fuse: true,
         };
         let handle = self.backend.ensure(spec).await?;
         let entry = self.dial_and_register(handle).await?;
@@ -173,6 +179,7 @@ impl AgentRegistry {
                 network: self.spawn_defaults.network,
                 workspace_volume: self.spawn_defaults.workspace_volume.clone(),
                 extra_ports: Vec::new(),
+                fuse: true,
             })
             .await?;
         let url = self.backend.url(&container_name).await?;
@@ -206,10 +213,17 @@ impl AgentRegistry {
             }
         });
 
+        let skills = self.skills.clone();
+        let request_handler: AgentRequestHandler = Arc::new(move |method, params| {
+            let skills = skills.clone();
+            Box::pin(async move { handle_agent_request(&skills, &method, params) })
+        });
+
         let conn = AgentConn::connect(
             &handle.url,
             &format!("nexal-gateway/{agent_id}"),
             per_agent_tx,
+            Some(request_handler),
         )
         .await?;
         let entry = AgentEntry {
@@ -308,4 +322,25 @@ fn now_ms() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0)
+}
+
+fn handle_agent_request(
+    skills: &SkillsService,
+    method: &str,
+    params: Option<Value>,
+) -> Result<Value, String> {
+    match method {
+        "skills/list" => {
+            let resp = skills.list()?;
+            rmpv::ext::to_value(&resp).map_err(|e| format!("serialize: {e}"))
+        }
+        "skills/read" => {
+            let params: crate::skills::SkillsReadParams = params
+                .and_then(|p| rmpv::ext::from_value(p).ok())
+                .ok_or("invalid params for skills/read")?;
+            let resp = skills.read(params)?;
+            rmpv::ext::to_value(&resp).map_err(|e| format!("serialize: {e}"))
+        }
+        _ => Err(format!("unknown agent request: {method}")),
+    }
 }

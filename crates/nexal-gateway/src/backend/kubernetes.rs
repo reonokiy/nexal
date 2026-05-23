@@ -193,6 +193,7 @@ impl KubernetesBackend {
             security_context: Some(SecurityContext {
                 allow_privilege_escalation: Some(false),
                 run_as_non_root: Some(true),
+                privileged: if spec.fuse { Some(true) } else { None },
                 ..Default::default()
             }),
             ..Default::default()

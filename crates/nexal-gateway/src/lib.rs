@@ -48,6 +48,7 @@ pub mod protocol;
 pub mod proxy;
 pub mod registry;
 pub mod server;
+pub mod skills;
 
 pub use config::GatewayConfig;
 pub use registry::{AgentEntry, AgentId, AgentRegistry};

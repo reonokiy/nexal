@@ -10,6 +10,7 @@ use nexal_gateway::config::GatewayConfig;
 use nexal_gateway::pool::{self, WarmPool, WarmPoolConfig};
 use nexal_gateway::proxy::{ProxyRegistry, serve_proxy};
 use nexal_gateway::registry::SpawnDefaults;
+use nexal_gateway::skills::SkillsService;
 use nexal_gateway::{AgentRegistry, server::ServerConfig};
 use tokio::sync::Mutex;
 use tracing_subscriber::EnvFilter;
@@ -178,6 +179,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         std::fs::create_dir_all(vol)?;
     }
 
+    // Skills service.
+    let skills_dir = cfg.defaults.skills_dir.clone().unwrap_or_else(|| {
+        dirs::home_dir()
+            .unwrap_or_else(|| PathBuf::from("/root"))
+            .join(".nexal")
+            .join("skills")
+    });
+    let skills = Arc::new(SkillsService::new(skills_dir));
+
     // Warm pool (optional).
     let warm_pool = if cfg.pool.enabled.unwrap_or(false) && cfg.pool.size.unwrap_or(0) > 0 {
         let pool_image = cfg
@@ -212,6 +222,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         proxies.clone(),
         tcp_proxies,
         warm_pool,
+        skills.clone(),
     ));
 
     // Graceful shutdown — detach (not destroy) all agents on Ctrl-C.
@@ -240,6 +251,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             credentials,
             nonce_cache: Arc::new(Mutex::new(HashMap::new())),
             proxy_external_base,
+            skills,
         },
         registry,
     )

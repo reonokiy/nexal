@@ -30,6 +30,7 @@ use tracing::{debug, error, info, warn};
 use crate::protocol::JsonRpcError;
 use crate::protocol::error_code;
 use crate::registry::AgentRegistry;
+use crate::skills::SkillsService;
 
 pub const GATEWAY_VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -86,6 +87,7 @@ pub struct ServerConfig {
     /// Shared replay guard: nonce → first-seen unix seconds.
     pub nonce_cache: Arc<Mutex<HashMap<String, i64>>>,
     pub proxy_external_base: String,
+    pub skills: Arc<SkillsService>,
 }
 
 pub async fn serve(cfg: ServerConfig, registry: Arc<AgentRegistry>) -> std::io::Result<()> {
@@ -209,7 +211,9 @@ where
     Ok(())
 }
 
-pub(crate) fn parse_params<T: serde::de::DeserializeOwned>(value: Value) -> Result<T, JsonRpcError> {
+pub(crate) fn parse_params<T: serde::de::DeserializeOwned>(
+    value: Value,
+) -> Result<T, JsonRpcError> {
     rmpv::ext::from_value(value).map_err(|err| JsonRpcError {
         code: error_code::INVALID_PARAMS,
         message: format!("invalid params: {err}"),

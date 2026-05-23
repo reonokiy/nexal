@@ -7,8 +7,8 @@
 
 use std::collections::HashMap;
 
-use serde::{Deserialize, Serialize};
 use rmpv::Value;
+use serde::{Deserialize, Serialize};
 
 pub const JSONRPC_VERSION: &str = "2.0";
 
@@ -411,10 +411,7 @@ mod tests {
 
     #[test]
     fn jsonrpc_response_ok_helper_builds_valid_envelope() {
-        let r = JsonRpcResponse::ok(
-            mpv_from_json(r#""id-1""#),
-            mpv_from_json(r#"{"ok":true}"#),
-        );
+        let r = JsonRpcResponse::ok(mpv_from_json(r#""id-1""#), mpv_from_json(r#"{"ok":true}"#));
         assert_eq!(r.jsonrpc, JSONRPC_VERSION);
         assert_eq!(r.id, mpv_from_json(r#""id-1""#));
         assert!(r.error.is_none());
@@ -462,7 +459,9 @@ mod tests {
 
     #[test]
     fn register_proxy_params_deserializes_from_snake_case_msgpack() {
-        let raw = mpv_from_json(r#"{"agent_id":"a-1","name":"jina","upstream_url":"https://api.jina.ai","headers":{"Authorization":"Bearer k"}}"#);
+        let raw = mpv_from_json(
+            r#"{"agent_id":"a-1","name":"jina","upstream_url":"https://api.jina.ai","headers":{"Authorization":"Bearer k"}}"#,
+        );
         let p: RegisterProxyParams = rmpv::ext::from_value(raw).expect("register_proxy parses");
         assert_eq!(p.agent_id, "a-1");
         assert_eq!(p.name, "jina");

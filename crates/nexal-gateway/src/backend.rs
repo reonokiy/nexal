@@ -58,6 +58,9 @@ pub struct ContainerSpec {
     /// `ContainerHandle::port_map`.
     #[allow(dead_code)]
     pub extra_ports: Vec<u16>,
+    /// Enable FUSE device passthrough for the container (default: true).
+    /// Required for the skills virtual filesystem.
+    pub fuse: bool,
 }
 
 /// Result of `ensure_container`: enough for the gateway to dial the

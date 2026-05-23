@@ -164,8 +164,12 @@ impl Session {
         let req: JsonRpcRequest = match rmpv::ext::from_value(value) {
             Ok(r) => r,
             Err(err) => {
-                self.send_error(Value::Nil, error_code::PARSE_ERROR, format!("msgpack: {err}"))
-                    .await;
+                self.send_error(
+                    Value::Nil,
+                    error_code::PARSE_ERROR,
+                    format!("msgpack: {err}"),
+                )
+                .await;
                 return;
             }
         };

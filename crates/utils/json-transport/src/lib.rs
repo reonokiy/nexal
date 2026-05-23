@@ -43,34 +43,30 @@ where
         let reader_task = tokio::spawn(async move {
             loop {
                 match websocket_reader.next().await {
-                    Some(Ok(Message::Binary(bytes))) => {
-                        match rmp_serde::from_slice::<T>(&bytes) {
-                            Ok(message) => {
-                                if incoming_tx_for_reader
-                                    .send(JsonMessageConnectionEvent::Message(message))
-                                    .await
-                                    .is_err()
-                                {
-                                    break;
-                                }
-                            }
-                            Err(err) => {
-                                send_malformed_message(
-                                    &incoming_tx_for_reader,
-                                    Some(format!(
-                                        "failed to parse websocket msgpack from {reader_label}: {err}"
-                                    )),
-                                )
-                                .await;
+                    Some(Ok(Message::Binary(bytes))) => match rmp_serde::from_slice::<T>(&bytes) {
+                        Ok(message) => {
+                            if incoming_tx_for_reader
+                                .send(JsonMessageConnectionEvent::Message(message))
+                                .await
+                                .is_err()
+                            {
+                                break;
                             }
                         }
-                    }
+                        Err(err) => {
+                            send_malformed_message(
+                                &incoming_tx_for_reader,
+                                Some(format!(
+                                    "failed to parse websocket msgpack from {reader_label}: {err}"
+                                )),
+                            )
+                            .await;
+                        }
+                    },
                     Some(Ok(Message::Text(text))) => {
                         send_malformed_message(
                             &incoming_tx_for_reader,
-                            Some(format!(
-                                "unexpected text frame from {reader_label}: {text}"
-                            )),
+                            Some(format!("unexpected text frame from {reader_label}: {text}")),
                         )
                         .await;
                     }
@@ -212,7 +208,9 @@ where
                 let Ok(payload) = rmp_serde::to_vec(&message) else {
                     send_disconnected(
                         &incoming_tx,
-                        Some(format!("failed to serialize msgpack for {connection_label}")),
+                        Some(format!(
+                            "failed to serialize msgpack for {connection_label}"
+                        )),
                     )
                     .await;
                     break;

@@ -71,6 +71,8 @@ pub struct SpawnDefaultsConfig {
     pub container_name_prefix: Option<String>,
     /// Host path bind-mounted at `/workspace` in every container.
     pub workspace_volume: Option<String>,
+    /// Host path to the skills directory. Default: `~/.nexal/skills`.
+    pub skills_dir: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]

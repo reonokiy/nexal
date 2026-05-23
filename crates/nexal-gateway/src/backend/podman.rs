@@ -191,6 +191,12 @@ impl ContainerBackend for PodmanBackend {
             args.push("--dns=8.8.8.8".into());
         }
 
+        // FUSE support for skills virtual filesystem.
+        if spec.fuse {
+            args.push("--device=/dev/fuse".into());
+            args.push("--cap-add=SYS_ADMIN".into());
+        }
+
         // Extra ports (e.g. RDP 3389, CDP 9222).
         for port in &spec.extra_ports {
             args.push(format!("--publish=127.0.0.1::{port}/tcp"));

@@ -29,6 +29,7 @@ reqwest = { workspace = true }
 rmp-serde = { workspace = true }
 rmpv = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
+serde_bytes = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = [

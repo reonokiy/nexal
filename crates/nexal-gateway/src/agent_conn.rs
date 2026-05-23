@@ -43,6 +43,18 @@ pub struct AgentNotification {
     pub params: Option<Value>,
 }
 
+/// Handler for requests initiated by the agent (e.g. skills/list,
+/// skills/read). Takes method + params, returns a result or error.
+pub type AgentRequestHandler = Arc<
+    dyn Fn(
+            String,
+            Option<Value>,
+        )
+            -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Value, String>> + Send>>
+        + Send
+        + Sync,
+>;
+
 type Pending = HashMap<u64, oneshot::Sender<Result<Value, AgentConnError>>>;
 
 pub struct AgentConn {
@@ -59,13 +71,16 @@ impl AgentConn {
         url: &str,
         client_name: &str,
         notify_tx: mpsc::Sender<AgentNotification>,
+        request_handler: Option<AgentRequestHandler>,
     ) -> Result<Self, AgentConnError> {
         let (ws_stream, _) = tokio_tungstenite::connect_async(url)
             .await
             .map_err(|e| AgentConnError::Connect(format!("connect {url}: {e}")))?;
 
-        let conn =
-            JsonMessageConnection::<Value>::from_websocket_binary(ws_stream, format!("agent ws {url}"));
+        let conn = JsonMessageConnection::<Value>::from_websocket_binary(
+            ws_stream,
+            format!("agent ws {url}"),
+        );
 
         let (write_tx, incoming_rx, transport_tasks) = conn.into_parts();
 
@@ -75,9 +90,17 @@ impl AgentConn {
 
         let pending_for_reader = pending.clone();
         let closed_for_reader = closed.clone();
+        let write_tx_for_reader = write_tx.clone();
 
         let reader = tokio::spawn(async move {
-            run_reader(incoming_rx, &pending_for_reader, &notify_tx).await;
+            run_reader(
+                incoming_rx,
+                &pending_for_reader,
+                &notify_tx,
+                request_handler.as_ref(),
+                &write_tx_for_reader,
+            )
+            .await;
             *closed_for_reader.lock().await = true;
             drain_pending(&pending_for_reader).await;
         });
@@ -92,7 +115,10 @@ impl AgentConn {
         };
 
         let _init: Value = agent_conn
-            .invoke("initialize", Some(msgpack_map_str(&[("client_name", client_name)])))
+            .invoke(
+                "initialize",
+                Some(msgpack_map_str(&[("client_name", client_name)])),
+            )
             .await?;
         let _ = agent_conn.invoke("initialized", None).await?;
         Ok(agent_conn)
@@ -145,11 +171,15 @@ async fn run_reader(
     mut incoming_rx: mpsc::Receiver<JsonMessageConnectionEvent<Value>>,
     pending: &Arc<Mutex<Pending>>,
     notify_tx: &mpsc::Sender<AgentNotification>,
+    request_handler: Option<&AgentRequestHandler>,
+    write_tx: &mpsc::Sender<Value>,
 ) {
     while let Some(event) = incoming_rx.recv().await {
         match event {
             JsonMessageConnectionEvent::Message(value) => {
-                if let Err(err) = dispatch_frame(value, pending, notify_tx).await {
+                if let Err(err) =
+                    dispatch_frame(value, pending, notify_tx, request_handler, write_tx).await
+                {
                     warn!("agent frame dispatch error: {err}");
                 }
             }
@@ -170,14 +200,20 @@ async fn dispatch_frame(
     value: Value,
     pending: &Arc<Mutex<Pending>>,
     notify_tx: &mpsc::Sender<AgentNotification>,
+    request_handler: Option<&AgentRequestHandler>,
+    write_tx: &mpsc::Sender<Value>,
 ) -> Result<(), AgentConnError> {
-    if let Some(id_val) = map_get(&value, "id")
+    // If this frame has an ID but no method, check if it's a response to
+    // one of our pending requests first. Frames with both ID and method
+    // are agent-initiated requests and must not be consumed as responses.
+    if map_get(&value, "method").is_none()
+        && let Some(id_val) = map_get(&value, "id")
         && let Some(id) = id_val.as_u64()
     {
         let mut map = pending.lock().await;
         if let Some(tx) = map.remove(&id) {
             if let Some(err) = map_get(&value, "error") {
-                let code = map_get(err, "code").and_then(Value::as_i64).unwrap_or(-32603) as i32;
+                let code = agent_error_code(err);
                 let msg = map_get(err, "message")
                     .and_then(Value::as_str)
                     .unwrap_or("agent error")
@@ -187,10 +223,52 @@ async fn dispatch_frame(
                 let result = map_get(&value, "result").cloned().unwrap_or(Value::Nil);
                 let _ = tx.send(Ok(result));
             }
+            return Ok(());
         }
-        return Ok(());
     }
 
+    // Agent-initiated request. Dispatch it through the handler and send back a response.
+    if let Some(id_val) = map_get(&value, "id") {
+        if let Some(handler) = request_handler {
+            let id = id_val.clone();
+            let method = map_get(&value, "method")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
+            let params = map_get(&value, "params").cloned();
+
+            let handler = handler.clone();
+            let write_tx = write_tx.clone();
+            tokio::spawn(async move {
+                let result = handler(method, params).await;
+                let response = match result {
+                    Ok(val) => Value::Map(vec![
+                        (Value::String("jsonrpc".into()), Value::String("2.0".into())),
+                        (Value::String("id".into()), id),
+                        (Value::String("result".into()), val),
+                    ]),
+                    Err(msg) => Value::Map(vec![
+                        (Value::String("jsonrpc".into()), Value::String("2.0".into())),
+                        (Value::String("id".into()), id),
+                        (
+                            Value::String("error".into()),
+                            Value::Map(vec![
+                                (
+                                    Value::String("code".into()),
+                                    Value::Integer((-32603i64).into()),
+                                ),
+                                (Value::String("message".into()), Value::String(msg.into())),
+                            ]),
+                        ),
+                    ]),
+                };
+                let _ = write_tx.send(response).await;
+            });
+            return Ok(());
+        }
+    }
+
+    // No ID or no handler — treat as notification.
     let method = map_get(&value, "method")
         .and_then(Value::as_str)
         .ok_or_else(|| AgentConnError::BadFrame("notification missing method".into()))?
@@ -229,6 +307,21 @@ fn map_get<'a>(v: &'a Value, key: &str) -> Option<&'a Value> {
         .iter()
         .find(|(k, _)| k.as_str() == Some(key))
         .map(|(_, v)| v)
+}
+
+fn agent_error_code(err: &Value) -> i32 {
+    if let Some(code) = map_get(err, "code").and_then(Value::as_i64) {
+        return code as i32;
+    }
+
+    match map_get(err, "kind").and_then(Value::as_str) {
+        Some("parse") => crate::protocol::error_code::PARSE_ERROR,
+        Some("invalid_request") => crate::protocol::error_code::INVALID_REQUEST,
+        Some("method_not_found") => crate::protocol::error_code::METHOD_NOT_FOUND,
+        Some("invalid_params") => crate::protocol::error_code::INVALID_PARAMS,
+        Some("internal") | None => crate::protocol::error_code::INTERNAL_ERROR,
+        Some(_) => crate::protocol::error_code::INTERNAL_ERROR,
+    }
 }
 
 fn msgpack_map_str(pairs: &[(&str, &str)]) -> Value {
