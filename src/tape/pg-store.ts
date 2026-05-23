@@ -14,10 +14,11 @@
  */
 import { eq, and, desc, sql } from "drizzle-orm";
 import { createHash } from "node:crypto";
+import { uuidv7 } from "uuidv7";
 
 import { getDb } from "../db.ts";
 import * as schema from "./schema.ts";
-import type { TapeEntry, TapeInfo, TapeStore, FileStore } from "@nexal/tape";
+import { tapeRecord, type TapeEntry, type TapeEntryDraft, type TapeHandle, type TapeInfo, type TapeStore, type FileStore } from "@nexal/tape";
 
 export interface TapeStoreOptions {
 	/** Off-load oversized binary blocks to this store. Optional. */
@@ -34,14 +35,75 @@ export function createTapeStore(opts: TapeStoreOptions = {}): TapeStore {
 	const fileStore = opts.fileStore;
 	const maxInline = opts.maxInlineSize ?? DEFAULT_MAX_INLINE;
 
+	async function appendTape(tape: TapeHandle, entry: TapeEntryDraft): Promise<TapeEntry>;
+	async function appendTape(tape: TapeHandle, entries: TapeEntryDraft[]): Promise<TapeEntry[]>;
+	async function appendTape(
+		tape: TapeHandle,
+		entryOrEntries: TapeEntryDraft | TapeEntryDraft[],
+	): Promise<TapeEntry | TapeEntry[]> {
+		const isBatch = Array.isArray(entryOrEntries);
+		const entries = isBatch ? entryOrEntries : [entryOrEntries];
+		if (entries.length === 0) return [];
+
+		const prepared: TapeEntryDraft[] = [];
+		for (const entry of entries) {
+			prepared.push({
+				...entry,
+				payload: fileStore
+					? await offloadLargeBlobs(entry.payload, fileStore, maxInline, db)
+					: entry.payload,
+			});
+		}
+
+		const persisted = await db.transaction(async (tx) => {
+			const tapeRecord = await requireTapeRecord(tx, tape);
+			const firstId = tapeRecord.lastEntryId + 1;
+			const lastId = tapeRecord.lastEntryId + prepared.length;
+
+			await tx
+				.update(tapes)
+				.set({ lastEntryId: lastId })
+				.where(eq(tapes.id, tapeRecord.id));
+
+			const rows = await tx
+				.insert(tapeEntries)
+				.values(
+					prepared.map((entry, index) => ({
+						tapeId: tapeRecord.id,
+						entryId: firstId + index,
+						kind: entry.kind,
+						anchorName: entry.kind === "anchor" ? String(entry.payload.name ?? "") : null,
+						anchorNameKey:
+							entry.kind === "anchor" && entry.payload.name
+								? sha256Key(String(entry.payload.name))
+								: null,
+						payload: entry.payload,
+						meta: entry.meta,
+						entryDate: entry.date,
+						createdAt: Date.now(),
+					})),
+				)
+				.returning();
+
+			return rows.map(rowToEntry);
+		});
+
+		return isBatch ? persisted : persisted[0]!;
+	}
+
 	return {
-		async listTapes(): Promise<string[]> {
-			const rows = await db.select({ name: tapes.name }).from(tapes).orderBy(tapes.name);
-			return rows.map((r) => r.name);
+		async create(): Promise<TapeHandle> {
+			const row = await createTapeRecord(db);
+			return { tapeId: row.id };
 		},
 
-		async read(tape: string): Promise<TapeEntry[]> {
-			const tapeRecord = await findTapeRecord(db, tape);
+		async listTapes(): Promise<TapeInfo[]> {
+			const rows = await db.select().from(tapes).orderBy(tapes.id);
+			return Promise.all(rows.map((row) => infoForTapeRecord(row)));
+		},
+
+		async read(tape: TapeHandle): Promise<TapeEntry[]> {
+			const tapeRecord = await findTapeRecordById(db, tape.tapeId);
 			if (!tapeRecord) return [];
 			const rows = await db
 				.select()
@@ -56,40 +118,11 @@ export function createTapeStore(opts: TapeStoreOptions = {}): TapeStore {
 			return entries;
 		},
 
-		async append(tape: string, entry: Omit<TapeEntry, "id">): Promise<void> {
-			const payload = fileStore
-				? await offloadLargeBlobs(entry.payload, fileStore, maxInline, db)
-				: entry.payload;
+		append: appendTape,
 
+		async reset(tapeRef: TapeHandle): Promise<void> {
 			await db.transaction(async (tx) => {
-				const tapeRecord = await loadOrCreateTape(tx, tape);
-				const nextId = tapeRecord.lastEntryId + 1;
-
-				await tx
-					.update(tapes)
-					.set({ lastEntryId: nextId })
-					.where(eq(tapes.id, tapeRecord.id));
-
-				await tx.insert(tapeEntries).values({
-					tapeId: tapeRecord.id,
-					entryId: nextId,
-					kind: entry.kind,
-					anchorName: entry.kind === "anchor" ? String(entry.payload.name ?? "") : null,
-					anchorNameKey:
-						entry.kind === "anchor" && entry.payload.name
-							? sha256Key(String(entry.payload.name))
-								: null,
-					payload,
-					meta: entry.meta,
-					entryDate: entry.date,
-					createdAt: Date.now(),
-				});
-			});
-		},
-
-		async reset(tape: string): Promise<void> {
-			await db.transaction(async (tx) => {
-				const tapeRecord = await findTapeRecord(tx, tape);
+				const tapeRecord = await findTapeRecordById(tx, tapeRef.tapeId);
 				if (tapeRecord) {
 					await tx.delete(tapeEntries).where(eq(tapeEntries.tapeId, tapeRecord.id));
 					await tx
@@ -100,11 +133,11 @@ export function createTapeStore(opts: TapeStoreOptions = {}): TapeStore {
 			});
 		},
 
-		async info(tape: string): Promise<TapeInfo> {
-			const tapeRecord = await findTapeRecord(db, tape);
+		async info(tape: TapeHandle): Promise<TapeInfo> {
+			const tapeRecord = await findTapeRecordById(db, tape.tapeId);
 			if (!tapeRecord) {
 				return {
-					name: tape,
+					id: tape.tapeId,
 					entries: 0,
 					anchors: 0,
 					lastAnchor: null,
@@ -112,41 +145,15 @@ export function createTapeStore(opts: TapeStoreOptions = {}): TapeStore {
 					lastTokenUsage: null,
 				};
 			}
-			const rows = await db
-				.select()
-				.from(tapeEntries)
-				.where(eq(tapeEntries.tapeId, tapeRecord.id))
-				.orderBy(tapeEntries.entryId);
-			const entries = rows.map(rowToEntry);
-			const anchors = entries.filter((e) => e.kind === "anchor");
-			const lastAnchor = entries.findLast((e) => e.kind === "anchor") ?? null;
-			const entriesSinceLastAnchor = lastAnchor
-				? entries.length - entries.findLastIndex((e) => e.id === lastAnchor.id) - 1
-				: entries.length;
-			const lastTokenUsage = findLastTokenUsage(entries);
-			return {
-				name: tape,
-				entries: entries.length,
-				anchors: anchors.length,
-				lastAnchor: lastAnchor ? String(lastAnchor.payload.name ?? null) : null,
-				entriesSinceLastAnchor,
-				lastTokenUsage,
-			};
+			return infoForTapeRecord(tapeRecord);
 		},
 
-		async handoff(tape: string, name: string, state?: Record<string, unknown>): Promise<void> {
-			const payload: Record<string, unknown> = { name };
-			if (state) payload.state = state;
-			await this.append(tape, {
-				kind: "anchor",
-				payload,
-				meta: {},
-				date: new Date().toISOString(),
-			});
+		async handoff(tape: TapeHandle, name: string, state?: Record<string, unknown>): Promise<void> {
+			await appendTape(tape, tapeRecord.anchor(name, state));
 		},
 
-		async search(tape: string, query: string, limit = 20): Promise<TapeEntry[]> {
-			const tapeRecord = await findTapeRecord(db, tape);
+		async search(tape: TapeHandle, query: string, limit = 20): Promise<TapeEntry[]> {
+			const tapeRecord = await findTapeRecordById(db, tape.tapeId);
 			if (!tapeRecord) return [];
 			const pattern = `%${escapeLike(query)}%`;
 			const rows = await db
@@ -163,6 +170,28 @@ export function createTapeStore(opts: TapeStoreOptions = {}): TapeStore {
 			return rows.map(rowToEntry);
 		},
 	};
+
+	async function infoForTapeRecord(tapeRecord: schema.TapeRow): Promise<TapeInfo> {
+		const rows = await db
+			.select()
+			.from(tapeEntries)
+			.where(eq(tapeEntries.tapeId, tapeRecord.id))
+			.orderBy(tapeEntries.entryId);
+		const entries = rows.map(rowToEntry);
+		const anchors = entries.filter((e) => e.kind === "anchor");
+		const lastAnchor = entries.findLast((e) => e.kind === "anchor") ?? null;
+		const entriesSinceLastAnchor = lastAnchor
+			? entries.length - entries.findLastIndex((e) => e.id === lastAnchor.id) - 1
+			: entries.length;
+		return {
+			id: tapeRecord.id,
+			entries: entries.length,
+			anchors: anchors.length,
+			lastAnchor: lastAnchor ? String(lastAnchor.payload.name ?? null) : null,
+			entriesSinceLastAnchor,
+			lastTokenUsage: findLastTokenUsage(entries),
+		};
+	}
 
 	// ── inline helpers (capture `tapeFiles`, `db`) ─────────────────────
 
@@ -212,6 +241,35 @@ export function createTapeStore(opts: TapeStoreOptions = {}): TapeStore {
 	}
 }
 
+export async function getOrCreateSessionTapeRef(sessionKey: string): Promise<TapeHandle> {
+	const db = getDb();
+	const existing = await db
+		.select()
+		.from(schema.sessionTapes)
+		.where(eq(schema.sessionTapes.sessionKey, sessionKey));
+	if (existing[0]) return { tapeId: existing[0].tapeId };
+
+	const now = Date.now();
+	const row = await db.transaction(async (tx) => {
+		const created = await createTapeRecord(tx);
+		const [mapping] = await tx
+			.insert(schema.sessionTapes)
+			.values({
+				sessionKey,
+				tapeId: created.id,
+				createdAt: now,
+				updatedAt: now,
+			})
+			.onConflictDoUpdate({
+				target: schema.sessionTapes.sessionKey,
+				set: { updatedAt: now },
+			})
+			.returning();
+		return mapping ?? { tapeId: created.id };
+	});
+	return { tapeId: row.tapeId };
+}
+
 // ── helpers ──────────────────────────────────────────────────────────
 
 async function hydrateFileRefs(
@@ -245,33 +303,36 @@ function isObject(v: unknown): v is Record<string, unknown> {
 	return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
-async function findTapeRecord(
+async function findTapeRecordById(
 	db: any,
-	name: string,
+	id: string,
 ): Promise<schema.TapeRow | null> {
 	const rows = await db
 		.select()
 		.from(schema.tapes)
-		.where(eq(schema.tapes.nameKey, sha256Key(name)));
+		.where(eq(schema.tapes.id, id));
 	return rows[0] ?? null;
 }
 
-async function loadOrCreateTape(
+async function requireTapeRecord(
 	tx: any,
-	name: string,
+	ref: TapeHandle,
 ): Promise<schema.TapeRow> {
-	const existing = await findTapeRecord(tx, name);
-	if (existing) return existing;
+	const existing = await findTapeRecordById(tx, ref.tapeId);
+	if (!existing) throw new Error(`Tape not found: ${ref.tapeId}`);
+	return existing;
+}
+
+async function createTapeRecord(tx: any): Promise<schema.TapeRow> {
 	const [inserted] = await tx
 		.insert(schema.tapes)
 		.values({
-			name,
-			nameKey: sha256Key(name),
+			id: uuidv7(),
 			lastEntryId: 0,
 			createdAt: Date.now(),
 		})
 		.returning();
-	if (!inserted) throw new Error(`Failed to create tape: ${name}`);
+	if (!inserted) throw new Error("Failed to create tape");
 	return inserted;
 }
 

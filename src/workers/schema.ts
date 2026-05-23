@@ -24,7 +24,8 @@
  *
  * `bigint` is used for unix-ms timestamps to avoid 32-bit overflow.
  */
-import { bigint, index, integer, pgTable, text } from "drizzle-orm/pg-core";
+import { bigint, index, integer, pgTable, text, uuid } from "drizzle-orm/pg-core";
+import { tapes } from "../tape/schema.ts";
 
 export const workers = pgTable(
 	"workers",
@@ -43,6 +44,7 @@ export const workers = pgTable(
 		modelId: text("model_id").notNull(),
 		status: text("status").notNull(),
 		messagesJson: text("messages_json").notNull().default("[]"),
+		tapeId: uuid("tape_id").references(() => tapes.id, { onDelete: "set null" }),
 		containerName: text("container_name").notNull(),
 		createdAt: bigint("created_at", { mode: "number" }).notNull(),
 		startedAt: bigint("started_at", { mode: "number" }),

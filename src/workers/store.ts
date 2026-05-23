@@ -36,6 +36,7 @@ export interface WorkerRow {
 	modelId: string;
 	status: WorkerStatus;
 	messagesJson: string;
+	tapeId: string | null;
 	containerName: string;
 	createdAt: number;
 	startedAt: number | null;
@@ -61,6 +62,7 @@ export interface WorkerCreate {
 	modelId: string;
 	containerName: string;
 	sendPolicy?: SendPolicy;
+	tapeId?: string | null;
 }
 
 export interface WorkerStore {
@@ -70,6 +72,7 @@ export interface WorkerStore {
 	listByParent(parentSessionKey: string, limit?: number): Promise<WorkerRow[]>;
 	setStatus(id: string, status: WorkerStatus, error?: string | null): Promise<void>;
 	setMessages(id: string, messagesJson: string, turnCount: number): Promise<void>;
+	setTapeId(id: string, tapeId: string): Promise<void>;
 	markStarted(id: string): Promise<void>;
 	markIdle(id: string, messagesJson: string): Promise<void>;
 	markCompleted(id: string, messagesJson: string): Promise<void>;
@@ -112,6 +115,7 @@ export async function createWorkerStore(cfg: WorkerStoreConfig): Promise<WorkerS
 					modelId: row.modelId,
 					status: "spawning",
 					messagesJson: "[]",
+					tapeId: row.tapeId ?? null,
 					containerName: row.containerName,
 					createdAt: now,
 					startedAt: null,
@@ -162,6 +166,13 @@ export async function createWorkerStore(cfg: WorkerStoreConfig): Promise<WorkerS
 			await db
 				.update(workers)
 				.set({ messagesJson, turnCount, updatedAt: Date.now() })
+				.where(eq(workers.id, id));
+		},
+
+		async setTapeId(id, tapeId): Promise<void> {
+			await db
+				.update(workers)
+				.set({ tapeId, updatedAt: Date.now() })
 				.where(eq(workers.id, id));
 		},
 

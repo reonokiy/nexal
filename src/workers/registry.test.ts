@@ -16,12 +16,16 @@ import type {
 } from "./store.ts";
 
 const mockTapeStore: TapeStore = {
+	create: async () => ({ tapeId: "00000000-0000-4000-8000-000000000001" }),
 	listTapes: async () => [],
 	read: async () => [],
-	append: async () => {},
+	append: async (_tape: any, entryOrEntries: any) =>
+		Array.isArray(entryOrEntries)
+			? entryOrEntries.map((entry, index) => ({ ...entry, id: index + 1 }))
+			: { ...entryOrEntries, id: 1 },
 	reset: async () => {},
 	info: async () => ({
-		name: "",
+		id: "00000000-0000-4000-8000-000000000001",
 		entries: 0,
 		anchors: 0,
 		lastAnchor: null,
@@ -111,6 +115,7 @@ function mockStore(rows: WorkerRow[] = []): TrackingStore {
 			if (row) map.set(id, { ...row, status: status as any, error: err ?? null });
 		},
 		async setMessages() {},
+		async setTapeId() {},
 		async markStarted() {},
 		async markIdle() {},
 		async markCompleted() {},

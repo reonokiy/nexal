@@ -125,19 +125,20 @@ export class WorkerAgent {
 			await this.setupProxies();
 		}
 
-		// Create a Tape instance for this worker.
-		const tapeName = `worker:${row.id}`;
-		const tape = new Tape({ store: this.deps.tapeStore, name: tapeName });
+		// Create or restore this worker's tape by stable tape id.
+		const tapeRef = row.tapeId ? { tapeId: row.tapeId } : await this.deps.tapeStore.create();
+		if (!row.tapeId) await this.deps.store.setTapeId(row.id, tapeRef.tapeId);
+		const tape = new Tape({ store: this.deps.tapeStore, ref: tapeRef });
 
 		// Load history from tape; fallback to DB messages_json.
 		// Tape is the canonical format; convert directly to LLM format.
 		let initialMessages = jsonToMessages(row.messagesJson);
 		try {
-			const entries = await tape.view().load();
+			const entries = await tape.view().entries();
 			if (entries.length > 0) {
 				initialMessages = entriesToLlmMessages(entries) as any;
 				this.lastPersistedMsgCount = initialMessages.length;
-				this.log.info(`restored ${initialMessages.length} messages from tape for ${tapeName}`);
+				this.log.info(`restored ${initialMessages.length} messages from tape ${tape.ref.tapeId}`);
 			}
 		} catch (err) {
 			this.log.error(`failed to load tape for worker ${row.id}, falling back to messages_json`, err);
@@ -471,9 +472,9 @@ export class WorkerAgent {
 						...e,
 						date: new Date().toISOString(),
 					}));
-					await tape.append(...entries);
+					await tape.append(entries);
 					this.lastPersistedMsgCount = messages.length;
-					this.log.info(`appended ${newMessages.length} messages to tape for ${tape.name}`);
+					this.log.info(`appended ${newMessages.length} messages to tape ${tape.ref.tapeId}`);
 				}
 			} catch (err) {
 				this.log.error(`failed to persist tape delta for worker ${this.id}`, err);

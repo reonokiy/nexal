@@ -8,12 +8,16 @@ import type { TapeStore } from "../tape/index.ts";
 import { fakeRow } from "./test-helpers.ts";
 
 const mockTapeStore: TapeStore = {
+	create: async () => ({ tapeId: "00000000-0000-4000-8000-000000000001" }),
 	listTapes: async () => [],
 	read: async () => [],
-	append: async () => {},
+	append: async (_tape: any, entryOrEntries: any) =>
+		Array.isArray(entryOrEntries)
+			? entryOrEntries.map((entry, index) => ({ ...entry, id: index + 1 }))
+			: { ...entryOrEntries, id: 1 },
 	reset: async () => {},
 	info: async () => ({
-		name: "",
+		id: "00000000-0000-4000-8000-000000000001",
 		entries: 0,
 		anchors: 0,
 		lastAnchor: null,
@@ -140,6 +144,7 @@ function makeStore(): StoreSpy {
 		async setMessages(id, json, turn) {
 			spy.setMessagesCalls.push([id, json, turn]);
 		},
+		async setTapeId() {},
 		async markStarted(id) {
 			spy.markStartedCalls.push(id);
 		},

@@ -16,6 +16,7 @@ export function fakeRow(over: Partial<WorkerRow> = {}): WorkerRow {
 		modelId: "openai/gpt-4o",
 		status: "idle" as WorkerStatus,
 		messagesJson: "[]",
+		tapeId: null,
 		containerName: "nexal-worker-test",
 		createdAt: Date.now(),
 		startedAt: null,

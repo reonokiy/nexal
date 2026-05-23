@@ -18,7 +18,7 @@ const BYTES_MARKER = "__nexal_bytes_b64__";
 // ── TapeEntry → AgentMessage ──────────────────────────────────────
 
 /** Convert a list of tape entries → AgentMessages (skips non-message kinds). */
-export function entriesToMessages(entries: TapeEntry[]): AgentMessage[] {
+export function entriesToMessages(entries: readonly TapeEntry[]): AgentMessage[] {
 	const out: AgentMessage[] = [];
 	for (const e of entries) {
 		const m = entryToMessage(e);
@@ -232,7 +232,7 @@ function reviveAssistantContent(raw: unknown): AssistantMessage["content"] {
  * This is the preferred path — tape is the canonical format, and we
  * convert to LLM format only at the model boundary.
  */
-export function entriesToLlmMessages(entries: TapeEntry[]): Message[] {
+export function entriesToLlmMessages(entries: readonly TapeEntry[]): Message[] {
 	const out: Message[] = [];
 	for (const e of entries) {
 		const m = entryToLlmMessage(e);

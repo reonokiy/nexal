@@ -12,16 +12,16 @@
  * preserved in the tape.
  */
 import type { TapeStore } from "./store.ts";
-import type { TapeEntry, TapeInfo, TapeRef, TapeRange } from "./types.ts";
+import type { TapeEntry, TapeEntryDraft, TapeHandle, TapeInfo, TapeRef, TapeRange, TapeRelation } from "./types.ts";
 import { TapeSlice } from "./slice.ts";
-import { TapeView } from "./tape-view.ts";
-import { applyEdits } from "./apply-edits.ts";
+import { TapeView } from "./view.ts";
+import { tapeRecord } from "./records.ts";
 
 const DEFAULT_MAX_CONTEXT = 200;
 
 export interface TapeOptions {
 	store: TapeStore;
-	name: string;
+	ref: TapeHandle;
 	/** Default max context window size. Default 200. */
 	maxContext?: number;
 }
@@ -42,70 +42,71 @@ export interface TapeOptions {
  * ```
  */
 export class Tape {
-	readonly name: string;
+	readonly ref: TapeHandle;
 	private readonly store: TapeStore;
 	private readonly maxContext: number;
 
 	constructor(opts: TapeOptions) {
-		this.name = opts.name;
+		this.ref = opts.ref;
 		this.store = opts.store;
 		this.maxContext = opts.maxContext ?? DEFAULT_MAX_CONTEXT;
 	}
 
 	// ── Static factories ────────────────────────────────────────────
 
-	static async load(store: TapeStore, name: string, maxContext?: number): Promise<Tape> {
-		const tape = new Tape({ store, name, maxContext });
-		await tape.load();
+	static async create(store: TapeStore, maxContext?: number): Promise<Tape> {
+		return new Tape({ store, ref: await store.create(), maxContext });
+	}
+
+	static async load(store: TapeStore, ref: TapeHandle, maxContext?: number): Promise<Tape> {
+		const tape = new Tape({ store, ref, maxContext });
+		await tape.entries();
 		return tape;
 	}
 
 	static async loadOrCreate(
 		store: TapeStore,
-		name: string,
-		anchorState?: Record<string, unknown>,
+		ref: TapeHandle,
 		maxContext?: number,
 	): Promise<Tape> {
-		const tape = new Tape({ store, name, maxContext });
-		const entries = await tape.load();
-		if (entries.length === 0 && anchorState) {
-			await tape.anchor("init", anchorState);
-		}
+		const tape = new Tape({ store, ref, maxContext });
 		return tape;
 	}
 
 	// ── Core operations ─────────────────────────────────────────────
 
-	/** Load all entries for this tape. */
-	async load(): Promise<TapeEntry[]> {
-		return this.store.read(this.name);
+	/** Return all raw entries for this tape. */
+	async entries(): Promise<TapeEntry[]> {
+		return this.store.read(this.ref);
 	}
 
-	/** Append entries to the tape. */
-	async append(...entries: Omit<TapeEntry, "id">[]): Promise<void> {
-		for (const entry of entries) {
-			await this.store.append(this.name, entry);
-		}
+	/** Append one entry or an atomic batch to the tape. */
+	async append(entry: TapeEntryDraft): Promise<TapeEntry>;
+	async append(entries: TapeEntryDraft[]): Promise<TapeEntry[]>;
+	async append(entryOrEntries: TapeEntryDraft | TapeEntryDraft[]): Promise<TapeEntry | TapeEntry[]> {
+		return Array.isArray(entryOrEntries)
+			? this.store.append(this.ref, entryOrEntries)
+			: this.store.append(this.ref, entryOrEntries);
 	}
 
 	/** Delete all entries (hard reset). */
 	async reset(): Promise<void> {
-		await this.store.reset(this.name);
+		await this.store.reset(this.ref);
 	}
 
 	/** Get tape metadata. */
 	async info(): Promise<TapeInfo> {
-		return this.store.info(this.name);
+		return this.store.info(this.ref);
 	}
 
 	/** Write an anchor (checkpoint) to the tape. */
 	async anchor(name: string, state?: Record<string, unknown>): Promise<void> {
-		await this.store.handoff(this.name, name, state);
+		await this.store.handoff(this.ref, name, state);
 	}
 
 	/** Find an anchor by name. */
 	async findAnchor(name: string): Promise<TapeEntry | null> {
-		const entries = await this.load();
+		const entries = await this.entries();
 		return entries.findLast(
 			(e) => e.kind === "anchor" && e.payload.name === name,
 		) ?? null;
@@ -113,7 +114,7 @@ export class Tape {
 
 	/** Load entries after a specific anchor. */
 	async loadAfterAnchor(anchorName: string): Promise<TapeEntry[]> {
-		const entries = await this.load();
+		const entries = await this.entries();
 		const idx = entries.findLastIndex(
 			(e) => e.kind === "anchor" && e.payload.name === anchorName,
 		);
@@ -123,7 +124,7 @@ export class Tape {
 
 	/** Load entries between two anchors. */
 	async loadBetween(fromAnchor: string, toAnchor: string): Promise<TapeEntry[]> {
-		const entries = await this.load();
+		const entries = await this.entries();
 		const fromIdx = entries.findIndex(
 			(e) => e.kind === "anchor" && e.payload.name === fromAnchor,
 		);
@@ -136,7 +137,7 @@ export class Tape {
 
 	/** Search entries by text pattern. */
 	async search(query: string, limit?: number): Promise<TapeEntry[]> {
-		return this.store.search(this.name, query, limit);
+		return this.store.search(this.ref, query, limit);
 	}
 
 	/** Return a read-only view with redactions/amendments applied. */
@@ -150,9 +151,8 @@ export class Tape {
 	 * Load entries and apply redactions/amendments, then truncate to
 	 * context window. This is the primary method for consumers.
 	 */
-	async loadContext(maxMessages?: number): Promise<TapeEntry[]> {
-		const entries = await this.load();
-		const cleaned = applyEdits(entries);
+	async loadContext(maxMessages?: number): Promise<readonly TapeEntry[]> {
+		const cleaned = await this.view().entries();
 		const limit = maxMessages ?? this.maxContext;
 		if (cleaned.length <= limit) return cleaned;
 		return cleaned.slice(-limit);
@@ -160,73 +160,58 @@ export class Tape {
 
 	// ── Cross-tape references ───────────────────────────────────────
 
-	async ref(
-		targetTape: string,
-		relation: TapeRef["relation"] = "link",
+	async link(
+		targetTape: TapeHandle,
+		relation: TapeRelation = "link",
 		meta?: Record<string, unknown>,
 	): Promise<void> {
-		await this.append({
-			kind: "ref",
-			payload: { ref: { tape: targetTape, relation, meta } satisfies TapeRef },
-			meta: {},
-			date: new Date().toISOString(),
-		});
+		await this.append(tapeRecord.ref({ type: "tape", ...targetTape, relation, meta }));
 	}
 
-	async refEntry(
-		targetTape: string,
+	async linkEntry(
+		targetTape: TapeHandle,
 		entryId: number,
-		relation: TapeRef["relation"] = "link",
+		relation: TapeRelation = "link",
 		meta?: Record<string, unknown>,
 	): Promise<void> {
-		await this.append({
-			kind: "ref",
-			payload: { ref: { tape: targetTape, entryId, relation, meta } satisfies TapeRef },
-			meta: {},
-			date: new Date().toISOString(),
-		});
+		await this.append(tapeRecord.ref({ type: "entry", ...targetTape, entryId, relation, meta }));
 	}
 
-	async refAnchor(
-		targetTape: string,
+	async linkAnchor(
+		targetTape: TapeHandle,
 		anchorName: string,
-		relation: TapeRef["relation"] = "link",
+		relation: TapeRelation = "link",
 		meta?: Record<string, unknown>,
 	): Promise<void> {
-		await this.append({
-			kind: "ref",
-			payload: { ref: { tape: targetTape, anchorName, relation, meta } satisfies TapeRef },
-			meta: {},
-			date: new Date().toISOString(),
-		});
+		await this.append(tapeRecord.ref({ type: "anchor", ...targetTape, anchorName, relation, meta }));
 	}
 
 	async refs(): Promise<TapeRef[]> {
-		const entries = await this.load();
+		const entries = await this.entries();
 		return entries
 			.filter((e) => e.kind === "ref")
 			.map((e) => e.payload.ref as TapeRef)
 			.filter(Boolean);
 	}
 
-	async refsByRelation(relation: TapeRef["relation"]): Promise<TapeRef[]> {
+	async refsByRelation(relation: TapeRelation): Promise<TapeRef[]> {
 		const allRefs = await this.refs();
 		return allRefs.filter((r) => r.relation === relation);
 	}
 
 	async resolveRef(ref: TapeRef): Promise<Tape> {
-		return new Tape({ store: this.store, name: ref.tape });
+		return new Tape({ store: this.store, ref });
 	}
 
 	async resolveRefEntry(ref: TapeRef): Promise<TapeEntry | null> {
-		if (!ref.entryId && !ref.anchorName) return null;
+		if (ref.type === "tape" || ref.type === "range") return null;
 		const targetTape = await this.resolveRef(ref);
-		const entries = await targetTape.load();
+		const entries = await targetTape.entries();
 
-		if (ref.entryId) {
+		if (ref.type === "entry") {
 			return entries.find((e) => e.id === ref.entryId) ?? null;
 		}
-		if (ref.anchorName) {
+		if (ref.type === "anchor") {
 			return entries.find(
 				(e) => e.kind === "anchor" && e.payload.name === ref.anchorName,
 			) ?? null;
@@ -243,12 +228,7 @@ export class Tape {
 	async redact(target: number | number[] | TapeRange, reason?: string): Promise<void> {
 		const ids = resolveRange(target);
 		for (const id of ids) {
-			await this.append({
-				kind: "redaction",
-				payload: { targetId: id, reason, redactedAt: Date.now() },
-				meta: {},
-				date: new Date().toISOString(),
-			});
+			await this.append(tapeRecord.redaction(id, reason));
 		}
 	}
 
@@ -258,30 +238,20 @@ export class Tape {
 	 */
 	async amend(
 		target: number | number[] | TapeRange,
-		replacement: Omit<TapeEntry, "id">[],
+		replacement: TapeEntryDraft[],
 		reason?: string,
 	): Promise<void> {
 		const ids = resolveRange(target);
-		await this.append({
-			kind: "amendment",
-			payload: {
-				targetIds: ids,
-				replacement,
-				reason,
-				amendedAt: Date.now(),
-			},
-			meta: {},
-			date: new Date().toISOString(),
-		});
+		await this.append(tapeRecord.amendment(ids, replacement, reason));
 	}
 
 	// ── Slicing ─────────────────────────────────────────────────────
 
-	slice(predicate: (entry: TapeEntry) => boolean): TapeSlice {
-		return new TapeSlice(this, predicate);
+	slice(filter: (entry: TapeEntry) => boolean): TapeSlice {
+		return new TapeSlice(this, filter);
 	}
 
-	sliceTime(from?: string | Date, to?: string | Date): TapeSlice {
+	sliceByTime(from?: string | Date, to?: string | Date): TapeSlice {
 		const fromTime = from ? new Date(from).getTime() : 0;
 		const toTime = to ? new Date(to).getTime() : Infinity;
 		return this.slice((e) => {
@@ -290,7 +260,7 @@ export class Tape {
 		});
 	}
 
-	sliceKind(...kinds: TapeEntry["kind"][]): TapeSlice {
+	sliceByKind(...kinds: TapeEntry["kind"][]): TapeSlice {
 		const kindSet = new Set(kinds);
 		return this.slice((e) => kindSet.has(e.kind));
 	}
@@ -304,7 +274,7 @@ export class Tape {
 		return Promise.all(
 			refs.map(async (ref) => {
 				const tape = await this.resolveRef(ref);
-				const entries = await tape.load();
+		const entries = await tape.entries();
 				return { ref, tape, entries };
 			}),
 		);

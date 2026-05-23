@@ -32,7 +32,7 @@ import {
 	extractTextFromContent,
 	imageContentToAttachment,
 } from "./content.ts";
-import { Tape, type TapeStore, entriesToLlmMessages } from "./tape/index.ts";
+import { Tape, type TapeHandle, type TapeStore, entriesToLlmMessages, tapeRecord } from "./tape/index.ts";
 
 export interface AgentPoolConfig {
 	systemPrompt: string;
@@ -53,6 +53,8 @@ export interface AgentPoolConfig {
 	debounce?: DebounceConfig;
 	/** Tape store for persistence. */
 	tapeStore: TapeStore;
+	/** Resolve the persisted tape id for a session. */
+	getTapeRef: (sessionKey: string) => Promise<TapeHandle>;
 	/** Optional: resolve API keys from DB instead of env vars. */
 	getApiKey?: (provider: string) => Promise<string | undefined> | string | undefined;
 }
@@ -62,6 +64,7 @@ interface Session {
 	channelName: string;
 	lastIncoming: IncomingMessage;
 	dispose?: () => Promise<void>;
+	tape: Tape;
 }
 
 export class AgentPool {
@@ -122,18 +125,15 @@ export class AgentPool {
 		const content = buildUserContent(msg.text, msg.images);
 
 		// Persist user message to tape before handing to agent.
-		const tape = new Tape({ store: this.config.tapeStore, name: key });
+		const tape = session.tape;
 		try {
-			await tape.append({
-				kind: "message",
-				payload: {
-					role: "user",
-					content: typeof content === "string" ? content : content.map((c) => ({ ...c })),
+			await tape.append(tapeRecord.userMessage(
+				typeof content === "string" ? content : content.map((c) => ({ ...c })),
+				{
 					timestamp: msg.timestamp,
+					meta: { channel: msg.channel, sender: msg.sender },
 				},
-				meta: { channel: msg.channel, sender: msg.sender },
-				date: new Date(msg.timestamp).toISOString(),
-			});
+			));
 		} catch (err) {
 			log.error(`failed to persist user message to tape for ${key}`, err);
 		}
@@ -175,7 +175,7 @@ export class AgentPool {
 		const allTools = [...this.config.tools, ...(perSession?.tools ?? [])];
 
 		// Create a Tape instance for this session.
-		const tape = new Tape({ store: this.config.tapeStore, name: key });
+		const tape = new Tape({ store: this.config.tapeStore, ref: await this.config.getTapeRef(key) });
 
 		const agent = new Agent({
 			initialState: {
@@ -193,7 +193,7 @@ export class AgentPool {
 
 		// Load history from tape and convert directly to LLM format.
 		try {
-			const entries = await tape.view().load();
+			const entries = await tape.view().entries();
 			if (entries.length > 0) {
 				const llmMessages = entriesToLlmMessages(entries);
 				agent.state.messages = llmMessages as any;
@@ -213,6 +213,7 @@ export class AgentPool {
 			agent,
 			channelName: msg.channel,
 			lastIncoming: msg,
+			tape,
 			dispose: perSession?.dispose,
 		};
 
@@ -261,23 +262,16 @@ export class AgentPool {
 				// Persist assistant message to tape.
 				const am = event.message as Extract<AgentMessage, { role: "assistant" }>;
 				try {
-					await tape.append({
-						kind: "message",
-						payload: {
-							role: "assistant",
-							content: am.content.map((c: any) => ({ ...c })),
-							api: (am as any).api ?? "",
-							provider: (am as any).provider ?? "",
-							model: (am as any).model ?? "",
-							responseId: (am as any).responseId,
-							usage: (am as any).usage,
-							stopReason: (am as any).stopReason ?? "stop",
-							errorMessage: (am as any).errorMessage,
-							timestamp: (am as any).timestamp ?? Date.now(),
-						},
-						meta: {},
-						date: new Date().toISOString(),
-					});
+					await tape.append(tapeRecord.assistantMessage(am.content.map((c: any) => ({ ...c })), {
+						api: (am as any).api ?? "",
+						provider: (am as any).provider ?? "",
+						model: (am as any).model ?? "",
+						responseId: (am as any).responseId,
+						usage: (am as any).usage,
+						stopReason: (am as any).stopReason ?? "stop",
+						errorMessage: (am as any).errorMessage,
+						timestamp: (am as any).timestamp ?? Date.now(),
+					}));
 				} catch (err) {
 					log.error(`failed to persist assistant message to tape for ${key}`, err);
 				}
@@ -320,20 +314,13 @@ export class AgentPool {
 			// Persist tool results to tape.
 			if (event.type === "tool_execution_end") {
 				try {
-					await tape.append({
-						kind: "tool_result",
-						payload: {
-							role: "toolResult",
-							toolCallId: event.toolCallId,
-							toolName: event.toolName,
-							content: (event.result as any)?.content ?? [],
-							details: (event.result as any)?.details,
-							isError: event.isError,
-							timestamp: Date.now(),
-						},
-						meta: {},
-						date: new Date().toISOString(),
-					});
+					await tape.append(tapeRecord.toolResult({
+						toolCallId: event.toolCallId,
+						toolName: event.toolName,
+						content: (event.result as any)?.content ?? [],
+						details: (event.result as any)?.details,
+						isError: event.isError,
+					}));
 				} catch (err) {
 					log.error(`failed to persist tool result to tape for ${key}`, err);
 				}

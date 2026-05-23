@@ -15,20 +15,29 @@ import {
 	primaryKey,
 	serial,
 	text,
+	uuid,
 	varchar,
 } from "drizzle-orm/pg-core";
 
 // ── tapes ────────────────────────────────────────────────────────────
 
 export const tapes = pgTable("tapes", {
-	id: serial("id").primaryKey(),
-	name: text("name").notNull(),
-	/** SHA-256 of name, used for exact lookups. */
-	nameKey: varchar("name_key", { length: 64 }).notNull().unique(),
+	id: uuid("id").primaryKey(),
 	/** Highest entry_id written to this tape. */
 	lastEntryId: integer("last_entry_id").notNull().default(0),
 	createdAt: bigint("created_at", { mode: "number" }).notNull(),
 });
+
+export const sessionTapes = pgTable("session_tapes", {
+	sessionKey: text("session_key").primaryKey(),
+	tapeId: uuid("tape_id")
+		.notNull()
+		.references(() => tapes.id, { onDelete: "cascade" }),
+	createdAt: bigint("created_at", { mode: "number" }).notNull(),
+	updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+});
+
+export type SessionTapeRow = typeof sessionTapes.$inferSelect;
 
 export type TapeRow = typeof tapes.$inferSelect;
 export type TapeInsert = typeof tapes.$inferInsert;
@@ -38,7 +47,7 @@ export type TapeInsert = typeof tapes.$inferInsert;
 export const tapeEntries = pgTable(
 	"tape_entries",
 	{
-		tapeId: integer("tape_id")
+		tapeId: uuid("tape_id")
 			.notNull()
 			.references(() => tapes.id, { onDelete: "cascade" }),
 		entryId: integer("entry_id").notNull(),

@@ -23,6 +23,9 @@ export interface TapeEntry {
 	date: string;
 }
 
+/** Entry payload before the store assigns a tape-local id. */
+export type TapeEntryDraft = Omit<TapeEntry, "id">;
+
 export type TapeEntryKind =
 	| "anchor"
 	| "message"
@@ -35,7 +38,8 @@ export type TapeEntryKind =
 
 /** Runtime summary for a tape (returned by tape.info). */
 export interface TapeInfo {
-	name: string;
+	/** Stable globally unique tape id. */
+	id: string;
 	entries: number;
 	anchors: number;
 	lastAnchor: string | null;
@@ -57,21 +61,47 @@ export interface FileRef {
 	url?: string;
 }
 
-/**
- * Reference to another tape or a specific entry within a tape.
- * Used for cross-tape linking (e.g., worker referencing session context).
- */
-export interface TapeRef {
-	/** Target tape name. */
-	tape: string;
-	/** Specific entry id within the target tape (optional). */
-	entryId?: number;
-	/** Or reference by anchor name (optional). */
-	anchorName?: string;
-	/** Relationship to the referenced tape. */
-	relation?: "context" | "parent" | "fork" | "link";
-	/** Additional metadata for the reference. */
+/** Stable handle used to read/write a tape. */
+export interface TapeHandle {
+	/** Stable globally unique tape id. */
+	tapeId: string;
 	meta?: Record<string, unknown>;
+}
+
+export type TapeRelation = "context" | "parent" | "fork" | "link";
+
+export type TapeRef = TapeWholeRef | TapeEntryRef | TapeAnchorRef | TapeRangeRef;
+
+export interface TapeWholeRef extends TapeHandle {
+	type: "tape";
+	/** Relationship to the referenced tape. */
+	relation?: TapeRelation;
+}
+
+export interface TapeEntryRef extends TapeHandle {
+	type: "entry";
+	/** Specific entry id within the target tape (optional). */
+	entryId: number;
+	/** Relationship to the referenced tape. */
+	relation?: TapeRelation;
+}
+
+export interface TapeAnchorRef extends TapeHandle {
+	type: "anchor";
+	/** Reference by anchor name. */
+	anchorName: string;
+	/** Relationship to the referenced tape. */
+	relation?: TapeRelation;
+}
+
+export interface TapeRangeRef extends TapeHandle {
+	type: "range";
+	/** Start entry id (inclusive). */
+	from: number;
+	/** End entry id (inclusive). */
+	to: number;
+	/** Relationship to the referenced tape. */
+	relation?: TapeRelation;
 }
 
 /** A range of entries on a tape (inclusive). */
