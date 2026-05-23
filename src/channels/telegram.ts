@@ -432,28 +432,16 @@ export class TelegramChannel implements Channel {
 		}
 
 		if (msg.voice) {
-			return {
-				text: `${msg.caption ?? ""}\n[received voice message, file_id: ${msg.voice.file_id}]`.trim(),
-				images: [],
-			};
+			return mediaStub(msg.caption, "voice message", msg.voice.file_id);
 		}
 		if (msg.video) {
-			return {
-				text: `${msg.caption ?? ""}\n[received video: ${msg.video.file_name ?? "video"}, file_id: ${msg.video.file_id}]`.trim(),
-				images: [],
-			};
+			return mediaStub(msg.caption, `video: ${msg.video.file_name ?? "video"}`, msg.video.file_id);
 		}
 		if (msg.animation) {
-			return {
-				text: `${msg.caption ?? ""}\n[received animation/gif, file_id: ${msg.animation.file_id}]`.trim(),
-				images: [],
-			};
+			return mediaStub(msg.caption, "animation/gif", msg.animation.file_id);
 		}
 		if (msg.audio) {
-			return {
-				text: `${msg.caption ?? ""}\n[received audio: ${msg.audio.title ?? "audio"}, file_id: ${msg.audio.file_id}]`.trim(),
-				images: [],
-			};
+			return mediaStub(msg.caption, `audio: ${msg.audio.title ?? "audio"}`, msg.audio.file_id);
 		}
 		return { text: "", images: [] };
 	}
@@ -486,6 +474,17 @@ export class TelegramChannel implements Channel {
 // ---------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------
+
+function mediaStub(
+	caption: string | undefined,
+	label: string,
+	fileId: string,
+): { text: string; images: [] } {
+	return {
+		text: `${caption ?? ""}\n[received ${label}, file_id: ${fileId}]`.trim(),
+		images: [],
+	};
+}
 
 /**
  * Extract the real sender. For channel-forwarded messages, `msg.from`

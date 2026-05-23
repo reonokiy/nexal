@@ -210,28 +210,5 @@ export async function createWorkerStore(cfg: WorkerStoreConfig): Promise<WorkerS
 }
 
 function castRow(row: typeof schema.workers.$inferSelect): WorkerRow {
-	return {
-		id: row.id,
-		kind: row.kind as WorkerKind,
-		lifetime: row.lifetime as WorkerLifetime,
-		parentSessionKey: row.parentSessionKey,
-		sourceChannel: row.sourceChannel,
-		sourceChatId: row.sourceChatId,
-		sourceReplyTo: row.sourceReplyTo,
-		name: row.name,
-		initialPrompt: row.initialPrompt,
-		systemPrompt: row.systemPrompt,
-		modelProvider: row.modelProvider,
-		modelId: row.modelId,
-		status: row.status as WorkerStatus,
-		messagesJson: row.messagesJson,
-		containerName: row.containerName,
-		createdAt: row.createdAt,
-		startedAt: row.startedAt,
-		updatedAt: row.updatedAt,
-		completedAt: row.completedAt,
-		error: row.error,
-		turnCount: row.turnCount,
-		sendPolicy: row.sendPolicy as SendPolicy,
-	};
+	return row as WorkerRow;
 }

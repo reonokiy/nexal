@@ -105,6 +105,7 @@ export class GatewayClient {
 	private readyPromise: Promise<void> | null = null;
 	private helloPromise: Promise<void> | null = null;
 	private readonly handlers = new Set<NotificationHandler>();
+	private readonly decoder = new TextDecoder();
 
 	private readonly agents = new Map<string, AgentEntry>();
 	private readonly agentInflight = new Map<string, Promise<AgentEntry>>();
@@ -149,7 +150,7 @@ export class GatewayClient {
 				const text =
 					typeof ev.data === "string"
 						? ev.data
-						: new TextDecoder().decode(ev.data as ArrayBuffer);
+						: this.decoder.decode(ev.data as ArrayBuffer);
 				for (const line of text.split("\n")) {
 					if (line.trim()) this.dispatch(line);
 				}
@@ -163,6 +164,10 @@ export class GatewayClient {
 		const { createConnection } = await import("node:net");
 		return new Promise<void>((resolve, reject) => {
 			const sock = createConnection(this.options.unix!, () => {
+				this.transport = {
+					send: (data: string) => sock.write(data + "\n"),
+					close: () => sock.destroy(),
+				};
 				resolve();
 			});
 			sock.on("error", (err: Error) => {
@@ -179,21 +184,19 @@ export class GatewayClient {
 				}
 			});
 			sock.on("close", () => this.onDisconnect());
-
-			this.transport = {
-				send: (data: string) => sock.write(data + "\n"),
-				close: () => sock.destroy(),
-			};
 		});
 	}
 
 	private onDisconnect(): void {
-		const closed = new Error("gateway transport closed");
-		for (const p of this.pending.values()) p.reject(closed);
-		this.pending.clear();
+		this.rejectAllPending(new Error("gateway transport closed"));
 		this.transport = null;
 		this.readyPromise = null;
 		this.helloPromise = null;
+	}
+
+	private rejectAllPending(reason: Error): void {
+		for (const p of this.pending.values()) p.reject(reason);
+		this.pending.clear();
 	}
 
 	/** Send `gateway/hello`. Idempotent — calling twice is safe. */
@@ -218,11 +221,7 @@ export class GatewayClient {
 		return this.helloPromise;
 	}
 
-	/** Typed JSON-RPC call to a gateway/* method. */
-	async invoke<M extends keyof GatewayMethods>(
-		method: M,
-		params: GatewayMethods[M]["params"],
-	): Promise<GatewayMethods[M]["result"]> {
+	private sendRequest(method: string, params: unknown): Promise<unknown> {
 		const id = crypto.randomUUID();
 		const promise = new Promise<unknown>((resolve, reject) => {
 			this.pending.set(id, { resolve, reject });
@@ -230,7 +229,15 @@ export class GatewayClient {
 		this.requireOpen().send(
 			JSON.stringify({ jsonrpc: "2.0", id, method, params }),
 		);
-		return (await promise) as GatewayMethods[M]["result"];
+		return promise;
+	}
+
+	/** Typed JSON-RPC call to a gateway/* method. */
+	async invoke<M extends keyof GatewayMethods>(
+		method: M,
+		params: GatewayMethods[M]["params"],
+	): Promise<GatewayMethods[M]["result"]> {
+		return this.sendRequest(method, params) as Promise<GatewayMethods[M]["result"]>;
 	}
 
 	/** Typed forwarded call to an agent/* method via `agent/invoke`. */
@@ -239,19 +246,11 @@ export class GatewayClient {
 		method: M,
 		params: AgentMethods[M]["params"],
 	): Promise<AgentMethods[M]["result"]> {
-		const id = crypto.randomUUID();
-		const promise = new Promise<unknown>((resolve, reject) => {
-			this.pending.set(id, { resolve, reject });
-		});
-		this.requireOpen().send(
-			JSON.stringify({
-				jsonrpc: "2.0",
-				id,
-				method: "agent/invoke",
-				params: { agent_id: agentId, method, params },
-			}),
-		);
-		return (await promise) as AgentMethods[M]["result"];
+		return this.sendRequest("agent/invoke", {
+			agent_id: agentId,
+			method,
+			params,
+		}) as Promise<AgentMethods[M]["result"]>;
 	}
 
 	/** Subscribe to `agent/notify` notifications. */
@@ -306,7 +305,7 @@ export class GatewayClient {
 	}
 
 	async releaseAllAgents(): Promise<void> {
-		await Promise.all([...this.agents.keys()].map((k) => this.releaseAgent(k)));
+		await Promise.allSettled([...this.agents.keys()].map((k) => this.releaseAgent(k)));
 	}
 
 	private async spawnAgent(
@@ -329,6 +328,7 @@ export class GatewayClient {
 
 	async close(): Promise<void> {
 		this.transport?.close();
+		this.rejectAllPending(new Error("gateway client closed"));
 		this.transport = null;
 		this.readyPromise = null;
 		this.helloPromise = null;
@@ -370,19 +370,14 @@ export class GatewayClient {
 			| { agent_id?: string; method?: string; params?: unknown }
 			| undefined;
 		if (!params?.agent_id || !params.method) return;
-		const event: AgentNotification | UnknownAgentNotification = NOTIFICATION_METHODS.has(
-			params.method as keyof AgentNotifications,
-		)
-			? ({
-					agentId: params.agent_id,
-					method: params.method,
-					params: params.params,
-			  } as AgentNotification)
-			: {
-					agentId: params.agent_id,
-					method: params.method,
-					params: params.params,
-			  };
+		const base = {
+			agentId: params.agent_id,
+			method: params.method,
+			params: params.params,
+		};
+		const event = NOTIFICATION_METHODS.has(params.method as keyof AgentNotifications)
+			? (base as AgentNotification)
+			: (base as UnknownAgentNotification);
 		for (const h of this.handlers) {
 			try {
 				h(event);

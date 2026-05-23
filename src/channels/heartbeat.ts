@@ -6,6 +6,7 @@
  * proactively review pending tasks and follow-ups.
  */
 import type { Channel, IncomingMessage, OutgoingReply } from "./types.ts";
+import { waitUntilStopped } from "./types.ts";
 import { createLog } from "../log.ts";
 
 const log = createLog("heartbeat");
@@ -51,14 +52,7 @@ export class HeartbeatChannel implements Channel {
 		this.timer = setInterval(fire, minutes * 60 * 1_000);
 		// Skip the first immediate tick — let the system settle on startup
 		// (matches the Rust behavior: `ticker.tick().await` before the loop).
-		await new Promise<void>((resolve) => {
-			const check = setInterval(() => {
-				if (this.stopped) {
-					clearInterval(check);
-					resolve();
-				}
-			}, 1_000);
-		});
+		await waitUntilStopped(() => this.stopped);
 	}
 
 	async send(_reply: OutgoingReply): Promise<void> {

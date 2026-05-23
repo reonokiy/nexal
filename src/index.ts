@@ -38,19 +38,19 @@ interface ModelFromDb {
 	getApiKey: (provider: string) => Promise<string | undefined>;
 }
 
+async function resolveApiKey(provider: string): Promise<string | undefined> {
+	return (await loadAuth(provider))?.apiKey;
+}
+
 async function buildModelFromDb(): Promise<ModelFromDb | null> {
 	try {
 		const saved = await loadModelConfig();
 		if (!saved) return null;
 
 		const providerCfg = await loadProviderConfig(saved.provider);
-		const auth = await loadAuth(saved.provider);
-
 		const baseUrl = providerCfg?.base_url ? String(providerCfg.base_url) : undefined;
-		const wireApi = providerCfg?.wire_api ? String(providerCfg.wire_api) : "chat";
 
 		if (baseUrl) {
-			// DB has a custom provider config → build a synthetic Model.
 			const model: import("@mariozechner/pi-ai").Model<"openai-completions"> = {
 				id: `${saved.provider}/${saved.modelId}`,
 				name: saved.modelId,
@@ -63,26 +63,11 @@ async function buildModelFromDb(): Promise<ModelFromDb | null> {
 				contextWindow: 128000,
 				maxTokens: 8192,
 			};
-			return {
-				model,
-				getApiKey: async (p) => {
-					const a = await loadAuth(p);
-					return a?.apiKey;
-				},
-			};
+			return { model, getApiKey: resolveApiKey };
 		}
 
-		// No custom base URL → try pi-ai's built-in model registry.
 		const m = getModel(saved.provider as any, saved.modelId as any);
-		if (m) {
-			return {
-				model: m,
-				getApiKey: async (p) => {
-					const a = await loadAuth(p);
-					return a?.apiKey;
-				},
-			};
-		}
+		if (m) return { model: m, getApiKey: resolveApiKey };
 		return null;
 	} catch (err) {
 		log.error("failed to build model from DB", err);
@@ -126,14 +111,10 @@ async function main(): Promise<void> {
 		);
 		process.exit(1);
 	}
-	const provider = dbModel.model.provider as string;
-	const modelId = dbModel.model.id;
-	const getApiKeyFromDb = dbModel.getApiKey;
-	const model = dbModel.model;
+	const { model, getApiKey: getApiKeyFromDb } = dbModel;
+	const provider = model.provider as string;
+	const modelId = model.id;
 	log.info(`using model ${modelId} via ${provider}`);
-
-	const coordinatorPrompt = COORDINATOR_PROMPT;
-	const executorPrompt = EXECUTOR_PROMPT;
 
 	const gatewayUrl = process.env.NEXAL_GATEWAY_URL ?? cfg.gateway.url;
 	const gatewayAccessKey = process.env.NEXAL_GATEWAY_ACCESS_KEY ?? cfg.gateway.accessKey;
@@ -202,8 +183,8 @@ async function main(): Promise<void> {
 		maxConcurrent: cfg.workers.maxConcurrent,
 		tapeStore,
 		getApiKey: getApiKeyFromDb,
-		executorSystemPromptDefault: executorPrompt,
-		coordinatorSystemPromptDefault: coordinatorPrompt,
+		executorSystemPromptDefault: EXECUTOR_PROMPT,
+		coordinatorSystemPromptDefault: COORDINATOR_PROMPT,
 		executorProxies: cfg.executor.proxies,
 		executorTools: (runner) => {
 			const client = runner.execClient;
@@ -240,7 +221,7 @@ async function main(): Promise<void> {
 	});
 
 	pool = new AgentPool({
-		systemPrompt: coordinatorPrompt,
+		systemPrompt: COORDINATOR_PROMPT,
 		model,
 		tools: [],
 		tapeStore,

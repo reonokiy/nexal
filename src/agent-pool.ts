@@ -361,15 +361,5 @@ export class AgentPool {
 }
 
 function extractText(msg: AgentMessage): string {
-	const content = (msg as { content?: unknown }).content;
-	if (typeof content === "string") return content;
-	if (!Array.isArray(content)) return "";
-	const parts: string[] = [];
-	for (const block of content) {
-		if (typeof block === "string") parts.push(block);
-		else if (block && typeof block === "object" && "type" in block && (block as any).type === "text") {
-			parts.push(String((block as any).text ?? ""));
-		}
-	}
-	return parts.join("");
+	return extractTextFromContent(msg.content as UserContent);
 }

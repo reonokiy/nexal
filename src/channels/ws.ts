@@ -21,9 +21,12 @@ import type {
 	OutgoingReply,
 	TypingHandle,
 } from "./types.ts";
+import { waitUntilStopped } from "./types.ts";
 import type { CommandRegistry } from "../commands/registry.ts";
 import type {
 	WsClientFrame,
+	WsSendFrame,
+	WsCommandFrame,
 	WsReplyFrame,
 	WsTypingFrame,
 	WsCommandResultFrame,
@@ -175,7 +178,7 @@ export class WsChannel implements Channel {
 					}
 
 					// At this point frame is SendFrame | CommandFrame (not auth).
-					const f = frame as { chat_id?: string; type: string; sender?: string; name?: string; args?: string[]; text?: string; images?: { data: string; mimeType: string }[] };
+					const f = frame as WsSendFrame | WsCommandFrame;
 					const chatId = f.chat_id ?? "default";
 					if (chatId !== ws.data.chatId) {
 						self.removeClient(ws.data.chatId, ws);
@@ -217,14 +220,7 @@ export class WsChannel implements Channel {
 		log.info(`listening on ${addr}`);
 
 		// Block until stop() is called.
-		return new Promise<void>((resolve) => {
-			const check = setInterval(() => {
-				if (!this.server) {
-					clearInterval(check);
-					resolve();
-				}
-			}, 1_000);
-		});
+		return waitUntilStopped(() => !this.server);
 	}
 
 	async send(reply: OutgoingReply): Promise<void> {

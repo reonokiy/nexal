@@ -17,6 +17,7 @@
  */
 
 import type { Channel, IncomingMessage, OutgoingReply } from "./types.ts";
+import { waitUntilStopped } from "./types.ts";
 import { createLog } from "../log.ts";
 
 const log = createLog("cron");
@@ -66,14 +67,7 @@ export class CronChannel implements Channel {
 		}, tickSecs * 1_000);
 
 		// Block until stop()
-		await new Promise<void>((resolve) => {
-			const check = setInterval(() => {
-				if (this.stopped) {
-					clearInterval(check);
-					resolve();
-				}
-			}, 1_000);
-		});
+		await waitUntilStopped(() => this.stopped);
 	}
 
 	private tick(onMessage: (msg: IncomingMessage) => void): void {

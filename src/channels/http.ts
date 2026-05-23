@@ -18,6 +18,7 @@
  * here.
  */
 import type { Channel, IncomingMessage, OutgoingReply } from "./types.ts";
+import { waitUntilStopped } from "./types.ts";
 import type { CommandRegistry } from "../commands/registry.ts";
 import type { GatewayClient } from "../gateway/client.ts";
 import { createLog } from "../log.ts";
@@ -123,14 +124,7 @@ export class HttpChannel implements Channel {
 		log.info(`listening on http://${this.server.hostname}:${this.server.port}`);
 
 		// Run forever (until stop()).
-		return new Promise<void>((resolve) => {
-			const check = setInterval(() => {
-				if (!this.server) {
-					clearInterval(check);
-					resolve();
-				}
-			}, 1_000);
-		});
+		return waitUntilStopped(() => !this.server);
 	}
 
 	async send(reply: OutgoingReply): Promise<void> {
@@ -143,8 +137,11 @@ export class HttpChannel implements Channel {
 	}
 
 	private pushOutbox(chatId: string, text: string): void {
-		const list = this.outbox.get(chatId) ?? [];
+		let list = this.outbox.get(chatId);
+		if (!list) {
+			list = [];
+			this.outbox.set(chatId, list);
+		}
 		list.push(text);
-		this.outbox.set(chatId, list);
 	}
 }

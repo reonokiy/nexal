@@ -67,6 +67,21 @@ export interface TypingHandle {
 	stop(): void;
 }
 
+/**
+ * Block until `stopped` becomes true. Used by channels whose
+ * `start()` must not return until `stop()` is called.
+ */
+export function waitUntilStopped(stopped: () => boolean): Promise<void> {
+	return new Promise<void>((resolve) => {
+		const check = setInterval(() => {
+			if (stopped()) {
+				clearInterval(check);
+				resolve();
+			}
+		}, 1_000);
+	});
+}
+
 export interface Channel {
 	/** Display name, e.g. "telegram". */
 	readonly name: string;

@@ -143,25 +143,11 @@ export function createTapeStore(opts: TapeStoreOptions = {}): TapeStore {
 				.orderBy(tapeEntries.entryId);
 			const entries = rows.map(rowToEntry);
 			const anchors = entries.filter((e) => e.kind === "anchor");
-			const lastAnchor = anchors.length > 0 ? anchors[anchors.length - 1]! : null;
-			let entriesSinceLastAnchor = 0;
-			if (lastAnchor) {
-				const lastAnchorIdx = entries.findIndex((e) => e.id === lastAnchor.id);
-				entriesSinceLastAnchor = entries.length - lastAnchorIdx - 1;
-			} else {
-				entriesSinceLastAnchor = entries.length;
-			}
-			let lastTokenUsage: number | null = null;
-			for (let i = entries.length - 1; i >= 0; i--) {
-				const e = entries[i]!;
-				if (e.kind === "event" && e.payload.name === "run") {
-					const usage = (e.payload.data as any)?.usage?.total_tokens;
-					if (typeof usage === "number") {
-						lastTokenUsage = usage;
-						break;
-					}
-				}
-			}
+			const lastAnchor = entries.findLast((e) => e.kind === "anchor") ?? null;
+			const entriesSinceLastAnchor = lastAnchor
+				? entries.length - entries.findLastIndex((e) => e.id === lastAnchor.id) - 1
+				: entries.length;
+			const lastTokenUsage = findLastTokenUsage(entries);
 			return {
 				name: tape,
 				entries: entries.length,
@@ -319,8 +305,8 @@ function rowToEntry(row: schema.TapeEntryRow): TapeEntry {
 	return {
 		id: row.entryId,
 		kind: row.kind as TapeEntry["kind"],
-		payload: (row.payload as Record<string, unknown>) ?? {},
-		meta: (row.meta as Record<string, unknown>) ?? {},
+		payload: row.payload ?? {},
+		meta: row.meta ?? {},
 		date: row.entryDate,
 	};
 }
@@ -331,4 +317,15 @@ function sha256Key(value: string): string {
 
 function escapeLike(value: string): string {
 	return value.replace(/[\\%_]/g, "\\$&");
+}
+
+function findLastTokenUsage(entries: TapeEntry[]): number | null {
+	for (let i = entries.length - 1; i >= 0; i--) {
+		const e = entries[i]!;
+		if (e.kind === "event" && e.payload.name === "run") {
+			const usage = (e.payload.data as any)?.usage?.total_tokens;
+			if (typeof usage === "number") return usage;
+		}
+	}
+	return null;
 }

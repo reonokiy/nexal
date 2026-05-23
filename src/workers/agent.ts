@@ -380,7 +380,7 @@ export class WorkerAgent {
 				}
 				if (event.type === "message_end" && event.message.role === "assistant") {
 					if (this.deps.row.sendPolicy === "all") {
-						const text = extractText(event.message);
+						const text = extractTextFromContent(event.message.content as UserContent);
 						if (text) await this.sendToChat(text);
 					}
 					return;
@@ -422,8 +422,11 @@ export class WorkerAgent {
 		// not via assistant content — so suppress send_policy for them
 		// (their assistant text is dispatching prose, usually noise).
 		if (this.kind === "executor" && (policy === "final" || policy === "all")) {
-			const final = extractLastAssistantText(messages);
-			if (final) await this.sendToChat(final);
+			const lastAssistant = messages.findLast((m) => m.role === "assistant");
+			if (lastAssistant) {
+				const text = extractTextFromContent(lastAssistant.content as UserContent);
+				if (text) await this.sendToChat(text);
+			}
 		}
 
 		if (this.lifetime === "oneshot") {
@@ -482,26 +485,4 @@ export class WorkerAgent {
 			this.log.error(`failed to persist tape delta for worker ${this.id}`, err);
 		}
 	}
-}
-
-function extractText(msg: AgentMessage): string {
-	const content = (msg as { content?: unknown }).content;
-	if (typeof content === "string") return content;
-	if (!Array.isArray(content)) return "";
-	const parts: string[] = [];
-	for (const block of content) {
-		if (typeof block === "string") parts.push(block);
-		else if (block && typeof block === "object" && "type" in block && (block as any).type === "text") {
-			parts.push(String((block as any).text ?? ""));
-		}
-	}
-	return parts.join("");
-}
-
-function extractLastAssistantText(messages: AgentMessage[]): string {
-	for (let i = messages.length - 1; i >= 0; i--) {
-		const m = messages[i]!;
-		if (m.role === "assistant") return extractText(m);
-	}
-	return "";
 }

@@ -11,7 +11,7 @@ import { Type, type TSchema } from "@mariozechner/pi-ai";
 
 import type { ImageAttachment } from "./channels/types.ts";
 
-// ── Type alias ───────────────────────────────────��───────────────────
+// ── Type alias ───────────────────────────────────────────────────────
 
 /** Same shape as `UserMessage["content"]` from pi-ai. */
 export type UserContent = UserMessage["content"];
