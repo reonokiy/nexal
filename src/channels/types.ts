@@ -14,14 +14,8 @@
  *   - `chatId`     (Rust `chat_id`)     ↔ `chatId`     (TS)
  */
 
-export interface ImageAttachment {
-	/** Raw image bytes (Uint8Array) or base64 data URL. */
-	data: Uint8Array | string;
-	/** MIME type, e.g. "image/jpeg". */
-	mimeType: string;
-	/** Original filename (best-effort). */
-	filename: string;
-}
+import type { ImageAttachment } from "../types/media.ts";
+export type { ImageAttachment } from "../types/media.ts";
 
 export interface IncomingMessage {
 	/** Channel identifier, e.g. "telegram", "http", "cron". */

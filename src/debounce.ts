@@ -15,8 +15,8 @@
  * Implementation: single actor loop driven by an AsyncQueue. No shared
  * mutable state, no locks — mirrors the Rust mpsc+select! version.
  */
-import type { IncomingMessage } from "./types.ts";
-import { createLog } from "../log.ts";
+import type { IncomingMessage } from "./channels/types.ts";
+import { createLog } from "./log.ts";
 
 const log = createLog("debounce");
 

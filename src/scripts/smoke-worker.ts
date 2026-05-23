@@ -21,6 +21,7 @@ import { getModel } from "@mariozechner/pi-ai";
 
 import type { Channel, OutgoingReply } from "../channels/types.ts";
 import { GatewayClient } from "../gateway/index.ts";
+import { createMessageSender } from "../messaging/index.ts";
 import { createBashTool } from "../tools/bash.ts";
 import { createSendUpdateTool } from "../tools/send_update.ts";
 import { WorkerRegistry } from "../workers/registry.ts";
@@ -64,6 +65,7 @@ async function main(): Promise<void> {
 
 	const stub = new StubChannel();
 	const channels = new Map<string, Channel>([["stub", stub]]);
+	const sender = createMessageSender(channels);
 	const model = getModel(PROVIDER as any, MODEL_ID);
 
 	const tapeStore = createTapeStore();
@@ -73,7 +75,7 @@ async function main(): Promise<void> {
 		model,
 		modelProvider: PROVIDER,
 		modelId: MODEL_ID,
-		channels,
+		sender,
 		maxConcurrent: 1,
 		tapeStore,
 		executorSystemPromptDefault:

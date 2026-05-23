@@ -19,6 +19,7 @@
 import type { Channel, IncomingMessage, OutgoingReply } from "./types.ts";
 import { waitUntilStopped } from "./types.ts";
 import { createLog } from "../log.ts";
+import { registerChannel } from "./factory.ts";
 
 const log = createLog("cron");
 
@@ -135,3 +136,10 @@ function warnOnce(expr: string): void {
 	warned.add(expr);
 	log.warn(`crontab expression "${expr}" is not supported yet, install a cron parser to enable`);
 }
+
+registerChannel("cron", ({ cfg }) => {
+	if (cfg.enabled !== true) return null;
+	return new CronChannel({
+		tickIntervalSecs: cfg.tickIntervalSecs as number | undefined,
+	});
+});

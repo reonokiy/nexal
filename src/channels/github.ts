@@ -28,6 +28,7 @@
 
 import type { Channel, IncomingMessage, OutgoingReply } from "./types.ts";
 import { createLog } from "../log.ts";
+import { registerChannel } from "./factory.ts";
 
 const log = createLog("github");
 
@@ -272,3 +273,14 @@ export class GitHubChannel implements Channel {
 		});
 	}
 }
+
+registerChannel("github", ({ cfg }) => {
+	const token = cfg.token as string | undefined;
+	if (!token || cfg.enabled !== true) return null;
+	return new GitHubChannel({
+		token,
+		pollIntervalSecs: cfg.pollIntervalSecs as number | undefined,
+		reasons: cfg.reasons as string[] | undefined,
+		subjectTypes: cfg.subjectTypes as string[] | undefined,
+	});
+});

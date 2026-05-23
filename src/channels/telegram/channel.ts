@@ -35,6 +35,7 @@ import type {
 	PendingGroup,
 } from "./types.ts";
 import { apiCall, downloadFile, getMe } from "./api.ts";
+import { registerChannel } from "../factory.ts";
 
 const log = createLog("telegram");
 
@@ -421,3 +422,14 @@ function extractSender(msg: TelegramMessage): { username: string; userId: string
 	}
 	return { username: fromUsername, userId: fromId };
 }
+
+registerChannel("telegram", ({ cfg, commands }) => {
+	const botToken = cfg.botToken as string | undefined;
+	if (!botToken || cfg.enabled !== true) return null;
+	return new TelegramChannel({
+		botToken,
+		allowFrom: cfg.allowFrom as string[] | undefined,
+		allowChats: cfg.allowChats as string[] | undefined,
+		commands,
+	});
+});

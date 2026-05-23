@@ -21,9 +21,10 @@ import { createLog } from "./log.ts";
 const log = createLog("pool");
 import type { Model } from "@mariozechner/pi-ai";
 
-import type { Channel, IncomingMessage, OutgoingReply } from "./channels/types.ts";
+import type { IncomingMessage, OutgoingReply } from "./channels/types.ts";
+import type { MessageSender } from "./messaging/index.ts";
 import { sessionKey } from "./channels/types.ts";
-import { DEFAULT_DEBOUNCE, type DebounceConfig, SessionDebouncer } from "./channels/debounce.ts";
+import { DEFAULT_DEBOUNCE, type DebounceConfig, SessionDebouncer } from "./debounce.ts";
 import {
 	type UserContent,
 	buildUserContent,
@@ -32,7 +33,8 @@ import {
 	imageContentToAttachment,
 } from "./content.ts";
 import type { TapeStore } from "./tape/store.ts";
-import { entriesToMessages, truncateMessages } from "./tape/serialize.ts";
+import type { ContextStore } from "./context/types.ts";
+import { entriesToMessages, truncateMessages } from "./context/index.ts";
 
 export interface AgentPoolConfig {
 	systemPrompt: string;
@@ -49,10 +51,12 @@ export interface AgentPoolConfig {
 		tools: AgentTool<any>[];
 		dispose?: () => Promise<void>;
 	}>;
-	channels: Map<string, Channel>;
+	sender: MessageSender;
 	debounce?: DebounceConfig;
 	/** Tape store for persistent conversation history. */
 	tapeStore: TapeStore;
+	/** Optional context store (overrides tape for load/save). */
+	contextStore?: ContextStore;
 	/** Optional: resolve API keys from DB instead of env vars. */
 	getApiKey?: (provider: string) => Promise<string | undefined> | string | undefined;
 }
@@ -146,13 +150,10 @@ export class AgentPool {
 			await session.agent.prompt({ role: "user", content, timestamp: msg.timestamp });
 		} catch (err: any) {
 			log.error(`prompt failed for session ${key}, sender "${msg.sender}":`, err);
-			const channel = this.config.channels.get(session.channelName);
-			if (channel) {
-				await channel.send({
-					chatId: session.lastIncoming.chatId,
-					text: `Error: ${err?.message ?? String(err)}`,
-				}).catch(() => undefined);
-			}
+			await this.config.sender.send(session.channelName, {
+				chatId: session.lastIncoming.chatId,
+				text: `Error: ${err?.message ?? String(err)}`,
+			}).catch(() => undefined);
 		}
 	}
 
@@ -190,15 +191,20 @@ export class AgentPool {
 			getApiKey: this.config.getApiKey,
 		});
 
-		// Load persistent history from tape.
+		// Load persistent history from context store or tape.
 		try {
-			const entries = await this.config.tapeStore.read(key);
-			if (entries.length > 0) {
-				const messages = truncateMessages(entriesToMessages(entries));
-				if (messages.length > 0) {
-					agent.state.messages = messages;
-					log.info(`restored ${messages.length} messages from tape for session ${key}`);
+			let messages: AgentMessage[] = [];
+			if (this.config.contextStore) {
+				messages = await this.config.contextStore.load(key);
+			} else {
+				const entries = await this.config.tapeStore.read(key);
+				if (entries.length > 0) {
+					messages = truncateMessages(entriesToMessages(entries));
 				}
+			}
+			if (messages.length > 0) {
+				agent.state.messages = messages;
+				log.info(`restored ${messages.length} messages from tape for session ${key}`);
 			} else {
 				// Bootstrap anchor so context reconstruction has a starting point.
 				await this.config.tapeStore.handoff(key, "session/start", {
@@ -227,10 +233,9 @@ export class AgentPool {
 		let streamed = false;
 
 		agent.subscribe(async (event) => {
-			const channel = this.config.channels.get(session.channelName);
-			if (!channel) return;
+			const channelName = session.channelName;
 			const last = session.lastIncoming;
-			const supportsStream = !!channel.sendChunk && !!channel.sendEnd;
+			const supportsStream = !!this.config.sender.sendChunk && !!this.config.sender.sendEnd;
 
 			if (
 				event.type === "message_start" &&
@@ -255,7 +260,7 @@ export class AgentPool {
 					const delta = text.slice(streamSent);
 					streamSent = text.length;
 					streamed = true;
-					channel.sendChunk!(last.chatId, streamMsgId, delta);
+					this.config.sender.sendChunk!(channelName, last.chatId, streamMsgId, delta);
 				}
 				return;
 			}
@@ -292,11 +297,11 @@ export class AgentPool {
 					const delta = text.slice(streamSent);
 					streamSent = text.length;
 					streamed = true;
-					channel.sendChunk!(last.chatId, streamMsgId, delta);
+					this.config.sender.sendChunk!(channelName, last.chatId, streamMsgId, delta);
 				}
 
 				if (supportsStream && streamed && streamMsgId) {
-					channel.sendEnd!(last.chatId, streamMsgId);
+					this.config.sender.sendEnd!(channelName, last.chatId, streamMsgId);
 					streamMsgId = null;
 					return;
 				}
@@ -312,9 +317,9 @@ export class AgentPool {
 							: undefined,
 				};
 				try {
-					await channel.send(reply);
+					await this.config.sender.send(channelName, reply);
 				} catch (err) {
-					log.error(`failed to send reply via ${session.channelName} to chat ${last.chatId}`, err);
+					log.error(`failed to send reply via ${channelName} to chat ${last.chatId}`, err);
 				}
 				streamMsgId = null;
 				return;

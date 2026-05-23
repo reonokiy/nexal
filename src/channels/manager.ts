@@ -20,12 +20,13 @@
  */
 
 import type { Channel } from "./types.ts";
-import { HttpChannel } from "./http.ts";
-import { WsChannel } from "./ws.ts";
-import { TelegramChannel } from "./telegram/index.ts";
-import { HeartbeatChannel } from "./heartbeat.ts";
-import { CronChannel } from "./cron.ts";
-import { GitHubChannel } from "./github.ts";
+import { buildRegisteredChannel, getRegisteredChannels } from "./factory.ts";
+import "./http.ts";
+import "./ws.ts";
+import "./telegram/channel.ts";
+import "./heartbeat.ts";
+import "./cron.ts";
+import "./github.ts";
 import { CommandRegistry } from "../commands/registry.ts";
 import { registerBuiltins } from "../commands/builtin.ts";
 import { loadAllChannelConfigs, onChannelConfigChange } from "../settings.ts";
@@ -37,7 +38,7 @@ const log = createLog("channels");
 
 /** Channels with built-in defaults that run even with no DB row. */
 const ALWAYS_ON = new Set(["http", "ws"]);
-const KNOWN = ["http", "ws", "telegram", "heartbeat", "cron", "github"] as const;
+const KNOWN = getRegisteredChannels() as readonly string[];
 
 const OFF = "<off>";
 
@@ -80,7 +81,7 @@ export class ChannelManager {
 		this.gateway = cfg.gateway;
 		this.loadConfigs = cfg.loadConfigs ?? loadAllChannelConfigs;
 		this.subscribe = cfg.subscribe ?? onChannelConfigChange;
-		this.build = cfg.buildChannelFn ?? ((n, c) => this.buildChannel(n, c));
+		this.build = cfg.buildChannelFn ?? ((n, c) => buildRegisteredChannel(n, c, this.commands, this.gateway));
 		registerBuiltins(this.commands, cfg.gateway);
 	}
 
@@ -172,58 +173,4 @@ export class ChannelManager {
 		}
 	}
 
-	/** Returns a constructed channel, or null if disabled / missing creds. */
-	private buildChannel(name: string, cfg: Record<string, unknown>): Channel | null {
-		switch (name) {
-			case "http":
-				return new HttpChannel({
-					port: Number(cfg.port ?? 3001),
-					host: cfg.host as string | undefined,
-					commands: this.commands,
-					gateway: this.gateway,
-				});
-			case "ws":
-				return new WsChannel({
-					port: Number(cfg.port ?? 3000),
-					host: (cfg.host as string | undefined) ?? "0.0.0.0",
-					unix: cfg.unix as string | undefined,
-					commands: this.commands,
-				});
-			case "telegram": {
-				const botToken = cfg.botToken as string | undefined;
-				if (!botToken || cfg.enabled !== true) return null;
-				return new TelegramChannel({
-					botToken,
-					allowFrom: cfg.allowFrom as string[] | undefined,
-					allowChats: cfg.allowChats as string[] | undefined,
-					commands: this.commands,
-				});
-			}
-			case "heartbeat":
-				if (cfg.enabled !== true) return null;
-				return new HeartbeatChannel({
-					intervalMinutes:
-						(cfg.intervalMins as number | undefined) ??
-						(cfg.intervalMinutes as number | undefined),
-				});
-			case "cron":
-				if (cfg.enabled !== true) return null;
-				return new CronChannel({
-					tickIntervalSecs: cfg.tickIntervalSecs as number | undefined,
-				});
-			case "github": {
-				const token = cfg.token as string | undefined;
-				if (!token || cfg.enabled !== true) return null;
-				return new GitHubChannel({
-					token,
-					pollIntervalSecs: cfg.pollIntervalSecs as number | undefined,
-					reasons: cfg.reasons as string[] | undefined,
-					subjectTypes: cfg.subjectTypes as string[] | undefined,
-				});
-			}
-			default:
-				log.warn(`unknown channel "${name}" in DB config, ignoring`);
-				return null;
-		}
-	}
 }

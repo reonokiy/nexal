@@ -1,7 +1,7 @@
 import { describe, expect, mock, test } from "bun:test";
 
-import type { Channel } from "../channels/types.ts";
 import type { GatewayClient } from "../gateway/index.ts";
+import { createMessageSender } from "../messaging/index.ts";
 import { WorkerRegistry } from "./registry.ts";
 import type {
 	SendPolicy,
@@ -141,7 +141,7 @@ function buildRegistry(opts?: {
 		model: {} as any,
 		modelProvider: "openrouter",
 		modelId: "openai/gpt-4o",
-		channels: new Map<string, Channel>(),
+		sender: createMessageSender(new Map()),
 		maxConcurrent: 0, // disable pump — we don't want runners to start
 		executorSystemPromptDefault: "exec prompt",
 		coordinatorSystemPromptDefault: "coord prompt",

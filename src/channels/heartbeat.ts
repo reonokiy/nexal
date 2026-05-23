@@ -8,6 +8,7 @@
 import type { Channel, IncomingMessage, OutgoingReply } from "./types.ts";
 import { waitUntilStopped } from "./types.ts";
 import { createLog } from "../log.ts";
+import { registerChannel } from "./factory.ts";
 
 const log = createLog("heartbeat");
 
@@ -67,3 +68,12 @@ export class HeartbeatChannel implements Channel {
 		this.timer = null;
 	}
 }
+
+registerChannel("heartbeat", ({ cfg }) => {
+	if (cfg.enabled !== true) return null;
+	return new HeartbeatChannel({
+		intervalMinutes:
+			(cfg.intervalMins as number | undefined) ??
+			(cfg.intervalMinutes as number | undefined),
+	});
+});

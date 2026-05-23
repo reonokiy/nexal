@@ -5,6 +5,7 @@ import type { Model } from "@mariozechner/pi-ai";
 import { AgentPool } from "./agent-pool.ts";
 import type { Channel, IncomingMessage } from "./channels/types.ts";
 import type { TapeStore } from "./tape/store.ts";
+import { createMessageSender } from "./messaging/index.ts";
 
 const mockTapeStore: TapeStore = {
 	listTapes: async () => [],
@@ -28,7 +29,7 @@ class SpyPool extends AgentPool {
 			systemPrompt: "test",
 			model: {} as Model<any>,
 			tools: [],
-			channels: new Map<string, Channel>(),
+			sender: createMessageSender(new Map()),
 			tapeStore: mockTapeStore,
 		});
 	}

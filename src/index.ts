@@ -11,6 +11,7 @@ import type { Channel } from "./channels/types.ts";
 import { ChannelManager } from "./channels/manager.ts";
 import { loadConfig } from "./config.ts";
 import { GatewayClient } from "./gateway/index.ts";
+import { createMessageSender } from "./messaging/index.ts";
 import { createBashTool } from "./tools/bash.ts";
 import { createReportToParentTool } from "./tools/report_to_parent.ts";
 import { createSendUpdateTool } from "./tools/send_update.ts";
@@ -149,6 +150,7 @@ async function main(): Promise<void> {
 	// write. This Map is shared by reference with WorkerRegistry &
 	// AgentPool below — mutating it in place keeps reply routing correct.
 	const channels = new Map<string, Channel>();
+	const sender = createMessageSender(channels);
 
 	// Worker registry — long-lived persistent workers + one-shot tasks
 	// spawned by the dispatcher. Persistence via Drizzle on Postgres
@@ -179,7 +181,7 @@ async function main(): Promise<void> {
 		model,
 		modelProvider: provider,
 		modelId,
-		channels,
+		sender,
 		maxConcurrent: cfg.workers.maxConcurrent,
 		tapeStore,
 		getApiKey: getApiKeyFromDb,
@@ -241,7 +243,7 @@ async function main(): Promise<void> {
 				// no dispose: nothing to release
 			};
 		},
-		channels,
+		sender,
 		debounce: {
 			debounceMs: cfg.debounceSecs * 1_000,
 			delayMs: cfg.messageDelaySecs * 1_000,

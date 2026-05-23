@@ -4,7 +4,7 @@ import {
 	type DebounceConfig,
 	mergeMessages,
 	SessionDebouncer,
-} from "./debounce.ts";
+} from "../debounce.ts";
 import type { IncomingMessage } from "./types.ts";
 
 function msg(over: Partial<IncomingMessage> = {}): IncomingMessage {

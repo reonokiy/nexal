@@ -8,9 +8,9 @@
  * primary key. Existing rows are left alone.
  */
 import {
-	deserializeMessages,
-	serializeMessages,
-} from "../workers/serialize.ts";
+	jsonToMessages,
+	messagesToJson,
+} from "../context/index.ts";
 import { createWorkerStore } from "../workers/store.ts";
 
 const URL = process.env.DATABASE_URL;
@@ -58,7 +58,7 @@ async function main(): Promise<void> {
 	const started = await store.get(persistent.id);
 	assertEq(started?.status, "running", "markStarted");
 
-	const msgs = serializeMessages([
+	const msgs = messagesToJson([
 		{ role: "user", content: "hi", timestamp: 1 },
 		{
 			role: "assistant",
@@ -70,7 +70,7 @@ async function main(): Promise<void> {
 	await store.setMessages(persistent.id, msgs, 1);
 	const mid = await store.get(persistent.id);
 	assertEq(mid?.turnCount, 1, "turn count");
-	assertEq(deserializeMessages(mid!.messagesJson).length, 2, "round-trip length");
+	assertEq(jsonToMessages(mid!.messagesJson).length, 2, "round-trip length");
 
 	await store.markIdle(persistent.id, msgs);
 	const idle = await store.get(persistent.id);
@@ -134,14 +134,14 @@ async function main(): Promise<void> {
 
 	// byte round-trip
 	const bytes = new Uint8Array([0xde, 0xad, 0xbe, 0xef]);
-	const withImage = serializeMessages([
+	const withImage = messagesToJson([
 		{
 			role: "user",
 			content: [{ type: "image", data: bytes, mimeType: "image/png" }],
 			timestamp: 3,
 		},
 	] as any);
-	const back = deserializeMessages(withImage);
+	const back = jsonToMessages(withImage);
 	const img = (back[0] as any).content[0] as { data: Uint8Array };
 	if (!(img.data instanceof Uint8Array)) throw new Error("bytes did not round-trip");
 	assertEq([...img.data], [...bytes], "bytes round-trip");

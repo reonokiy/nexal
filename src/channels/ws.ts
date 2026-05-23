@@ -23,6 +23,7 @@ import type {
 } from "./types.ts";
 import { waitUntilStopped } from "./types.ts";
 import type { CommandRegistry } from "../commands/registry.ts";
+import { registerChannel } from "./factory.ts";
 import type {
 	WsClientFrame,
 	WsSendFrame,
@@ -381,3 +382,12 @@ export class WsChannel implements Channel {
 		});
 	}
 }
+
+registerChannel("ws", ({ cfg, commands }) => {
+	return new WsChannel({
+		port: Number(cfg.port ?? 3000),
+		host: (cfg.host as string | undefined) ?? "0.0.0.0",
+		unix: cfg.unix as string | undefined,
+		commands,
+	});
+});

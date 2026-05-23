@@ -9,7 +9,7 @@
 import type { ImageContent, TextContent, UserMessage } from "@mariozechner/pi-ai";
 import { Type, type TSchema } from "@mariozechner/pi-ai";
 
-import type { ImageAttachment } from "./channels/types.ts";
+import type { ImageAttachment } from "./types/media.ts";
 
 // ── Type alias ───────────────────────────────────────────────────────
 

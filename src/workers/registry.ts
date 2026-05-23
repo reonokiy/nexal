@@ -31,7 +31,7 @@ import type { AgentTool } from "@mariozechner/pi-agent-core";
 import type { Model } from "@mariozechner/pi-ai";
 import type { UserContent } from "../content.ts";
 
-import type { Channel } from "../channels/types.ts";
+import type { MessageSender } from "../messaging/index.ts";
 import type { ProxySpec } from "../config.ts";
 import type { GatewayClient } from "../gateway/index.ts";
 import type { TapeStore } from "../tape/store.ts";
@@ -50,7 +50,7 @@ export interface WorkerRegistryConfig {
 	model: Model<any>;
 	modelProvider: string;
 	modelId: string;
-	channels: Map<string, Channel>;
+	sender: MessageSender;
 	maxConcurrent: number;
 	tapeStore: TapeStore;
 	getApiKey?: (provider: string) => Promise<string | undefined> | string | undefined;
@@ -296,7 +296,7 @@ export class WorkerRegistry {
 			store: this.cfg.store,
 			gateway: this.cfg.gateway,
 			model: this.cfg.model,
-			channels: this.cfg.channels,
+			sender: this.cfg.sender,
 			toolsForKind,
 			resumed,
 			executorProxies: this.cfg.executorProxies,

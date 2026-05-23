@@ -22,6 +22,7 @@ import { waitUntilStopped } from "./types.ts";
 import type { CommandRegistry } from "../commands/registry.ts";
 import type { GatewayClient } from "../gateway/index.ts";
 import { createLog } from "../log.ts";
+import { registerChannel } from "./factory.ts";
 
 const log = createLog("http");
 
@@ -145,3 +146,12 @@ export class HttpChannel implements Channel {
 		list.push(text);
 	}
 }
+
+registerChannel("http", ({ cfg, commands, gateway }) => {
+	return new HttpChannel({
+		port: Number(cfg.port ?? 3001),
+		host: cfg.host as string | undefined,
+		commands,
+		gateway,
+	});
+});

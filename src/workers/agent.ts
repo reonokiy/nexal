@@ -40,15 +40,15 @@ import {
 	imageContentToAttachment,
 } from "../content.ts";
 
-import type { Channel } from "../channels/types.ts";
+import type { MessageSender } from "../messaging/index.ts";
 import type { ProxySpec } from "../config.ts";
 import type { GatewayClient } from "../gateway/index.ts";
 import type { AgentClient } from "../gateway/agent_client.ts";
 import { createBashTool } from "../tools/bash.ts";
-import { deserializeMessages, serializeMessages } from "./serialize.ts";
+import { jsonToMessages, messagesToJson, entriesToMessages, messagesToEntries } from "../context/index.ts";
+import type { ContextStore } from "../context/types.ts";
 import type { SendPolicy, WorkerKind, WorkerLifetime, WorkerRow, WorkerStore } from "./store.ts";
 import type { TapeStore } from "../tape/store.ts";
-import { entriesToMessages, messagesToEntries } from "../tape/serialize.ts";
 
 const PERSIST_DEBOUNCE_MS = 250;
 
@@ -65,7 +65,7 @@ export interface WorkerAgentDeps {
 	store: WorkerStore;
 	gateway: GatewayClient;
 	model: Model<any>;
-	channels: Map<string, Channel>;
+	sender: MessageSender;
 	/**
 	 * Tool factory called once when the agent is constructed. The
 	 * registry routes here based on `runner.row.kind`:
@@ -80,6 +80,8 @@ export interface WorkerAgentDeps {
 	onTerminal: (id: string) => void;
 	/** Tape store for persistent conversation history. */
 	tapeStore: TapeStore;
+	/** Optional context store (overrides tape for load/save). */
+	contextStore?: ContextStore;
 	/** Optional: resolve API keys from DB instead of env vars. */
 	getApiKey?: (provider: string) => Promise<string | undefined> | string | undefined;
 }
@@ -127,18 +129,29 @@ export class WorkerAgent {
 			await this.setupProxies();
 		}
 
-		// Prefer tape history over DB messages_json; fallback to JSON column.
-		let initialMessages = deserializeMessages(row.messagesJson);
-		try {
-			const tapeName = `worker:${row.id}`;
-			const entries = await this.deps.tapeStore.read(tapeName);
-			if (entries.length > 0) {
-				initialMessages = entriesToMessages(entries);
+		// Prefer context store / tape history over DB messages_json; fallback to JSON column.
+		let initialMessages = jsonToMessages(row.messagesJson);
+		if (this.deps.contextStore) {
+			try {
+				const tapeName = `worker:${row.id}`;
+				initialMessages = await this.deps.contextStore.load(tapeName);
 				this.lastPersistedMsgCount = initialMessages.length;
-				this.log.info(`restored ${initialMessages.length} messages from tape for ${tapeName}`);
+				this.log.info(`restored ${initialMessages.length} messages from context store for ${tapeName}`);
+			} catch (err) {
+				this.log.error(`failed to load context store for worker ${row.id}, falling back to messages_json`, err);
 			}
-		} catch (err) {
-			this.log.error(`failed to load tape for worker ${row.id}, falling back to messages_json`, err);
+		} else {
+			try {
+				const tapeName = `worker:${row.id}`;
+				const entries = await this.deps.tapeStore.read(tapeName);
+				if (entries.length > 0) {
+					initialMessages = entriesToMessages(entries);
+					this.lastPersistedMsgCount = initialMessages.length;
+					this.log.info(`restored ${initialMessages.length} messages from tape for ${tapeName}`);
+				}
+			} catch (err) {
+				this.log.error(`failed to load tape for worker ${row.id}, falling back to messages_json`, err);
+			}
 		}
 
 		const tools = this.deps.toolsForKind(this);
@@ -169,7 +182,7 @@ export class WorkerAgent {
 		} else {
 			// Persistent agent spawned without an initial prompt — flip
 			// to idle immediately so the parent can route to it.
-			await store.markIdle(this.id, serializeMessages(initialMessages));
+			await store.markIdle(this.id, messagesToJson(initialMessages));
 		}
 	}
 
@@ -257,15 +270,8 @@ export class WorkerAgent {
 		const text = typeof content === "string" ? content : extractTextFromContent(content);
 		const images = extractImagesFromContent(content);
 		if (!text.trim() && images.length === 0) return;
-		const ch = this.deps.channels.get(this.deps.row.sourceChannel);
-		if (!ch) {
-			this.log.error(
-				`source channel "${this.deps.row.sourceChannel}" is not registered, cannot send message`,
-			);
-			return;
-		}
 		try {
-			await ch.send({
+			await this.deps.sender.send(this.deps.row.sourceChannel, {
 				chatId: this.deps.row.sourceChatId,
 				text,
 				images: images.length > 0 ? images.map(imageContentToAttachment) : undefined,
@@ -430,14 +436,14 @@ export class WorkerAgent {
 		}
 
 		if (this.lifetime === "oneshot") {
-			await this.deps.store.markCompleted(this.id, serializeMessages(messages));
+			await this.deps.store.markCompleted(this.id, messagesToJson(messages));
 			await this.dispose(true);
 			this.deps.onTerminal(this.id);
 			return;
 		}
 
 		// Persistent: stay alive, accept future routes.
-		await this.deps.store.markIdle(this.id, serializeMessages(messages));
+		await this.deps.store.markIdle(this.id, messagesToJson(messages));
 	}
 
 	private scheduleFlush(): void {
@@ -460,7 +466,7 @@ export class WorkerAgent {
 		try {
 			await this.deps.store.setMessages(
 				this.id,
-				serializeMessages(messages),
+				messagesToJson(messages),
 				this.latestTurnCount,
 			);
 		} catch (err) {

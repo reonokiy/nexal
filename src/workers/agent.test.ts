@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import type { Channel } from "../channels/types.ts";
 import type { AgentClient } from "../gateway/agent_client.ts";
 import type { GatewayClient } from "../gateway/index.ts";
+import { createMessageSender } from "../messaging/index.ts";
 
 // Stubbing Agent at module scope — see the "Agent lifecycle paths" note
 // below. The real Agent lives in @mariozechner/pi-agent-core; we replace
@@ -210,7 +211,7 @@ function makeGateway(opts?: {
 
 function makeRunner(over?: {
 	row?: Partial<WorkerRow>;
-	channels?: Map<string, Channel>;
+	sender?: import("../messaging/index.ts").MessageSender;
 	tools?: WorkerAgentDeps["toolsForKind"];
 	onTerminal?: WorkerAgentDeps["onTerminal"];
 	store?: StoreSpy;
@@ -225,7 +226,7 @@ function makeRunner(over?: {
 		store: store.store,
 		gateway: gw.gateway,
 		model: {} as any,
-		channels: over?.channels ?? new Map<string, Channel>(),
+		sender: over?.sender ?? createMessageSender(new Map()),
 		toolsForKind: over?.tools ?? (() => []),
 		resumed: over?.resumed ?? false,
 		onTerminal: over?.onTerminal ?? ((id) => terminalSeen.push(id)),
@@ -360,7 +361,7 @@ describe("WorkerAgent.sendToChat()", () => {
 		const channels = new Map<string, Channel>([
 			["telegram", { name: "telegram", start: () => {}, stop: async () => {}, send: sendSpy } as any],
 		]);
-		const { runner } = makeRunner({ channels });
+		const { runner } = makeRunner({ sender: createMessageSender(channels) });
 		await runner.sendToChat("");
 		await runner.sendToChat("   \n  ");
 		expect(sendSpy).not.toHaveBeenCalled();
@@ -382,7 +383,7 @@ describe("WorkerAgent.sendToChat()", () => {
 			],
 		]);
 		const { runner } = makeRunner({
-			channels,
+			sender: createMessageSender(channels),
 			row: { name: "refactor-bot", sourceChatId: "-42" },
 		});
 		await runner.sendToChat("step done");
@@ -405,7 +406,7 @@ describe("WorkerAgent.sendToChat()", () => {
 			],
 		]);
 		const { runner } = makeRunner({
-			channels,
+			sender: createMessageSender(channels),
 			row: { sourceReplyTo: "default-msg-id" },
 		});
 		await runner.sendToChat("a");
@@ -434,7 +435,7 @@ describe("WorkerAgent.sendToChat()", () => {
 				} as any,
 			],
 		]);
-		const { runner } = makeRunner({ channels });
+		const { runner } = makeRunner({ sender: createMessageSender(channels) });
 		// Should not throw — error is logged and swallowed.
 		await runner.sendToChat("bad day");
 	});
@@ -615,7 +616,7 @@ describe("WorkerAgent event wiring", () => {
 			],
 		]);
 		const { runner } = makeRunner({
-			channels,
+			sender: createMessageSender(channels),
 			row: { sendPolicy: "all" as SendPolicy, name: "bot" },
 		});
 		const agent = await startAndGetAgent(runner);
@@ -642,7 +643,7 @@ describe("WorkerAgent event wiring", () => {
 			],
 		]);
 		const { runner } = makeRunner({
-			channels,
+			sender: createMessageSender(channels),
 			row: { sendPolicy: "explicit" as SendPolicy },
 		});
 		const agent = await startAndGetAgent(runner);
@@ -706,7 +707,7 @@ describe("WorkerAgent.handleAgentEnd (via agent_end event)", () => {
 			],
 		]);
 		const { runner } = makeRunner({
-			channels,
+			sender: createMessageSender(channels),
 			row: { sendPolicy: "final" as SendPolicy, name: "bot", lifetime: "oneshot" },
 		});
 		const agent = await startAndGetAgent(runner);
@@ -737,7 +738,7 @@ describe("WorkerAgent.handleAgentEnd (via agent_end event)", () => {
 			],
 		]);
 		const { runner } = makeRunner({
-			channels,
+			sender: createMessageSender(channels),
 			row: {
 				kind: "coordinator",
 				lifetime: "persistent",
@@ -766,7 +767,7 @@ describe("WorkerAgent.handleAgentEnd (via agent_end event)", () => {
 			],
 		]);
 		const { runner, store, gateway, terminalSeen } = makeRunner({
-			channels,
+			sender: createMessageSender(channels),
 			row: { sendPolicy: "explicit" as SendPolicy, name: "bot", lifetime: "oneshot" },
 		});
 		const agent = await startAndGetAgent(runner);
