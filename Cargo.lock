@@ -1529,8 +1529,8 @@ dependencies = [
  "nexal-utils-absolute-path",
  "nexal-utils-cargo-bin",
  "nexal-utils-certs",
- "nexal-utils-json-transport",
  "nexal-utils-pty",
+ "nexal-utils-transport",
  "pretty_assertions",
  "rmp-serde",
  "rmpv",
@@ -1564,7 +1564,7 @@ dependencies = [
  "k8s-openapi",
  "kube",
  "nexal-utils-certs",
- "nexal-utils-json-transport",
+ "nexal-utils-transport",
  "reqwest",
  "ring",
  "rmp-serde",
@@ -1613,17 +1613,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "nexal-utils-json-transport"
-version = "0.1.0"
-dependencies = [
- "futures",
- "rmp-serde",
- "serde",
- "tokio",
- "tokio-tungstenite",
-]
-
-[[package]]
 name = "nexal-utils-pty"
 version = "0.1.0"
 dependencies = [
@@ -1632,6 +1621,17 @@ dependencies = [
  "portable-pty",
  "pretty_assertions",
  "tokio",
+]
+
+[[package]]
+name = "nexal-utils-transport"
+version = "0.1.0"
+dependencies = [
+ "futures",
+ "rmp-serde",
+ "serde",
+ "tokio",
+ "tokio-tungstenite",
 ]
 
 [[package]]

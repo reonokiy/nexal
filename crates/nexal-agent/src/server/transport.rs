@@ -1,7 +1,7 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use nexal_utils_json_transport::JsonMessageConnection;
+use nexal_utils_transport::JsonMessageConnection;
 use rmpv::Value;
 use tokio::net::TcpListener;
 use tracing::{info, warn};

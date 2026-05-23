@@ -33,7 +33,6 @@ import type {
 import type { AgentClient } from "./agent_client.ts";
 import {
 	createWebSocketTransport,
-	createUnixTransport,
 	encodeFrame,
 	decodeFrame,
 	isWireResponse,
@@ -70,8 +69,6 @@ export class GatewayError extends Error {
 export interface GatewayClientOptions {
 	/** WebSocket URL, e.g. `"wss://nexal.fly.dev"`. */
 	url: string;
-	/** Unix domain socket path. When set, `url` is ignored for transport. */
-	unix?: string;
 	/** Credential id (sent in `gateway/hello`). */
 	accessKey: string;
 	/** Secret used to HMAC-sign the handshake; never sent on the wire. */
@@ -104,9 +101,7 @@ export class GatewayClient {
 
 	async connect(): Promise<void> {
 		if (this.readyPromise) return this.readyPromise;
-		this.readyPromise = this.options.unix
-			? this.connectUnix()
-			: this.connectWebSocket();
+		this.readyPromise = this.connectWebSocket();
 		return this.readyPromise;
 	}
 
@@ -114,14 +109,6 @@ export class GatewayClient {
 		this.transport = await createWebSocketTransport(
 			this.options.url,
 			{ connectTimeoutMs: this.options.connectTimeoutMs },
-			(data) => this.dispatch(data),
-			() => this.onDisconnect(),
-		);
-	}
-
-	private async connectUnix(): Promise<void> {
-		this.transport = await createUnixTransport(
-			this.options.unix!,
 			(data) => this.dispatch(data),
 			() => this.onDisconnect(),
 		);

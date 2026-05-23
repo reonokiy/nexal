@@ -20,7 +20,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 
-use nexal_utils_json_transport::JsonMessageConnection;
+use nexal_utils_transport::JsonMessageConnection;
 use rmpv::Value;
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader, ReadBuf};
 use tokio::net::{TcpListener, UnixListener};

@@ -1,18 +1,20 @@
 export { encodeFrame, decodeFrame } from "./codec.ts";
+
 export {
 	isWireRequest,
 	isWireResponse,
 	isWireNotification,
-} from "./protocol.ts";
+} from "./wire.ts";
 export type {
-	// Wire envelope
 	WireMessage,
 	WireRequest,
 	WireResponse,
 	WireNotification,
 	WireError,
 	MessageId,
-	// Gateway methods
+} from "./wire.ts";
+
+export type {
 	GatewayMethods,
 	HelloParams,
 	HelloResponse,
@@ -29,7 +31,9 @@ export type {
 	RegisterStreamProxyParams,
 	RegisterStreamProxyResponse,
 	UnregisterStreamProxyParams,
-	// Agent methods
+} from "./gateway.ts";
+
+export type {
 	AgentMethods,
 	InitializeParams,
 	InitializeResponse,
@@ -43,13 +47,16 @@ export type {
 	ProcessTerminateResponse,
 	ProcessWriteParams,
 	ProcessWriteResponse,
-	// Notifications
+} from "./agent.ts";
+
+export type {
 	AgentNotifications,
 	AgentNotification,
 	UnknownAgentNotification,
 	ProcessOutputNotif,
 	ProcessExitedNotif,
 	ProcessClosedNotif,
-} from "./protocol.ts";
-export { createWebSocketTransport, createUnixTransport } from "./transport.ts";
+} from "./notifications.ts";
+
+export { createWebSocketTransport } from "./transport.ts";
 export type { Transport } from "./transport.ts";

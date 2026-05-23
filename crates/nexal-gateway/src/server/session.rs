@@ -8,7 +8,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use ring::hmac;
 
-use nexal_utils_json_transport::{JsonMessageConnection, JsonMessageConnectionEvent};
+use nexal_utils_transport::{JsonMessageConnection, JsonMessageConnectionEvent};
 use rmpv::Value;
 use tokio::sync::{Mutex, mpsc};
 use tracing::{debug, info};

@@ -5,7 +5,7 @@ members = [
     "crates/utils/absolute-path",
     "crates/utils/cargo-bin",
     "crates/utils/certs",
-    "crates/utils/json-transport",
+    "crates/utils/transport",
     "crates/utils/pty",
 ]
 resolver = "2"
@@ -22,7 +22,7 @@ nexal-gateway = { path = "crates/nexal-gateway" }
 nexal-utils-absolute-path = { path = "crates/utils/absolute-path" }
 nexal-utils-cargo-bin = { path = "crates/utils/cargo-bin" }
 nexal-utils-certs = { path = "crates/utils/certs" }
-nexal-utils-json-transport = { path = "crates/utils/json-transport" }
+nexal-utils-transport = { path = "crates/utils/transport" }
 nexal-utils-pty = { path = "crates/utils/pty" }
 
 # ── External ──

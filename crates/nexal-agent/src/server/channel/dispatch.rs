@@ -6,7 +6,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use nexal_utils_json_transport::{JsonMessageConnection, JsonMessageConnectionEvent};
+use nexal_utils_transport::{JsonMessageConnection, JsonMessageConnectionEvent};
 use rmpv::Value;
 use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, warn};
