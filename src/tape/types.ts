@@ -29,7 +29,9 @@ export type TapeEntryKind =
 	| "tool_call"
 	| "tool_result"
 	| "event"
-	| "ref";
+	| "ref"
+	| "redaction"
+	| "amendment";
 
 /** Runtime summary for a tape (returned by tape.info). */
 export interface TapeInfo {
