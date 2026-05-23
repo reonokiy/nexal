@@ -13,7 +13,7 @@
  */
 import type { Message } from "@mariozechner/pi-ai";
 import type { TapeStore } from "./store.ts";
-import type { TapeEntry, TapeInfo, TapeRef } from "./types.ts";
+import type { TapeEntry, TapeInfo, TapeRef, TapeRange } from "./types.ts";
 import { TapeSlice } from "./slice.ts";
 import {
 	entriesToLlmMessages,
@@ -226,9 +226,19 @@ export class Tape {
 	/**
 	 * Redact entries — exclude from LLM conversion.
 	 * Original entries preserved in tape, only hidden from model.
+	 *
+	 * @param target - Entry id, array of ids, or range { from, to }
+	 * @param reason - Why entries were redacted
+	 *
+	 * @example
+	 * ```typescript
+	 * await tape.redact(42, "PII");
+	 * await tape.redact([42, 43, 44], "PII");
+	 * await tape.redact({ from: 10, to: 20 }, "sensitive data");
+	 * ```
 	 */
-	async redact(entryIds: number | number[], reason?: string): Promise<void> {
-		const ids = Array.isArray(entryIds) ? entryIds : [entryIds];
+	async redact(target: number | number[] | TapeRange, reason?: string): Promise<void> {
+		const ids = resolveRange(target);
 		for (const id of ids) {
 			await this.append({
 				kind: "redaction",
@@ -240,19 +250,45 @@ export class Tape {
 	}
 
 	/**
-	 * Amend entries — replace content for LLM conversion.
-	 * Original entries preserved in tape, model sees new content.
+	 * Amend entries — replace with new tape entries for LLM conversion.
+	 * Original entries preserved in tape, model sees replacement content.
+	 *
+	 * @param target - Entry id, array of ids, or range { from, to }
+	 * @param replacement - New tape entries to use instead
+	 * @param reason - Why entries were amended
+	 *
+	 * @example
+	 * ```typescript
+	 * // Replace single entry
+	 * await tape.amend(42, [
+	 *   { kind: "message", payload: { role: "assistant", content: "corrected" }, meta: {}, date: "..." },
+	 * ]);
+	 *
+	 * // Replace range with new conversation
+	 * await tape.amend({ from: 10, to: 20 }, [
+	 *   { kind: "message", payload: { role: "user", content: "fixed question" }, meta: {}, date: "..." },
+	 *   { kind: "message", payload: { role: "assistant", content: "fixed answer" }, meta: {}, date: "..." },
+	 * ], "fix conversation");
+	 * ```
 	 */
-	async amend(entryIds: number | number[], content: unknown, reason?: string): Promise<void> {
-		const ids = Array.isArray(entryIds) ? entryIds : [entryIds];
-		for (const id of ids) {
-			await this.append({
-				kind: "amendment",
-				payload: { targetId: id, content, reason, amendedAt: Date.now() },
-				meta: {},
-				date: new Date().toISOString(),
-			});
-		}
+	async amend(
+		target: number | number[] | TapeRange,
+		replacement: Omit<TapeEntry, "id">[],
+		reason?: string,
+	): Promise<void> {
+		const ids = resolveRange(target);
+		// Store one amendment entry that covers the whole range
+		await this.append({
+			kind: "amendment",
+			payload: {
+				targetIds: ids,
+				replacement,
+				reason,
+				amendedAt: Date.now(),
+			},
+			meta: {},
+			date: new Date().toISOString(),
+		});
 	}
 
 	// ── Legacy compatibility ────────────────────────────────────────
@@ -307,15 +343,28 @@ export class Tape {
 
 // ── Internal helpers ───────────────────────────────────────────────
 
+/** Resolve a target (id, array, or range) to an array of ids. */
+function resolveRange(target: number | number[] | TapeRange): number[] {
+	if (typeof target === "number") return [target];
+	if (Array.isArray(target)) return target;
+	// TapeRange: { from, to } inclusive
+	const ids: number[] = [];
+	for (let i = target.from; i <= target.to; i++) {
+		ids.push(i);
+	}
+	return ids;
+}
+
 /**
  * Apply redactions and amendments to entries.
- * - Redacted entries → excluded (filtered out)
- * - Amended entries → use new content
- * - All other entries → pass through
+ * - Redacted entries → excluded
+ * - Amended entries → replaced with new entries
+ * - All history preserved in tape
  */
 function applyEdits(entries: TapeEntry[]): TapeEntry[] {
 	const redacted = new Set<number>();
-	const amended = new Map<number, unknown>();
+	// Amendment maps a set of target ids to replacement entries
+	const amendments: Array<{ targetIds: Set<number>; replacement: TapeEntry[] }> = [];
 
 	for (const entry of entries) {
 		if (entry.kind === "redaction") {
@@ -323,30 +372,70 @@ function applyEdits(entries: TapeEntry[]): TapeEntry[] {
 			if (targetId) redacted.add(targetId);
 		}
 		if (entry.kind === "amendment") {
-			const targetId = entry.payload.targetId as number;
-			if (targetId) amended.set(targetId, entry.payload.content);
+			const targetIds = entry.payload.targetIds as number[];
+			const replacement = entry.payload.replacement as TapeEntry[];
+			if (targetIds?.length && replacement?.length) {
+				amendments.push({
+					targetIds: new Set(targetIds),
+					replacement,
+				});
+			}
 		}
 	}
 
 	// No edits → return as-is
-	if (redacted.size === 0 && amended.size === 0) return entries;
+	if (redacted.size === 0 && amendments.length === 0) return entries;
 
-	return entries.filter((entry) => {
-		// Remove redaction/amendment marker entries
-		if (entry.kind === "redaction" || entry.kind === "amendment") return false;
-		// Remove redacted entries
-		if (redacted.has(entry.id)) return false;
-		return true;
-	}).map((entry) => {
-		// Apply amendment
-		const newContent = amended.get(entry.id);
-		if (newContent !== undefined) {
-			return {
-				...entry,
-				payload: { ...entry.payload, content: newContent },
-				meta: { ...entry.meta, amended: true },
-			};
+	// Build a set of all amended target ids
+	const amendedIds = new Set<number>();
+	for (const a of amendments) {
+		for (const id of a.targetIds) {
+			amendedIds.add(id);
 		}
-		return entry;
-	});
+	}
+
+	// Process entries
+	const result: TapeEntry[] = [];
+	let i = 0;
+
+	while (i < entries.length) {
+		const entry = entries[i]!;
+
+		// Skip redaction/amendment markers
+		if (entry.kind === "redaction" || entry.kind === "amendment") {
+			i++;
+			continue;
+		}
+
+		// Skip redacted entries
+		if (redacted.has(entry.id)) {
+			i++;
+			continue;
+		}
+
+		// Check if this entry is part of an amendment
+		if (amendedIds.has(entry.id)) {
+			// Find the amendment that covers this entry
+			const amendment = amendments.find((a) => a.targetIds.has(entry.id));
+			if (amendment) {
+				// Add all replacement entries
+				result.push(...amendment.replacement);
+				// Skip all entries covered by this amendment
+				for (const id of amendment.targetIds) {
+					amendedIds.delete(id);
+				}
+				// Skip entries until we pass the last amended id
+				const maxId = Math.max(...amendment.targetIds);
+				while (i < entries.length && entries[i]!.id <= maxId) {
+					i++;
+				}
+				continue;
+			}
+		}
+
+		result.push(entry);
+		i++;
+	}
+
+	return result;
 }

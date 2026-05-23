@@ -14,7 +14,7 @@ export type { TapeOptions } from "./tape.ts";
 export { TapeSlice } from "./slice.ts";
 export type { TapeStore, TapeStoreOptions } from "./store.ts";
 export { createTapeStore } from "./store.ts";
-export type { TapeEntry, TapeEntryKind, TapeInfo, FileRef, TapeRef } from "./types.ts";
+export type { TapeEntry, TapeEntryKind, TapeInfo, FileRef, TapeRef, TapeRange } from "./types.ts";
 export { createFileStore } from "./file-store.ts";
 export type { FileStore } from "./file-store.ts";
 

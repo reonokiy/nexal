@@ -73,3 +73,11 @@ export interface TapeRef {
 	/** Additional metadata for the reference. */
 	meta?: Record<string, unknown>;
 }
+
+/** A range of entries on a tape (inclusive). */
+export interface TapeRange {
+	/** Start entry id (inclusive). */
+	from: number;
+	/** End entry id (inclusive). */
+	to: number;
+}
