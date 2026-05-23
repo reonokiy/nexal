@@ -200,7 +200,7 @@ export class AgentPool {
 				agent.state.messages = llmMessages as any;
 				log.info(`restored ${llmMessages.length} messages from tape for session ${key}`);
 			} else {
-				await tape.handoff("session/start", {
+				await tape.anchor("session/start", {
 					owner: "human",
 					channel: msg.channel,
 					chatId: msg.chatId,

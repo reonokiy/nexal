@@ -73,7 +73,7 @@ export class Tape {
 		const tape = new Tape({ store, name, maxContext });
 		const entries = await tape.load();
 		if (entries.length === 0 && anchorState) {
-			await tape.handoff("init", anchorState);
+			await tape.anchor("init", anchorState);
 		}
 		return tape;
 	}
@@ -100,11 +100,6 @@ export class Tape {
 	/** Get tape metadata. */
 	async info(): Promise<TapeInfo> {
 		return this.store.info(this.name);
-	}
-
-	/** Write a handoff anchor. */
-	async handoff(name: string, state?: Record<string, unknown>): Promise<void> {
-		await this.store.handoff(this.name, name, state);
 	}
 
 	/** Write an anchor (checkpoint) to the tape. */
