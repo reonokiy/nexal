@@ -32,7 +32,7 @@ export interface StorageConfig {
 	s3SecretKey: string;
 	/** S3 region, e.g. "eu-central-1". */
 	s3Region: string;
-	/** Files under this size (bytes) are inlined into the tape entry payload instead of uploaded to storage. Default 100 KiB. */
+	/** Files under this size (bytes) are inlined into the tape entry payload instead of uploaded to storage. Default 8 KiB (so only tiny icons/emoji-sized blobs stay inline; everything else goes to S3). */
 	maxInlineSize: number;
 }
 
@@ -126,7 +126,7 @@ const DEFAULTS: NexalConfig = {
 		s3AccessKey: process.env.STORAGE_S3_ACCESS_KEY ?? "",
 		s3SecretKey: process.env.STORAGE_S3_SECRET_KEY ?? "",
 		s3Region: process.env.STORAGE_S3_REGION ?? "eu-central-1",
-		maxInlineSize: 102400,
+		maxInlineSize: 8192,
 	},
 };
 
@@ -224,7 +224,7 @@ function applyStorageOverlay(
 	storage: NexalConfig["storage"],
 	source: Record<string, unknown>,
 ): void {
-	const provider = source.provider ?? source.provider;
+	const provider = source.provider;
 	if (provider === "s3" || provider === "local") storage.provider = provider;
 	if (typeof source.s3_endpoint === "string") storage.s3Endpoint = source.s3_endpoint;
 	if (typeof source.s3Endpoint === "string") storage.s3Endpoint = source.s3Endpoint;

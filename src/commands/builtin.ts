@@ -15,7 +15,6 @@ import {
 	saveToolApiKey,
 	loadAllToolApiKeys,
 } from "../settings.ts";
-import { apiKeyEnvKey } from "../index.ts";
 
 const KNOWN_PROVIDERS = ["openrouter", "kimi-coding", "deepseek", "opencode-go"] as const;
 
@@ -24,7 +23,6 @@ interface ProvidersPayload {
 	providers: {
 		name: string;
 		hasKey: boolean;
-		envKey: string | null;
 	}[];
 }
 
@@ -102,7 +100,6 @@ export function registerBuiltins(registry: CommandRegistry, gateway?: GatewayCli
 					return {
 						name,
 						hasKey: !!auth?.apiKey,
-						envKey: apiKeyEnvKey(name),
 					};
 				}),
 			);
@@ -224,10 +221,7 @@ export function registerBuiltins(registry: CommandRegistry, gateway?: GatewayCli
 					}
 					const key = keyParts.join(" ");
 					await saveAuth({ provider, apiKey: key });
-					// Also set env var at runtime so it takes effect immediately.
-					const envKey = apiKeyEnvKey(provider);
-					if (envKey) process.env[envKey] = key;
-					return { text: `auth ${provider} saved and applied.` };
+					return { text: `auth ${provider} saved.` };
 				}
 				case "toolkey": {
 					const [name, ...keyParts] = rest;
@@ -240,10 +234,7 @@ export function registerBuiltins(registry: CommandRegistry, gateway?: GatewayCli
 					}
 					const key = keyParts.join(" ");
 					await saveToolApiKey(name, key);
-					const envMap: Record<string, string> = { tavily: "TAVILY_API_KEY", jina: "JINA_API_KEY", gemini: "GEMINI_API_KEY" };
-					const envKey = envMap[name] ?? `${name.toUpperCase()}_API_KEY`;
-					process.env[envKey] = key;
-					return { text: `tool key ${name} saved and applied.` };
+					return { text: `tool key ${name} saved.` };
 				}
 				default:
 					return { text: `Unknown sub-command: ${sub}. Use provider, auth, or toolkey.` };

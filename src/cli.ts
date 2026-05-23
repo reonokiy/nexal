@@ -9,11 +9,8 @@ import { parseArgs } from "node:util";
 
 const { values: cli } = parseArgs({
 	options: {
-		config:   { type: "string",  short: "c" },
-		provider: { type: "string",  short: "p" },
-		model:    { type: "string",  short: "m" },
-		port:     { type: "string" },
-		help:     { type: "boolean", short: "h" },
+		config: { type: "string", short: "c" },
+		help:   { type: "boolean", short: "h" },
 	},
 	strict: true,
 	allowPositionals: false,
@@ -25,25 +22,17 @@ if (cli.help) {
 Usage:
   nexal [options]        Start the daemon
 
-Daemon options:
+Options:
   -c, --config <path>     Config file path   (env: NEXAL_CONFIG_PATH)
-  -p, --provider <name>   Model provider     (env: NEXAL_MODEL_PROVIDER, default: openrouter)
-  -m, --model <id>        Model id           (env: NEXAL_MODEL, default: openai/gpt-4o)
-      --port <number>     HTTP listen port   (env: NEXAL_HTTP_PORT, default: 3000)
-
-General:
   -h, --help              Show this help
 
-All options can also be set via environment variables or ~/.nexal/config.toml.
-Priority: CLI flags > env vars > config file > defaults.`);
+Model/provider/auth are configured exclusively through the DB-backed
+settings KV (via the web UI). Channels, storage and gateway secrets
+live in ~/.nexal/config.toml or the matching NEXAL_* env vars.`);
 	process.exit(0);
 }
 
-// Daemon mode — apply CLI flags as env vars, then start.
-if (cli.config)   process.env.NEXAL_CONFIG_PATH = cli.config;
-if (cli.provider) process.env.NEXAL_MODEL_PROVIDER = cli.provider;
-if (cli.model)    process.env.NEXAL_MODEL = cli.model;
-if (cli.port)     process.env.NEXAL_HTTP_PORT = cli.port;
+if (cli.config) process.env.NEXAL_CONFIG_PATH = cli.config;
 
 const { main } = await import("./index.ts");
 const { log } = await import("./log.ts");

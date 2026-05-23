@@ -16,7 +16,7 @@ import { createReportToParentTool } from "./tools/report_to_parent.ts";
 import { createSendUpdateTool } from "./tools/send_update.ts";
 import { createCoordinatorTools } from "./tools/worker.ts";
 import { WorkerRegistry } from "./workers/registry.ts";
-import { loadAuth, loadModelConfig, loadProviderConfig, loadAllToolApiKeys } from "./settings.ts";
+import { loadAuth, loadModelConfig, loadProviderConfig } from "./settings.ts";
 import { setDbUrl, runMigrations, closeDb } from "./db.ts";
 import { createWorkerStore } from "./workers/store.ts";
 import { createTapeStore } from "./tape/store.ts";
@@ -24,20 +24,14 @@ import { createFileStore } from "./tape/file-store.ts";
 import COORDINATOR_PROMPT from "./prompts/coordinator.md" with { type: "text" };
 import EXECUTOR_PROMPT from "./prompts/executor.md" with { type: "text" };
 
-const DEFAULT_COORDINATOR_PROMPT = COORDINATOR_PROMPT;
-const DEFAULT_EXECUTOR_PROMPT = EXECUTOR_PROMPT;
-
 // ── Model & auth from DB ─────────────────────────────────────────────
 //
-// Providers are totally configured in the database — no env vars needed
-// for base URLs or API keys. The settings KV stores:
+// Providers are configured exclusively through the database — the
+// settings KV stores:
 //   model:provider  → "opencode-go"
 //   model:id        → "kimi-k2.6"
 //   provider:<name> → { base_url, wire_api, thinking_mode }
 //   auth:<name>     → { provider, apiKey }
-//
-// Fallback: if no DB config exists, pi-ai's built-in models + env vars
-// are used (backward compatible).
 
 interface ModelFromDb {
 	model: import("@mariozechner/pi-ai").Model<any>;
@@ -96,70 +90,6 @@ async function buildModelFromDb(): Promise<ModelFromDb | null> {
 	}
 }
 
-// ── Legacy: env-var fallback (kept for backward compat) ────────────
-
-async function applySavedAuth(): Promise<void> {
-	try {
-		const saved = await loadModelConfig();
-		if (saved) {
-			if (!process.env.NEXAL_MODEL_PROVIDER) process.env.NEXAL_MODEL_PROVIDER = saved.provider;
-			if (!process.env.NEXAL_MODEL) process.env.NEXAL_MODEL = saved.modelId;
-		}
-
-		const providerName = process.env.NEXAL_MODEL_PROVIDER ?? saved?.provider;
-		if (!providerName) return;
-
-		const auth = await loadAuth(providerName);
-		if (!auth) return;
-
-		const envKey = apiKeyEnvKey(providerName);
-		if (envKey && !process.env[envKey]) {
-			process.env[envKey] = auth.apiKey;
-			log.info(`loaded saved ${providerName} API key`);
-		}
-	} catch (err) {
-		log.error("failed to load saved auth, continuing without credentials:", err);
-	}
-}
-
-// ── Tool API key bootstrap ─────────────────────────────────────────
-
-async function applySavedToolKeys(): Promise<void> {
-	try {
-		const keys = await loadAllToolApiKeys();
-		if (Object.keys(keys).length === 0) return;
-		const envMap: Record<string, string> = {
-			tavily: "TAVILY_API_KEY",
-			jina: "JINA_API_KEY",
-			gemini: "GEMINI_API_KEY",
-		};
-		for (const [name, apiKey] of Object.entries(keys)) {
-			const envKey = envMap[name] ?? `${name.toUpperCase()}_API_KEY`;
-			if (!process.env[envKey]) {
-				process.env[envKey] = apiKey;
-				log.info(`loaded tool API key for ${name}`);
-			}
-		}
-	} catch (err) {
-		log.error("failed to load tool API keys from DB", err);
-	}
-}
-
-export function apiKeyEnvKey(provider: string): string | null {
-	switch (provider) {
-		case "openrouter": return "OPENROUTER_API_KEY";
-		case "kimi-coding": return "KIMI_API_KEY";
-		case "deepseek": return "DEEPSEEK_API_KEY";
-		case "opencode-go": return "OPENCODE_API_KEY";
-		// kept for users who still have these set in env / config:
-		case "anthropic": return "ANTHROPIC_API_KEY";
-		case "openai": return "OPENAI_API_KEY";
-		case "google": return "GEMINI_API_KEY";
-		case "mistral": return "MISTRAL_API_KEY";
-		default: return null;
-	}
-}
-
 async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	try {
@@ -187,32 +117,25 @@ async function main(): Promise<void> {
 		process.exit(1);
 	}
 
-	// Load model + auth from DB. Falls back to env vars if DB is empty.
+	// Load model + auth from DB. Without DB config the daemon can't run.
 	const dbModel = await buildModelFromDb();
 	if (!dbModel) {
-		// Legacy path: DB has no config → try env vars.
-		await applySavedAuth();
+		log.error(
+			"no model configured in DB — set model:provider, model:id, provider:<name> " +
+				"and auth:<name> in the settings KV (or via the web UI) before starting.",
+		);
+		process.exit(1);
 	}
-	const provider = dbModel
-		? (dbModel.model.provider as string)
-		: (process.env.NEXAL_MODEL_PROVIDER ?? "openrouter");
-	const modelId = dbModel
-		? dbModel.model.id
-		: (process.env.NEXAL_MODEL ?? "openai/gpt-4o");
-	const getApiKeyFromDb = dbModel?.getApiKey;
-	const model = dbModel?.model ?? getModel(provider as any, modelId as any);
+	const provider = dbModel.model.provider as string;
+	const modelId = dbModel.model.id;
+	const getApiKeyFromDb = dbModel.getApiKey;
+	const model = dbModel.model;
 	log.info(`using model ${modelId} via ${provider}`);
 
-	// Load external tool API keys from DB (Tavily, Jina, Gemini, …).
-	await applySavedToolKeys();
-
-	const coordinatorPrompt =
-		process.env.NEXAL_COORDINATOR_SYSTEM_PROMPT ?? DEFAULT_COORDINATOR_PROMPT;
-	const executorPrompt =
-		process.env.NEXAL_EXECUTOR_SYSTEM_PROMPT ?? DEFAULT_EXECUTOR_PROMPT;
+	const coordinatorPrompt = COORDINATOR_PROMPT;
+	const executorPrompt = EXECUTOR_PROMPT;
 
 	const gatewayUrl = process.env.NEXAL_GATEWAY_URL ?? cfg.gateway.url;
-	const gatewayUnix: string | undefined = process.env.NEXAL_GATEWAY_UNIX ?? (cfg.gateway as any).unix;
 	const gatewayAccessKey = process.env.NEXAL_GATEWAY_ACCESS_KEY ?? cfg.gateway.accessKey;
 	const gatewaySecretKey = process.env.NEXAL_GATEWAY_SECRET_KEY ?? cfg.gateway.secretKey;
 
@@ -226,17 +149,15 @@ async function main(): Promise<void> {
 
 	// ── Gateway connection (best-effort, does not block startup) ──────
 
-	const gwOpts = {
+	const gateway = new GatewayClient({
 		url: gatewayUrl,
-		unix: gatewayUnix,
 		accessKey: gatewayAccessKey,
 		secretKey: gatewaySecretKey,
 		clientName: cfg.gateway.clientName,
-	};
-	let gateway = new GatewayClient(gwOpts);
+	});
 	try {
 		await withTimeout(gateway.hello(), 5_000, "gateway hello");
-		log.info(`connected to gateway at ${gatewayUnix ? gatewayUnix : gatewayUrl}`);
+		log.info(`connected to gateway at ${gatewayUrl}`);
 	} catch (err) {
 		log.warn(`gateway hello failed — sandbox workers unavailable: ${err instanceof Error ? err.message : err}`);
 	}
@@ -256,8 +177,11 @@ async function main(): Promise<void> {
 	log.info(`worker store ready, up to ${cfg.workers.maxConcurrent} concurrent workers`);
 
 	// Tape store — persistent conversation history (AgentPool + workers).
-	const tapeStore = createTapeStore();
 	const fileStore = createFileStore(cfg.storage);
+	const tapeStore = createTapeStore({
+		fileStore,
+		maxInlineSize: cfg.storage.maxInlineSize,
+	});
 	log.info(`tape store ready (storage provider: ${cfg.storage.provider})`);
 	// `WorkerRegistry` is constructed BEFORE the factories close over it
 	// because the coordinator factory recursively builds dispatcher

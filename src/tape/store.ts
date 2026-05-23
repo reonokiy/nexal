@@ -6,6 +6,13 @@
  * where needed (append does read-then-write inside a transaction
  * to allocate monotonic entry_ids safely).
  *
+ * Optional `fileStore`: image blocks whose base64 payload exceeds
+ * `maxInlineSize` bytes are off-loaded to the FileStore (S3 or local)
+ * and replaced by a `{type:"image", fileRef:<sha256>, mimeType}`
+ * placeholder in the entry payload. On `read`, those placeholders are
+ * hydrated back to `{type:"image", data:<base64>, mimeType}` so the
+ * caller never has to know the file lives outside the DB.
+ *
  * Invariants:
  *   1. History is append-only — entries are never overwritten.
  *   2. Derivatives never replace original facts.
@@ -17,6 +24,7 @@ import { createHash } from "node:crypto";
 import { getDb } from "../db.ts";
 import * as schema from "./schema.ts";
 import type { TapeEntry, TapeInfo } from "./types.ts";
+import type { FileStore } from "./file-store.ts";
 
 export interface TapeStore {
 	/** Return all tape names ordered alphabetically. */
@@ -35,9 +43,20 @@ export interface TapeStore {
 	search(tape: string, query: string, limit?: number): Promise<TapeEntry[]>;
 }
 
-export function createTapeStore(): TapeStore {
+export interface TapeStoreOptions {
+	/** Off-load oversized binary blocks to this store. Optional. */
+	fileStore?: FileStore;
+	/** Inline cutoff (bytes). Default 8 KiB. */
+	maxInlineSize?: number;
+}
+
+const DEFAULT_MAX_INLINE = 8_192;
+
+export function createTapeStore(opts: TapeStoreOptions = {}): TapeStore {
 	const db = getDb();
-	const { tapes, tapeEntries } = schema;
+	const { tapes, tapeEntries, tapeFiles } = schema;
+	const fileStore = opts.fileStore;
+	const maxInline = opts.maxInlineSize ?? DEFAULT_MAX_INLINE;
 
 	return {
 		async listTapes(): Promise<string[]> {
@@ -53,10 +72,19 @@ export function createTapeStore(): TapeStore {
 				.from(tapeEntries)
 				.where(eq(tapeEntries.tapeId, tapeRecord.id))
 				.orderBy(tapeEntries.entryId);
-			return rows.map(rowToEntry);
+			const entries = rows.map(rowToEntry);
+			if (!fileStore) return entries;
+			for (const e of entries) {
+				e.payload = await hydrateFileRefs(e.payload, fileStore);
+			}
+			return entries;
 		},
 
 		async append(tape: string, entry: Omit<TapeEntry, "id">): Promise<void> {
+			const payload = fileStore
+				? await offloadLargeBlobs(entry.payload, fileStore, maxInline, db)
+				: entry.payload;
+
 			await db.transaction(async (tx) => {
 				const tapeRecord = await loadOrCreateTape(tx, tape);
 				const nextId = tapeRecord.lastEntryId + 1;
@@ -75,7 +103,7 @@ export function createTapeStore(): TapeStore {
 						entry.kind === "anchor" && entry.payload.name
 							? sha256Key(String(entry.payload.name))
 								: null,
-					payload: entry.payload,
+					payload,
 					meta: entry.meta,
 					entryDate: entry.date,
 					createdAt: Date.now(),
@@ -173,9 +201,89 @@ export function createTapeStore(): TapeStore {
 			return rows.map(rowToEntry);
 		},
 	};
+
+	// ── inline helpers (capture `tapeFiles`, `db`) ─────────────────────
+
+	async function offloadLargeBlobs(
+		payload: Record<string, unknown>,
+		store: FileStore,
+		threshold: number,
+		dbConn: ReturnType<typeof getDb>,
+	): Promise<Record<string, unknown>> {
+		const content = payload.content;
+		if (!Array.isArray(content)) return payload;
+		let mutated = false;
+		const next: unknown[] = [];
+		for (const block of content) {
+			const out = await maybeOffloadBlock(block, store, threshold, dbConn);
+			if (out !== block) mutated = true;
+			next.push(out);
+		}
+		if (!mutated) return payload;
+		return { ...payload, content: next };
+	}
+
+	async function maybeOffloadBlock(
+		block: unknown,
+		store: FileStore,
+		threshold: number,
+		dbConn: ReturnType<typeof getDb>,
+	): Promise<unknown> {
+		if (!isObject(block)) return block;
+		if (block.type !== "image") return block;
+		const data = block.data;
+		if (typeof data !== "string") return block;
+		// base64 length × 3/4 ≈ decoded byte size; cheap upper-bound check.
+		if (data.length * 0.75 < threshold) return block;
+		const mimeType = typeof block.mimeType === "string" ? block.mimeType : "application/octet-stream";
+		const bytes = Buffer.from(data, "base64");
+		const ref = await store.upload(bytes, mimeType, "tape-image");
+		// Idempotent insert keyed on fileHash; ignore conflict (already present).
+		await dbConn
+			.insert(tapeFiles)
+			.values({
+				fileHash: ref.fileHash,
+				sizeBytes: ref.sizeBytes,
+				mimeType: ref.mimeType,
+				createdAt: Date.now(),
+			})
+			.onConflictDoNothing({ target: tapeFiles.fileHash });
+		return { type: "image", fileRef: ref.fileHash, mimeType };
+	}
 }
 
 // ── helpers ──────────────────────────────────────────────────────────
+
+async function hydrateFileRefs(
+	payload: Record<string, unknown>,
+	store: FileStore,
+): Promise<Record<string, unknown>> {
+	const content = payload.content;
+	if (!Array.isArray(content)) return payload;
+	let mutated = false;
+	const next: unknown[] = [];
+	for (const block of content) {
+		if (isObject(block) && block.type === "image" && typeof block.fileRef === "string") {
+			const bytes = await store.download(block.fileRef);
+			if (bytes) {
+				next.push({
+					type: "image",
+					data: Buffer.from(bytes).toString("base64"),
+					mimeType: typeof block.mimeType === "string" ? block.mimeType : "application/octet-stream",
+				});
+				mutated = true;
+				continue;
+			}
+		}
+		next.push(block);
+	}
+	if (!mutated) return payload;
+	return { ...payload, content: next };
+}
+
+function isObject(v: unknown): v is Record<string, unknown> {
+	return typeof v === "object" && v !== null && !Array.isArray(v);
+}
 
 async function findTapeRecord(
 	db: any,

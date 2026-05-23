@@ -20,6 +20,8 @@ export interface FileStore {
 		mimeType: string,
 		filename: string,
 	): Promise<FileRef>;
+	/** Download bytes by content hash, or null if not found. */
+	download(fileHash: string): Promise<Uint8Array | null>;
 	/** Get a presigned (or public) URL for a file by its content hash. */
 	getUrl(fileHash: string): Promise<string | null>;
 	/** Close any open connections. */
@@ -53,22 +55,9 @@ export class S3FileStore implements FileStore {
 		filename: string,
 	): Promise<FileRef> {
 		const hash = sha256Hex(data);
-		const path = hashPath(hash);
-		const file = this.client.file(path);
-
-		// Try to read first (cheap HEAD check). If it exists, skip upload.
-		try {
-			await file.exists();
-			// exists() resolves to boolean; if true we skip write
-			// But actually Bun.S3File.exists() might not exist in all versions.
-			// Let's just try to write — S3 PutObject is idempotent for same key.
-		} catch {
-			// ignore
-		}
-
-		// Write is idempotent: same key → same content → no-op at storage layer.
+		const file = this.client.file(hashPath(hash));
+		// PutObject is idempotent for the same key, so we always write.
 		await file.write(data, { type: mimeType });
-
 		const url = await file.presignedUrl({ expiresIn: 3600 });
 		return {
 			fileHash: hash,
@@ -77,6 +66,16 @@ export class S3FileStore implements FileStore {
 			sizeBytes: data.byteLength,
 			url,
 		};
+	}
+
+	async download(fileHash: string): Promise<Uint8Array | null> {
+		try {
+			const file = this.client.file(hashPath(fileHash));
+			const buf = await file.arrayBuffer();
+			return new Uint8Array(buf);
+		} catch {
+			return null;
+		}
 	}
 
 	async getUrl(fileHash: string): Promise<string | null> {
@@ -117,6 +116,13 @@ export class LocalFileStore implements FileStore {
 			sizeBytes: data.byteLength,
 			url: `file://${fullPath}`,
 		};
+	}
+
+	async download(fileHash: string): Promise<Uint8Array | null> {
+		const fullPath = `${this.root}/${hashPath(fileHash)}`;
+		const file = Bun.file(fullPath);
+		if (!(await file.exists())) return null;
+		return new Uint8Array(await file.arrayBuffer());
 	}
 
 	async getUrl(fileHash: string): Promise<string | null> {

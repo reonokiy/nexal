@@ -52,18 +52,3 @@ export interface FileRef {
 	/** Presigned URL or public URL (short-lived). */
 	url?: string;
 }
-
-/** Payload shape for an entry that carries a binary attachment. */
-export interface AttachmentPayload {
-	fileRef: string; // sha256 hex
-}
-
-/** Anchor state contract. */
-export interface AnchorState {
-	phase: string;
-	summary?: string;
-	nextSteps?: string[];
-	sourceEntryIds?: number[];
-	owner?: string;
-	[key: string]: unknown;
-}
