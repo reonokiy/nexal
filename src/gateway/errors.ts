@@ -19,7 +19,7 @@ export interface Pending {
 }
 
 export interface Transport {
-	send(data: string): void;
+	send(data: Uint8Array): void;
 	close(): void;
 }
 

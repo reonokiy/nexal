@@ -74,8 +74,6 @@ export class GatewayClient {
 	private readyPromise: Promise<void> | null = null;
 	private helloPromise: Promise<void> | null = null;
 	private readonly handlers = new Set<NotificationHandler>();
-	private readonly decoder = new TextDecoder();
-
 	private readonly agents = new Map<string, AgentEntry>();
 	private readonly agentInflight = new Map<string, Promise<AgentEntry>>();
 
@@ -90,23 +88,20 @@ export class GatewayClient {
 	}
 
 	private async connectWebSocket(): Promise<void> {
-		const handle = await createWebSocketTransport(
+		this.transport = await createWebSocketTransport(
 			this.options.url,
 			{ connectTimeoutMs: this.options.connectTimeoutMs },
-			this.decoder,
-			(line) => this.dispatch(line),
+			(data) => this.dispatch(data),
 			() => this.onDisconnect(),
 		);
-		this.transport = handle.transport;
 	}
 
 	private async connectUnix(): Promise<void> {
-		const handle = await createUnixTransport(
+		this.transport = await createUnixTransport(
 			this.options.unix!,
-			(line) => this.dispatch(line),
+			(data) => this.dispatch(data),
 			() => this.onDisconnect(),
 		);
-		this.transport = handle.transport;
 	}
 
 	private onDisconnect(): void {
@@ -149,7 +144,7 @@ export class GatewayClient {
 			this.pending.set(id, { resolve, reject });
 		});
 		this.requireOpen().send(
-			JSON.stringify({ jsonrpc: "2.0", id, method, params }),
+			new TextEncoder().encode(JSON.stringify({ jsonrpc: "2.0", id, method, params })),
 		);
 		return promise;
 	}
@@ -265,12 +260,12 @@ export class GatewayClient {
 		return this.transport;
 	}
 
-	private dispatch(line: string): void {
+	private dispatch(data: Uint8Array): void {
 		let msg: JsonRpcResponse | JsonRpcNotification;
 		try {
-			msg = JSON.parse(line);
+			msg = JSON.parse(new TextDecoder().decode(data));
 		} catch {
-			log.error(`received non-JSON frame from gateway, dropping: ${line.slice(0, 120)}`);
+			log.error(`received non-JSON frame from gateway, dropping: ${data.byteLength} bytes`);
 			return;
 		}
 		if ("id" in msg && msg.id !== undefined) {

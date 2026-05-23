@@ -1,19 +1,13 @@
 import type { Transport } from "./errors.ts";
 
-export interface TransportHandle {
-	transport: Transport;
-	cleanup: () => void;
-}
-
 export function createWebSocketTransport(
 	url: string,
 	options: { connectTimeoutMs?: number },
-	decoder: TextDecoder,
-	onLine: (line: string) => void,
+	onMessage: (data: Uint8Array) => void,
 	onDisconnect: () => void,
-): Promise<TransportHandle> {
+): Promise<Transport> {
 	const wsUrl = url.replace(/^http/, "ws");
-	return new Promise<TransportHandle>((resolve, reject) => {
+	return new Promise<Transport>((resolve, reject) => {
 		const timeout = setTimeout(() => {
 			reject(new Error(`gateway WebSocket connect timeout to ${wsUrl}`));
 		}, options.connectTimeoutMs ?? 10_000);
@@ -21,67 +15,76 @@ export function createWebSocketTransport(
 		const ws = new WebSocket(wsUrl);
 		ws.binaryType = "arraybuffer";
 
-		ws.onopen = () => {
+		const onOpen = () => {
 			clearTimeout(timeout);
+			ws.removeEventListener("error", onError);
 			resolve({
-				transport: {
-					send: (data: string) => {
-						if (ws.readyState === 1) ws.send(data);
-					},
-					close: () => ws.close(),
+				send: (data: Uint8Array) => {
+					if (ws.readyState === 1) ws.send(data);
 				},
-				cleanup: () => ws.close(),
+				close: () => ws.close(),
 			});
 		};
 
-		ws.onerror = () => {
+		const onError = () => {
 			clearTimeout(timeout);
+			ws.removeEventListener("open", onOpen);
 			reject(new Error(`gateway WebSocket error connecting to ${wsUrl}`));
 		};
 
-		ws.onmessage = (ev: MessageEvent) => {
-			const text =
-				typeof ev.data === "string"
-					? ev.data
-					: decoder.decode(ev.data as ArrayBuffer);
-			for (const line of text.split("\n")) {
-				if (line.trim()) onLine(line);
-			}
-		};
+		ws.addEventListener("open", onOpen, { once: true });
+		ws.addEventListener("error", onError, { once: true });
 
-		ws.onclose = () => onDisconnect();
+		ws.addEventListener("message", (ev: MessageEvent) => {
+			const bytes =
+				ev.data instanceof ArrayBuffer
+					? new Uint8Array(ev.data)
+					: new TextEncoder().encode(ev.data);
+			onMessage(bytes);
+		});
+
+		ws.addEventListener("close", () => onDisconnect());
 	});
 }
 
 export async function createUnixTransport(
 	path: string,
-	onLine: (line: string) => void,
+	onMessage: (data: Uint8Array) => void,
 	onDisconnect: () => void,
-): Promise<TransportHandle> {
+): Promise<Transport> {
 	const { createConnection } = await import("node:net");
-	return new Promise<TransportHandle>((resolve, reject) => {
+	return new Promise<Transport>((resolve, reject) => {
 		const sock = createConnection(path, () => {
+			sock.removeListener("error", onError);
 			resolve({
-				transport: {
-					send: (data: string) => sock.write(data + "\n"),
-					close: () => sock.destroy(),
+				send: (data: Uint8Array) => {
+					const header = Buffer.alloc(4);
+					header.writeUInt32BE(data.byteLength, 0);
+					sock.write(header);
+					sock.write(data);
 				},
-				cleanup: () => sock.destroy(),
+				close: () => sock.destroy(),
 			});
 		});
-		sock.on("error", (err: Error) => {
-			reject(new Error(`gateway unix connect error: ${err.message}`));
-		});
 
-		let buffer = "";
+		const onError = (err: Error) => {
+			sock.removeListener("connect", () => {});
+			reject(new Error(`gateway unix connect error: ${err.message}`));
+		};
+		sock.on("error", onError);
+
+		let buffer = Buffer.alloc(0);
 		sock.on("data", (chunk: Buffer) => {
-			buffer += chunk.toString("utf-8");
-			const lines = buffer.split("\n");
-			buffer = lines.pop()!;
-			for (const line of lines) {
-				if (line.trim()) onLine(line);
+			buffer = Buffer.concat([buffer, chunk]);
+			while (buffer.byteLength >= 4) {
+				const frameLen = buffer.readUInt32BE(0);
+				if (buffer.byteLength < 4 + frameLen) break;
+				const frame = new Uint8Array(buffer.subarray(4, 4 + frameLen));
+				buffer = buffer.subarray(4 + frameLen);
+				onMessage(frame);
 			}
 		});
+
 		sock.on("close", () => onDisconnect());
 	});
 }
