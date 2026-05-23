@@ -6,6 +6,7 @@ import type { GatewayClient } from "../gateway/index.ts";
 import { createMessageSender } from "../messaging/index.ts";
 import { createStubSender } from "../test-utils/helpers.ts";
 import { mockTapeStore } from "../test-utils/mock-tape-store.ts";
+import { createMemoryStore } from "../context/store.ts";
 import { fakeRow } from "./test-helpers.ts";
 
 // Stubbing Agent at module scope — see the "Agent lifecycle paths" note
@@ -205,7 +206,7 @@ function makeRunner(over?: {
 		toolsForKind: over?.tools ?? (() => []),
 		resumed: over?.resumed ?? false,
 		onTerminal: over?.onTerminal ?? ((id) => terminalSeen.push(id)),
-		tapeStore: mockTapeStore,
+		memoryStore: createMemoryStore(mockTapeStore),
 	});
 	return { runner, store, gateway: gw, terminalSeen };
 }

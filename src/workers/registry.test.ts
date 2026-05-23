@@ -3,6 +3,7 @@ import { describe, expect, mock, test } from "bun:test";
 import type { GatewayClient } from "../gateway/index.ts";
 import { createStubSender } from "../test-utils/helpers.ts";
 import { mockTapeStore } from "../test-utils/mock-tape-store.ts";
+import { createMemoryStore } from "../context/store.ts";
 import { WorkerRegistry } from "./registry.ts";
 import { fakeRow } from "./test-helpers.ts";
 import type {
@@ -122,7 +123,7 @@ function buildRegistry(opts?: {
 		executorTools: () => [],
 		coordinatorTools: () => [],
 		forwardToCoordinator: opts?.forwardToCoordinator,
-		tapeStore: mockTapeStore,
+		memoryStore: createMemoryStore(mockTapeStore),
 	});
 }
 

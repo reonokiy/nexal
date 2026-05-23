@@ -28,6 +28,7 @@ import { WorkerRegistry } from "../workers/registry.ts";
 import type { WorkerAgent } from "../workers/agent.ts";
 import { createWorkerStore } from "../workers/store.ts";
 import { createTapeStore } from "../tape/store.ts";
+import { createMemoryStore } from "../context/store.ts";
 
 const GATEWAY_URL = process.env.NEXAL_GATEWAY_URL ?? "ws://127.0.0.1:5500";
 const GATEWAY_ACCESS_KEY = process.env.NEXAL_GATEWAY_ACCESS_KEY;
@@ -69,6 +70,7 @@ async function main(): Promise<void> {
 	const model = getModel(PROVIDER as any, MODEL_ID);
 
 	const tapeStore = createTapeStore();
+	const memoryStore = createMemoryStore(tapeStore);
 	const registry = new WorkerRegistry({
 		store,
 		gateway,
@@ -77,7 +79,7 @@ async function main(): Promise<void> {
 		modelId: MODEL_ID,
 		sender,
 		maxConcurrent: 1,
-		tapeStore,
+		memoryStore,
 		executorSystemPromptDefault:
 			"You are a test executor. Do exactly what the user asks using bash, then call send_update with a short confirmation.",
 		coordinatorSystemPromptDefault: "You are a test coordinator (unused in this smoke).",

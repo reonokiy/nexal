@@ -45,10 +45,9 @@ import type { ProxySpec } from "../config.ts";
 import type { GatewayClient } from "../gateway/index.ts";
 import type { AgentClient } from "../gateway/agent_client.ts";
 import { createBashTool } from "../tools/bash.ts";
-import { jsonToMessages, messagesToJson, entriesToMessages, messagesToEntries } from "../context/index.ts";
-import type { ContextStore } from "../context/types.ts";
+import { jsonToMessages, messagesToJson, entriesToMessages, messagesToEntries } from "../tape/convert.ts";
+import type { MemoryStore } from "../context/index.ts";
 import type { SendPolicy, WorkerKind, WorkerLifetime, WorkerRow, WorkerStore } from "./store.ts";
-import type { TapeStore } from "../tape/store.ts";
 
 const PERSIST_DEBOUNCE_MS = 250;
 
@@ -78,10 +77,8 @@ export interface WorkerAgentDeps {
 	executorProxies?: ProxySpec[];
 	/** Called once a shot executor reaches a terminal state. */
 	onTerminal: (id: string) => void;
-	/** Tape store for persistent conversation history. */
-	tapeStore: TapeStore;
-	/** Optional context store (overrides tape for load/save). */
-	contextStore?: ContextStore;
+	/** Memory store for tape-based persistence. */
+	memoryStore: MemoryStore;
 	/** Optional: resolve API keys from DB instead of env vars. */
 	getApiKey?: (provider: string) => Promise<string | undefined> | string | undefined;
 }
@@ -129,29 +126,18 @@ export class WorkerAgent {
 			await this.setupProxies();
 		}
 
-		// Prefer context store / tape history over DB messages_json; fallback to JSON column.
+		// Load history from memory store (tape); fallback to DB messages_json.
 		let initialMessages = jsonToMessages(row.messagesJson);
-		if (this.deps.contextStore) {
-			try {
-				const tapeName = `worker:${row.id}`;
-				initialMessages = await this.deps.contextStore.load(tapeName);
+		try {
+			const tapeName = `worker:${row.id}`;
+			const entries = await this.deps.memoryStore.load(tapeName);
+			if (entries.length > 0) {
+				initialMessages = entriesToMessages(entries);
 				this.lastPersistedMsgCount = initialMessages.length;
-				this.log.info(`restored ${initialMessages.length} messages from context store for ${tapeName}`);
-			} catch (err) {
-				this.log.error(`failed to load context store for worker ${row.id}, falling back to messages_json`, err);
+				this.log.info(`restored ${initialMessages.length} messages from tape for ${tapeName}`);
 			}
-		} else {
-			try {
-				const tapeName = `worker:${row.id}`;
-				const entries = await this.deps.tapeStore.read(tapeName);
-				if (entries.length > 0) {
-					initialMessages = entriesToMessages(entries);
-					this.lastPersistedMsgCount = initialMessages.length;
-					this.log.info(`restored ${initialMessages.length} messages from tape for ${tapeName}`);
-				}
-			} catch (err) {
-				this.log.error(`failed to load tape for worker ${row.id}, falling back to messages_json`, err);
-			}
+		} catch (err) {
+			this.log.error(`failed to load tape for worker ${row.id}, falling back to messages_json`, err);
 		}
 
 		const tools = this.deps.toolsForKind(this);
@@ -473,17 +459,16 @@ export class WorkerAgent {
 			this.log.error(`failed to persist messages_json after turn ${this.latestTurnCount}`, err);
 		}
 
-		// Persist incremental delta to tape.
+		// Persist incremental delta to tape via memory store.
 		try {
 			const newMessages = messages.slice(this.lastPersistedMsgCount);
 			if (newMessages.length > 0) {
 				const tapeName = `worker:${this.id}`;
-				for (const entry of messagesToEntries(newMessages)) {
-					await this.deps.tapeStore.append(tapeName, {
-						...entry,
-						date: new Date().toISOString(),
-					});
-				}
+				const entries = messagesToEntries(newMessages).map((e) => ({
+					...e,
+					date: new Date().toISOString(),
+				}));
+				await this.deps.memoryStore.append(tapeName, entries);
 				this.lastPersistedMsgCount = messages.length;
 				this.log.info(`appended ${newMessages.length} messages to tape for ${tapeName}`);
 			}

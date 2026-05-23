@@ -1,16 +1,16 @@
 import { describe, expect, test } from "bun:test";
 
-import { deserializeMessages, serializeMessages } from "./serialize.ts";
+import { messagesToJson, jsonToMessages } from "../tape/convert.ts";
 
-describe("serializeMessages / deserializeMessages", () => {
+describe("messagesToJson / jsonToMessages", () => {
 	test("empty array round-trips", () => {
-		const s = serializeMessages([]);
+		const s = messagesToJson([]);
 		expect(s).toBe("[]");
-		expect(deserializeMessages(s)).toEqual([]);
+		expect(jsonToMessages(s)).toEqual([]);
 	});
 
 	test("empty string deserializes to empty array", () => {
-		expect(deserializeMessages("")).toEqual([]);
+		expect(jsonToMessages("")).toEqual([]);
 	});
 
 	test("plain user+assistant messages round-trip", () => {
@@ -23,7 +23,7 @@ describe("serializeMessages / deserializeMessages", () => {
 				stopReason: "complete",
 			},
 		] as any;
-		const decoded = deserializeMessages(serializeMessages(msgs));
+		const decoded = jsonToMessages(messagesToJson(msgs));
 		expect(decoded).toEqual(msgs);
 	});
 
@@ -36,7 +36,7 @@ describe("serializeMessages / deserializeMessages", () => {
 				timestamp: 3,
 			},
 		] as any;
-		const decoded = deserializeMessages(serializeMessages(original));
+		const decoded = jsonToMessages(messagesToJson(original));
 		const img = (decoded[0] as any).content[0];
 		expect(img.data).toBeInstanceOf(Uint8Array);
 		expect([...img.data]).toEqual([...bytes]);
@@ -57,7 +57,7 @@ describe("serializeMessages / deserializeMessages", () => {
 				timestamp: 1,
 			},
 		] as any;
-		const decoded = deserializeMessages(serializeMessages(msgs));
+		const decoded = jsonToMessages(messagesToJson(msgs));
 		const parts = (decoded[0] as any).content;
 		expect([...parts[0].data]).toEqual([...a]);
 		expect(parts[1]).toEqual({ type: "text", text: "between" });
@@ -66,8 +66,8 @@ describe("serializeMessages / deserializeMessages", () => {
 
 	test("bytes with zero length round-trip", () => {
 		const bytes = new Uint8Array(0);
-		const decoded = deserializeMessages(
-			serializeMessages([
+		const decoded = jsonToMessages(
+			messagesToJson([
 				{ role: "user", content: [{ type: "image", data: bytes, mimeType: "image/png" }], timestamp: 1 },
 			] as any),
 		);
@@ -84,17 +84,14 @@ describe("serializeMessages / deserializeMessages", () => {
 				timestamp: 1,
 			},
 		] as any;
-		expect(deserializeMessages(serializeMessages(msgs))).toEqual(msgs);
+		expect(jsonToMessages(messagesToJson(msgs))).toEqual(msgs);
 	});
 
 	test("bytes marker key does not collide with unrelated objects", () => {
-		// A regular object happening to have a similar key shouldn't be confused.
 		const msgs = [
 			{ role: "user", content: "ok", timestamp: 1, metadata: { __nexal_bytes_b64__: 123 } },
 		] as any;
-		const decoded = deserializeMessages(serializeMessages(msgs));
-		// The marker check requires a STRING value — 123 (number) means
-		// it stays a plain object, not a Uint8Array.
+		const decoded = jsonToMessages(messagesToJson(msgs));
 		expect((decoded[0] as any).metadata).toEqual({ __nexal_bytes_b64__: 123 });
 	});
 });

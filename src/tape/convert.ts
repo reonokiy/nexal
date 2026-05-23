@@ -1,22 +1,21 @@
 /**
- * Tape ↔ AgentMessage 序列化 helpers.
+ * Tape ↔ AgentMessage conversion layer.
  *
- * Converts between pi-agent-core AgentMessages and tape.systems
- * TapeEntry payloads so we can persist conversation history and
- * rebuild it on the next session start.
+ * Single source of truth for converting between tape TapeEntry format
+ * and pi-agent-core AgentMessage format. Also provides JSON serialization
+ * for the worker store's `messages_json` column.
  *
- * Only standard Message kinds are round-tripped:
- *   user       → TapeEntry(kind="message", payload={role,content,timestamp})
- *   assistant  → TapeEntry(kind="message", payload={role,content,api,provider,model,usage,stopReason,timestamp})
- *   toolResult → TapeEntry(kind="tool_result", payload={role,toolCallId,toolName,content,details,isError,timestamp})
- *
- * CustomAgentMessages and transient events are dropped during rebuild.
+ * Conversion to AgentMessage should ONLY happen when interacting with
+ * the LLM model. Tape (TapeEntry) is the canonical memory format.
  */
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import type { TextContent, ImageContent, UserMessage, AssistantMessage, ToolResultMessage } from "@mariozechner/pi-ai";
 import type { TapeEntry } from "./types.ts";
 
-const MAX_CONTEXT_MESSAGES = 200; // safety cap for prototype
+const MAX_CONTEXT_MESSAGES = 200;
+const BYTES_MARKER = "__nexal_bytes_b64__";
+
+// ── TapeEntry → AgentMessage ──────────────────────────────────────
 
 /** Convert a list of tape entries → AgentMessages (skips non-message kinds). */
 export function entriesToMessages(entries: TapeEntry[]): AgentMessage[] {
@@ -80,6 +79,8 @@ function entryToMessage(entry: TapeEntry): AgentMessage | null {
 	}
 }
 
+// ── AgentMessage → TapeEntry ──────────────────────────────────────
+
 /** Convert AgentMessages → tape entries (only standard kinds). */
 export function messagesToEntries(messages: AgentMessage[]): Omit<TapeEntry, "id" | "date">[] {
 	return messages.map((m) => messageToEntry(m)).filter(Boolean) as Omit<TapeEntry, "id" | "date">[];
@@ -136,6 +137,29 @@ function messageToEntry(msg: AgentMessage): Omit<TapeEntry, "id" | "date"> | nul
 		};
 	}
 	return null;
+}
+
+// ── AgentMessage ↔ JSON (for worker store messages_json column) ──
+
+/** Serialize AgentMessages to JSON, handling Uint8Array via base64. */
+export function messagesToJson(msgs: AgentMessage[]): string {
+	return JSON.stringify(msgs, (_key, value) => {
+		if (value instanceof Uint8Array) {
+			return { [BYTES_MARKER]: Buffer.from(value).toString("base64") };
+		}
+		return value;
+	});
+}
+
+/** Deserialize JSON back to AgentMessages, restoring base64-encoded Uint8Arrays. */
+export function jsonToMessages(s: string): AgentMessage[] {
+	if (!s || s === "[]") return [];
+	return JSON.parse(s, (_key, value) => {
+		if (value && typeof value === "object" && typeof (value as any)[BYTES_MARKER] === "string") {
+			return new Uint8Array(Buffer.from((value as any)[BYTES_MARKER], "base64"));
+		}
+		return value;
+	}) as AgentMessage[];
 }
 
 // ── content serialization ──────────────────────────────────────────

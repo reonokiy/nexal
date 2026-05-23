@@ -1,9 +1,9 @@
-export type { ContextStore, ContextLoadOptions } from "./types.ts";
-export { createContextStore } from "./loader.ts";
+export type { MemoryStore } from "./types.ts";
+export { createMemoryStore } from "./store.ts";
 export {
 	entriesToMessages,
 	messagesToEntries,
-	truncateMessages,
 	messagesToJson,
 	jsonToMessages,
-} from "./converter.ts";
+	truncateMessages,
+} from "../tape/convert.ts";

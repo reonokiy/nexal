@@ -1,19 +1,13 @@
-import type { AgentMessage } from "@mariozechner/pi-agent-core";
+import type { TapeEntry } from "../tape/types.ts";
 
-/** Options for loading conversation context. */
-export interface ContextLoadOptions {
-	/** Maximum messages to keep (older ones truncated). Default 200. */
-	maxMessages?: number;
-}
+/** Tape-based memory store — TapeEntry is the canonical format. */
+export interface MemoryStore {
+	/** Load all tape entries for a session. */
+	load(sessionKey: string): Promise<TapeEntry[]>;
 
-/** A context store abstracts over tape + legacy DB persistence. */
-export interface ContextStore {
-	/** Load full conversation history for a session. */
-	load(sessionKey: string, opts?: ContextLoadOptions): Promise<AgentMessage[]>;
+	/** Append new entries to the tape. */
+	append(sessionKey: string, entries: Omit<TapeEntry, "id">[]): Promise<void>;
 
-	/** Save full conversation history (overwrites). */
-	save(sessionKey: string, messages: AgentMessage[]): Promise<void>;
-
-	/** Append only new messages since `fromIndex`. */
-	appendDelta(sessionKey: string, fromIndex: number, messages: AgentMessage[]): Promise<void>;
+	/** Reset tape and replace with new entries. */
+	replace(sessionKey: string, entries: Omit<TapeEntry, "id">[]): Promise<void>;
 }

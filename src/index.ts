@@ -22,6 +22,7 @@ import { setDbUrl, runMigrations, closeDb } from "./db.ts";
 import { createWorkerStore } from "./workers/store.ts";
 import { createTapeStore } from "./tape/store.ts";
 import { createFileStore } from "./tape/file-store.ts";
+import { createMemoryStore } from "./context/store.ts";
 import COORDINATOR_PROMPT from "./prompts/coordinator.md" with { type: "text" };
 import EXECUTOR_PROMPT from "./prompts/executor.md" with { type: "text" };
 
@@ -166,6 +167,7 @@ async function main(): Promise<void> {
 		maxInlineSize: cfg.storage.maxInlineSize,
 	});
 	log.info(`tape store ready (storage provider: ${cfg.storage.provider})`);
+	const memoryStore = createMemoryStore(tapeStore);
 	// `WorkerRegistry` is constructed BEFORE the factories close over it
 	// because the coordinator factory recursively builds dispatcher
 	// tools that reference the same registry — sub-coordinators can
@@ -183,7 +185,7 @@ async function main(): Promise<void> {
 		modelId,
 		sender,
 		maxConcurrent: cfg.workers.maxConcurrent,
-		tapeStore,
+		memoryStore,
 		getApiKey: getApiKeyFromDb,
 		executorSystemPromptDefault: EXECUTOR_PROMPT,
 		coordinatorSystemPromptDefault: COORDINATOR_PROMPT,
@@ -227,6 +229,7 @@ async function main(): Promise<void> {
 		model,
 		tools: [],
 		tapeStore,
+		memoryStore,
 		getApiKey: getApiKeyFromDb,
 		toolsFor: async (key) => {
 			// Top-level coordinator: NO sandbox, NO bash. Just the

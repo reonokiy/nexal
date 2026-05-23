@@ -6,6 +6,7 @@ import { AgentPool } from "./agent-pool.ts";
 import type { IncomingMessage } from "./channels/types.ts";
 import { createStubSender } from "./test-utils/helpers.ts";
 import { mockTapeStore } from "./test-utils/mock-tape-store.ts";
+import { createMemoryStore } from "./context/store.ts";
 
 class SpyPool extends AgentPool {
 	received: IncomingMessage[] = [];
@@ -16,6 +17,7 @@ class SpyPool extends AgentPool {
 			tools: [],
 			sender: createStubSender(),
 			tapeStore: mockTapeStore,
+			memoryStore: createMemoryStore(mockTapeStore),
 		});
 	}
 	override handle(msg: IncomingMessage): void {
