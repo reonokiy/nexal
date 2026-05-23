@@ -10,12 +10,15 @@
 export type MessageId = string | number;
 
 export interface WireRequest {
+	/** Virtual stream id for multiplexing. Omitted = connection-level. */
+	stream?: string;
 	id: MessageId;
 	method: string;
 	params?: unknown;
 }
 
 export interface WireResponse {
+	stream?: string;
 	id: MessageId;
 	result?: unknown;
 	error?: WireError;
@@ -28,6 +31,7 @@ export interface WireError {
 }
 
 export interface WireNotification {
+	stream?: string;
 	method: string;
 	params?: unknown;
 }
