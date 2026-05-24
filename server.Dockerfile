@@ -2,7 +2,8 @@
 FROM oven/bun:1 AS build
 WORKDIR /app
 COPY package.json bun.lock* ./
-COPY packages/chat-client/package.json ./packages/chat-client/
+COPY packages/transport/package.json ./packages/transport/
+COPY packages/tape/package.json ./packages/tape/
 COPY web/package.json ./web/
 RUN bun install --frozen-lockfile
 

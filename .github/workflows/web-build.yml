@@ -5,14 +5,14 @@ on:
     branches: [main]
     paths:
       - web/**
-      - packages/chat-client/**
+      - packages/transport/**
       - package.json
       - bun.lock
       - .github/workflows/web-build.yml
   pull_request:
     paths:
       - web/**
-      - packages/chat-client/**
+      - packages/transport/**
       - package.json
       - bun.lock
       - .github/workflows/web-build.yml

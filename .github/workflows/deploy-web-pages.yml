@@ -5,7 +5,7 @@ on:
     branches: [main]
     paths:
       - web/**
-      - packages/chat-client/**
+      - packages/transport/**
       - package.json
       - bun.lock
       - .github/workflows/deploy-web-pages.yml
