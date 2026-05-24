@@ -1,7 +1,7 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use nexal_utils_transport::JsonMessageConnection;
+use nexal_utils_transport::MessageChannel;
 use rmpv::Value;
 use tokio::net::TcpListener;
 use tracing::{info, warn};
@@ -74,7 +74,7 @@ pub(crate) async fn run_transport(
             };
 
             let handler = Arc::new(ExecServerHandler::new());
-            let conn = JsonMessageConnection::<Value>::from_websocket_binary(
+            let conn = MessageChannel::<Value>::from_websocket_binary(
                 ws_stream,
                 format!("agent-client-{remote_addr}"),
             );

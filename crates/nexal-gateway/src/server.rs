@@ -20,7 +20,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 
-use nexal_utils_transport::JsonMessageConnection;
+use nexal_utils_transport::MessageChannel;
 use rmpv::Value;
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader, ReadBuf};
 use tokio::net::{TcpListener, UnixListener};
@@ -169,7 +169,7 @@ pub async fn serve(cfg: ServerConfig, registry: Arc<AgentRegistry>) -> std::io::
                         }
                     };
                     let label = format!("ws-{remote_addr}");
-                    let conn = JsonMessageConnection::<Value>::from_websocket_binary(
+                    let conn = MessageChannel::<Value>::from_websocket_binary(
                         ws_stream,
                         format!("frontend ws {label}"),
                     );
@@ -199,7 +199,7 @@ where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
     let (reader, writer) = tokio::io::split(stream);
-    let conn = JsonMessageConnection::<Value>::from_stdio_binary(
+    let conn = MessageChannel::<Value>::from_stdio_binary(
         reader,
         writer,
         format!("frontend unix {label}"),

@@ -39,7 +39,13 @@ use uuid::Uuid;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
-use crate::transport::{Transport, TransportEvent};
+use tokio::io::{AsyncRead, AsyncWrite};
+use tokio_tungstenite::WebSocketStream;
+
+use crate::transport::{
+    ClientTransportError, Transport, TransportEvent, TransportOptions, accepted_websocket_transport,
+    connect_websocket_transport,
+};
 use crate::{
     MessageId, RpcMethod, WireError, WireMessage, WireNotification, WireRequest, WireResponse,
     encode_frame, from_msgpack_value, to_msgpack_value, value_to_wire_message,
@@ -634,5 +640,45 @@ async fn send_request(
         Ok(Ok(value)) => Ok(value),
         Ok(Err(err)) => Err(RequestError::Wire(err)),
         Err(_) => Err(RequestError::Closed),
+    }
+}
+
+// ── WebSocket connection helpers ────────────────────────────────────
+//
+// Thin glue pairing a [`Transport`] with a [`Connection`]. Most
+// consumers reach for these rather than building the pair by hand.
+
+/// A [`Transport`] paired with the [`Connection`] driving it.
+pub struct WebSocketConnection {
+    pub transport: Transport,
+    pub connection: Connection,
+}
+
+/// Dial `url`, build a transport, and wrap it in a [`Connection`].
+pub async fn create_websocket_connection(
+    url: impl Into<String>,
+    options: TransportOptions,
+) -> Result<WebSocketConnection, ClientTransportError> {
+    let (transport, events) = connect_websocket_transport(url, options).await?;
+    let connection = Connection::new(transport.clone(), events);
+    Ok(WebSocketConnection {
+        transport,
+        connection,
+    })
+}
+
+/// Wrap a server-accepted [`WebSocketStream`] in a transport + connection.
+pub fn create_accepted_websocket_connection<S>(
+    stream: WebSocketStream<S>,
+    options: TransportOptions,
+) -> WebSocketConnection
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
+    let (transport, events) = accepted_websocket_transport(stream, options);
+    let connection = Connection::new(transport.clone(), events);
+    WebSocketConnection {
+        transport,
+        connection,
     }
 }

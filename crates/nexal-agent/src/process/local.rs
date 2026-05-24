@@ -8,7 +8,9 @@ use std::time::Duration;
 use async_trait::async_trait;
 use nexal_utils_pty::ExecCommandSession;
 use nexal_utils_pty::TerminalSize;
-use nexal_utils_transport::notifications::{PROCESS_CLOSED, PROCESS_EXITED, PROCESS_OUTPUT};
+use nexal_utils_transport::agent::notifications::{
+    PROCESS_CLOSED, PROCESS_EXITED, PROCESS_OUTPUT,
+};
 use tokio::sync::Mutex;
 use tokio::sync::Notify;
 use tokio::sync::mpsc;

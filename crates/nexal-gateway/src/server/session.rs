@@ -16,7 +16,7 @@ use nexal_utils_transport::gateway::{
     RegisterStreamProxyResponse, SpawnAgentParams, SpawnAgentResponse, UnregisterProxyParams,
     UnregisterStreamProxyParams,
 };
-use nexal_utils_transport::{JsonMessageConnection, JsonMessageConnectionEvent};
+use nexal_utils_transport::{MessageChannel, MessageChannelEvent};
 use rmpv::Value;
 use tokio::sync::{Mutex, mpsc};
 use tracing::{debug, info};
@@ -87,7 +87,7 @@ fn to_msgpack<T: serde::Serialize>(v: &T) -> Value {
 
 pub(super) struct Session {
     ws_tx: mpsc::Sender<Value>,
-    incoming_rx: mpsc::Receiver<JsonMessageConnectionEvent<Value>>,
+    incoming_rx: mpsc::Receiver<MessageChannelEvent<Value>>,
     connection_tasks: Vec<tokio::task::JoinHandle<()>>,
     cfg: ServerConfig,
     registry: Arc<AgentRegistry>,
@@ -96,7 +96,7 @@ pub(super) struct Session {
 
 impl Session {
     pub(super) fn from_conn(
-        conn: JsonMessageConnection<Value>,
+        conn: MessageChannel<Value>,
         cfg: ServerConfig,
         registry: Arc<AgentRegistry>,
         _label: String,
@@ -137,12 +137,12 @@ impl Session {
 
         while let Some(event) = self.incoming_rx.recv().await {
             match event {
-                JsonMessageConnectionEvent::Message(value) => self.handle_value(value).await,
-                JsonMessageConnectionEvent::MalformedMessage { reason } => {
+                MessageChannelEvent::Message(value) => self.handle_value(value).await,
+                MessageChannelEvent::MalformedMessage { reason } => {
                     self.send_error(Value::Nil, error_code::PARSE_ERROR, reason)
                         .await;
                 }
-                JsonMessageConnectionEvent::Disconnected { reason } => {
+                MessageChannelEvent::Disconnected { reason } => {
                     if let Some(reason) = reason {
                         debug!("frontend read: {reason}");
                     }

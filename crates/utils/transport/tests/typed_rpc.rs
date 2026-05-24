@@ -5,19 +5,22 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
+use nexal_utils_transport::agent::notifications::{
+    PROCESS_OUTPUT, ProcessOutputNotification,
+};
 use nexal_utils_transport::agent::{
     AgentInitialize, FsReadFileParams, FsReadFileResponse, InitializeParams, InitializeResponse,
     ProcessStartParams, ProcessStartResponse,
 };
-use nexal_utils_transport::client::{AgentClient, GatewayAgentClient, GatewayClient};
-use nexal_utils_transport::connect::{
+use nexal_utils_transport::connection::{
     create_accepted_websocket_connection, create_websocket_connection,
 };
 use nexal_utils_transport::gateway::{AgentInvokeParams, HelloParams, HelloResponse};
-use nexal_utils_transport::notifications::{PROCESS_OUTPUT, ProcessOutputNotification};
-use nexal_utils_transport::server::{AgentHandlers, GatewayHandlers, serve_agent, serve_gateway};
 use nexal_utils_transport::transport::TransportOptions;
-use nexal_utils_transport::{RpcMethod, RpcMethodExt, WireError, from_msgpack_value, to_msgpack_value};
+use nexal_utils_transport::{
+    AgentClient, AgentHandlers, GatewayAgentClient, GatewayClient, GatewayHandlers, RpcMethod,
+    RpcMethodExt, WireError, from_msgpack_value, serve_agent, serve_gateway, to_msgpack_value,
+};
 use tokio::net::TcpListener;
 use tokio::sync::mpsc;
 
@@ -115,7 +118,7 @@ impl GatewayHandlers for ProxyGateway {
 async fn spawn_server<F, Fut>(setup: F) -> std::net::SocketAddr
 where
     F: FnOnce(
-            nexal_utils_transport::connect::WebSocketConnection,
+            nexal_utils_transport::connection::WebSocketConnection,
             Arc<AtomicBool>,
         ) -> Fut
         + Send

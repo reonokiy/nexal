@@ -6,7 +6,7 @@
 use std::time::Duration;
 
 use nexal_utils_transport::WireError;
-use nexal_utils_transport::connect::{
+use nexal_utils_transport::connection::{
     create_accepted_websocket_connection, create_websocket_connection,
 };
 use nexal_utils_transport::transport::{HeartbeatOptions, TransportOptions};

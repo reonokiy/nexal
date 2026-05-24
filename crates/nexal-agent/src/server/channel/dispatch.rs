@@ -7,8 +7,10 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use nexal_utils_transport::agent::AgentMethod;
-use nexal_utils_transport::notifications::{PROCESS_CLOSED, PROCESS_EXITED, PROCESS_OUTPUT};
-use nexal_utils_transport::{JsonMessageConnection, JsonMessageConnectionEvent, to_msgpack_value};
+use nexal_utils_transport::agent::notifications::{
+    PROCESS_CLOSED, PROCESS_EXITED, PROCESS_OUTPUT,
+};
+use nexal_utils_transport::{MessageChannel, MessageChannelEvent, to_msgpack_value};
 use rmpv::Value;
 use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, warn};
@@ -154,7 +156,7 @@ impl MsgpackChannel {
     }
 }
 
-/// Run the channel dispatch loop over a `JsonMessageConnection`.
+/// Run the channel dispatch loop over a `MessageChannel`.
 ///
 /// Reads requests, dispatches to the handler, writes responses, and
 /// forwards process event notifications. Returns when the connection
@@ -162,7 +164,7 @@ impl MsgpackChannel {
 pub(crate) async fn run_dispatch(
     handler: Arc<ExecServerHandler>,
     outgoing_tx: mpsc::Sender<Value>,
-    mut incoming_rx: mpsc::Receiver<JsonMessageConnectionEvent<Value>>,
+    mut incoming_rx: mpsc::Receiver<MessageChannelEvent<Value>>,
 ) {
     let channel = Arc::new(MsgpackChannel::new(outgoing_tx.clone()));
     handler.set_channel(channel.clone());
@@ -201,7 +203,7 @@ pub(crate) async fn run_dispatch(
 
     while let Some(event) = incoming_rx.recv().await {
         match event {
-            JsonMessageConnectionEvent::Message(value) => {
+            MessageChannelEvent::Message(value) => {
                 // Check if this is a response to an outgoing request.
                 if channel.try_resolve_pending(&value) {
                     continue;
@@ -226,7 +228,7 @@ pub(crate) async fn run_dispatch(
                     }
                 }
             }
-            JsonMessageConnectionEvent::MalformedMessage { reason } => {
+            MessageChannelEvent::MalformedMessage { reason } => {
                 warn!("malformed message: {reason}");
                 let response = mp_map(vec![
                     ("id", Value::Nil),
@@ -243,7 +245,7 @@ pub(crate) async fn run_dispatch(
                     break;
                 }
             }
-            JsonMessageConnectionEvent::Disconnected { reason } => {
+            MessageChannelEvent::Disconnected { reason } => {
                 if let Some(reason) = reason {
                     debug!("client disconnected: {reason}");
                 }
@@ -258,7 +260,7 @@ pub(crate) async fn run_dispatch(
 
 pub(crate) fn start_dispatch(
     handler: Arc<ExecServerHandler>,
-    conn: JsonMessageConnection<Value>,
+    conn: MessageChannel<Value>,
 ) -> Vec<tokio::task::JoinHandle<()>> {
     let (outgoing_tx, incoming_rx, mut transport_tasks) = conn.into_parts();
     let dispatch_task = tokio::spawn(async move {

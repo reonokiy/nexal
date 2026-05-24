@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::agent::StreamKind;
+use super::methods::StreamKind;
 
 pub const PROCESS_OUTPUT: &str = "process/output";
 pub const PROCESS_EXITED: &str = "process/exited";

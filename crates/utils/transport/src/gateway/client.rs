@@ -1,13 +1,22 @@
-//! Typed RPC clients — Rust mirror of `packages/transport/src/client.ts`.
+//! Typed gateway clients.
 //!
-//! Provides ergonomic wrappers over a [`Connection`] for the Agent,
-//! Gateway, and Gateway→Agent (`agent/invoke` proxy) method sets. Each
-//! wrapper exposes one async method per RPC, fully typed via the
-//! existing `RpcMethod` impls in [`crate::agent`] / [`crate::gateway`].
+//! Two flavors:
+//!   - [`GatewayClient`]      — peer talks to the gateway directly
+//!   - [`GatewayAgentClient`] — peer talks to the gateway, which forwards
+//!     to an agent via the `agent/invoke` RPC
 
 use rmpv::Value;
 
-use crate::agent::{
+use super::methods::{
+    AgentIdParams, AgentInvokeParams, AttachAgentParams, GatewayAgentInvoke, GatewayAttachAgent,
+    GatewayDetachAgent, GatewayHello, GatewayKillAgent, GatewayListAgents, GatewayRegisterProxy,
+    GatewayRegisterStreamProxy, GatewaySpawnAgent, GatewayUnregisterProxy,
+    GatewayUnregisterStreamProxy, HelloParams, HelloResponse, ListAgentsResponse, OkResponse,
+    RegisterProxyParams, RegisterProxyResponse, RegisterStreamProxyParams,
+    RegisterStreamProxyResponse, SpawnAgentParams, SpawnAgentResponse, UnregisterProxyParams,
+    UnregisterStreamProxyParams,
+};
+use crate::agent::methods::{
     AgentFsCopy, AgentFsCreateDirectory, AgentFsGetMetadata, AgentFsReadDirectory,
     AgentFsReadFile, AgentFsRemove, AgentFsWriteFile, AgentInitialize, AgentInitialized,
     AgentProcessRead, AgentProcessStart, AgentProcessTerminate, AgentProcessWrite,
@@ -21,159 +30,9 @@ use crate::agent::{
     ProxyRegisterResponse, ProxyUnregisterParams, ProxyUnregisterResponse,
 };
 use crate::connection::{Connection, TypedRequestError};
-use crate::gateway::{
-    AgentIdParams, AgentInvokeParams, AttachAgentParams, GatewayAgentInvoke, GatewayAttachAgent,
-    GatewayDetachAgent, GatewayHello, GatewayKillAgent, GatewayListAgents, GatewayRegisterProxy,
-    GatewayRegisterStreamProxy, GatewaySpawnAgent, GatewayUnregisterProxy,
-    GatewayUnregisterStreamProxy, HelloParams, HelloResponse, ListAgentsResponse, OkResponse,
-    RegisterProxyParams, RegisterProxyResponse, RegisterStreamProxyParams,
-    RegisterStreamProxyResponse, SpawnAgentParams, SpawnAgentResponse, UnregisterProxyParams,
-    UnregisterStreamProxyParams,
-};
-use crate::notifications::{
-    PROCESS_CLOSED, PROCESS_EXITED, PROCESS_OUTPUT, ProcessClosedNotification,
-    ProcessExitedNotification, ProcessOutputNotification,
-};
 use crate::{RpcMethod, from_msgpack_value, to_msgpack_value};
 
 type TypedResult<T> = Result<T, TypedRequestError>;
-
-// ── AgentClient ─────────────────────────────────────────────────────
-
-/// Typed client that talks directly to an agent (peer is the agent's
-/// connection). Mirrors `createAgentClient` in TS.
-#[derive(Clone)]
-pub struct AgentClient {
-    conn: Connection,
-}
-
-impl AgentClient {
-    pub fn new(conn: Connection) -> Self {
-        Self { conn }
-    }
-
-    pub fn connection(&self) -> &Connection {
-        &self.conn
-    }
-
-    pub async fn initialize(&self, p: &InitializeParams) -> TypedResult<InitializeResponse> {
-        self.conn.request_typed::<AgentInitialize>(p).await
-    }
-
-    pub async fn initialized(&self) -> TypedResult<()> {
-        self.conn.request_typed::<AgentInitialized>(&()).await
-    }
-
-    pub async fn process_start(
-        &self,
-        p: &ProcessStartParams,
-    ) -> TypedResult<ProcessStartResponse> {
-        self.conn.request_typed::<AgentProcessStart>(p).await
-    }
-
-    pub async fn process_read(&self, p: &ProcessReadParams) -> TypedResult<ProcessReadResponse> {
-        self.conn.request_typed::<AgentProcessRead>(p).await
-    }
-
-    pub async fn process_write(
-        &self,
-        p: &ProcessWriteParams,
-    ) -> TypedResult<ProcessWriteResponse> {
-        self.conn.request_typed::<AgentProcessWrite>(p).await
-    }
-
-    pub async fn process_terminate(
-        &self,
-        p: &ProcessTerminateParams,
-    ) -> TypedResult<ProcessTerminateResponse> {
-        self.conn.request_typed::<AgentProcessTerminate>(p).await
-    }
-
-    pub async fn fs_read_file(&self, p: &FsReadFileParams) -> TypedResult<FsReadFileResponse> {
-        self.conn.request_typed::<AgentFsReadFile>(p).await
-    }
-
-    pub async fn fs_write_file(
-        &self,
-        p: &FsWriteFileParams,
-    ) -> TypedResult<FsWriteFileResponse> {
-        self.conn.request_typed::<AgentFsWriteFile>(p).await
-    }
-
-    pub async fn fs_create_directory(
-        &self,
-        p: &FsCreateDirectoryParams,
-    ) -> TypedResult<FsCreateDirectoryResponse> {
-        self.conn.request_typed::<AgentFsCreateDirectory>(p).await
-    }
-
-    pub async fn fs_get_metadata(
-        &self,
-        p: &FsGetMetadataParams,
-    ) -> TypedResult<FsGetMetadataResponse> {
-        self.conn.request_typed::<AgentFsGetMetadata>(p).await
-    }
-
-    pub async fn fs_read_directory(
-        &self,
-        p: &FsReadDirectoryParams,
-    ) -> TypedResult<FsReadDirectoryResponse> {
-        self.conn.request_typed::<AgentFsReadDirectory>(p).await
-    }
-
-    pub async fn fs_remove(&self, p: &FsRemoveParams) -> TypedResult<FsRemoveResponse> {
-        self.conn.request_typed::<AgentFsRemove>(p).await
-    }
-
-    pub async fn fs_copy(&self, p: &FsCopyParams) -> TypedResult<FsCopyResponse> {
-        self.conn.request_typed::<AgentFsCopy>(p).await
-    }
-
-    pub async fn proxy_register(
-        &self,
-        p: &ProxyRegisterParams,
-    ) -> TypedResult<ProxyRegisterResponse> {
-        self.conn.request_typed::<AgentProxyRegister>(p).await
-    }
-
-    pub async fn proxy_unregister(
-        &self,
-        p: &ProxyUnregisterParams,
-    ) -> TypedResult<ProxyUnregisterResponse> {
-        self.conn.request_typed::<AgentProxyUnregister>(p).await
-    }
-
-    // ── Typed notification subscriptions ────────────────────────────
-
-    pub async fn on_process_output<F>(&self, handler: F)
-    where
-        F: Fn(ProcessOutputNotification) + Send + Sync + 'static,
-    {
-        self.conn
-            .on_typed::<ProcessOutputNotification, _>(PROCESS_OUTPUT, handler)
-            .await;
-    }
-
-    pub async fn on_process_exited<F>(&self, handler: F)
-    where
-        F: Fn(ProcessExitedNotification) + Send + Sync + 'static,
-    {
-        self.conn
-            .on_typed::<ProcessExitedNotification, _>(PROCESS_EXITED, handler)
-            .await;
-    }
-
-    pub async fn on_process_closed<F>(&self, handler: F)
-    where
-        F: Fn(ProcessClosedNotification) + Send + Sync + 'static,
-    {
-        self.conn
-            .on_typed::<ProcessClosedNotification, _>(PROCESS_CLOSED, handler)
-            .await;
-    }
-}
-
-// ── GatewayClient ───────────────────────────────────────────────────
 
 /// Typed client that talks to a gateway. Mirrors `createGatewayClient`.
 #[derive(Clone)]
@@ -246,8 +105,6 @@ impl GatewayClient {
             .await
     }
 }
-
-// ── GatewayAgentClient (proxy via agent/invoke) ─────────────────────
 
 /// Typed client that talks to an agent _through_ a gateway via the
 /// `agent/invoke` RPC. Mirrors `createGatewayAgentClient`.

@@ -17,7 +17,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use nexal_utils_transport::agent::AgentMethod;
-use nexal_utils_transport::{JsonMessageConnection, JsonMessageConnectionEvent};
+use nexal_utils_transport::{MessageChannel, MessageChannelEvent};
 use rmpv::Value;
 use thiserror::Error;
 use tokio::sync::{Mutex, mpsc, oneshot};
@@ -78,7 +78,7 @@ impl AgentConn {
             .await
             .map_err(|e| AgentConnError::Connect(format!("connect {url}: {e}")))?;
 
-        let conn = JsonMessageConnection::<Value>::from_websocket_binary(
+        let conn = MessageChannel::<Value>::from_websocket_binary(
             ws_stream,
             format!("agent ws {url}"),
         );
@@ -171,7 +171,7 @@ impl AgentConn {
 }
 
 async fn run_reader(
-    mut incoming_rx: mpsc::Receiver<JsonMessageConnectionEvent<Value>>,
+    mut incoming_rx: mpsc::Receiver<MessageChannelEvent<Value>>,
     pending: &Arc<Mutex<Pending>>,
     notify_tx: &mpsc::Sender<AgentNotification>,
     request_handler: Option<&AgentRequestHandler>,
@@ -179,17 +179,17 @@ async fn run_reader(
 ) {
     while let Some(event) = incoming_rx.recv().await {
         match event {
-            JsonMessageConnectionEvent::Message(value) => {
+            MessageChannelEvent::Message(value) => {
                 if let Err(err) =
                     dispatch_frame(value, pending, notify_tx, request_handler, write_tx).await
                 {
                     warn!("agent frame dispatch error: {err}");
                 }
             }
-            JsonMessageConnectionEvent::MalformedMessage { reason } => {
+            MessageChannelEvent::MalformedMessage { reason } => {
                 warn!("agent frame malformed: {reason}");
             }
-            JsonMessageConnectionEvent::Disconnected { reason } => {
+            MessageChannelEvent::Disconnected { reason } => {
                 if let Some(reason) = reason {
                     warn!("agent disconnected: {reason}");
                 }
