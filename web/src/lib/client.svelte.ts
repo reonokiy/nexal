@@ -1,12 +1,22 @@
 /**
- * Svelte 5 reactive wrapper around the shared NexalChatClient.
- * The transport / protocol logic lives in `@nexal/chat-client` — this
- * file only translates the client's events into runes-backed state
- * (messages, status, typing) consumed by the UI.
+ * Svelte 5 reactive wrapper around the @nexal/transport chat client.
+ *
+ * Connection lifecycle (open / auth / reconnect) lives here; the
+ * transport package only provides the typed `createChatClient(peer)`
+ * factory + `createWebSocketConnection` for plumbing. Events are
+ * translated into runes-backed state (`messages`, `status`, `typing`)
+ * consumed by the UI.
  */
-import { NexalChatClient, type Status, type CommandInfo } from "@nexal/chat-client";
+import {
+	createChatClient,
+	createWebSocketConnection,
+	type ChatClient,
+	type CommandInfo,
+	type WebSocketConnection,
+} from "@nexal/transport";
 
 export type Role = "user" | "agent" | "system";
+export type Status = "idle" | "connecting" | "open" | "closed";
 
 export interface Message {
 	id: number;
@@ -21,27 +31,31 @@ let nextId = 1;
 
 export function createChat(
 	initialUrl: string,
-	chatId = "default",
-	sender = "web-user",
+	chatIdValue = "default",
+	senderValue = "web-user",
 	initialAuthToken = "",
 ) {
-	const client = new NexalChatClient({
-		url: initialUrl,
-		chatId,
-		sender,
-		reconnectDelayMs: 0, // web stays manual; status drives the UI
-		authToken: initialAuthToken,
-	});
-
 	let url = $state(initialUrl);
 	let status = $state<Status>("idle");
 	let typing = $state(false);
 	const messages = $state<Message[]>([]);
+	let authToken = initialAuthToken;
+	let authOk = false;
+
+	let ws: WebSocketConnection | null = null;
+	let chat: ChatClient | null = null;
+	let connectGeneration = 0;
 
 	// command_result events whose name matches a positive count are
 	// consumed by an awaiting caller (settings page, etc.) and should
 	// not bubble up as a system note in the chat transcript.
 	const mutedCounts = new Map<string, number>();
+	const awaiters = new Set<(p: {
+		name: string;
+		text?: string;
+		error?: string;
+		data?: unknown;
+	}) => void>();
 
 	let typingTimer: ReturnType<typeof setTimeout> | null = null;
 	function setTyping(on: boolean) {
@@ -61,115 +75,145 @@ export function createChat(
 		return undefined;
 	}
 
-	client.on((ev) => {
-		switch (ev.type) {
-			case "open":
-				status = client.status;
-				pushSystem(`connected to ${url}`);
-				break;
-			case "auth_ok":
-				pushSystem(`authenticated as ${ev.email ?? ev.userId}`);
-				break;
-			case "auth_error":
-				pushSystem(`authentication failed: ${ev.error}`);
-				break;
-			case "close":
-				status = client.status;
-				pushSystem("disconnected");
-				break;
-			case "error":
-				pushSystem("socket error");
-				break;
-			case "reply":
-				setTyping(false);
+	function wire(client: ChatClient): void {
+		client.onReply(({ text }) => {
+			setTyping(false);
+			messages.push({ id: nextId++, role: "agent", text, ts: Date.now() });
+		});
+		client.onTyping(() => setTyping(true));
+		client.onReplyChunk(({ messageId, delta }) => {
+			setTyping(false);
+			const existing = findStreaming(messageId);
+			if (existing) existing.text += delta;
+			else
 				messages.push({
 					id: nextId++,
+					streamId: messageId,
 					role: "agent",
-					text: ev.text,
+					text: delta,
 					ts: Date.now(),
+					streaming: true,
 				});
-				break;
-			case "reply_chunk": {
-				setTyping(false);
-				const existing = findStreaming(ev.messageId);
-				if (existing) existing.text += ev.delta;
-				else
-					messages.push({
-						id: nextId++,
-						streamId: ev.messageId,
-						role: "agent",
-						text: ev.delta,
-						ts: Date.now(),
-						streaming: true,
-					});
-				break;
+		});
+		client.onReplyEnd(({ messageId }) => {
+			const existing = findStreaming(messageId);
+			if (existing) existing.streaming = false;
+		});
+		client.onCommandResult(({ name, text, error, data }) => {
+			for (const cb of awaiters) cb({ name, text, error, data });
+			const count = mutedCounts.get(name) ?? 0;
+			if (count > 0) {
+				mutedCounts.set(name, count - 1);
+				return;
 			}
-			case "reply_end": {
-				const existing = findStreaming(ev.messageId);
-				if (existing) existing.streaming = false;
-				break;
-			}
-			case "typing":
-				setTyping(true);
-				break;
-			case "command_result": {
-				const count = mutedCounts.get(ev.name) ?? 0;
-				if (count > 0) {
-					mutedCounts.set(ev.name, count - 1);
-					break;
-				}
-				messages.push({
-					id: nextId++,
-					role: "system",
-					text: ev.error
-						? `/${ev.name} error: ${ev.error}`
-						: `/${ev.name}: ${ev.text ?? ""}`,
-					ts: Date.now(),
-				});
-				break;
-			}
-		}
-	});
+			messages.push({
+				id: nextId++,
+				role: "system",
+				text: error ? `/${name} error: ${error}` : `/${name}: ${text ?? ""}`,
+				ts: Date.now(),
+			});
+		});
+	}
 
-	function connect(target?: string) {
-		if (target) {
-			url = target;
-			client.url = target;
-		}
+	async function connect(target?: string) {
+		if (target) url = target;
+		const generation = ++connectGeneration;
+		closeSocket();
 		status = "connecting";
-		client.connect();
+
+		let next: WebSocketConnection;
+		try {
+			next = await createWebSocketConnection(url, {
+				onDisconnect: () => {
+					if (generation !== connectGeneration) return;
+					status = "closed";
+					ws = null;
+					chat = null;
+					authOk = false;
+					pushSystem("disconnected");
+				},
+			});
+		} catch {
+			if (generation !== connectGeneration) return;
+			status = "closed";
+			pushSystem("socket error");
+			return;
+		}
+		if (generation !== connectGeneration) {
+			next.connection.close();
+			return;
+		}
+
+		ws = next;
+		chat = createChatClient(next.connection);
+		status = "open";
+		wire(chat);
+		pushSystem(`connected to ${url}`);
+
+		if (authToken) await runAuth(chat);
+	}
+
+	async function runAuth(client: ChatClient): Promise<void> {
+		if (!authToken || authOk) return;
+		try {
+			const { userId, email } = await client.authenticate({ token: authToken });
+			authOk = true;
+			pushSystem(`authenticated as ${email ?? userId}`);
+		} catch (err) {
+			authOk = false;
+			pushSystem(
+				`authentication failed: ${err instanceof Error ? err.message : String(err)}`,
+			);
+		}
 	}
 
 	function disconnect() {
-		client.disconnect();
+		connectGeneration++;
+		closeSocket();
+	}
+
+	function closeSocket() {
+		authOk = false;
+		if (ws) {
+			try {
+				ws.connection.close();
+			} catch {
+				/* ok */
+			}
+			ws = null;
+			chat = null;
+		}
 	}
 
 	function sendText(text: string) {
 		const trimmed = text.trim();
 		if (!trimmed) return;
-		const ok = trimmed.startsWith("/")
-			? (() => {
-					const [head, ...args] = trimmed.slice(1).split(/\s+/);
-					return client.sendCommand(head!, args);
-				})()
-			: client.sendText(trimmed);
-		if (!ok) {
+		if (!chat || !authOk) {
 			pushSystem("not connected");
 			return;
 		}
-		messages.push({
-			id: nextId++,
-			role: "user",
-			text: trimmed,
-			ts: Date.now(),
-		});
+		if (trimmed.startsWith("/")) {
+			const [head, ...args] = trimmed.slice(1).split(/\s+/);
+			chat.command({
+				chatId: chatIdValue,
+				sender: senderValue,
+				name: head!,
+				args,
+			});
+		} else {
+			chat.send({ chatId: chatIdValue, sender: senderValue, text: trimmed });
+		}
+		messages.push({ id: nextId++, role: "user", text: trimmed, ts: Date.now() });
 	}
 
 	/** Send a slash command without echoing a "user" bubble. */
 	function runCommand(name: string, args: string[] = []): boolean {
-		const ok = client.sendCommand(name, args);
-		if (!ok) pushSystem("not connected");
-		return ok;
+		if (!chat || !authOk) {
+			pushSystem("not connected");
+			return false;
+		}
+		chat.command({ chatId: chatIdValue, sender: senderValue, name, args });
+		return true;
 	}
 
 	/**
@@ -183,32 +227,39 @@ export function createChat(
 		timeoutMs = 5000,
 	): Promise<{ text?: string; error?: string; data?: unknown }> {
 		return new Promise((resolve, reject) => {
+			if (!chat || !authOk) {
+				reject(new Error("not connected"));
+				return;
+			}
 			mutedCounts.set(name, (mutedCounts.get(name) ?? 0) + 1);
-			const off = client.on((ev) => {
-				if (ev.type !== "command_result" || ev.name !== name) return;
+			const callback = (p: {
+				name: string;
+				text?: string;
+				error?: string;
+				data?: unknown;
+			}) => {
+				if (p.name !== name) return;
 				cleanup();
-				resolve({ text: ev.text, error: ev.error, data: ev.data });
-			});
+				resolve({ text: p.text, error: p.error, data: p.data });
+			};
+			awaiters.add(callback);
 			const timer = setTimeout(() => {
 				cleanup();
 				reject(new Error(`/${name} timed out`));
 			}, timeoutMs);
 			function cleanup() {
-				off();
+				awaiters.delete(callback);
 				clearTimeout(timer);
 			}
-			if (!client.sendCommand(name, args)) {
-				const c = mutedCounts.get(name) ?? 0;
-				if (c > 0) mutedCounts.set(name, c - 1);
-				cleanup();
-				reject(new Error("not connected"));
-			}
+			chat.command({ chatId: chatIdValue, sender: senderValue, name, args });
 		});
 	}
 
 	/** Fetch available commands from the server. */
-	function listCommands(): Promise<CommandInfo[]> {
-		return client.listCommands();
+	async function listCommands(): Promise<CommandInfo[]> {
+		if (!chat || !authOk) throw new Error("not connected");
+		const { commands } = await chat.listCommands();
+		return commands;
 	}
 
 	return {
@@ -217,16 +268,16 @@ export function createChat(
 		},
 		set url(v: string) {
 			url = v;
-			client.url = v;
 		},
 		get status() {
 			return status;
 		},
 		get authToken() {
-			return client.token ?? "";
+			return authToken;
 		},
 		set authToken(v: string) {
-			client.token = v;
+			authToken = v;
+			if (v && chat && !authOk) void runAuth(chat);
 		},
 		get typing() {
 			return typing;

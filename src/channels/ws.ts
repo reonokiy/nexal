@@ -1,14 +1,17 @@
 /**
- * WebSocket channel — push-based replacement for the polling HTTP channel.
+ * WebSocket channel — chat protocol over @nexal/transport's RPC envelope.
  *
  * Transport:
  *   - Default: Unix domain socket at `~/.nexal/nexal.sock` (local dev)
  *   - Fallback: TCP on configurable host:port
  *
- * Wire protocol: canonical types live in `@nexal/chat-client`.
+ * Wire protocol: msgpack-binary `{id,method,params}` /
+ * `{id,result|error}` / `{method,params}` frames. Methods live in
+ * `@nexal/transport`'s `chat.ts` (`chat/authenticate`, `chat/send`,
+ * `chat/reply`, …).
  *
- * The `fetch` handler also accepts `POST /send` for curl debugging,
- * same schema as the SendFrame.
+ * The `fetch` handler also accepts `POST /send` for curl debugging;
+ * it skips the chat protocol entirely and synthesizes an IncomingMessage.
  */
 import { mkdirSync, unlinkSync } from "node:fs";
 import { dirname } from "node:path";
@@ -24,20 +27,20 @@ import type {
 import { waitUntilStopped } from "./types.ts";
 import type { CommandRegistry } from "../commands/registry.ts";
 import { registerChannel } from "./factory.ts";
-import type {
-	ClientFrame,
-	SendFrame,
-	CommandFrame,
-	ReplyFrame,
-	TypingFrame,
-	CommandResultFrame,
-	ListCommandsResultFrame,
-	ReplyChunkFrame,
-	ReplyEndFrame,
-	ImageBlock,
-} from "@nexal/chat-client";
-import { ClientFrameType, ServerFrameType } from "@nexal/chat-client";
-import { encodeFrame, decodeFrame } from "@nexal/chat-client";
+import {
+	createAcceptedWebSocketConnection,
+	handleChatNotifications,
+	handleChatRequests,
+	type AcceptedWebSocketConnection,
+	type ChatCommandResultParams,
+	type ChatReplyChunkParams,
+	type ChatReplyEndParams,
+	type ChatReplyParams,
+	type ChatTypingParams,
+	type ImageBlock,
+	type WebSocketPeer,
+} from "@nexal/transport";
+import type { Connection } from "@nexal/transport";
 
 const log = createLog("ws");
 
@@ -45,6 +48,7 @@ const DEFAULT_CHAT_ID = "default";
 const DEFAULT_SENDER = "ws-user";
 
 type BunServer = ReturnType<typeof Bun.serve>;
+type BunWs = import("bun").ServerWebSocket<WsData>;
 
 export interface WsChannelConfig {
 	/** Unix socket path. Takes precedence over port. */
@@ -57,19 +61,21 @@ export interface WsChannelConfig {
 	commands?: CommandRegistry;
 }
 
-interface WsData {
+interface WsState {
 	chatId: string;
 	authed: boolean;
 	userId?: string;
 }
 
+interface WsData {
+	state: WsState;
+	wired: AcceptedWebSocketConnection | null;
+}
+
 export class WsChannel implements Channel {
 	readonly name = "ws";
 	private server: BunServer | null = null;
-	private readonly clients = new Map<
-		string,
-		Set<import("bun").ServerWebSocket<WsData>>
-	>();
+	private readonly clients = new Map<string, Set<BunWs>>();
 	private onMessage: ((msg: IncomingMessage) => void) | null = null;
 
 	constructor(private readonly config: WsChannelConfig) {}
@@ -106,13 +112,22 @@ export class WsChannel implements Channel {
 
 				// WebSocket upgrade — any GET request.
 				if (req.method === "GET" && req.headers.get("upgrade") === "websocket") {
-					if (server.upgrade(req, { data: { chatId: DEFAULT_CHAT_ID, authed: false } as WsData })) {
+					const data: WsData = {
+						state: {
+							chatId: DEFAULT_CHAT_ID,
+							// If auth is disabled globally, treat the socket as pre-authed
+							// so notifications can flow without an authenticate roundtrip.
+							authed: !isAuthEnabled(),
+						},
+						wired: null,
+					};
+					if (server.upgrade(req, { data })) {
 						return undefined as unknown as Response;
 					}
 					return new Response("WebSocket upgrade failed", { status: 500 });
 				}
 
-				// POST /send — curl-compatible fallback.
+				// POST /send — curl-compatible fallback, bypasses the chat protocol.
 				if (req.method === "POST" && url.pathname === "/send") {
 					return (async () => {
 						const body = (await req.json()) as {
@@ -133,94 +148,19 @@ export class WsChannel implements Channel {
 			},
 
 			websocket: {
-				open(ws: import("bun").ServerWebSocket<WsData>) {
-					self.addClient(ws.data.chatId, ws);
+				open(ws: BunWs) {
+					self.attach(ws);
 				},
 
-				message(
-					ws: import("bun").ServerWebSocket<WsData>,
-					raw: string | Buffer,
-				) {
-					let frame: ClientFrame & { token?: string };
-					try {
-						frame = decodeFrame(raw) as ClientFrame & { token?: string };
-					} catch {
-						return;
-					}
-
-					// Auth enforcement: first frame must be "auth" if auth is enabled.
-					if (isAuthEnabled() && !ws.data.authed) {
-						if (frame.type !== ClientFrameType.Auth || !frame.token) {
-							ws.send(
-								encodeFrame({
-									type: ServerFrameType.AuthError,
-									error: "authentication required — send auth frame first",
-								}),
-							);
-							ws.close(4001, "auth required");
-							return;
-						}
-						void verifySupabaseJwt(frame.token).then((user) => {
-							if (user) {
-								ws.data.authed = true;
-								ws.data.userId = user.sub;
-								ws.send(
-									encodeFrame({
-										type: ServerFrameType.AuthOk,
-										user_id: user.sub,
-										email: user.email,
-									}),
-								);
-							} else {
-								ws.send(
-									encodeFrame({
-										type: ServerFrameType.AuthError,
-										error: "invalid or expired token",
-									}),
-								);
-								ws.close(4001, "bad token");
-							}
-						});
-						return;
-					}
-
-					// At this point frame is SendFrame | CommandFrame | ListCommandsFrame.
-					if (frame.type === ClientFrameType.ListCommands) {
-						self.handleListCommands(ws);
-						return;
-					}
-
-					const f = frame as SendFrame | CommandFrame;
-					const chatId = f.chat_id ?? DEFAULT_CHAT_ID;
-					if (chatId !== ws.data.chatId) {
-						self.removeClient(ws.data.chatId, ws);
-						ws.data.chatId = chatId;
-						self.addClient(chatId, ws);
-					}
-
-					if (f.type === ClientFrameType.Command) {
-						self.handleCommand(
-							ws,
-							chatId,
-							f.sender ?? DEFAULT_SENDER,
-							f.name,
-							f.args ?? [],
-						);
-						return;
-					}
-
-					if (f.type === ClientFrameType.Send) {
-						self.fireIncoming(
-							chatId,
-							f.sender ?? DEFAULT_SENDER,
-							f.text ?? "",
-							f.images,
-						);
-					}
+				message(ws: BunWs, raw: string | Buffer) {
+					const wired = ws.data.wired;
+					if (!wired) return;
+					wired.transport.receive(raw);
 				},
 
-				close(ws: import("bun").ServerWebSocket<WsData>) {
-					self.removeClient(ws.data.chatId, ws);
+				close(ws: BunWs) {
+					ws.data.wired?.transport.disconnect();
+					self.removeClient(ws.data.state.chatId, ws);
 				},
 			},
 		};
@@ -236,55 +176,35 @@ export class WsChannel implements Channel {
 	}
 
 	async send(reply: OutgoingReply): Promise<void> {
-		const set = this.clients.get(reply.chatId);
-		if (!set || set.size === 0) return;
-		const frame: ReplyFrame = {
-			type: ServerFrameType.Reply,
-			chat_id: reply.chatId,
+		this.broadcast(reply.chatId, "chat/reply", {
+			chatId: reply.chatId,
 			text: reply.text,
-			...(reply.metadata ? { metadata: reply.metadata as ReplyFrame["metadata"] } : {}),
-		};
-		const bin = encodeFrame(frame);
-		for (const ws of set) {
-			ws.send(bin);
-		}
+			...(reply.metadata
+				? { metadata: reply.metadata as ChatReplyParams["metadata"] }
+				: {}),
+		});
 	}
 
 	sendChunk(chatId: string, messageId: string, delta: string): void {
-		const set = this.clients.get(chatId);
-		if (!set || set.size === 0) return;
-		const frame: ReplyChunkFrame = {
-			type: ServerFrameType.ReplyChunk,
-			chat_id: chatId,
-			message_id: messageId,
+		this.broadcast(chatId, "chat/replyChunk", {
+			chatId,
+			messageId,
 			delta,
-		};
-		const bin = encodeFrame(frame);
-		for (const ws of set) ws.send(bin);
+		} satisfies ChatReplyChunkParams);
 	}
 
 	sendEnd(chatId: string, messageId: string): void {
-		const set = this.clients.get(chatId);
-		if (!set || set.size === 0) return;
-		const frame: ReplyEndFrame = {
-			type: ServerFrameType.ReplyEnd,
-			chat_id: chatId,
-			message_id: messageId,
-		};
-		const bin = encodeFrame(frame);
-		for (const ws of set) ws.send(bin);
+		this.broadcast(chatId, "chat/replyEnd", {
+			chatId,
+			messageId,
+		} satisfies ChatReplyEndParams);
 	}
 
 	startTyping(chatId: string): TypingHandle | null {
 		const set = this.clients.get(chatId);
 		if (!set || set.size === 0) return null;
-		const frame: TypingFrame = { type: ServerFrameType.Typing, chat_id: chatId };
-		const bin = encodeFrame(frame);
-		const send = () => {
-			const current = this.clients.get(chatId);
-			if (!current) return;
-			for (const ws of current) ws.send(bin);
-		};
+		const params: ChatTypingParams = { chatId };
+		const send = () => this.broadcast(chatId, "chat/typing", params);
 		send();
 		const timer = setInterval(send, 4_000);
 		return { stop: () => clearInterval(timer) };
@@ -293,6 +213,7 @@ export class WsChannel implements Channel {
 	async stop(): Promise<void> {
 		for (const set of this.clients.values()) {
 			for (const ws of set) {
+				ws.data.wired?.transport.disconnect();
 				ws.close(1000, "shutdown");
 			}
 		}
@@ -303,10 +224,69 @@ export class WsChannel implements Channel {
 
 	// ── Internals ───────────────────────────────────────────────────
 
-	private addClient(
-		chatId: string,
-		ws: import("bun").ServerWebSocket<WsData>,
-	): void {
+	private attach(ws: BunWs): void {
+		const state = ws.data.state;
+		const peer: WebSocketPeer = {
+			get readyState() {
+				return ws.readyState;
+			},
+			send: (data) => ws.send(data),
+			close: () => ws.close(),
+		};
+
+		const wired = createAcceptedWebSocketConnection(peer);
+		ws.data.wired = wired;
+		this.addClient(state.chatId, ws);
+
+		const conn = wired.connection;
+
+		handleChatRequests(conn, {
+			authenticate: async ({ token }) => {
+				if (!token) throw new Error("missing token");
+				const user = await verifySupabaseJwt(token);
+				if (!user) throw new Error("invalid or expired token");
+				state.authed = true;
+				state.userId = user.sub;
+				return {
+					userId: user.sub,
+					...(user.email ? { email: user.email } : {}),
+				};
+			},
+			listCommands: () => {
+				if (!state.authed) throw new Error("not authenticated");
+				const commands = this.config.commands
+					? this.config.commands
+							.list()
+							.map((c) => ({ name: c.name, description: c.description }))
+					: [];
+				return { commands };
+			},
+		});
+
+		handleChatNotifications(conn, {
+			send: ({ chatId, sender, text, images }) => {
+				if (!state.authed) return;
+				const target = chatId ?? DEFAULT_CHAT_ID;
+				this.rebindChat(ws, target);
+				this.fireIncoming(target, sender ?? DEFAULT_SENDER, text ?? "", images);
+			},
+			command: ({ chatId, sender, name, args }) => {
+				if (!state.authed) return;
+				const target = chatId ?? DEFAULT_CHAT_ID;
+				this.rebindChat(ws, target);
+				this.handleCommand(conn, target, sender ?? DEFAULT_SENDER, name, args ?? []);
+			},
+		});
+	}
+
+	private rebindChat(ws: BunWs, chatId: string): void {
+		if (chatId === ws.data.state.chatId) return;
+		this.removeClient(ws.data.state.chatId, ws);
+		ws.data.state.chatId = chatId;
+		this.addClient(chatId, ws);
+	}
+
+	private addClient(chatId: string, ws: BunWs): void {
 		let set = this.clients.get(chatId);
 		if (!set) {
 			set = new Set();
@@ -315,25 +295,23 @@ export class WsChannel implements Channel {
 		set.add(ws);
 	}
 
-	private removeClient(
-		chatId: string,
-		ws: import("bun").ServerWebSocket<WsData>,
-	): void {
+	private removeClient(chatId: string, ws: BunWs): void {
 		const set = this.clients.get(chatId);
 		if (!set) return;
 		set.delete(ws);
 		if (set.size === 0) this.clients.delete(chatId);
 	}
 
-	private sendCommandResult(
-		ws: import("bun").ServerWebSocket<WsData>,
-		frame: CommandResultFrame,
-	): void {
-		ws.send(encodeFrame(frame));
+	private broadcast(chatId: string, method: string, params: unknown): void {
+		const set = this.clients.get(chatId);
+		if (!set || set.size === 0) return;
+		for (const ws of set) {
+			ws.data.wired?.connection.notify(method, params);
+		}
 	}
 
 	private handleCommand(
-		ws: import("bun").ServerWebSocket<WsData>,
+		conn: Connection,
 		chatId: string,
 		sender: string,
 		name: string,
@@ -341,48 +319,31 @@ export class WsChannel implements Channel {
 	): void {
 		const cmds = this.config.commands;
 		if (!cmds || !cmds.has(name)) {
-			this.sendCommandResult(ws, {
-				type: ServerFrameType.CommandResult,
-				chat_id: chatId,
+			conn.notify("chat/commandResult", {
+				chatId,
 				name,
 				error: `unknown command: /${name}`,
-			});
+			} satisfies ChatCommandResultParams);
 			return;
 		}
 		void cmds
 			.execute(name, { channel: "ws", chatId, sender }, args)
 			.then((result) => {
-				this.sendCommandResult(ws, {
-					type: ServerFrameType.CommandResult,
-					chat_id: chatId,
+				conn.notify("chat/commandResult", {
+					chatId,
 					name,
 					text: result?.text ?? "",
 					...(result && "data" in result ? { data: result.data } : {}),
-				});
+				} satisfies ChatCommandResultParams);
 			})
 			.catch((err) => {
 				log.error(`command /${name} failed`, err);
-				this.sendCommandResult(ws, {
-					type: ServerFrameType.CommandResult,
-					chat_id: chatId,
+				conn.notify("chat/commandResult", {
+					chatId,
 					name,
 					error: err instanceof Error ? err.message : String(err),
-				});
+				} satisfies ChatCommandResultParams);
 			});
-	}
-
-	private handleListCommands(
-		ws: import("bun").ServerWebSocket<WsData>,
-	): void {
-		const cmds = this.config.commands;
-		const commands = cmds
-			? cmds.list().map((c) => ({ name: c.name, description: c.description }))
-			: [];
-		const frame: ListCommandsResultFrame = {
-			type: ServerFrameType.ListCommandsResult,
-			commands,
-		};
-		ws.send(encodeFrame(frame));
 	}
 
 	private fireIncoming(
@@ -399,11 +360,12 @@ export class WsChannel implements Channel {
 			timestamp: Date.now(),
 			isMentioned: true,
 			metadata: {},
-			images: images?.map((img) => ({
-				data: img.data,
-				mimeType: img.mimeType,
-				filename: "clipboard.png",
-			})) ?? [],
+			images:
+				images?.map((img) => ({
+					data: img.data,
+					mimeType: img.mimeType,
+					filename: "clipboard.png",
+				})) ?? [],
 		});
 	}
 }

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { createAcceptedWebSocketConnection, createWebSocketConnection } from "./connect.ts";
+import { createAcceptedWebSocketConnection, createWebSocketConnection } from "../connection.ts";
 
 const METHODS = [
 	"gateway/hello",

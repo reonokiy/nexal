@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { decodeFrame, encodeFrame } from "./codec.ts";
+import { decodeFrame, encodeFrame } from "../codec.ts";
 
 function hex(bytes: Uint8Array): string {
 	return [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");

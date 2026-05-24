@@ -14,7 +14,7 @@
     "@fontsource/inter": "^5.2.8",
     "@iconify/icons-solar": "^1.2.3",
     "@iconify/svelte": "^5.2.1",
-    "@nexal/chat-client": "workspace:*",
+    "@nexal/transport": "workspace:*",
     "@supabase/supabase-js": "^2.105.4",
     "bits-ui": "^2.0.0",
     "clsx": "^2.1.1",

@@ -1,14 +1,30 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeAll, describe, expect, test } from "bun:test";
 
 import { WsChannel } from "./ws.ts";
 import type { IncomingMessage } from "./types.ts";
+import {
+	createWebSocketConnection,
+	type ChatReplyParams,
+	type WebSocketConnection,
+} from "@nexal/transport";
 
 /**
  * WsChannel tests — use TCP mode (port: 0 for ephemeral) because
  * Bun's native WebSocket client doesn't support Unix sockets.
+ *
+ * Wire protocol is the @nexal/transport RPC envelope, so tests open a
+ * Connection and call `notify(method, params)` instead of sending raw
+ * tagged-union frames.
  */
 
+beforeAll(() => {
+	// Disable Supabase auth for these tests — keeps the test independent
+	// of NEXAL_AUTH_ENABLED in the developer's `.env`.
+	process.env.NEXAL_AUTH_ENABLED = "false";
+});
+
 const channels: WsChannel[] = [];
+const connections: WebSocketConnection[] = [];
 
 async function spinUp(onMessage: (m: IncomingMessage) => void): Promise<{
 	ch: WsChannel;
@@ -21,7 +37,7 @@ async function spinUp(onMessage: (m: IncomingMessage) => void): Promise<{
 
 	const deadline = Date.now() + 2_000;
 	while (Date.now() < deadline) {
-		const srv = (ch as any).server;
+		const srv = (ch as unknown as { server: { port?: number } | null }).server;
 		if (srv && typeof srv.port === "number" && srv.port > 0) {
 			return {
 				ch,
@@ -34,36 +50,25 @@ async function spinUp(onMessage: (m: IncomingMessage) => void): Promise<{
 	throw new Error("WsChannel did not bind in 2s");
 }
 
-function openWs(url: string): Promise<WebSocket> {
-	return new Promise((resolve, reject) => {
-		const ws = new WebSocket(url);
-		const timer = setTimeout(() => reject(new Error("WS open timeout")), 2_000);
-		ws.addEventListener("open", () => {
-			clearTimeout(timer);
-			resolve(ws);
-		});
-		ws.addEventListener("error", () => {
-			clearTimeout(timer);
-			reject(new Error("WS open error"));
-		});
-	});
+async function openConn(url: string): Promise<WebSocketConnection> {
+	const conn = await createWebSocketConnection(url);
+	connections.push(conn);
+	return conn;
 }
 
-function nextMessage(ws: WebSocket): Promise<any> {
+function nextReply(conn: WebSocketConnection): Promise<ChatReplyParams> {
 	return new Promise((resolve, reject) => {
-		const timer = setTimeout(() => reject(new Error("no WS message in 2s")), 2_000);
-		ws.addEventListener(
-			"message",
-			(ev) => {
-				clearTimeout(timer);
-				resolve(JSON.parse(typeof ev.data === "string" ? ev.data : ""));
-			},
-			{ once: true },
-		);
+		const timer = setTimeout(() => reject(new Error("no chat/reply in 2s")), 2_000);
+		const off = conn.connection.on("chat/reply", (params) => {
+			clearTimeout(timer);
+			off();
+			resolve(params as ChatReplyParams);
+		});
 	});
 }
 
 afterEach(async () => {
+	for (const c of connections.splice(0)) c.connection.close();
 	for (const ch of channels.splice(0)) await ch.stop();
 	// Give sockets time to close.
 	await new Promise((r) => setTimeout(r, 50));
@@ -75,11 +80,15 @@ describe("WsChannel", () => {
 		expect(ch.name).toBe("ws");
 	});
 
-	test("WS client send fires onMessage", async () => {
+	test("chat/send notification fires onMessage", async () => {
 		const received: IncomingMessage[] = [];
 		const { url } = await spinUp((m) => received.push(m));
-		const ws = await openWs(url);
-		ws.send(JSON.stringify({ type: "send", chat_id: "c1", sender: "alice", text: "hello" }));
+		const conn = await openConn(url);
+		conn.connection.notify("chat/send", {
+			chatId: "c1",
+			sender: "alice",
+			text: "hello",
+		});
 		await new Promise((r) => setTimeout(r, 100));
 		expect(received).toHaveLength(1);
 		const m = received[0]!;
@@ -88,54 +97,48 @@ describe("WsChannel", () => {
 		expect(m.sender).toBe("alice");
 		expect(m.text).toBe("hello");
 		expect(m.isMentioned).toBe(true);
-		ws.close();
 	});
 
-	test("defaults chat_id and sender when omitted", async () => {
+	test("defaults chatId and sender when omitted", async () => {
 		const received: IncomingMessage[] = [];
 		const { url } = await spinUp((m) => received.push(m));
-		const ws = await openWs(url);
-		ws.send(JSON.stringify({ type: "send", text: "bare" }));
+		const conn = await openConn(url);
+		conn.connection.notify("chat/send", { text: "bare" });
 		await new Promise((r) => setTimeout(r, 100));
 		expect(received[0]!.chatId).toBe("default");
 		expect(received[0]!.sender).toBe("ws-user");
-		ws.close();
 	});
 
-	test("channel.send() pushes reply to connected client", async () => {
+	test("channel.send() pushes chat/reply to connected client", async () => {
 		const { ch, url } = await spinUp(() => undefined);
-		const ws = await openWs(url);
-		// Register on chat_id "c1" by sending a message first.
-		ws.send(JSON.stringify({ type: "send", chat_id: "c1", text: "hi" }));
+		const conn = await openConn(url);
+		// Register on chat_id "c1" by sending a notification first.
+		conn.connection.notify("chat/send", { chatId: "c1", text: "hi" });
 		await new Promise((r) => setTimeout(r, 50));
 
-		const msgPromise = nextMessage(ws);
+		const replyPromise = nextReply(conn);
 		await ch.send({ chatId: "c1", text: "world" });
-		const msg = await msgPromise;
-		expect(msg).toEqual({ type: "reply", chat_id: "c1", text: "world" });
-		ws.close();
+		const params = await replyPromise;
+		expect(params).toEqual({ chatId: "c1", text: "world" });
 	});
 
 	test("replies are isolated by chatId", async () => {
 		const { ch, url } = await spinUp(() => undefined);
-		const ws1 = await openWs(url);
-		const ws2 = await openWs(url);
+		const c1 = await openConn(url);
+		const c2 = await openConn(url);
 
-		ws1.send(JSON.stringify({ type: "send", chat_id: "a", text: "x" }));
-		ws2.send(JSON.stringify({ type: "send", chat_id: "b", text: "y" }));
+		c1.connection.notify("chat/send", { chatId: "a", text: "x" });
+		c2.connection.notify("chat/send", { chatId: "b", text: "y" });
 		await new Promise((r) => setTimeout(r, 50));
 
-		const p1 = nextMessage(ws1);
+		const p1 = nextReply(c1);
 		await ch.send({ chatId: "a", text: "for-a" });
-		expect(await p1).toEqual({ type: "reply", chat_id: "a", text: "for-a" });
+		expect(await p1).toEqual({ chatId: "a", text: "for-a" });
 
-		// ws2 should NOT have received "for-a" — send to "b" instead.
-		const p2 = nextMessage(ws2);
+		// c2 should NOT have received "for-a" — send to "b" instead.
+		const p2 = nextReply(c2);
 		await ch.send({ chatId: "b", text: "for-b" });
-		expect(await p2).toEqual({ type: "reply", chat_id: "b", text: "for-b" });
-
-		ws1.close();
-		ws2.close();
+		expect(await p2).toEqual({ chatId: "b", text: "for-b" });
 	});
 
 	test("POST /send curl fallback fires onMessage", async () => {
@@ -154,28 +157,15 @@ describe("WsChannel", () => {
 
 	test("disconnect removes client from pool", async () => {
 		const { ch, url } = await spinUp(() => undefined);
-		const ws = await openWs(url);
-		ws.send(JSON.stringify({ type: "send", chat_id: "gone", text: "hi" }));
+		const conn = await openConn(url);
+		conn.connection.notify("chat/send", { chatId: "gone", text: "hi" });
 		await new Promise((r) => setTimeout(r, 50));
 
-		ws.close();
+		conn.connection.close();
 		await new Promise((r) => setTimeout(r, 100));
 
 		// send() should silently drop since no clients connected.
 		await ch.send({ chatId: "gone", text: "dropped" });
 		// No error — just verifying no throw.
-	});
-
-	test("malformed WS frames are ignored (no crash)", async () => {
-		const received: IncomingMessage[] = [];
-		const { url } = await spinUp((m) => received.push(m));
-		const ws = await openWs(url);
-		ws.send("not json at all");
-		ws.send(JSON.stringify({ type: "unknown" }));
-		ws.send(JSON.stringify({ type: "send", text: "valid" }));
-		await new Promise((r) => setTimeout(r, 100));
-		expect(received).toHaveLength(1);
-		expect(received[0]!.text).toBe("valid");
-		ws.close();
 	});
 });

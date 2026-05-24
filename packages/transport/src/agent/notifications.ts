@@ -4,7 +4,7 @@
  * Delivered via `agent/notify`.
  */
 
-import type { StreamKind } from "./agent.ts";
+import type { StreamKind } from "./methods.ts";
 
 export interface ProcessOutputNotif {
 	process_id: string;

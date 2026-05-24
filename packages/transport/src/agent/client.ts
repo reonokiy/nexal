@@ -1,13 +1,13 @@
-import type {
-	AgentIdParams,
-	AttachAgentParams,
-	GatewayMethods,
-	RegisterProxyParams,
-	RegisterStreamProxyParams,
-	SpawnAgentParams,
-	UnregisterProxyParams,
-	UnregisterStreamProxyParams,
-} from "./gateway.ts";
+/**
+ * Typed clients for agent methods, layered on a `RpcPeer`
+ * (`Connection` or `Stream`).
+ *
+ * Two flavors:
+ *   - `createAgentClient(peer)`        — peer talks to the agent directly
+ *   - `createGatewayAgentClient(peer, agentId)` — peer talks to the gateway,
+ *     which forwards via `agent/invoke`
+ */
+import type { RpcPeer, RpcParams, RpcResult } from "../connection.ts";
 import type {
 	AgentMethods,
 	FsCopyParams,
@@ -24,17 +24,8 @@ import type {
 	ProcessWriteParams,
 	ProxyRegisterParams,
 	ProxyUnregisterParams,
-} from "./agent.ts";
+} from "./methods.ts";
 import type { AgentNotifications } from "./notifications.ts";
-
-interface RpcPeer {
-	request(method: string, params?: unknown): Promise<unknown>;
-	notify(method: string, params?: unknown): void;
-	on(method: string, handler: (params: unknown) => void): () => void;
-}
-
-type RpcResult<M, K extends keyof M> = M[K] extends { result: infer R } ? R : never;
-type RpcParams<M, K extends keyof M> = M[K] extends { params: infer P } ? P : never;
 
 function invokeAgent<M extends keyof AgentMethods>(
 	peer: RpcPeer,
@@ -47,31 +38,6 @@ function invokeAgent<M extends keyof AgentMethods>(
 		method,
 		params,
 	}) as Promise<RpcResult<AgentMethods, M>>;
-}
-
-export function createGatewayClient(peer: RpcPeer) {
-	return {
-		hello: (params: GatewayMethods["gateway/hello"]["params"]) =>
-			peer.request("gateway/hello", params) as Promise<RpcResult<GatewayMethods, "gateway/hello">>,
-		spawnAgent: (params: SpawnAgentParams) =>
-			peer.request("gateway/spawn_agent", params) as Promise<RpcResult<GatewayMethods, "gateway/spawn_agent">>,
-		killAgent: (params: AgentIdParams) =>
-			peer.request("gateway/kill_agent", params) as Promise<RpcResult<GatewayMethods, "gateway/kill_agent">>,
-		detachAgent: (params: AgentIdParams) =>
-			peer.request("gateway/detach_agent", params) as Promise<RpcResult<GatewayMethods, "gateway/detach_agent">>,
-		attachAgent: (params: AttachAgentParams) =>
-			peer.request("gateway/attach_agent", params) as Promise<RpcResult<GatewayMethods, "gateway/attach_agent">>,
-		listAgents: () =>
-			peer.request("gateway/list_agents", {}) as Promise<RpcResult<GatewayMethods, "gateway/list_agents">>,
-		registerProxy: (params: RegisterProxyParams) =>
-			peer.request("gateway/register_proxy", params) as Promise<RpcResult<GatewayMethods, "gateway/register_proxy">>,
-		unregisterProxy: (params: UnregisterProxyParams) =>
-			peer.request("gateway/unregister_proxy", params) as Promise<RpcResult<GatewayMethods, "gateway/unregister_proxy">>,
-		registerStreamProxy: (params: RegisterStreamProxyParams) =>
-			peer.request("gateway/register_stream_proxy", params) as Promise<RpcResult<GatewayMethods, "gateway/register_stream_proxy">>,
-		unregisterStreamProxy: (params: UnregisterStreamProxyParams) =>
-			peer.request("gateway/unregister_stream_proxy", params) as Promise<RpcResult<GatewayMethods, "gateway/unregister_stream_proxy">>,
-	};
 }
 
 export function createAgentClient(peer: RpcPeer) {
@@ -134,3 +100,6 @@ export function createGatewayAgentClient(peer: RpcPeer, agentId: string) {
 		proxyUnregister: (params: ProxyUnregisterParams) => invokeAgent(peer, agentId, "proxy/unregister", params),
 	};
 }
+
+export type AgentClient = ReturnType<typeof createAgentClient>;
+export type GatewayAgentClient = ReturnType<typeof createGatewayAgentClient>;

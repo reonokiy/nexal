@@ -22,9 +22,42 @@
 import { encodeFrame, decodeFrame } from "./codec.ts";
 import { isWireRequest, isWireResponse, isWireNotification } from "./wire.ts";
 import type { WireRequest, WireResponse, WireNotification, WireError, WireMessage, MessageId } from "./wire.ts";
-import type { Transport } from "./transport.ts";
+import {
+	createAcceptedWebSocketTransport,
+	createWebSocketTransport,
+} from "./transport.ts";
+import type {
+	AcceptedWebSocketTransport,
+	Transport,
+	TransportOptions,
+	WebSocketPeer,
+} from "./transport.ts";
 
 export type RequestHandler = (params: unknown) => unknown | Promise<unknown>;
+
+/**
+ * Structural interfaces for the per-protocol client/server factories
+ * under `agent/`, `gateway/`, `chat/`. Both `Connection` and `Stream`
+ * satisfy them so the same factory works at connection-level or on a
+ * virtual stream.
+ */
+export interface RpcPeer {
+	request(method: string, params?: unknown): Promise<unknown>;
+	notify(method: string, params?: unknown): void;
+	on(method: string, handler: (params: unknown) => void): () => void;
+}
+
+export interface RequestPeer {
+	handleRequest(method: string, handler: RequestHandler): void;
+}
+
+export interface NotifyPeer {
+	on(method: string, handler: (params: unknown) => void): () => void;
+}
+
+/** Pluck `result` / `params` from a `{ params, result }`-shaped method-matrix entry. */
+export type RpcResult<M, K extends keyof M> = M[K] extends { result: infer R } ? R : never;
+export type RpcParams<M, K extends keyof M> = M[K] extends { params: infer P } ? P : never;
 
 interface Pending {
 	resolve: (v: unknown) => void;
@@ -316,4 +349,96 @@ export class WireErrorMessage extends Error {
 		super(error.message);
 		this.name = "WireErrorMessage";
 	}
+}
+
+// ── WebSocket connection helpers ─────────────────────────────────────
+//
+// Thin glue between `Transport` and `Connection`. Most consumers reach
+// for these rather than constructing the pair by hand.
+
+export interface WebSocketConnection {
+	transport: Transport;
+	connection: Connection;
+}
+
+export interface AcceptedWebSocketConnection {
+	transport: AcceptedWebSocketTransport;
+	connection: Connection;
+}
+
+export interface WebSocketConnectionOptions extends Omit<TransportOptions, "onHeartbeatDead"> {
+	onDisconnect?: () => void;
+	onHeartbeatDead?: (conn: WebSocketConnection) => void;
+}
+
+export async function createWebSocketConnection(
+	url: string,
+	options: WebSocketConnectionOptions = {},
+): Promise<WebSocketConnection> {
+	let result: WebSocketConnection | null = null;
+	const pendingFrames: Uint8Array[] = [];
+
+	const transport = await createWebSocketTransport(
+		url,
+		{
+			...options,
+			onHeartbeatDead: () => {
+				if (result) options.onHeartbeatDead?.(result);
+			},
+		},
+		(data) => {
+			if (result) {
+				result.connection.handleMessage(data);
+			} else {
+				pendingFrames.push(data);
+			}
+		},
+		() => options.onDisconnect?.(),
+	);
+
+	const connection = new Connection(transport);
+	result = { transport, connection };
+
+	for (const frame of pendingFrames) {
+		connection.handleMessage(frame);
+	}
+	pendingFrames.length = 0;
+
+	return result;
+}
+
+export function createAcceptedWebSocketConnection(
+	peer: WebSocketPeer,
+	options: WebSocketConnectionOptions = {},
+): AcceptedWebSocketConnection {
+	let result: AcceptedWebSocketConnection | null = null;
+	const pendingFrames: Uint8Array[] = [];
+
+	const transport = createAcceptedWebSocketTransport(
+		peer,
+		{
+			...options,
+			onHeartbeatDead: () => {
+				if (result) options.onHeartbeatDead?.(result);
+			},
+		},
+		(data) => {
+			if (result) {
+				result.connection.handleMessage(data);
+			} else {
+				pendingFrames.push(data);
+			}
+		},
+		() => options.onDisconnect?.(),
+	);
+
+	const connection = new Connection(transport);
+	result = { transport, connection };
+
+	for (const frame of pendingFrames) {
+		connection.handleMessage(frame);
+	}
+	pendingFrames.length = 0;
+
+	return result;
 }
