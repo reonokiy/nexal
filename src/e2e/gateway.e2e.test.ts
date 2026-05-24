@@ -95,7 +95,7 @@ async function stopGateway(): Promise<void> {
 	// Kill spawned agents/containers first.
 	if (client) {
 		for (const agentId of spawnedAgents) {
-			await client.invoke("gateway/kill_agent", { agent_id: agentId }).catch(() => {});
+			await client.killAgent({ agent_id: agentId }).catch(() => {});
 		}
 	}
 	gatewayProc?.kill("SIGTERM");
@@ -134,12 +134,12 @@ describe.skipIf(!!skip)("Gateway E2E", () => {
 	});
 
 	test("gateway/list_agents starts empty", async () => {
-		const res = await client!.invoke("gateway/list_agents", {});
+		const res = await client!.listAgents();
 		expect(res.agents).toBeArray();
 	});
 
 	test("gateway/spawn_agent creates a container", async () => {
-		const res = await client!.invoke("gateway/spawn_agent", {
+		const res = await client!.spawnAgent({
 			name: "e2e-test-agent",
 			env: {},
 		});
@@ -148,7 +148,7 @@ describe.skipIf(!!skip)("Gateway E2E", () => {
 		spawnedAgents.push(res.agent_id);
 
 		// Should appear in list.
-		const list = await client!.invoke("gateway/list_agents", {});
+		const list = await client!.listAgents();
 		expect(list.agents.some((a) => a.agent_id === res.agent_id)).toBe(true);
 	}, 60_000);
 
@@ -201,7 +201,7 @@ describe.skipIf(!!skip)("Gateway E2E", () => {
 	}, 15_000);
 
 	test("can spawn a second independent agent", async () => {
-		const res = await client!.invoke("gateway/spawn_agent", {
+		const res = await client!.spawnAgent({
 			name: "e2e-test-agent-2",
 			env: {},
 		});
@@ -215,11 +215,11 @@ describe.skipIf(!!skip)("Gateway E2E", () => {
 
 	test("gateway/kill_agent removes the container", async () => {
 		const agentId = spawnedAgents.pop()!;
-		const res = await client!.invoke("gateway/kill_agent", { agent_id: agentId });
+		const res = await client!.killAgent({ agent_id: agentId });
 		expect(res.ok).toBe(true);
 
 		// Should no longer appear in list.
-		const list = await client!.invoke("gateway/list_agents", {});
+		const list = await client!.listAgents();
 		expect(list.agents.some((a) => a.agent_id === agentId)).toBe(false);
 	}, 30_000);
 });

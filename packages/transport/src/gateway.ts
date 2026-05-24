@@ -80,6 +80,18 @@ export interface UnregisterStreamProxyParams {
 	name: string;
 }
 
+export interface AgentInvokeParams {
+	agent_id: string;
+	method: string;
+	params?: unknown;
+}
+
+export interface AgentNotifyParams {
+	agent_id: string;
+	method: string;
+	params?: unknown;
+}
+
 /** Discriminated map used by `GatewayClient.invoke` for type inference. */
 export interface GatewayMethods {
 	"gateway/hello": { params: HelloParams; result: HelloResponse };
@@ -92,4 +104,5 @@ export interface GatewayMethods {
 	"gateway/unregister_proxy": { params: UnregisterProxyParams; result: OkResponse };
 	"gateway/register_stream_proxy": { params: RegisterStreamProxyParams; result: RegisterStreamProxyResponse };
 	"gateway/unregister_stream_proxy": { params: UnregisterStreamProxyParams; result: OkResponse };
+	"agent/invoke": { params: AgentInvokeParams; result: unknown };
 }

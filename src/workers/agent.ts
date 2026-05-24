@@ -351,7 +351,7 @@ export class WorkerAgent {
 
 		for (const spec of proxies) {
 			try {
-				await this.deps.gateway.invoke("gateway/register_proxy", {
+				await this.deps.gateway.registerProxy({
 					agent_id: agentId,
 					name: spec.name,
 					upstream_url: spec.upstreamUrl,

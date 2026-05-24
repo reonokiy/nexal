@@ -8,6 +8,7 @@
  * keeps this layer simple.
  */
 import type { GatewayClient } from "./client.ts";
+import { createGatewayAgentClient } from "@nexal/transport";
 
 export interface RunCommandOptions {
 	cwd?: string;
@@ -38,10 +39,14 @@ export interface AgentClient {
 }
 
 export class GatewayAgentClient implements AgentClient {
+	private readonly agent: ReturnType<typeof createGatewayAgentClient>;
+
 	constructor(
 		private readonly gateway: GatewayClient,
 		readonly agentId: string,
-	) {}
+	) {
+		this.agent = createGatewayAgentClient(gateway, agentId);
+	}
 
 	async runCommand(
 		argv: string[],
@@ -49,7 +54,7 @@ export class GatewayAgentClient implements AgentClient {
 	): Promise<RunCommandResult> {
 		const processId = options.processId ?? crypto.randomUUID();
 
-		await this.gateway.invokeAgent(this.agentId, "process/start", {
+		await this.agent.processStart({
 			process_id: processId,
 			argv,
 			cwd: options.cwd ?? "/workspace",
@@ -71,19 +76,19 @@ export class GatewayAgentClient implements AgentClient {
 		while (!exited) {
 			if (options.timeoutMs !== undefined && Date.now() - start > options.timeoutMs) {
 				timedOut = true;
-				await this.gateway
-					.invokeAgent(this.agentId, "process/terminate", { process_id: processId })
-					.catch(() => undefined);
+				await this.agent.processTerminate({ process_id: processId }).catch(() => undefined);
 				break;
 			}
-			const resp = await this.gateway.invokeAgent(this.agentId, "process/read", {
+			const resp = await this.agent.processRead({
 				process_id: processId,
 				after_seq: afterSeq,
 				max_bytes: 1 << 20,
 				wait_ms: 100,
 			});
 			for (const c of resp.chunks) {
-				const text = Buffer.from(c.chunk, "base64").toString("utf8");
+				const text = typeof c.chunk === "string"
+					? Buffer.from(c.chunk, "base64").toString("utf8")
+					: Buffer.from(c.chunk).toString("utf8");
 				if (c.stream === "stderr") stderr += text;
 				else stdout += text;
 				if (c.seq > afterSeq) afterSeq = c.seq;

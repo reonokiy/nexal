@@ -22,6 +22,12 @@ function stubGateway(
 	) => Promise<AgentMethods[M]["result"]>,
 ): GatewayClient {
 	return {
+		async request(method: string, params: any) {
+			if (method !== "agent/invoke") throw new Error(`unexpected request ${method}`);
+			return handler(params.agent_id, params.method, params.params);
+		},
+		notify: () => undefined,
+		on: () => () => undefined,
 		async invokeAgent(agentId: string, method: any, params: any) {
 			return handler(agentId, method, params);
 		},
@@ -41,8 +47,8 @@ function stubGateway(
 	} as unknown as GatewayClient;
 }
 
-function b64(s: string): string {
-	return Buffer.from(s).toString("base64");
+function bytes(s: string): Uint8Array {
+	return new TextEncoder().encode(s);
 }
 
 describe("GatewayAgentClient", () => {
@@ -63,7 +69,7 @@ describe("GatewayAgentClient", () => {
 				readCount++;
 				if (readCount === 1) {
 					return {
-						chunks: [{ seq: 1, stream: "stdout", chunk: b64("hello\n") }],
+						chunks: [{ seq: 1, stream: "stdout", chunk: bytes("hello\n") }],
 						next_seq: 2,
 						exited: false,
 						exit_code: null,
@@ -72,7 +78,7 @@ describe("GatewayAgentClient", () => {
 					} as ProcessReadResponse;
 				}
 				return {
-					chunks: [{ seq: 2, stream: "stderr", chunk: b64("oops\n") }],
+					chunks: [{ seq: 2, stream: "stderr", chunk: bytes("oops\n") }],
 					next_seq: 3,
 					exited: true,
 					exit_code: 0,
@@ -200,7 +206,7 @@ describe("GatewayAgentClient", () => {
 				return { process_id: (params as any).process_id } as ProcessStartResponse;
 			}
 			return {
-				chunks: [{ seq: 1, stream: "stdout", chunk: b64("bye") }],
+				chunks: [{ seq: 1, stream: "stdout", chunk: bytes("bye") }],
 				next_seq: 2,
 				exited: true,
 				exit_code: 42,

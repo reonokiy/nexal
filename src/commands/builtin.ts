@@ -141,7 +141,7 @@ export function registerBuiltins(registry: CommandRegistry, gateway?: GatewayCli
 			description: "List running sandbox containers",
 			async execute(_ctx, _args) {
 				try {
-					const result = await gateway.invoke("gateway/list_agents", {});
+					const result = await gateway.listAgents();
 					const { agents } = result as { agents: Array<{ agent_id: string; container_name: string; created_at_unix_ms: number }> };
 					if (agents.length === 0) {
 						return { text: "No sandboxes running." };

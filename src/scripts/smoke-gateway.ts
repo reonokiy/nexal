@@ -30,7 +30,7 @@ const gateway = new GatewayClient({
 await gateway.hello();
 console.log("[smoke] hello ok");
 
-const list1 = await gateway.invoke("gateway/list_agents", {});
+const list1 = await gateway.listAgents();
 console.log(`[smoke] list before spawn: ${list1.agents.length} agents`);
 
 const sessionKey = "worker:smoke-gateway-bun";
@@ -49,13 +49,13 @@ if (!r.stdout.includes("HOME=")) {
 	throw new Error(`unexpected env (no HOME): ${r.stdout}`);
 }
 
-const list2 = await gateway.invoke("gateway/list_agents", {});
+const list2 = await gateway.listAgents();
 console.log(`[smoke] list after spawn: ${list2.agents.length} agents`);
 
 await gateway.releaseAgent(sessionKey);
 console.log("[smoke] release ok");
 
-const list3 = await gateway.invoke("gateway/list_agents", {});
+const list3 = await gateway.listAgents();
 console.log(`[smoke] list after release: ${list3.agents.length} agents`);
 
 await gateway.close();

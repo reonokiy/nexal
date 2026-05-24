@@ -31,10 +31,14 @@ export type {
 	RegisterStreamProxyParams,
 	RegisterStreamProxyResponse,
 	UnregisterStreamProxyParams,
+	AgentInvokeParams,
+	AgentNotifyParams,
 } from "./gateway.ts";
 
 export type {
 	AgentMethods,
+	InitializedParams,
+	InitializedResponse,
 	InitializeParams,
 	InitializeResponse,
 	StreamKind,
@@ -47,6 +51,25 @@ export type {
 	ProcessTerminateResponse,
 	ProcessWriteParams,
 	ProcessWriteResponse,
+	FsReadFileParams,
+	FsReadFileResponse,
+	FsWriteFileParams,
+	FsWriteFileResponse,
+	FsCreateDirectoryParams,
+	FsCreateDirectoryResponse,
+	FsGetMetadataParams,
+	FsGetMetadataResponse,
+	FsReadDirectoryParams,
+	FsReadDirectoryEntry,
+	FsReadDirectoryResponse,
+	FsRemoveParams,
+	FsRemoveResponse,
+	FsCopyParams,
+	FsCopyResponse,
+	ProxyRegisterParams,
+	ProxyRegisterResponse,
+	ProxyUnregisterParams,
+	ProxyUnregisterResponse,
 } from "./agent.ts";
 
 export type {
@@ -61,5 +84,25 @@ export type {
 export { Connection, Stream, WireErrorMessage } from "./connection.ts";
 export type { RequestHandler } from "./connection.ts";
 
+export { createAgentClient, createGatewayAgentClient, createGatewayClient } from "./client.ts";
+
+export { handleAgentRequests, handleGatewayRequests } from "./server.ts";
+export type { AgentRequestHandlers, GatewayRequestHandlers } from "./server.ts";
+
+export { createAcceptedWebSocketConnection, createWebSocketConnection } from "./connect.ts";
+export type {
+	AcceptedWebSocketConnection,
+	WebSocketConnection,
+	WebSocketConnectionOptions,
+} from "./connect.ts";
+
 export { createWebSocketTransport } from "./transport.ts";
-export type { Transport, TransportOptions, HeartbeatOptions } from "./transport.ts";
+export { createAcceptedWebSocketTransport } from "./transport.ts";
+export type {
+	AcceptedWebSocketTransport,
+	HeartbeatOptions,
+	ReconnectOptions,
+	Transport,
+	TransportOptions,
+	WebSocketPeer,
+} from "./transport.ts";

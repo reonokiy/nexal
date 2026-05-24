@@ -9,15 +9,17 @@ import type { StreamKind } from "./agent.ts";
 export interface ProcessOutputNotif {
 	process_id: string;
 	stream: StreamKind;
-	chunk: string;
 	seq: number;
+	chunk: Uint8Array;
 }
 export interface ProcessExitedNotif {
 	process_id: string;
+	seq: number;
 	exit_code: number | null;
 }
 export interface ProcessClosedNotif {
 	process_id: string;
+	seq: number;
 }
 
 /** Map of agent notification method name → params shape. */

@@ -107,7 +107,7 @@ export class HttpChannel implements Channel {
 						return Response.json({ error: "gateway not available" }, { status: 503 });
 					}
 					try {
-						const result = await self.config.gateway.invoke("gateway/list_agents", {});
+						const result = await self.config.gateway.listAgents();
 						return Response.json(result);
 					} catch (err) {
 						log.error("failed to list agents:", err);

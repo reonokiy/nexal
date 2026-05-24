@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import { GatewayClient, GatewayError } from "./client.ts";
+import { decodeFrame, encodeFrame } from "@nexal/transport";
 
 /**
  * The GatewayClient uses the global `WebSocket` constructor and reads
@@ -22,7 +23,7 @@ class FakeWebSocket {
 	readonly url: string;
 	readyState = FakeWebSocket.CONNECTING;
 	readonly listeners: Record<string, Array<(ev: any) => void>> = {};
-	readonly sent: string[] = [];
+	readonly sent: Uint8Array[] = [];
 
 	constructor(url: string) {
 		this.url = url;
@@ -34,7 +35,14 @@ class FakeWebSocket {
 		(this.listeners[ev] ??= []).push(fn);
 	}
 
-	send(data: string): void {
+	removeEventListener(ev: string, fn: (e: any) => void): void {
+		const list = this.listeners[ev];
+		if (!list) return;
+		const idx = list.indexOf(fn);
+		if (idx >= 0) list.splice(idx, 1);
+	}
+
+	send(data: Uint8Array): void {
 		this.sent.push(data);
 	}
 
@@ -50,8 +58,9 @@ class FakeWebSocket {
 		this.emit("open", {});
 	}
 
-	deliver(text: string): void {
-		this.emit("message", { data: text });
+	deliver(frame: unknown): void {
+		const data = frame instanceof Uint8Array ? frame : encodeFrame(frame);
+		this.emit("message", { data });
 	}
 
 	errorOut(message = "boom"): void {
@@ -62,16 +71,15 @@ class FakeWebSocket {
 		for (const fn of this.listeners[ev] ?? []) fn(data);
 	}
 
-	/** Parse the most recent outgoing frame as JSON-RPC. */
+	/** Decode the most recent outgoing frame. */
 	lastSent(): {
-		jsonrpc: string;
 		id?: string | number;
 		method?: string;
 		params?: any;
 	} {
 		const raw = this.sent[this.sent.length - 1];
 		if (!raw) throw new Error("no frames sent");
-		return JSON.parse(raw);
+		return decodeFrame(raw);
 	}
 }
 
@@ -98,12 +106,10 @@ function newClient(opts: Partial<ConstructorParameters<typeof GatewayClient>[0]>
 	});
 }
 
-/** Respond to the most recent JSON-RPC request with a successful result. */
+/** Respond to the most recent request with a successful result. */
 function respondOk(ws: FakeWebSocket, result: unknown): void {
 	const sent = ws.lastSent();
-	ws.deliver(
-		JSON.stringify({ jsonrpc: "2.0", id: sent.id, result }),
-	);
+	ws.deliver({ id: sent.id, result });
 }
 
 /**
@@ -145,12 +151,12 @@ describe("GatewayClient", () => {
 			const client = newClient();
 			const promise = client.connect();
 			FakeWebSocket.last!.errorOut("nope");
-			await expect(promise).rejects.toThrow(/gateway WS error/);
+			await expect(promise).rejects.toThrow(/WebSocket error/);
 		});
 
 		test("rejects if handshake doesn't happen before timeout", async () => {
 			const client = newClient({ connectTimeoutMs: 20 });
-			await expect(client.connect()).rejects.toThrow(/timed out/);
+			await expect(client.connect()).rejects.toThrow(/connect timeout/);
 		});
 	});
 
@@ -164,7 +170,6 @@ describe("GatewayClient", () => {
 			const pending = client.invoke("gateway/list_agents", {});
 			const ws = FakeWebSocket.last!;
 			const sent = ws.lastSent();
-			expect(sent.jsonrpc).toBe("2.0");
 			expect(sent.method).toBe("gateway/list_agents");
 			expect(typeof sent.id).toBe("string");
 
@@ -181,13 +186,7 @@ describe("GatewayClient", () => {
 			const pending = client.invoke("gateway/kill_agent", { agent_id: "x" });
 			const ws = FakeWebSocket.last!;
 			const id = ws.lastSent().id;
-			ws.deliver(
-				JSON.stringify({
-					jsonrpc: "2.0",
-					id,
-					error: { code: -32001, message: "no such agent", data: { agent: "x" } },
-				}),
-			);
+			ws.deliver({ id, error: { code: -32001, message: "no such agent", data: { agent: "x" } } });
 			const err = await pending.catch((e) => e);
 			expect(err).toBeInstanceOf(GatewayError);
 			expect((err as GatewayError).code).toBe(-32001);
@@ -198,7 +197,7 @@ describe("GatewayClient", () => {
 			const client = newClient();
 			expect(() =>
 				client.invoke("gateway/list_agents", {}),
-			).toThrow(/WS not connected/);
+			).toThrow(/connection not ready/);
 		});
 
 		test("out-of-band responses (unknown id) are silently dropped", async () => {
@@ -208,9 +207,7 @@ describe("GatewayClient", () => {
 			await ready;
 
 			// Send a response for an id that was never requested. Must not throw.
-			FakeWebSocket.last!.deliver(
-				JSON.stringify({ jsonrpc: "2.0", id: "ghost", result: {} }),
-			);
+			FakeWebSocket.last!.deliver({ id: "ghost", result: {} });
 			// Now fire a real invoke and make sure it still works cleanly.
 			const p = client.invoke("gateway/list_agents", {});
 			respondOk(FakeWebSocket.last!, { agents: [] });
@@ -284,17 +281,14 @@ describe("GatewayClient", () => {
 
 			const seen: any[] = [];
 			client.subscribe((n) => seen.push(n));
-			FakeWebSocket.last!.deliver(
-				JSON.stringify({
-					jsonrpc: "2.0",
-					method: "agent/notify",
-					params: {
-						agent_id: "a1",
-						method: "process/output",
-						params: { process_id: "p", stream: "stdout", chunk: "aGk=", seq: 1 },
-					},
-				}),
-			);
+			FakeWebSocket.last!.deliver({
+				method: "agent/notify",
+				params: {
+					agent_id: "a1",
+					method: "process/output",
+					params: { process_id: "p", stream: "stdout", chunk: "aGk=", seq: 1 },
+				},
+			});
 			expect(seen).toHaveLength(1);
 			expect(seen[0].agentId).toBe("a1");
 			expect(seen[0].method).toBe("process/output");
@@ -309,17 +303,14 @@ describe("GatewayClient", () => {
 
 			const seen: any[] = [];
 			client.subscribe((n) => seen.push(n));
-			FakeWebSocket.last!.deliver(
-				JSON.stringify({
-					jsonrpc: "2.0",
-					method: "agent/notify",
-					params: {
-						agent_id: "a1",
-						method: "future/event",
-						params: { whatever: true },
-					},
-				}),
-			);
+			FakeWebSocket.last!.deliver({
+				method: "agent/notify",
+				params: {
+					agent_id: "a1",
+					method: "future/event",
+					params: { whatever: true },
+				},
+			});
 			expect(seen).toHaveLength(1);
 			expect(seen[0].method).toBe("future/event");
 		});
@@ -332,13 +323,7 @@ describe("GatewayClient", () => {
 
 			const seen: any[] = [];
 			client.subscribe((n) => seen.push(n));
-			FakeWebSocket.last!.deliver(
-				JSON.stringify({
-					jsonrpc: "2.0",
-					method: "gateway/welcome",
-					params: { hi: true },
-				}),
-			);
+			FakeWebSocket.last!.deliver({ method: "gateway/welcome", params: { hi: true } });
 			expect(seen).toEqual([]);
 		});
 
@@ -350,20 +335,8 @@ describe("GatewayClient", () => {
 
 			const seen: any[] = [];
 			client.subscribe((n) => seen.push(n));
-			FakeWebSocket.last!.deliver(
-				JSON.stringify({
-					jsonrpc: "2.0",
-					method: "agent/notify",
-					params: { agent_id: "only-id" }, // no `method`
-				}),
-			);
-			FakeWebSocket.last!.deliver(
-				JSON.stringify({
-					jsonrpc: "2.0",
-					method: "agent/notify",
-					params: { method: "only-method" }, // no `agent_id`
-				}),
-			);
+			FakeWebSocket.last!.deliver({ method: "agent/notify", params: { agent_id: "only-id" } });
+			FakeWebSocket.last!.deliver({ method: "agent/notify", params: { method: "only-method" } });
 			expect(seen).toEqual([]);
 		});
 
@@ -381,17 +354,14 @@ describe("GatewayClient", () => {
 					throw new Error("boom in handler 1");
 				});
 				client.subscribe((n) => seen.push(n.method));
-				FakeWebSocket.last!.deliver(
-					JSON.stringify({
-						jsonrpc: "2.0",
-						method: "agent/notify",
-						params: {
-							agent_id: "a1",
-							method: "process/closed",
-							params: { process_id: "p" },
-						},
-					}),
-				);
+				FakeWebSocket.last!.deliver({
+					method: "agent/notify",
+					params: {
+						agent_id: "a1",
+						method: "process/closed",
+						params: { process_id: "p" },
+					},
+				});
 				expect(seen).toEqual(["process/closed"]);
 			} finally {
 				(console as any).error = origError;
@@ -407,17 +377,14 @@ describe("GatewayClient", () => {
 			const seen: any[] = [];
 			const off = client.subscribe((n) => seen.push(n));
 			off();
-			FakeWebSocket.last!.deliver(
-				JSON.stringify({
-					jsonrpc: "2.0",
-					method: "agent/notify",
-					params: {
-						agent_id: "a1",
-						method: "process/exited",
-						params: { process_id: "p", exit_code: 0 },
-					},
-				}),
-			);
+			FakeWebSocket.last!.deliver({
+				method: "agent/notify",
+				params: {
+					agent_id: "a1",
+					method: "process/exited",
+					params: { process_id: "p", exit_code: 0 },
+				},
+			});
 			expect(seen).toEqual([]);
 		});
 	});
@@ -454,7 +421,7 @@ describe("GatewayClient", () => {
 			const pending = client.invoke("gateway/list_agents", {});
 			// Close without replying — pending should reject.
 			ws.close();
-			await expect(pending).rejects.toThrow(/WS closed/);
+			await expect(pending).rejects.toThrow(/connection closed/);
 
 			// After close, a new connect() spins up a fresh WS.
 			const ready2 = client.connect();

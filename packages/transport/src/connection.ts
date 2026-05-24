@@ -91,7 +91,14 @@ export class Connection {
 	 *   - messages without `stream` → handled at connection level
 	 */
 	handleMessage(data: Uint8Array): void {
-		const msg = decodeFrame<Record<string, unknown>>(data);
+		let msg: Record<string, unknown>;
+		try {
+			const decoded = decodeFrame<unknown>(data);
+			if (!decoded || typeof decoded !== "object" || Array.isArray(decoded)) return;
+			msg = decoded as Record<string, unknown>;
+		} catch {
+			return;
+		}
 		const streamId = msg.stream as string | undefined;
 
 		if (streamId) {
@@ -107,9 +114,10 @@ export class Connection {
 	dispatch(msg: Record<string, unknown>): void {
 		if (isWireResponse(msg as unknown as WireMessage)) {
 			const resp = msg as unknown as WireResponse;
-			const slot = this.pending.get(resp.id);
+			const slot = this.pending.get(resp.id) ?? this.pending.get(String(resp.id));
 			if (!slot) return;
 			this.pending.delete(resp.id);
+			this.pending.delete(String(resp.id));
 			if (resp.error) {
 				slot.reject(new WireErrorMessage(resp.error));
 			} else {
@@ -227,9 +235,10 @@ export class Stream {
 	handleMessage(msg: Record<string, unknown>): void {
 		if (isWireResponse(msg as unknown as WireMessage)) {
 			const resp = msg as unknown as WireResponse;
-			const slot = this.pending.get(resp.id);
+			const slot = this.pending.get(resp.id) ?? this.pending.get(String(resp.id));
 			if (!slot) return;
 			this.pending.delete(resp.id);
+			this.pending.delete(String(resp.id));
 			if (resp.error) {
 				slot.reject(new WireErrorMessage(resp.error));
 			} else {

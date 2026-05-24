@@ -25,29 +25,20 @@ import type {
 	AgentNotifications,
 	GatewayMethods,
 	UnknownAgentNotification,
-	WireRequest,
-	WireResponse,
-	WireNotification,
 	Transport,
+	Connection,
 } from "@nexal/transport";
 import type { AgentClient } from "./agent_client.ts";
 import {
-	createWebSocketTransport,
-	encodeFrame,
-	decodeFrame,
-	isWireResponse,
-	isWireNotification,
+	WireErrorMessage,
+	createGatewayClient,
+	createWebSocketConnection,
 } from "@nexal/transport";
 import { GatewayAgentClient } from "./agent_client.ts";
 import { createLog } from "../log.ts";
 import { createHmac, randomBytes } from "node:crypto";
 
 const log = createLog("gateway-client");
-
-interface Pending {
-	resolve: (v: unknown) => void;
-	reject: (err: Error) => void;
-}
 
 interface AgentEntry {
 	agentId: string;
@@ -90,7 +81,8 @@ const NOTIFICATION_METHODS = new Set<keyof AgentNotifications>([
 
 export class GatewayClient {
 	private transport: Transport | null = null;
-	private readonly pending = new Map<string | number, Pending>();
+	private connection: Connection | null = null;
+	private gateway: ReturnType<typeof createGatewayClient> | null = null;
 	private readyPromise: Promise<void> | null = null;
 	private helloPromise: Promise<void> | null = null;
 	private readonly handlers = new Set<NotificationHandler>();
@@ -106,24 +98,23 @@ export class GatewayClient {
 	}
 
 	private async connectWebSocket(): Promise<void> {
-		this.transport = await createWebSocketTransport(
-			this.options.url,
-			{ connectTimeoutMs: this.options.connectTimeoutMs },
-			(data) => this.dispatch(data),
-			() => this.onDisconnect(),
-		);
+		const { transport, connection } = await createWebSocketConnection(this.options.url, {
+			connectTimeoutMs: this.options.connectTimeoutMs,
+			onDisconnect: () => this.onDisconnect(),
+		});
+		this.transport = transport;
+		this.connection = connection;
+		this.gateway = createGatewayClient(connection);
+		connection.on("agent/notify", (params) => this.dispatchAgentNotification(params));
 	}
 
 	private onDisconnect(): void {
-		this.rejectAllPending(new Error("gateway transport closed"));
+		this.connection?.close();
 		this.transport = null;
+		this.connection = null;
+		this.gateway = null;
 		this.readyPromise = null;
 		this.helloPromise = null;
-	}
-
-	private rejectAllPending(reason: Error): void {
-		for (const p of this.pending.values()) p.reject(reason);
-		this.pending.clear();
 	}
 
 	/** Send `gateway/hello`. Idempotent — calling twice is safe. */
@@ -137,7 +128,7 @@ export class GatewayClient {
 			const signature = createHmac("sha256", this.options.secretKey)
 				.update(canonical)
 				.digest("hex");
-			await this.invoke("gateway/hello", {
+			await this.requireGateway().hello({
 				access_key: this.options.accessKey,
 				client_name: this.options.clientName,
 				ts,
@@ -148,22 +139,68 @@ export class GatewayClient {
 		return this.helloPromise;
 	}
 
-	private sendRequest(method: string, params: unknown): Promise<unknown> {
-		const id = crypto.randomUUID();
-		const promise = new Promise<unknown>((resolve, reject) => {
-			this.pending.set(id, { resolve, reject });
-		});
-		const frame: WireRequest = { id, method, params };
-		this.requireOpen().send(encodeFrame(frame));
-		return promise;
-	}
-
 	/** Typed call to a gateway/* method. */
 	async invoke<M extends keyof GatewayMethods>(
 		method: M,
 		params: GatewayMethods[M]["params"],
 	): Promise<GatewayMethods[M]["result"]> {
-		return this.sendRequest(method, params) as Promise<GatewayMethods[M]["result"]>;
+		try {
+			return (await this.requireConnection().request(method, params)) as GatewayMethods[M]["result"];
+		} catch (err) {
+			throw this.mapError(err);
+		}
+	}
+
+	listAgents() {
+		return this.requireGateway().listAgents();
+	}
+
+	spawnAgent(params: GatewayMethods["gateway/spawn_agent"]["params"]) {
+		return this.requireGateway().spawnAgent(params);
+	}
+
+	killAgent(params: GatewayMethods["gateway/kill_agent"]["params"]) {
+		return this.requireGateway().killAgent(params);
+	}
+
+	detachAgentById(params: GatewayMethods["gateway/detach_agent"]["params"]) {
+		return this.requireGateway().detachAgent(params);
+	}
+
+	attachAgent(params: GatewayMethods["gateway/attach_agent"]["params"]) {
+		return this.requireGateway().attachAgent(params);
+	}
+
+	registerProxy(params: GatewayMethods["gateway/register_proxy"]["params"]) {
+		return this.requireGateway().registerProxy(params);
+	}
+
+	unregisterProxy(params: GatewayMethods["gateway/unregister_proxy"]["params"]) {
+		return this.requireGateway().unregisterProxy(params);
+	}
+
+	registerStreamProxy(params: GatewayMethods["gateway/register_stream_proxy"]["params"]) {
+		return this.requireGateway().registerStreamProxy(params);
+	}
+
+	unregisterStreamProxy(params: GatewayMethods["gateway/unregister_stream_proxy"]["params"]) {
+		return this.requireGateway().unregisterStreamProxy(params);
+	}
+
+	request(method: string, params?: unknown): Promise<unknown> {
+		try {
+			return this.requireConnection().request(method, params);
+		} catch (err) {
+			throw this.mapError(err);
+		}
+	}
+
+	notify(method: string, params?: unknown): void {
+		this.requireConnection().notify(method, params);
+	}
+
+	on(method: string, handler: (params: unknown) => void): () => void {
+		return this.requireConnection().on(method, handler);
 	}
 
 	/** Typed forwarded call to an agent/* method via `agent/invoke`. */
@@ -172,11 +209,15 @@ export class GatewayClient {
 		method: M,
 		params: AgentMethods[M]["params"],
 	): Promise<AgentMethods[M]["result"]> {
-		return this.sendRequest("agent/invoke", {
-			agent_id: agentId,
-			method,
-			params,
-		}) as Promise<AgentMethods[M]["result"]>;
+		try {
+			return (await this.requireConnection().request("agent/invoke", {
+				agent_id: agentId,
+				method,
+				params,
+			})) as AgentMethods[M]["result"];
+		} catch (err) {
+			throw this.mapError(err);
+		}
 	}
 
 	/** Subscribe to `agent/notify` notifications. */
@@ -197,7 +238,7 @@ export class GatewayClient {
 		const inflight = this.agentInflight.get(sessionKey);
 		if (inflight) return (await inflight).client;
 
-		const promise = this.spawnAgent(sessionKey, opts).finally(() =>
+		const promise = this.spawnSessionAgent(sessionKey, opts).finally(() =>
 			this.agentInflight.delete(sessionKey),
 		);
 		this.agentInflight.set(sessionKey, promise);
@@ -211,7 +252,7 @@ export class GatewayClient {
 		if (!entry) return;
 		this.agents.delete(sessionKey);
 		try {
-			await this.invoke("gateway/kill_agent", { agent_id: entry.agentId });
+			await this.requireGateway().killAgent({ agent_id: entry.agentId });
 		} catch (err) {
 			log.error(`failed to kill agent for session "${sessionKey}"`, err);
 		}
@@ -223,7 +264,7 @@ export class GatewayClient {
 		if (!entry) return;
 		this.agents.delete(sessionKey);
 		try {
-			await this.invoke("gateway/detach_agent", { agent_id: entry.agentId });
+			await this.requireGateway().detachAgent({ agent_id: entry.agentId });
 		} catch (err) {
 			log.error(`failed to detach agent for session "${sessionKey}"`, err);
 		}
@@ -234,12 +275,12 @@ export class GatewayClient {
 		await Promise.allSettled([...this.agents.keys()].map((k) => this.releaseAgent(k)));
 	}
 
-	private async spawnAgent(
+	private async spawnSessionAgent(
 		sessionKey: string,
 		opts?: { env?: Record<string, string> },
 	): Promise<AgentEntry> {
 		await this.hello();
-		const result = await this.invoke("gateway/spawn_agent", {
+		const result = await this.requireGateway().spawnAgent({
 			name: sessionKey,
 			env: opts?.env ?? {},
 			labels: { "nexal.session_key": sessionKey },
@@ -253,64 +294,55 @@ export class GatewayClient {
 	}
 
 	async close(): Promise<void> {
+		this.connection?.close();
 		this.transport?.close();
-		this.rejectAllPending(new Error("gateway client closed"));
 		this.transport = null;
+		this.connection = null;
+		this.gateway = null;
 		this.readyPromise = null;
 		this.helloPromise = null;
 	}
 
 	// ── Internals ─────────────────────────────────────────────────────
 
-	private requireOpen(): Transport {
-		if (!this.transport) {
-			throw new Error("gateway transport not connected — call connect() first");
+	private requireConnection(): Connection {
+		if (!this.connection) {
+			throw new Error("gateway connection not ready — call connect() first");
 		}
-		return this.transport;
+		return this.connection;
 	}
 
-	private dispatch(data: Uint8Array): void {
-		let msg: WireResponse | WireNotification;
-		try {
-			msg = decodeFrame<WireResponse | WireNotification>(data);
-		} catch {
-			log.error(`received invalid msgpack frame from gateway, dropping: ${data.byteLength} bytes`);
-			return;
+	private requireGateway(): ReturnType<typeof createGatewayClient> {
+		if (!this.gateway) {
+			throw new Error("gateway client not ready — call connect() first");
 		}
+		return this.gateway;
+	}
 
-		if (isWireResponse(msg)) {
-			const slot = this.pending.get(msg.id);
-			if (!slot) return;
-			this.pending.delete(msg.id);
-			if (msg.error) {
-				slot.reject(new GatewayError(msg.error.message, msg.error.code, msg.error.data));
-			} else {
-				slot.resolve(msg.result);
-			}
-			return;
-		}
-
-		if (isWireNotification(msg)) {
-			if (msg.method !== "agent/notify") return;
-			const params = msg.params as
-				| { agent_id?: string; method?: string; params?: unknown }
-				| undefined;
-			if (!params?.agent_id || !params.method) return;
-			const base = {
-				agentId: params.agent_id,
-				method: params.method,
-				params: params.params,
-			};
-			const event = NOTIFICATION_METHODS.has(params.method as keyof AgentNotifications)
-				? (base as AgentNotification)
-				: (base as UnknownAgentNotification);
-			for (const h of this.handlers) {
-				try {
-					h(event);
-				} catch (err) {
-					log.error(`notification handler threw for ${event.method} on agent ${event.agentId}`, err);
-				}
+	private dispatchAgentNotification(raw: unknown): void {
+		const params = raw as { agent_id?: string; method?: string; params?: unknown } | undefined;
+		if (!params?.agent_id || !params.method) return;
+		const base = {
+			agentId: params.agent_id,
+			method: params.method,
+			params: params.params,
+		};
+		const event = NOTIFICATION_METHODS.has(params.method as keyof AgentNotifications)
+			? (base as AgentNotification)
+			: (base as UnknownAgentNotification);
+		for (const h of this.handlers) {
+			try {
+				h(event);
+			} catch (err) {
+				log.error(`notification handler threw for ${event.method} on agent ${event.agentId}`, err);
 			}
 		}
+	}
+
+	private mapError(err: unknown): Error {
+		if (err instanceof WireErrorMessage) {
+			return new GatewayError(err.error.message, err.error.code, err.error.data);
+		}
+		return err instanceof Error ? err : new Error(String(err));
 	}
 }
