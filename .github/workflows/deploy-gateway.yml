@@ -8,9 +8,7 @@ on:
       - "crates/nexal-agent/**"
       - "Cargo.toml"
       - "Cargo.lock"
-      - "gateway.Dockerfile"
-      - "fly.toml"
-      - "docker/gateway-entrypoint.sh"
+      - "deploy/gateway/**"
       - ".github/workflows/deploy-gateway.yml"
   workflow_dispatch:
 
@@ -59,7 +57,7 @@ jobs:
           flyctl secrets set -a "$APP" --stage "${ARGS[@]}"
 
       - name: Deploy
-        run: flyctl deploy --remote-only -a "$APP" --regions "$REGION" --ha=false
+        run: flyctl deploy -c deploy/gateway/fly.toml --remote-only -a "$APP" --regions "$REGION" --ha=false
 
       - name: Dump gateway logs
         run: flyctl logs -a "$APP" -n | tail -30

@@ -147,14 +147,13 @@ nexal/
 │   ├── telegram/
 │   └── toollog/
 │
-├── deploy/server/fly.toml        # LLM server Fly config
+├── deploy/                       # Per-service Fly configs + Dockerfiles
+│   ├── server/{Dockerfile,fly.toml}
+│   ├── gateway/{Dockerfile,fly.toml,entrypoint.sh}
+│   ├── agent/Dockerfile
+│   └── sandbox/Dockerfile
 ├── drizzle/                      # Drizzle migrations
 ├── .github/workflows/            # Deploy, build, Docker, release workflows
-├── fly.toml                      # Gateway Fly config
-├── gateway.Dockerfile
-├── server.Dockerfile
-├── sandbox.Dockerfile
-├── agent.Dockerfile
 ├── package.json
 ├── Cargo.toml
 └── justfile
@@ -225,11 +224,11 @@ The Web UI defaults to `wss://nexal-server.fly.dev` as the backend URL. Users ca
 
 ## Deployment
 
-- **Gateway**: `fly.toml`, `gateway.Dockerfile`, `.github/workflows/deploy-gateway.yml`.
-- **LLM Server**: `deploy/server/fly.toml`, `server.Dockerfile`, `.github/workflows/deploy-server.yml`.
+- **Gateway**: `deploy/gateway/{Dockerfile,fly.toml,entrypoint.sh}`, `.github/workflows/deploy-gateway.yml`.
+- **LLM Server**: `deploy/server/{Dockerfile,fly.toml}`, `.github/workflows/deploy-server.yml`.
 - **Web UI**: `.github/workflows/deploy-web-pages.yml`, `.github/workflows/web-build.yml`.
-- **Sandbox images**: `sandbox.Dockerfile`, `agent.Dockerfile`, `.github/workflows/docker.yml`.
-- **Release**: `.github/workflows/release.yml`.
+- **Sandbox images**: `deploy/sandbox/Dockerfile`, `.github/workflows/docker.yml`.
+- **Agent image**: `deploy/agent/Dockerfile`, `.github/workflows/release.yml`.
 
 ## Reference Files
 

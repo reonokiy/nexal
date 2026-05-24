@@ -5,7 +5,7 @@ app            = "nexal"
 primary_region = "ams"
 
 [build]
-  dockerfile = "gateway.Dockerfile"
+  dockerfile = "Dockerfile"
 
 [[vm]]
   size   = "shared-cpu-1x"

@@ -3,7 +3,7 @@ app = "nexal-server"
 primary_region = "ams"
 
 [build]
-  dockerfile = "../../server.Dockerfile"
+  dockerfile = "Dockerfile"
 
 [[vm]]
   size   = "shared-cpu-1x"

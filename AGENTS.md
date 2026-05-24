@@ -17,9 +17,9 @@ Nexal 是一个多通道 AI 代理运行时，包含四个核心组件：
 - **TypeScript 核心** → `src/` (CLI 入口 `src/cli.ts`, 启动实现 `src/index.ts`, 配置 `src/config.ts`)
 - **Rust 工作空间** → `crates/` (网关 `crates/nexal-gateway/`, 代理 `crates/nexal-agent/`)
 - **Web 前端** → `web/src/` (入口 `web/src/main.ts`, 根组件 `web/src/App.svelte`)
-- **共享客户端库** → `packages/chat-client/`
+- **共享传输包** → `packages/transport/`（含 chat 协议）
 - **Tape 类型包** → `packages/tape/`
-- **部署配置** → `fly.toml`, `deploy/server/fly.toml`, `.github/workflows/`
+- **部署配置** → `deploy/{gateway,server,agent,sandbox}/`, `.github/workflows/`
 - **数据库迁移** → `drizzle/`
 
 ## Agent 操作须知
@@ -77,7 +77,7 @@ Nexal 是一个多通道 AI 代理运行时，包含四个核心组件：
 
 ### 部署注意事项
 
-- **Gateway** 部署到 `nexal` Fly app (`fly.toml`)
+- **Gateway** 部署到 `nexal` Fly app (`deploy/gateway/fly.toml`)
 - **LLM Server** 部署到 `nexal-server` Fly app (`deploy/server/fly.toml`)
 - **Gateway 认证**: 通过 `NEXAL_GATEWAY_ACCESS_KEY` + `NEXAL_GATEWAY_SECRET_KEY` 的 HMAC-SHA256 签名
 - **CI/CD**: `.github/workflows/` 包含 gateway/server/web 部署、web build、sandbox Docker image 和 release workflow

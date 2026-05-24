@@ -10,8 +10,7 @@ on:
       - package.json
       - tsconfig.json
       - drizzle.config.ts
-      - server.Dockerfile
-      - deploy/server/fly.toml
+      - deploy/server/**
       - .github/workflows/deploy-server.yml
   workflow_dispatch:
 

@@ -16,6 +16,6 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 COPY --from=build /src/target/release/nexal-gateway /usr/local/bin/nexal-gateway
 COPY --from=build /src/target/release/nexal-agent   /usr/local/bin/nexal-agent
-COPY docker/gateway-entrypoint.sh /usr/local/bin/gateway-entrypoint.sh
+COPY deploy/gateway/entrypoint.sh /usr/local/bin/gateway-entrypoint.sh
 RUN chmod +x /usr/local/bin/gateway-entrypoint.sh /usr/local/bin/nexal-gateway /usr/local/bin/nexal-agent
 ENTRYPOINT ["/usr/local/bin/gateway-entrypoint.sh"]

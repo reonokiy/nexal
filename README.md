@@ -85,9 +85,9 @@ bun run db:generate
 
 ## Deployment
 
-- Gateway: `fly.toml`, `gateway.Dockerfile`, `.github/workflows/deploy-gateway.yml`.
-- LLM Server: `deploy/server/fly.toml`, `server.Dockerfile`, `.github/workflows/deploy-server.yml`.
+- Gateway: `deploy/gateway/{Dockerfile,fly.toml,entrypoint.sh}`, `.github/workflows/deploy-gateway.yml`.
+- LLM Server: `deploy/server/{Dockerfile,fly.toml}`, `.github/workflows/deploy-server.yml`.
 - Web: `.github/workflows/deploy-web-pages.yml` and `.github/workflows/web-build.yml`.
-- Sandbox images: `sandbox.Dockerfile`, `agent.Dockerfile`, `.github/workflows/docker.yml`.
+- Sandbox images: `deploy/sandbox/Dockerfile`, `deploy/agent/Dockerfile`, `.github/workflows/docker.yml` (sandbox), `.github/workflows/release.yml` (agent).
 
 See `docs/structure.md` for the detailed project map and data flow.
