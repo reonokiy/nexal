@@ -16,7 +16,15 @@ import {
 	loadAllToolApiKeys,
 } from "../settings.ts";
 
-const KNOWN_PROVIDERS = ["openrouter", "kimi-coding", "deepseek", "opencode-go"] as const;
+const KNOWN_PROVIDERS = [
+	"openrouter",
+	"openai",
+	"anthropic",
+	"google",
+	"deepseek",
+	"kimi-coding",
+	"opencode-go",
+] as const;
 
 interface ProvidersPayload {
 	active: { provider: string; modelId: string } | null;
@@ -24,6 +32,47 @@ interface ProvidersPayload {
 		name: string;
 		hasKey: boolean;
 	}[];
+}
+
+type ConfigureParseResult =
+	| {
+			ok: true;
+			provider: string;
+			modelId: string;
+			apiKey: string;
+			baseUrl?: string;
+	  }
+	| { ok: false; result: { text: string; error?: string } };
+
+export function parseConfigureArgs(args: string[]): ConfigureParseResult {
+	const usage =
+		"Usage: /configure <provider> <model_id> <api_key> [--base-url <url>]\n" +
+		"       /configure <provider> <model_id> --base-url <url>";
+	const [provider, modelId, ...rest] = args;
+	if (!provider || !modelId) {
+		return { ok: false, result: { text: usage, error: "missing provider or model_id" } };
+	}
+
+	let baseUrl: string | undefined;
+	const keyParts: string[] = [];
+	for (let i = 0; i < rest.length; i++) {
+		const part = rest[i]!;
+		if (part === "--base-url" || part === "--url") {
+			const value = rest[++i];
+			if (!value) {
+				return { ok: false, result: { text: usage, error: `${part} requires a URL` } };
+			}
+			baseUrl = value;
+			continue;
+		}
+		keyParts.push(part);
+	}
+
+	const apiKey = keyParts.join(" ").trim();
+	if (!apiKey && !baseUrl) {
+		return { ok: false, result: { text: usage, error: "missing api_key or --base-url" } };
+	}
+	return { ok: true, provider, modelId, apiKey, ...(baseUrl ? { baseUrl } : {}) };
 }
 
 export function registerBuiltins(registry: CommandRegistry, gateway?: GatewayClient): void {
@@ -85,6 +134,39 @@ export function registerBuiltins(registry: CommandRegistry, gateway?: GatewayCli
 			await saveAuth({ provider, apiKey: key });
 			return {
 				text: `Saved API key for ${provider}. Restart nexal to apply.`,
+			};
+		},
+	});
+
+	registry.register({
+		name: "configure",
+		description: "Configure provider, model, API key, and optional base URL in one step",
+		async execute(_ctx, args) {
+			const parsed = parseConfigureArgs(args);
+			if (!parsed.ok) return parsed.result;
+
+			const { provider, modelId, apiKey, baseUrl } = parsed;
+			if (baseUrl) {
+				const existing = await loadProviderConfig(provider);
+				await saveProviderConfig(provider, { ...existing, base_url: baseUrl });
+			}
+			if (apiKey) await saveAuth({ provider, apiKey });
+			await saveModelConfig(provider, modelId);
+
+			const lines = [
+				`Configured ${provider} / ${modelId}.`,
+				apiKey ? "API key saved." : "API key unchanged.",
+			];
+			if (baseUrl) lines.push(`Base URL set to ${baseUrl}.`);
+			lines.push("Restart nexal to apply the runtime model.");
+			return {
+				text: lines.join("\n"),
+				data: {
+					provider,
+					modelId,
+					hasKey: Boolean(apiKey),
+					...(baseUrl ? { baseUrl } : {}),
+				},
 			};
 		},
 	});
@@ -185,7 +267,13 @@ export function registerBuiltins(registry: CommandRegistry, gateway?: GatewayCli
 				for (const name of Object.keys(toolKeys)) {
 					lines.push(`tool key: ${name} ✓`);
 				}
-				lines.push("", "/settings provider <name> url <url>", "/settings auth <provider> <key>", "/settings toolkey <name> <key>");
+				lines.push(
+					"",
+					"/configure <provider> <model_id> <api_key> [--base-url <url>]",
+					"/settings provider <name> url <url>",
+					"/settings auth <provider> <key>",
+					"/settings toolkey <name> <key>",
+				);
 				return { text: lines.join("\n"), data };
 			}
 

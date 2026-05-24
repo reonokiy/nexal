@@ -72,7 +72,13 @@ export class HttpChannel implements Channel {
 								{ channel: "http", chatId, sender },
 								args,
 							);
-							return Response.json({ ok: true, command: name, result: result?.text ?? null });
+							return Response.json({
+								ok: !result?.error,
+								command: name,
+								result: result?.text ?? null,
+								...(result?.error ? { error: result.error } : {}),
+								...(result && "data" in result ? { data: result.data } : {}),
+							});
 						}
 					}
 

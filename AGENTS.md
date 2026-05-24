@@ -104,7 +104,7 @@ cd web && bun run check
 
 ### Web UI 默认配置
 
-- **默认后端 URL**: `wss://nexal-server.fly.dev`，可用 `VITE_NEXAL_BACKEND` 或设置页覆盖
+- **默认后端 URL**: `wss://api.nexal.nokiy.net`，可用 `VITE_NEXAL_BACKEND` 或设置页覆盖
 - **设置存储**: `localStorage`，前缀 `nexal.`
 
 ## 更多文档

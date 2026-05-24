@@ -40,7 +40,7 @@ function resolveUrl(): string {
 }
 
 function build(url: string) {
-	const sql = new (Bun as any).SQL(url, { max: 5, prepared_statements: false });
+	const sql = new (Bun as any).SQL(url, { max: 5, prepare: false });
 	const db = drizzle(sql, { schema });
 	return { sql, db };
 }

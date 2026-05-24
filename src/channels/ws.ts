@@ -333,6 +333,7 @@ export class WsChannel implements Channel {
 					chatId,
 					name,
 					text: result?.text ?? "",
+					...(result?.error ? { error: result.error } : {}),
 					...(result && "data" in result ? { data: result.data } : {}),
 				} satisfies ChatCommandResultParams);
 			})

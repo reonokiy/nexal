@@ -177,7 +177,18 @@ export class Connection {
 			const req = msg as unknown as WireRequest;
 			const handler = this.requestHandlers.get(req.method);
 			if (!handler) return;
-			Promise.resolve(handler(req.params)).then(
+			let result: unknown;
+			try {
+				result = handler(req.params);
+			} catch (err) {
+				const error: WireError = {
+					code: -32000,
+					message: err instanceof Error ? err.message : String(err),
+				};
+				this.send({ id: req.id, error } as WireResponse);
+				return;
+			}
+			Promise.resolve(result).then(
 				(result) => {
 					this.send({ id: req.id, result } as WireResponse);
 				},
@@ -298,7 +309,18 @@ export class Stream {
 			const req = msg as unknown as WireRequest;
 			const handler = this.requestHandlers.get(req.method);
 			if (!handler) return;
-			Promise.resolve(handler(req.params)).then(
+			let result: unknown;
+			try {
+				result = handler(req.params);
+			} catch (err) {
+				const error: WireError = {
+					code: -32000,
+					message: err instanceof Error ? err.message : String(err),
+				};
+				this.send({ stream: this.id, id: req.id, error } as WireResponse);
+				return;
+			}
+			Promise.resolve(result).then(
 				(result) => {
 					this.send({ stream: this.id, id: req.id, result } as WireResponse);
 				},

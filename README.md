@@ -45,7 +45,7 @@ settings in Postgres. They are managed by the Web UI and slash commands such as
 `/model`, `/apikey`, `/providers`, and `/settings` rather than only by `.env`.
 
 The web UI stores browser settings in `localStorage` with the `nexal.` prefix and
-defaults to `wss://nexal-server.fly.dev` unless `VITE_NEXAL_BACKEND` is set.
+defaults to `wss://api.nexal.nokiy.net` unless `VITE_NEXAL_BACKEND` is set.
 
 ## Development
 

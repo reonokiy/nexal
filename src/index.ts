@@ -102,19 +102,18 @@ async function main(): Promise<void> {
 		process.exit(1);
 	}
 
-	// Load model + auth from DB. Without DB config the daemon can't run.
+	// Load model + auth from DB. If no model is configured yet, still
+	// start the always-on channels so the web UI / CLI can authenticate
+	// and use /model, /apikey, and /settings to bootstrap the server.
 	const dbModel = await buildModelFromDb();
 	if (!dbModel) {
-		log.error(
-			"no model configured in DB — set model:provider, model:id, provider:<name> " +
-				"and auth:<name> in the settings KV (or via the web UI) before starting.",
+		log.warn(
+			"no model configured in DB — server will accept connections, but chat and workers are disabled " +
+				"until model:provider, model:id, and auth:<provider> are configured then nexal is restarted.",
 		);
-		process.exit(1);
+	} else {
+		log.info(`using model ${dbModel.model.id} via ${dbModel.model.provider as string}`);
 	}
-	const { model, getApiKey: getApiKeyFromDb } = dbModel;
-	const provider = model.provider as string;
-	const modelId = model.id;
-	log.info(`using model ${modelId} via ${provider}`);
 
 	const gatewayUrl = process.env.NEXAL_GATEWAY_URL ?? cfg.gateway.url;
 	const gatewayAccessKey = process.env.NEXAL_GATEWAY_ACCESS_KEY ?? cfg.gateway.accessKey;
@@ -151,20 +150,25 @@ async function main(): Promise<void> {
 	const channels = new Map<string, Channel>();
 	const sender = createMessageSender(channels);
 
-	// Worker registry — long-lived persistent workers + one-shot tasks
-	// spawned by the dispatcher. Persistence via Drizzle on Postgres
-	// (Bun.sql native driver); containers survive nexal process restart
-	// so live workers resume automatically.
-	const workerStore = await createWorkerStore({ url: cfg.workers.url });
-	log.info(`worker store ready, up to ${cfg.workers.maxConcurrent} concurrent workers`);
+	let workerStore: Awaited<ReturnType<typeof createWorkerStore>> | undefined;
+	let tapeStore: ReturnType<typeof createTapeStore> | undefined;
 
-	// Tape store — persistent conversation history (AgentPool + workers).
-	const fileStore = createFileStore(cfg.storage);
-	const tapeStore = createTapeStore({
-		fileStore,
-		maxInlineSize: cfg.storage.maxInlineSize,
-	});
-	log.info(`tape store ready (storage provider: ${cfg.storage.provider})`);
+	if (dbModel) {
+		// Worker registry — long-lived persistent workers + one-shot tasks
+		// spawned by the dispatcher. Persistence via Drizzle on Postgres
+		// (Bun.sql native driver); containers survive nexal process restart
+		// so live workers resume automatically.
+		workerStore = await createWorkerStore({ url: cfg.workers.url });
+		log.info(`worker store ready, up to ${cfg.workers.maxConcurrent} concurrent workers`);
+
+		// Tape store — persistent conversation history (AgentPool + workers).
+		const fileStore = createFileStore(cfg.storage);
+		tapeStore = createTapeStore({
+			fileStore,
+			maxInlineSize: cfg.storage.maxInlineSize,
+		});
+		log.info(`tape store ready (storage provider: ${cfg.storage.provider})`);
+	}
 	// `WorkerRegistry` is constructed BEFORE the factories close over it
 	// because the coordinator factory recursively builds dispatcher
 	// tools that reference the same registry — sub-coordinators can
@@ -174,89 +178,105 @@ async function main(): Promise<void> {
 	// before it's constructed below.
 	let pool: AgentPool | undefined;
 
-	const workers: WorkerRegistry = new WorkerRegistry({
-		store: workerStore,
-		gateway,
-		model,
-		modelProvider: provider,
-		modelId,
-		sender,
-		maxConcurrent: cfg.workers.maxConcurrent,
-		tapeStore,
-		getApiKey: getApiKeyFromDb,
-		executorSystemPromptDefault: EXECUTOR_PROMPT,
-		coordinatorSystemPromptDefault: COORDINATOR_PROMPT,
-		executorProxies: cfg.executor.proxies,
-		executorTools: (runner) => {
-			const client = runner.execClient;
-			const tools: AgentTool<any>[] = [
-				createSendUpdateTool(runner),
-				createReportToParentTool(workers, runner),
-			];
-			if (client) tools.unshift(createBashTool(client));
-			else log.error(`executor "${runner.row.name}" has no exec client, bash tool will be unavailable`);
-			return tools;
-		},
-		coordinatorTools: (runner) => [
-			// Sub-coordinator: same dispatcher surface as the top-level
-			// one, scoped to its own subtree (its row id becomes the
-			// parentSessionKey for any agents it spawns).
-			...createCoordinatorTools(workers, {
-				parentSessionKey: runner.id,
-				sourceChannel: runner.row.sourceChannel,
-				sourceChatId: runner.row.sourceChatId,
-				sourceReplyTo: runner.row.sourceReplyTo ?? null,
-			}),
-			// And the upward edge: sub-coordinators can escalate to
-			// their own parent (which may be another sub-coordinator
-			// or the top-level coordinator).
-			createReportToParentTool(workers, runner),
-		],
-		forwardToCoordinator: (sessionKey, sender, content) => {
-			if (!pool) {
-				log.error(`cannot deliver message from "${sender}" to top-level coordinator, agent pool is not ready yet`);
-				return;
-			}
-			pool.forwardChildReport(sessionKey, sender, content);
-		},
-	});
+	let workers: WorkerRegistry | undefined;
+	if (dbModel && workerStore && tapeStore) {
+		const { model, getApiKey: getApiKeyFromDb } = dbModel;
+		const provider = model.provider as string;
+		const modelId = model.id;
 
-	pool = new AgentPool({
-		systemPrompt: COORDINATOR_PROMPT,
-		model,
-		tools: [],
-		tapeStore,
-		getTapeRef: getOrCreateSessionTapeRef,
-		getApiKey: getApiKeyFromDb,
-		toolsFor: async (key) => {
-			// Top-level coordinator: NO sandbox, NO bash. Just the
-			// dispatcher tool surface scoped to this chat.
-			const sepIdx = key.indexOf(":");
-			const channelName = sepIdx === -1 ? key : key.slice(0, sepIdx);
-			const chatId = sepIdx === -1 ? "" : key.slice(sepIdx + 1);
-			return {
-				tools: createCoordinatorTools(workers, {
-					parentSessionKey: key,
-					sourceChannel: channelName,
-					sourceChatId: chatId,
+		workers = new WorkerRegistry({
+			store: workerStore,
+			gateway,
+			model,
+			modelProvider: provider,
+			modelId,
+			sender,
+			maxConcurrent: cfg.workers.maxConcurrent,
+			tapeStore,
+			getApiKey: getApiKeyFromDb,
+			executorSystemPromptDefault: EXECUTOR_PROMPT,
+			coordinatorSystemPromptDefault: COORDINATOR_PROMPT,
+			executorProxies: cfg.executor.proxies,
+			executorTools: (runner) => {
+				const client = runner.execClient;
+				const tools: AgentTool<any>[] = [
+					createSendUpdateTool(runner),
+					createReportToParentTool(workers!, runner),
+				];
+				if (client) tools.unshift(createBashTool(client));
+				else log.error(`executor "${runner.row.name}" has no exec client, bash tool will be unavailable`);
+				return tools;
+			},
+			coordinatorTools: (runner) => [
+				// Sub-coordinator: same dispatcher surface as the top-level
+				// one, scoped to its own subtree (its row id becomes the
+				// parentSessionKey for any agents it spawns).
+				...createCoordinatorTools(workers!, {
+					parentSessionKey: runner.id,
+					sourceChannel: runner.row.sourceChannel,
+					sourceChatId: runner.row.sourceChatId,
+					sourceReplyTo: runner.row.sourceReplyTo ?? null,
 				}),
-				// no dispose: nothing to release
-			};
-		},
-		sender,
-		debounce: {
-			debounceMs: cfg.debounceSecs * 1_000,
-			delayMs: cfg.messageDelaySecs * 1_000,
-			activeWindowMs: cfg.activeWindowSecs * 1_000,
-		},
-	});
+				// And the upward edge: sub-coordinators can escalate to
+				// their own parent (which may be another sub-coordinator
+				// or the top-level coordinator).
+				createReportToParentTool(workers!, runner),
+			],
+			forwardToCoordinator: (sessionKey, sender, content) => {
+				if (!pool) {
+					log.error(`cannot deliver message from "${sender}" to top-level coordinator, agent pool is not ready yet`);
+					return;
+				}
+				pool.forwardChildReport(sessionKey, sender, content);
+			},
+		});
+
+		pool = new AgentPool({
+			systemPrompt: COORDINATOR_PROMPT,
+			model,
+			tools: [],
+			tapeStore,
+			getTapeRef: getOrCreateSessionTapeRef,
+			getApiKey: getApiKeyFromDb,
+			toolsFor: async (key) => {
+				// Top-level coordinator: NO sandbox, NO bash. Just the
+				// dispatcher tool surface scoped to this chat.
+				const sepIdx = key.indexOf(":");
+				const channelName = sepIdx === -1 ? key : key.slice(0, sepIdx);
+				const chatId = sepIdx === -1 ? "" : key.slice(sepIdx + 1);
+				return {
+					tools: createCoordinatorTools(workers!, {
+						parentSessionKey: key,
+						sourceChannel: channelName,
+						sourceChatId: chatId,
+					}),
+					// no dispose: nothing to release
+				};
+			},
+			sender,
+			debounce: {
+				debounceMs: cfg.debounceSecs * 1_000,
+				delayMs: cfg.messageDelaySecs * 1_000,
+				activeWindowMs: cfg.activeWindowSecs * 1_000,
+			},
+		});
+	}
 
 	const manager = new ChannelManager({
 		channels,
 		gateway,
 		onMessage: (msg) => {
 			try {
-				pool!.handle(msg);
+				if (pool) {
+					pool.handle(msg);
+					return;
+				}
+				void sender.send(msg.channel, {
+					chatId: msg.chatId,
+					text:
+						"Model is not configured yet. Use /configure <provider> <model_id> <api_key> " +
+						"(or the Settings page) to configure a provider, then restart nexal.",
+				}).catch(() => undefined);
 			} catch (err) {
 				log.error(`failed to dispatch incoming message from ${msg.channel} channel`, err);
 			}
@@ -270,11 +290,11 @@ async function main(): Promise<void> {
 		shuttingDown = true;
 		log.info(`${sig} received, shutting down gracefully`);
 		stop.abort();
-		await pool.shutdown();
+		await pool?.shutdown();
 		// Suspend workers BEFORE releaseAll: suspend calls sandbox.detach()
 		// which keeps worker containers running so they resume on next
 		// startup; releaseAll then has nothing left to clean up.
-		await workers.shutdown().catch((err) =>
+		await workers?.shutdown().catch((err) =>
 			log.error("worker registry shutdown failed, some workers may not have been suspended cleanly", err),
 		);
 		await manager.stopAll();
@@ -291,7 +311,7 @@ async function main(): Promise<void> {
 
 	// Resume non-terminal workers after channels are up so their
 	// send_update calls can land on the right destination.
-	await workers.resumePending().catch((err: unknown) =>
+	await workers?.resumePending().catch((err: unknown) =>
 		log.error("failed to resume workers from previous process", err),
 	);
 

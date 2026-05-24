@@ -67,6 +67,39 @@
 				{ id: "moonshotai/kimi-k2-thinking", label: "Kimi K2 Thinking", hint: "reasoning" },
 			],
 		},
+		openai: {
+			label: "OpenAI",
+			icon: "openai",
+			summary: "Direct OpenAI API access for GPT models.",
+			signupUrl: "https://platform.openai.com/api-keys",
+			apiKeyPlaceholder: "sk-...",
+			models: [
+				{ id: "gpt-5.4", label: "GPT-5.4", hint: "latest" },
+				{ id: "gpt-4o", label: "GPT-4o", hint: "general" },
+			],
+		},
+		anthropic: {
+			label: "Anthropic",
+			icon: "anthropic",
+			summary: "Direct Anthropic API access for Claude models.",
+			signupUrl: "https://console.anthropic.com/settings/keys",
+			apiKeyPlaceholder: "sk-ant-...",
+			models: [
+				{ id: "claude-sonnet-4-6", label: "Claude Sonnet 4.6", hint: "balanced" },
+				{ id: "claude-opus-4-5", label: "Claude Opus 4.5", hint: "reasoning" },
+			],
+		},
+		google: {
+			label: "Google Gemini",
+			icon: "google",
+			summary: "Direct Google Generative AI access for Gemini models.",
+			signupUrl: "https://aistudio.google.com/apikey",
+			apiKeyPlaceholder: "AIza...",
+			models: [
+				{ id: "gemini-2.5-flash", label: "Gemini 2.5 Flash", hint: "fast" },
+				{ id: "gemini-2.5-pro", label: "Gemini 2.5 Pro", hint: "reasoning" },
+			],
+		},
 		"kimi-coding": {
 			label: "Kimi",
 			icon: "kimi-coding",

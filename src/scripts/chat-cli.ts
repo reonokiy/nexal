@@ -9,7 +9,7 @@
  *
  * Usage:
  *   bun run src/scripts/chat-cli.ts
- *   bun run src/scripts/chat-cli.ts --url wss://nexal-server.fly.dev --provider github
+ *   bun run src/scripts/chat-cli.ts --url wss://api.nexal.nokiy.net --provider github
  *   bun run src/scripts/chat-cli.ts --once "hello"        # send one and exit
  *   bun run src/scripts/chat-cli.ts --token "<jwt>"       # skip OAuth
  *
@@ -22,7 +22,7 @@
  */
 import { createInterface } from "node:readline/promises";
 import { stdin as input, stdout as output, exit } from "node:process";
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
@@ -39,10 +39,13 @@ import {
 // ── Config ──────────────────────────────────────────────────────────
 
 const SUPABASE_URL =
-	process.env.NEXAL_SUPABASE_URL ?? "https://oiucjptwjncfbzotwgbg.supabase.co";
+	process.env.NEXAL_SUPABASE_URL ??
+	process.env.VITE_SUPABASE_URL ??
+	"https://oiucjptwjncfbzotwgbg.supabase.co";
 // Anon key is safe to ship — it's a public client key (RLS-gated).
 const SUPABASE_ANON_KEY =
 	process.env.NEXAL_SUPABASE_ANON_KEY ??
+	process.env.VITE_SUPABASE_ANON_KEY ??
 	"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9pdWNqcHR3am5jZmJ6b3R3Z2JnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDc2NTg4MDAsImV4cCI6MjA2MzIzNDgwMH0.bxWvfnWHTLRcXL7UbKKBljxX4Qe8bYgSE4r0FJNHjxk";
 
 const SESSION_PATH = join(homedir(), ".nexal", "cli-session.json");
@@ -92,7 +95,7 @@ Usage:
   bun run src/scripts/chat-cli.ts [options]
 
 Options:
-  --url <ws-url>         backend WebSocket URL (default $NEXAL_URL or wss://nexal-server.fly.dev)
+  --url <ws-url>         backend WebSocket URL (default $NEXAL_URL or wss://api.nexal.nokiy.net)
   --token <jwt>          skip OAuth, use this Supabase access token directly
   --provider <p>         OAuth provider (default github; google, gitlab, etc. also work)
   --chat-id <id>         chat id sent with messages (default "cli")
@@ -106,6 +109,7 @@ Env:
   NEXAL_TOKEN            default access token (overridden by --token)
   NEXAL_SUPABASE_URL     Supabase project URL
   NEXAL_SUPABASE_ANON_KEY  Supabase anon key
+  VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY are also accepted
 
 REPL:
   text          → chat/send
@@ -118,7 +122,7 @@ REPL:
 }
 
 const BACKEND_URL =
-	values.url ?? process.env.NEXAL_URL ?? "wss://nexal-server.fly.dev";
+	values.url ?? process.env.NEXAL_URL ?? "wss://api.nexal.nokiy.net";
 
 // ── Session cache ───────────────────────────────────────────────────
 
@@ -143,7 +147,8 @@ function saveSession(session: Session): void {
 		refresh_token: session.refresh_token,
 		expires_at: session.expires_at ?? 0,
 	};
-	writeFileSync(SESSION_PATH, JSON.stringify(cached, null, 2));
+	writeFileSync(SESSION_PATH, JSON.stringify(cached, null, 2), { mode: 0o600 });
+	chmodSync(SESSION_PATH, 0o600);
 }
 
 function clearCachedSession(): void {
@@ -293,7 +298,12 @@ function openBrowser(url: string): void {
 				? ["cmd", "/c", "start", "", url]
 				: ["xdg-open", url];
 	try {
-		Bun.spawn(cmd, { stdout: "ignore", stderr: "ignore" });
+		const proc = Bun.spawn(cmd, {
+			stdin: "ignore",
+			stdout: "ignore",
+			stderr: "ignore",
+		});
+		proc.unref();
 	} catch {
 		/* user can copy URL manually */
 	}
@@ -301,7 +311,12 @@ function openBrowser(url: string): void {
 
 // ── Chat session ────────────────────────────────────────────────────
 
-async function main() {
+async function authenticateIfNeeded(chat: ChatClient): Promise<void> {
+	if (!(await serverRequiresAuth(chat))) {
+		logStatus("server does not require authentication");
+		return;
+	}
+
 	let token: string;
 	try {
 		token = await getAccessToken();
@@ -309,15 +324,6 @@ async function main() {
 		logError(`auth failed: ${err instanceof Error ? err.message : String(err)}`);
 		exit(1);
 	}
-
-	logStatus(`connecting to ${BACKEND_URL}`);
-	const ws = await createWebSocketConnection(BACKEND_URL, {
-		onDisconnect: () => {
-			logError("disconnected");
-			exit(1);
-		},
-	});
-	const chat = createChatClient(ws.connection);
 
 	try {
 		const { userId, email } = await chat.authenticate({ token });
@@ -328,6 +334,34 @@ async function main() {
 		);
 		exit(1);
 	}
+}
+
+async function serverRequiresAuth(chat: ChatClient): Promise<boolean> {
+	try {
+		await chat.listCommands({});
+		return false;
+	} catch (err) {
+		const msg = err instanceof Error ? err.message : String(err);
+		if (msg.toLowerCase().includes("not authenticated")) {
+			logStatus("server requested authentication");
+		} else {
+			logStatus(`auth probe failed (${msg}); trying authentication`);
+		}
+		return true;
+	}
+}
+
+async function main() {
+	logStatus(`connecting to ${BACKEND_URL}`);
+	const ws = await createWebSocketConnection(BACKEND_URL, {
+		onDisconnect: () => {
+			logError("disconnected");
+			exit(1);
+		},
+	});
+	const chat = createChatClient(ws.connection);
+
+	await authenticateIfNeeded(chat);
 
 	wireHandlers(chat);
 

@@ -14,7 +14,7 @@ export type SendKey = "enter" | "shift-enter";
 
 const PREFIX = "nexal.";
 const DEFAULT_BACKEND_URL =
-	import.meta.env.VITE_NEXAL_BACKEND ?? "wss://nexal-server.fly.dev";
+	import.meta.env.VITE_NEXAL_BACKEND ?? "wss://api.nexal.nokiy.net";
 
 function read<T>(key: string, fallback: T): T {
 	if (typeof localStorage === "undefined") return fallback;
