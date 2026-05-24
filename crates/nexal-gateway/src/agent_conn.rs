@@ -16,6 +16,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use nexal_utils_transport::agent::AgentMethod;
 use nexal_utils_transport::{JsonMessageConnection, JsonMessageConnectionEvent};
 use rmpv::Value;
 use thiserror::Error;
@@ -116,11 +117,13 @@ impl AgentConn {
 
         let _init: Value = agent_conn
             .invoke(
-                "initialize",
+                AgentMethod::Initialize.as_str(),
                 Some(msgpack_map_str(&[("client_name", client_name)])),
             )
             .await?;
-        let _ = agent_conn.invoke("initialized", None).await?;
+        let _ = agent_conn
+            .invoke(AgentMethod::Initialized.as_str(), None)
+            .await?;
         Ok(agent_conn)
     }
 
@@ -243,12 +246,10 @@ async fn dispatch_frame(
                 let result = handler(method, params).await;
                 let response = match result {
                     Ok(val) => Value::Map(vec![
-                        (Value::String("jsonrpc".into()), Value::String("2.0".into())),
                         (Value::String("id".into()), id),
                         (Value::String("result".into()), val),
                     ]),
                     Err(msg) => Value::Map(vec![
-                        (Value::String("jsonrpc".into()), Value::String("2.0".into())),
                         (Value::String("id".into()), id),
                         (
                             Value::String("error".into()),
@@ -335,7 +336,6 @@ fn msgpack_map_str(pairs: &[(&str, &str)]) -> Value {
 
 fn build_rpc_request(id: u64, method: &str, params: Value) -> Value {
     Value::Map(vec![
-        (Value::String("jsonrpc".into()), Value::String("2.0".into())),
         (Value::String("id".into()), Value::Integer(id.into())),
         (Value::String("method".into()), Value::String(method.into())),
         (Value::String("params".into()), params),
@@ -344,7 +344,6 @@ fn build_rpc_request(id: u64, method: &str, params: Value) -> Value {
 
 fn build_rpc_notification(method: &str, params: Value) -> Value {
     Value::Map(vec![
-        (Value::String("jsonrpc".into()), Value::String("2.0".into())),
         (Value::String("method".into()), Value::String(method.into())),
         (Value::String("params".into()), params),
     ])

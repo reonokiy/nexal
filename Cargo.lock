@@ -1629,9 +1629,14 @@ version = "0.1.0"
 dependencies = [
  "futures",
  "rmp-serde",
+ "rmpv",
  "serde",
+ "serde_bytes",
+ "serde_json",
+ "thiserror 2.0.18",
  "tokio",
  "tokio-tungstenite",
+ "uuid",
 ]
 
 [[package]]

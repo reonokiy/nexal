@@ -13,6 +13,11 @@ workspace = true
 [dependencies]
 futures = { workspace = true }
 rmp-serde = { workspace = true }
+rmpv = { workspace = true }
 serde = { workspace = true }
-tokio = { workspace = true, features = ["io-util", "macros", "sync"] }
+serde_bytes = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["io-util", "macros", "rt", "sync", "time"] }
 tokio-tungstenite = { workspace = true }
+uuid = { workspace = true }

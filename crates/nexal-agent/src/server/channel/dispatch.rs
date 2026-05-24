@@ -6,17 +6,15 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use nexal_utils_transport::{JsonMessageConnection, JsonMessageConnectionEvent};
+use nexal_utils_transport::agent::AgentMethod;
+use nexal_utils_transport::notifications::{PROCESS_CLOSED, PROCESS_EXITED, PROCESS_OUTPUT};
+use nexal_utils_transport::{JsonMessageConnection, JsonMessageConnectionEvent, to_msgpack_value};
 use rmpv::Value;
 use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, warn};
 
 use crate::process::events::ProcessEvent;
 use crate::protocol::errors::{ChannelError, ChannelErrorKind};
-use crate::protocol::methods::{
-    EXEC_CLOSED_METHOD, EXEC_EXITED_METHOD, EXEC_OUTPUT_DELTA_METHOD, FsMethod, LifecycleMethod,
-    Method, ProcessMethod, ProxyMethod, parse_method,
-};
 use crate::protocol::wire::{
     ExecParams, FsCopyParams, FsCreateDirectoryParams, FsGetMetadataParams, FsReadDirectoryParams,
     FsReadFileParams, FsRemoveParams, FsWriteFileParams, InitializeParams, ProxyRegisterParams,
@@ -177,18 +175,15 @@ pub(crate) async fn run_dispatch(
             match rx.recv().await {
                 Ok(event) => {
                     let (method, params) = match &event {
-                        ProcessEvent::OutputDelta(n) => (
-                            EXEC_OUTPUT_DELTA_METHOD,
-                            rmpv::ext::to_value(n).unwrap_or(Value::Nil),
-                        ),
-                        ProcessEvent::Exited(n) => (
-                            EXEC_EXITED_METHOD,
-                            rmpv::ext::to_value(n).unwrap_or(Value::Nil),
-                        ),
-                        ProcessEvent::Closed(n) => (
-                            EXEC_CLOSED_METHOD,
-                            rmpv::ext::to_value(n).unwrap_or(Value::Nil),
-                        ),
+                        ProcessEvent::OutputDelta(n) => {
+                            (PROCESS_OUTPUT, to_msgpack_value(n).unwrap_or(Value::Nil))
+                        }
+                        ProcessEvent::Exited(n) => {
+                            (PROCESS_EXITED, to_msgpack_value(n).unwrap_or(Value::Nil))
+                        }
+                        ProcessEvent::Closed(n) => {
+                            (PROCESS_CLOSED, to_msgpack_value(n).unwrap_or(Value::Nil))
+                        }
                     };
                     let notif = mp_map(vec![
                         ("method", Value::String(method.into())),
@@ -278,7 +273,7 @@ async fn dispatch(
     method: &str,
     params: Value,
 ) -> Result<Value, ChannelError> {
-    let Some(method) = parse_method(method) else {
+    let Some(method) = AgentMethod::parse(method) else {
         return Err(ChannelError {
             kind: ChannelErrorKind::MethodNotFound,
             message: format!("method not found: {method}"),
@@ -286,88 +281,80 @@ async fn dispatch(
         });
     };
     match method {
-        Method::Lifecycle(m) => match m {
-            LifecycleMethod::Initialize => {
-                let _: InitializeParams = parse_params(params)?;
-                let r = handler.initialize()?;
-                Ok(rmpv::ext::to_value(r).unwrap_or(Value::Nil))
-            }
-            LifecycleMethod::Initialized => {
-                handler.initialized().map_err(internal_error)?;
-                Ok(Value::Nil)
-            }
-        },
-        Method::Process(m) => match m {
-            ProcessMethod::Start => {
-                let p: ExecParams = parse_params(params)?;
-                let r = handler.exec(p).await?;
-                Ok(rmpv::ext::to_value(r).unwrap_or(Value::Nil))
-            }
-            ProcessMethod::Read => {
-                let p: ReadParams = parse_params(params)?;
-                let r = handler.exec_read(p).await?;
-                Ok(rmpv::ext::to_value(r).unwrap_or(Value::Nil))
-            }
-            ProcessMethod::Write => {
-                let p: WriteParams = parse_params(params)?;
-                let r = handler.exec_write(p).await?;
-                Ok(rmpv::ext::to_value(r).unwrap_or(Value::Nil))
-            }
-            ProcessMethod::Terminate => {
-                let p: TerminateParams = parse_params(params)?;
-                let r = handler.terminate(p).await?;
-                Ok(rmpv::ext::to_value(r).unwrap_or(Value::Nil))
-            }
-        },
-        Method::FileSystem(m) => match m {
-            FsMethod::ReadFile => {
-                let p: FsReadFileParams = parse_params(params)?;
-                let r = handler.fs_read_file(p).await?;
-                Ok(rmpv::ext::to_value(r).unwrap_or(Value::Nil))
-            }
-            FsMethod::WriteFile => {
-                let p: FsWriteFileParams = parse_params(params)?;
-                let r = handler.fs_write_file(p).await?;
-                Ok(rmpv::ext::to_value(r).unwrap_or(Value::Nil))
-            }
-            FsMethod::CreateDirectory => {
-                let p: FsCreateDirectoryParams = parse_params(params)?;
-                let r = handler.fs_create_directory(p).await?;
-                Ok(rmpv::ext::to_value(r).unwrap_or(Value::Nil))
-            }
-            FsMethod::GetMetadata => {
-                let p: FsGetMetadataParams = parse_params(params)?;
-                let r = handler.fs_get_metadata(p).await?;
-                Ok(rmpv::ext::to_value(r).unwrap_or(Value::Nil))
-            }
-            FsMethod::ReadDirectory => {
-                let p: FsReadDirectoryParams = parse_params(params)?;
-                let r = handler.fs_read_directory(p).await?;
-                Ok(rmpv::ext::to_value(r).unwrap_or(Value::Nil))
-            }
-            FsMethod::Remove => {
-                let p: FsRemoveParams = parse_params(params)?;
-                let r = handler.fs_remove(p).await?;
-                Ok(rmpv::ext::to_value(r).unwrap_or(Value::Nil))
-            }
-            FsMethod::Copy => {
-                let p: FsCopyParams = parse_params(params)?;
-                let r = handler.fs_copy(p).await?;
-                Ok(rmpv::ext::to_value(r).unwrap_or(Value::Nil))
-            }
-        },
-        Method::Proxy(m) => match m {
-            ProxyMethod::Register => {
-                let p: ProxyRegisterParams = parse_params(params)?;
-                let r = handler.proxy_register(p).await?;
-                Ok(rmpv::ext::to_value(r).unwrap_or(Value::Nil))
-            }
-            ProxyMethod::Unregister => {
-                let p: ProxyUnregisterParams = parse_params(params)?;
-                let r = handler.proxy_unregister(p).await?;
-                Ok(rmpv::ext::to_value(r).unwrap_or(Value::Nil))
-            }
-        },
+        AgentMethod::Initialize => {
+            let _: InitializeParams = parse_params(params)?;
+            let r = handler.initialize()?;
+            Ok(to_msgpack_value(&r).unwrap_or(Value::Nil))
+        }
+        AgentMethod::Initialized => {
+            handler.initialized().map_err(internal_error)?;
+            Ok(Value::Nil)
+        }
+        AgentMethod::ProcessStart => {
+            let p: ExecParams = parse_params(params)?;
+            let r = handler.exec(p).await?;
+            Ok(to_msgpack_value(&r).unwrap_or(Value::Nil))
+        }
+        AgentMethod::ProcessRead => {
+            let p: ReadParams = parse_params(params)?;
+            let r = handler.exec_read(p).await?;
+            Ok(to_msgpack_value(&r).unwrap_or(Value::Nil))
+        }
+        AgentMethod::ProcessWrite => {
+            let p: WriteParams = parse_params(params)?;
+            let r = handler.exec_write(p).await?;
+            Ok(to_msgpack_value(&r).unwrap_or(Value::Nil))
+        }
+        AgentMethod::ProcessTerminate => {
+            let p: TerminateParams = parse_params(params)?;
+            let r = handler.terminate(p).await?;
+            Ok(to_msgpack_value(&r).unwrap_or(Value::Nil))
+        }
+        AgentMethod::FsReadFile => {
+            let p: FsReadFileParams = parse_params(params)?;
+            let r = handler.fs_read_file(p).await?;
+            Ok(to_msgpack_value(&r).unwrap_or(Value::Nil))
+        }
+        AgentMethod::FsWriteFile => {
+            let p: FsWriteFileParams = parse_params(params)?;
+            let r = handler.fs_write_file(p).await?;
+            Ok(to_msgpack_value(&r).unwrap_or(Value::Nil))
+        }
+        AgentMethod::FsCreateDirectory => {
+            let p: FsCreateDirectoryParams = parse_params(params)?;
+            let r = handler.fs_create_directory(p).await?;
+            Ok(to_msgpack_value(&r).unwrap_or(Value::Nil))
+        }
+        AgentMethod::FsGetMetadata => {
+            let p: FsGetMetadataParams = parse_params(params)?;
+            let r = handler.fs_get_metadata(p).await?;
+            Ok(to_msgpack_value(&r).unwrap_or(Value::Nil))
+        }
+        AgentMethod::FsReadDirectory => {
+            let p: FsReadDirectoryParams = parse_params(params)?;
+            let r = handler.fs_read_directory(p).await?;
+            Ok(to_msgpack_value(&r).unwrap_or(Value::Nil))
+        }
+        AgentMethod::FsRemove => {
+            let p: FsRemoveParams = parse_params(params)?;
+            let r = handler.fs_remove(p).await?;
+            Ok(to_msgpack_value(&r).unwrap_or(Value::Nil))
+        }
+        AgentMethod::FsCopy => {
+            let p: FsCopyParams = parse_params(params)?;
+            let r = handler.fs_copy(p).await?;
+            Ok(to_msgpack_value(&r).unwrap_or(Value::Nil))
+        }
+        AgentMethod::ProxyRegister => {
+            let p: ProxyRegisterParams = parse_params(params)?;
+            let r = handler.proxy_register(p).await?;
+            Ok(to_msgpack_value(&r).unwrap_or(Value::Nil))
+        }
+        AgentMethod::ProxyUnregister => {
+            let p: ProxyUnregisterParams = parse_params(params)?;
+            let r = handler.proxy_unregister(p).await?;
+            Ok(to_msgpack_value(&r).unwrap_or(Value::Nil))
+        }
     }
 }
 

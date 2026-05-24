@@ -1,16 +1,13 @@
-//! Frontend ↔ gateway JSON-RPC types (MessagePack binary wire format).
+//! Frontend ↔ gateway wire types (MessagePack binary wire format).
 //!
-//! Wire format is JSON-RPC 2.0 over WebSocket Binary frames. We use raw
-//! `rmpv::Value` for `id` and inner request/response payloads so
-//! that we can transparently forward agent-bound traffic without
-//! having to model every possible agent method here.
+//! Wire format matches `@nexal/transport`: msgpack maps with `id`,
+//! `method`, `params`, `result`, `error`, and optional `stream`. There
+//! is intentionally no JSON-RPC `jsonrpc` field.
 
 use std::collections::HashMap;
 
 use rmpv::Value;
 use serde::{Deserialize, Serialize};
-
-pub const JSONRPC_VERSION: &str = "2.0";
 
 // ── Method names ─────────────────────────────────────────────────────
 
@@ -33,7 +30,6 @@ pub const NOTIFY_AGENT: &str = "agent/notify";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct JsonRpcRequest {
-    pub jsonrpc: String,
     /// `None` means notification (no response expected).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<Value>,
@@ -44,7 +40,6 @@ pub struct JsonRpcRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct JsonRpcResponse {
-    pub jsonrpc: String,
     pub id: Value,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub result: Option<Value>,
@@ -63,7 +58,6 @@ pub struct JsonRpcError {
 impl JsonRpcResponse {
     pub fn ok(id: Value, result: Value) -> Self {
         Self {
-            jsonrpc: JSONRPC_VERSION.into(),
             id,
             result: Some(result),
             error: None,
@@ -72,7 +66,6 @@ impl JsonRpcResponse {
 
     pub fn err(id: Value, code: i32, message: impl Into<String>) -> Self {
         Self {
-            jsonrpc: JSONRPC_VERSION.into(),
             id,
             result: None,
             error: Some(JsonRpcError {
@@ -86,7 +79,6 @@ impl JsonRpcResponse {
 
 pub fn notification(method: &str, params: Value) -> JsonRpcRequest {
     JsonRpcRequest {
-        jsonrpc: JSONRPC_VERSION.into(),
         id: None,
         method: method.into(),
         params: Some(params),
@@ -399,7 +391,6 @@ mod tests {
     #[test]
     fn jsonrpc_request_with_no_id_omits_id_field() {
         let req = JsonRpcRequest {
-            jsonrpc: JSONRPC_VERSION.into(),
             id: None,
             method: "x".into(),
             params: Some(mpv_from_json(r#"{"a":1}"#)),
@@ -412,7 +403,6 @@ mod tests {
     #[test]
     fn jsonrpc_response_ok_helper_builds_valid_envelope() {
         let r = JsonRpcResponse::ok(mpv_from_json(r#""id-1""#), mpv_from_json(r#"{"ok":true}"#));
-        assert_eq!(r.jsonrpc, JSONRPC_VERSION);
         assert_eq!(r.id, mpv_from_json(r#""id-1""#));
         assert!(r.error.is_none());
         assert_eq!(r.result, Some(mpv_from_json(r#"{"ok":true}"#)));
@@ -421,7 +411,6 @@ mod tests {
     #[test]
     fn jsonrpc_response_err_helper_builds_error_envelope() {
         let r = JsonRpcResponse::err(mpv_from_json("5"), error_code::UNKNOWN_AGENT, "nope");
-        assert_eq!(r.jsonrpc, JSONRPC_VERSION);
         assert!(r.result.is_none());
         let e = r.error.expect("error response must carry an error");
         assert_eq!(e.code, error_code::UNKNOWN_AGENT);

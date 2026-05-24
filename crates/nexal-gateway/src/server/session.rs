@@ -8,22 +8,20 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use ring::hmac;
 
+use nexal_utils_transport::agent::AgentMethod;
+use nexal_utils_transport::gateway::{
+    AgentIdParams, AgentInvokeParams, AgentNotifyParams, AgentSummary, AttachAgentParams,
+    GatewayMethod, HelloParams, HelloResponse, ListAgentsResponse, NOTIFY_AGENT, OkResponse,
+    RegisterProxyParams, RegisterProxyResponse, RegisterStreamProxyParams,
+    RegisterStreamProxyResponse, SpawnAgentParams, SpawnAgentResponse, UnregisterProxyParams,
+    UnregisterStreamProxyParams,
+};
 use nexal_utils_transport::{JsonMessageConnection, JsonMessageConnectionEvent};
 use rmpv::Value;
 use tokio::sync::{Mutex, mpsc};
 use tracing::{debug, info};
 
-use crate::protocol::{
-    AgentIdParams, AgentInvokeParams, AgentNotifyParams, AgentSummary, AttachAgentParams,
-    HelloParams, HelloResponse, JSONRPC_VERSION, JsonRpcError, JsonRpcRequest, JsonRpcResponse,
-    ListAgentsResponse, METHOD_AGENT_INVOKE, METHOD_ATTACH_AGENT, METHOD_DETACH_AGENT,
-    METHOD_HELLO, METHOD_KILL_AGENT, METHOD_LIST_AGENTS, METHOD_REGISTER_PROXY,
-    METHOD_REGISTER_STREAM_PROXY, METHOD_SPAWN_AGENT, METHOD_UNREGISTER_PROXY,
-    METHOD_UNREGISTER_STREAM_PROXY, NOTIFY_AGENT, OkResponse, RegisterProxyParams,
-    RegisterProxyResponse, RegisterStreamProxyParams, RegisterStreamProxyResponse,
-    SpawnAgentParams, SpawnAgentResponse, UnregisterProxyParams, UnregisterStreamProxyParams,
-    error_code, notification,
-};
+use crate::protocol::{JsonRpcError, JsonRpcRequest, JsonRpcResponse, error_code, notification};
 use crate::registry::AgentRegistry;
 
 use super::{GATEWAY_VERSION, ServerConfig};
@@ -180,7 +178,9 @@ impl Session {
             return;
         };
 
-        if !*self.authenticated.lock().await && req.method != METHOD_HELLO {
+        if !*self.authenticated.lock().await
+            && GatewayMethod::parse(&req.method) != Some(GatewayMethod::Hello)
+        {
             self.send_error(
                 req_id,
                 error_code::NOT_AUTHENTICATED,
@@ -195,7 +195,6 @@ impl Session {
             Ok(val) => self.send_result(req_id, val).await,
             Err(err) => {
                 self.send_response(JsonRpcResponse {
-                    jsonrpc: JSONRPC_VERSION.into(),
                     id: req_id,
                     result: None,
                     error: Some(err),
@@ -207,8 +206,8 @@ impl Session {
 
     async fn dispatch(&self, req: &JsonRpcRequest) -> Result<Value, JsonRpcError> {
         let params = req.params.clone().unwrap_or(Value::Nil);
-        match req.method.as_str() {
-            METHOD_HELLO => {
+        match GatewayMethod::parse(&req.method) {
+            Some(GatewayMethod::Hello) => {
                 let p: HelloParams = super::parse_params(params)?;
                 verify_hello(&self.cfg, &p).await?;
                 *self.authenticated.lock().await = true;
@@ -218,7 +217,7 @@ impl Session {
                     gateway_version: GATEWAY_VERSION.into(),
                 }))
             }
-            METHOD_SPAWN_AGENT => {
+            Some(GatewayMethod::SpawnAgent) => {
                 let p: SpawnAgentParams = super::parse_params(params)?;
                 let entry = self
                     .registry
@@ -230,7 +229,7 @@ impl Session {
                     container_name: entry.container_name,
                 }))
             }
-            METHOD_KILL_AGENT => {
+            Some(GatewayMethod::KillAgent) => {
                 let p: AgentIdParams = super::parse_params(params)?;
                 self.registry
                     .kill(&p.agent_id)
@@ -238,7 +237,7 @@ impl Session {
                     .map_err(super::registry_err)?;
                 Ok(to_msgpack(&OkResponse { ok: true }))
             }
-            METHOD_DETACH_AGENT => {
+            Some(GatewayMethod::DetachAgent) => {
                 let p: AgentIdParams = super::parse_params(params)?;
                 self.registry
                     .detach(&p.agent_id)
@@ -246,7 +245,7 @@ impl Session {
                     .map_err(super::registry_err)?;
                 Ok(to_msgpack(&OkResponse { ok: true }))
             }
-            METHOD_ATTACH_AGENT => {
+            Some(GatewayMethod::AttachAgent) => {
                 let p: AttachAgentParams = super::parse_params(params)?;
                 let entry = self
                     .registry
@@ -258,7 +257,7 @@ impl Session {
                     container_name: entry.container_name,
                 }))
             }
-            METHOD_LIST_AGENTS => {
+            Some(GatewayMethod::ListAgents) => {
                 let entries = self.registry.list().await;
                 let agents = entries
                     .into_iter()
@@ -270,7 +269,7 @@ impl Session {
                     .collect();
                 Ok(to_msgpack(&ListAgentsResponse { agents }))
             }
-            METHOD_AGENT_INVOKE => {
+            Some(GatewayMethod::AgentInvoke) => {
                 let p: AgentInvokeParams = super::parse_params(params)?;
                 let entry = self
                     .registry
@@ -287,7 +286,7 @@ impl Session {
                     .await
                     .map_err(JsonRpcError::from)
             }
-            METHOD_REGISTER_PROXY => {
+            Some(GatewayMethod::RegisterProxy) => {
                 let p: RegisterProxyParams = super::parse_params(params)?;
                 let agent_entry =
                     self.registry
@@ -321,7 +320,7 @@ impl Session {
                 }));
                 let agent_resp = agent_entry
                     .conn
-                    .invoke("proxy/register", Some(agent_params))
+                    .invoke(AgentMethod::ProxyRegister.as_str(), Some(agent_params))
                     .await;
                 if let Err(err) = agent_resp {
                     self.registry.proxies.unregister(&p.agent_id, &p.name).await;
@@ -332,7 +331,7 @@ impl Session {
                     socket_path,
                 }))
             }
-            METHOD_UNREGISTER_PROXY => {
+            Some(GatewayMethod::UnregisterProxy) => {
                 let p: UnregisterProxyParams = super::parse_params(params)?;
                 let socket_path = super::container_socket_path(&p.name);
                 if let Some(agent_entry) = self.registry.get(&p.agent_id).await {
@@ -340,13 +339,13 @@ impl Session {
                         to_msgpack(&serde_json::json!({ "socket_path": socket_path }));
                     let _ = agent_entry
                         .conn
-                        .invoke("proxy/unregister", Some(agent_params))
+                        .invoke(AgentMethod::ProxyUnregister.as_str(), Some(agent_params))
                         .await;
                 }
                 let removed = self.registry.proxies.unregister(&p.agent_id, &p.name).await;
                 Ok(to_msgpack(&OkResponse { ok: removed }))
             }
-            METHOD_REGISTER_STREAM_PROXY => {
+            Some(GatewayMethod::RegisterStreamProxy) => {
                 let p: RegisterStreamProxyParams = super::parse_params(params)?;
                 let agent_entry =
                     self.registry
@@ -381,7 +380,7 @@ impl Session {
                     })?;
                 Ok(to_msgpack(&RegisterStreamProxyResponse { listen_addr }))
             }
-            METHOD_UNREGISTER_STREAM_PROXY => {
+            Some(GatewayMethod::UnregisterStreamProxy) => {
                 let p: UnregisterStreamProxyParams = super::parse_params(params)?;
                 let removed = self
                     .registry
@@ -390,9 +389,9 @@ impl Session {
                     .await;
                 Ok(to_msgpack(&OkResponse { ok: removed }))
             }
-            other => Err(JsonRpcError {
+            None => Err(JsonRpcError {
                 code: error_code::METHOD_NOT_FOUND,
-                message: format!("unknown method: {other}"),
+                message: format!("unknown method: {}", req.method),
                 data: None,
             }),
         }

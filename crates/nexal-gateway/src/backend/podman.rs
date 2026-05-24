@@ -129,6 +129,10 @@ impl ContainerBackend for PodmanBackend {
     async fn ensure(&self, spec: ContainerSpec) -> Result<ContainerHandle, BackendError> {
         // Reuse by name if already present.
         if self.container_exists(&spec.name).await? {
+            // Refresh the agent binary before reuse. E2E/dev flows often
+            // keep containers around while rebuilding the host binary.
+            let _ = self.podman(&["stop", &spec.name]).await;
+            self.copy_agent_binary(&spec).await?;
             // Best-effort start; ignore "already running" failures.
             let _ = self.podman(&["start", &spec.name]).await;
             let url = self.discover_url(&spec.name).await?;
@@ -214,13 +218,7 @@ impl ContainerBackend for PodmanBackend {
         let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
         self.podman(&arg_refs).await?;
 
-        // Copy the agent binary in.
-        let agent_bin_str = spec
-            .agent_bin
-            .to_str()
-            .ok_or_else(|| BackendError::Io("agent_bin path is not utf-8".into()))?;
-        let dest = format!("{}:/usr/local/bin/nexal-agent", spec.name);
-        self.podman(&["cp", agent_bin_str, &dest]).await?;
+        self.copy_agent_binary(&spec).await?;
 
         self.podman(&["start", &spec.name]).await?;
 
@@ -289,6 +287,18 @@ fn days_to_ymd(days: i64) -> (i32, u32, u32) {
     let m = if mp < 10 { mp + 3 } else { mp - 9 };
     let y = if m <= 2 { y + 1 } else { y };
     (y as i32, m as u32, d as u32)
+}
+
+impl PodmanBackend {
+    async fn copy_agent_binary(&self, spec: &ContainerSpec) -> Result<(), BackendError> {
+        let agent_bin_str = spec
+            .agent_bin
+            .to_str()
+            .ok_or_else(|| BackendError::Io("agent_bin path is not utf-8".into()))?;
+        let dest = format!("{}:/usr/local/bin/nexal-agent", spec.name);
+        self.podman(&["cp", agent_bin_str, &dest]).await?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]

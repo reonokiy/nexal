@@ -89,7 +89,6 @@ impl ExecServerHarness {
         params: serde_json::Value,
     ) -> anyhow::Result<()> {
         let msg = mp_map(vec![
-            ("jsonrpc", Value::String("2.0".into())),
             ("method", Value::String(method.into())),
             ("params", to_msgpack(&params)),
         ]);

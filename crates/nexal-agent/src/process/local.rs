@@ -8,6 +8,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use nexal_utils_pty::ExecCommandSession;
 use nexal_utils_pty::TerminalSize;
+use nexal_utils_transport::notifications::{PROCESS_CLOSED, PROCESS_EXITED, PROCESS_OUTPUT};
 use tokio::sync::Mutex;
 use tokio::sync::Notify;
 use tokio::sync::mpsc;
@@ -21,7 +22,7 @@ use crate::protocol::channel::{
     invalid_request,
 };
 use crate::protocol::errors::ChannelError;
-use crate::protocol::methods::{EXEC_CLOSED_METHOD, ExecOutputStream, WriteStatus};
+use crate::protocol::methods::{ExecOutputStream, WriteStatus};
 use crate::protocol::wire::{
     ExecClosedNotification, ExecExitedNotification, ExecOutputDeltaNotification, ExecParams,
     ExecResponse, InitializeResponse, ProcessOutputChunk, ReadParams, ReadResponse,
@@ -542,10 +543,7 @@ async fn stream_output(
         output_notify.notify_waiters();
         if inner
             .notifications
-            .notify(
-                crate::protocol::methods::EXEC_OUTPUT_DELTA_METHOD,
-                &notification,
-            )
+            .notify(PROCESS_OUTPUT, &notification)
             .await
             .is_err()
         {
@@ -584,7 +582,7 @@ async fn watch_exit(
     if let Some(notification) = notification.as_ref()
         && inner
             .notifications
-            .notify(crate::protocol::methods::EXEC_EXITED_METHOD, notification)
+            .notify(PROCESS_EXITED, notification)
             .await
             .is_err()
     {
@@ -649,7 +647,7 @@ async fn maybe_emit_closed(process_id: ProcessId, inner: Arc<Inner>) {
     // Ignore notify errors — send_closed below always fires regardless.
     let _ = inner
         .notifications
-        .notify(EXEC_CLOSED_METHOD, &notification)
+        .notify(PROCESS_CLOSED, &notification)
         .await;
     inner.process_events.send_closed(notification);
 }

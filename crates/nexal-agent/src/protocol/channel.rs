@@ -1,5 +1,6 @@
 //! Message helpers for the bidirectional WS + msgpack channel.
 
+use nexal_utils_transport::to_msgpack_value;
 use rmpv::Value;
 use serde::Serialize;
 use tokio::sync::mpsc;
@@ -26,7 +27,7 @@ impl ChannelNotificationSender {
         method: &str,
         params: &P,
     ) -> Result<(), ChannelError> {
-        let params = rmpv::ext::to_value(params).map_err(|err| internal_error(err.to_string()))?;
+        let params = to_msgpack_value(params).map_err(internal_error)?;
         let msg = Value::Map(vec![
             (Value::String("method".into()), Value::String(method.into())),
             (Value::String("params".into()), params),
