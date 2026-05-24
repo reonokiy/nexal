@@ -52,7 +52,7 @@ async function buildModelFromDb(): Promise<ModelFromDb | null> {
 
 		if (baseUrl) {
 			const model: import("@mariozechner/pi-ai").Model<"openai-completions"> = {
-				id: `${saved.provider}/${saved.modelId}`,
+				id: saved.modelId,
 				name: saved.modelId,
 				api: "openai-completions",
 				provider: saved.provider as any,

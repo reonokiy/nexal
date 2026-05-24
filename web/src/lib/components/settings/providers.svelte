@@ -130,7 +130,7 @@
 			apiKeyPlaceholder: "api key",
 			showBaseUrl: true,
 			baseUrlLabel: "Endpoint",
-			baseUrlPlaceholder: "https://opencode.ai/zen/go/v1/chat/completions",
+			baseUrlPlaceholder: "https://opencode.ai/zen/go/v1",
 			models: [
 				{ id: "kimi-k2.6", label: "Kimi K2.6", hint: "reasoning" },
 				{ id: "kimi-k2.5", label: "Kimi K2.5", hint: "balanced" },

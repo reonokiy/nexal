@@ -19,14 +19,14 @@ describe("parseConfigureArgs", () => {
 				"kimi-k2.6",
 				"secret",
 				"--base-url",
-				"https://example.test/v1/chat/completions",
+				"https://example.test/v1",
 			]),
 		).toEqual({
 			ok: true,
 			provider: "opencode-go",
 			modelId: "kimi-k2.6",
 			apiKey: "secret",
-			baseUrl: "https://example.test/v1/chat/completions",
+			baseUrl: "https://example.test/v1",
 		});
 	});
 
@@ -36,14 +36,14 @@ describe("parseConfigureArgs", () => {
 				"opencode-go",
 				"kimi-k2.6",
 				"--url",
-				"https://example.test/v1/chat/completions",
+				"https://example.test/v1",
 			]),
 		).toEqual({
 			ok: true,
 			provider: "opencode-go",
 			modelId: "kimi-k2.6",
 			apiKey: "",
-			baseUrl: "https://example.test/v1/chat/completions",
+			baseUrl: "https://example.test/v1",
 		});
 	});
 
