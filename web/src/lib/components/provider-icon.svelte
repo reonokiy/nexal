@@ -10,9 +10,10 @@
 	import googleRaw from "simple-icons/icons/google.svg?raw";
 	import openaiRaw from "simple-icons/icons/openaigym.svg?raw";
 	import huggingfaceRaw from "simple-icons/icons/huggingface.svg?raw";
-	import alibabacloudRaw from "simple-icons/icons/alibabacloud.svg?raw";
+	import qwenRaw from "simple-icons/icons/qwen.svg?raw";
 	import xiaomiRaw from "simple-icons/icons/xiaomi.svg?raw";
-	import tencentqqRaw from "simple-icons/icons/tencentqq.svg?raw";
+	import minimaxRaw from "simple-icons/icons/minimax.svg?raw";
+	import qqRaw from "simple-icons/icons/qq.svg?raw";
 
 	const ICONS: Record<string, string> = {
 		openrouter: openrouterRaw,
@@ -25,11 +26,11 @@
 		openai: openaiRaw,
 		google: googleRaw,
 		huggingface: huggingfaceRaw,
-		qwen: alibabacloudRaw,
+		qwen: qwenRaw,
 		zhipuai: huggingfaceRaw,
 		xiaomi: xiaomiRaw,
-		minimax: huggingfaceRaw,
-		hunyuan: tencentqqRaw,
+		minimax: minimaxRaw,
+		hunyuan: qqRaw,
 	};
 
 	// Strip width/height/role/title from the SVG so we can re-style with
