@@ -270,6 +270,15 @@ export async function getOrCreateSessionTapeRef(sessionKey: string): Promise<Tap
 	return { tapeId: row.tapeId };
 }
 
+export async function getSessionTapeRef(sessionKey: string): Promise<TapeHandle | null> {
+	const db = getDb();
+	const existing = await db
+		.select()
+		.from(schema.sessionTapes)
+		.where(eq(schema.sessionTapes.sessionKey, sessionKey));
+	return existing[0] ? { tapeId: existing[0].tapeId } : null;
+}
+
 // ── helpers ──────────────────────────────────────────────────────────
 
 async function hydrateFileRefs(

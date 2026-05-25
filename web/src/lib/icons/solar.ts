@@ -3,6 +3,7 @@ export { default as altArrowDownLinear } from "@iconify/icons-solar/alt-arrow-do
 export { default as altArrowLeftLinear } from "@iconify/icons-solar/alt-arrow-left-linear";
 export { default as altArrowRightLinear } from "@iconify/icons-solar/alt-arrow-right-linear";
 export { default as arrowUpLinear } from "@iconify/icons-solar/arrow-up-linear";
+export { default as billListLinear } from "@iconify/icons-solar/bill-list-linear";
 export { default as boxLinear } from "@iconify/icons-solar/box-linear";
 export { default as chatRoundLineLinear } from "@iconify/icons-solar/chat-round-line-linear";
 export { default as chatRoundDotsLinear } from "@iconify/icons-solar/chat-round-dots-linear";

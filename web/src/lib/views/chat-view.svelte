@@ -185,7 +185,7 @@
 			onclick={newChat}
 			title="Clear chat"
 		>
-			New chat
+			Chat
 		</button>
 		<div class="ml-auto flex items-center gap-1">
 			{#if chat.status !== "open"}
@@ -255,7 +255,7 @@
 
 	<div class="px-4 pb-4 pt-2">
 		<div class="mx-auto w-full max-w-3xl">
-			<Composer {chat} bind:value={input} onSubmit={send} {modelLabel} />
+			<Composer {chat} bind:value={input} onSubmit={send} {modelLabel} onModelChange={refreshModelLabel} />
 		</div>
 	</div>
 </div>

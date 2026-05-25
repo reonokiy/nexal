@@ -7,8 +7,12 @@
 	import anthropicRaw from "simple-icons/icons/anthropic.svg?raw";
 	import claudeRaw from "simple-icons/icons/claude.svg?raw";
 	import coderRaw from "simple-icons/icons/coder.svg?raw";
+	import googleRaw from "simple-icons/icons/google.svg?raw";
 	import openaiRaw from "simple-icons/icons/openaigym.svg?raw";
 	import huggingfaceRaw from "simple-icons/icons/huggingface.svg?raw";
+	import alibabacloudRaw from "simple-icons/icons/alibabacloud.svg?raw";
+	import xiaomiRaw from "simple-icons/icons/xiaomi.svg?raw";
+	import tencentqqRaw from "simple-icons/icons/tencentqq.svg?raw";
 
 	const ICONS: Record<string, string> = {
 		openrouter: openrouterRaw,
@@ -19,7 +23,13 @@
 		anthropic: anthropicRaw,
 		claude: claudeRaw,
 		openai: openaiRaw,
+		google: googleRaw,
 		huggingface: huggingfaceRaw,
+		qwen: alibabacloudRaw,
+		zhipuai: huggingfaceRaw,
+		xiaomi: xiaomiRaw,
+		minimax: huggingfaceRaw,
+		hunyuan: tencentqqRaw,
 	};
 
 	// Strip width/height/role/title from the SVG so we can re-style with

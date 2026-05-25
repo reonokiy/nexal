@@ -8,6 +8,7 @@
 	import Sidebar from "$lib/components/sidebar.svelte";
 	import AuthForm from "$lib/components/auth-form.svelte";
 	import ComputersPage from "$lib/components/computers-page.svelte";
+	import TapsPage from "$lib/components/taps-page.svelte";
 	import Icon from "@iconify/svelte";
 	import { sidebarCodeLinear } from "$lib/icons/solar";
 	import { onMount } from "svelte";
@@ -48,6 +49,9 @@
 
 	const onSettings = $derived(router.current.startsWith("settings"));
 	const onComputers = $derived(router.current.startsWith("computers"));
+	const onTapes = $derived(
+		router.current.startsWith("tapes") || router.current.startsWith("taps"),
+	);
 </script>
 
 <div class="bg-background text-foreground flex h-screen">
@@ -71,7 +75,7 @@
 				<Sidebar {chat} />
 			</div>
 		{/if}
-		{#if onComputers}
+		{#if onComputers || onTapes}
 			<div class="flex h-screen flex-1 flex-col">
 				<header class="flex h-12 items-center gap-2 px-4">
 					<button
@@ -86,7 +90,11 @@
 					</button>
 				</header>
 				<div class="flex min-h-0 flex-1 overflow-y-auto">
-					<ComputersPage {chat} />
+					{#if onComputers}
+						<ComputersPage {chat} />
+					{:else}
+						<TapsPage {chat} />
+					{/if}
 				</div>
 			</div>
 		{:else}

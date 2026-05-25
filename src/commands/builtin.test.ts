@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 
-import { parseConfigureArgs } from "./builtin.ts";
+import { parseConfigureArgs, registerBuiltins } from "./builtin.ts";
+import { CommandRegistry } from "./registry.ts";
+import type { TapeStore } from "../tape/index.ts";
 
 describe("parseConfigureArgs", () => {
 	test("parses provider, model, and API key", () => {
@@ -51,5 +53,85 @@ describe("parseConfigureArgs", () => {
 		const result = parseConfigureArgs(["google"]);
 		expect(result.ok).toBe(false);
 		if (!result.ok) expect(result.result.error).toBe("missing provider or model_id");
+	});
+});
+
+describe("tape commands", () => {
+	const currentTape = {
+		id: "00000000-0000-4000-8000-000000000001",
+		entries: 2,
+		anchors: 1,
+		lastAnchor: "session/start",
+		entriesSinceLastAnchor: 1,
+		lastTokenUsage: null,
+	};
+
+	function setup() {
+		const registry = new CommandRegistry();
+		const store: TapeStore = {
+			create: async () => ({ tapeId: currentTape.id }),
+			listTapes: async () => [
+				currentTape,
+				{
+					...currentTape,
+					id: "00000000-0000-4000-8000-000000000999",
+				},
+			],
+			read: async (tape) =>
+				tape.tapeId === currentTape.id
+					? [
+							{
+								id: 1,
+								kind: "anchor",
+								payload: { name: "session/start" },
+								meta: {},
+								date: "2026-01-01T00:00:00.000Z",
+							},
+							{
+								id: 2,
+								kind: "message",
+								payload: { role: "user", content: "hello" },
+								meta: {},
+								date: "2026-01-01T00:00:01.000Z",
+							},
+						]
+					: [],
+			append: async (_tape, entryOrEntries: any) =>
+				Array.isArray(entryOrEntries)
+					? entryOrEntries.map((entry, index) => ({ ...entry, id: index + 1 }))
+					: { ...entryOrEntries, id: 1 },
+			reset: async () => {},
+			info: async (tape) =>
+				tape.tapeId === currentTape.id
+					? currentTape
+					: { ...currentTape, id: tape.tapeId, entries: 0, anchors: 0, lastAnchor: null },
+			handoff: async () => {},
+			search: async () => [],
+		};
+		registerBuiltins(registry, undefined, store, async (key) =>
+			key === "ws:default" ? { tapeId: currentTape.id } : null,
+		);
+		return registry;
+	}
+
+	test("lists only the current session tape", async () => {
+		const registry = setup();
+		const result = await registry.execute(
+			"tapes",
+			{ channel: "ws", chatId: "default", sender: "test" },
+			[],
+		);
+		expect(result?.error).toBeUndefined();
+		expect(result?.data).toEqual({ tapes: [currentTape] });
+	});
+
+	test("rejects reading another tape id", async () => {
+		const registry = setup();
+		const result = await registry.execute(
+			"tape",
+			{ channel: "ws", chatId: "default", sender: "test" },
+			["00000000-0000-4000-8000-000000000999"],
+		);
+		expect(result?.error).toBe("tape not found");
 	});
 });

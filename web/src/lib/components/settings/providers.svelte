@@ -14,6 +14,7 @@
 	import type { Chat } from "$lib/client.svelte";
 	import { fade, fly } from "svelte/transition";
 	import { cubicOut } from "svelte/easing";
+	import { PRESETS, type ModelOption, type ProviderPreset } from "$lib/model-presets";
 
 	let { chat }: { chat: Chat } = $props();
 
@@ -33,110 +34,6 @@
 		providers: Array<{ name: string; base_url?: string }>;
 		toolKeys: string[];
 	}
-
-	interface ModelOption {
-		id: string;
-		label: string;
-		hint?: string;
-	}
-
-	interface ProviderPreset {
-		label: string;
-		icon: string;
-		summary: string;
-		signupUrl: string;
-		models: ModelOption[];
-		apiKeyPlaceholder?: string;
-		baseUrlPlaceholder?: string;
-		baseUrlLabel?: string;
-		showBaseUrl?: boolean;
-		warn?: string;
-	}
-
-	const PRESETS: Record<string, ProviderPreset> = {
-		openrouter: {
-			label: "OpenRouter",
-			icon: "openrouter",
-			summary: "Single key for Claude, GPT, DeepSeek, Kimi and other hosted models.",
-			signupUrl: "https://openrouter.ai/keys",
-			apiKeyPlaceholder: "sk-or-...",
-			models: [
-				{ id: "openai/gpt-4o", label: "GPT-4o", hint: "general" },
-				{ id: "anthropic/claude-sonnet-4-5", label: "Claude Sonnet 4.5", hint: "balanced" },
-				{ id: "deepseek/deepseek-chat", label: "DeepSeek Chat", hint: "low cost" },
-				{ id: "moonshotai/kimi-k2-thinking", label: "Kimi K2 Thinking", hint: "reasoning" },
-			],
-		},
-		openai: {
-			label: "OpenAI",
-			icon: "openai",
-			summary: "Direct OpenAI API access for GPT models.",
-			signupUrl: "https://platform.openai.com/api-keys",
-			apiKeyPlaceholder: "sk-...",
-			models: [
-				{ id: "gpt-5.4", label: "GPT-5.4", hint: "latest" },
-				{ id: "gpt-4o", label: "GPT-4o", hint: "general" },
-			],
-		},
-		anthropic: {
-			label: "Anthropic",
-			icon: "anthropic",
-			summary: "Direct Anthropic API access for Claude models.",
-			signupUrl: "https://console.anthropic.com/settings/keys",
-			apiKeyPlaceholder: "sk-ant-...",
-			models: [
-				{ id: "claude-sonnet-4-6", label: "Claude Sonnet 4.6", hint: "balanced" },
-				{ id: "claude-opus-4-5", label: "Claude Opus 4.5", hint: "reasoning" },
-			],
-		},
-		google: {
-			label: "Google Gemini",
-			icon: "google",
-			summary: "Direct Google Generative AI access for Gemini models.",
-			signupUrl: "https://aistudio.google.com/apikey",
-			apiKeyPlaceholder: "AIza...",
-			models: [
-				{ id: "gemini-2.5-flash", label: "Gemini 2.5 Flash", hint: "fast" },
-				{ id: "gemini-2.5-pro", label: "Gemini 2.5 Pro", hint: "reasoning" },
-			],
-		},
-		"kimi-coding": {
-			label: "Kimi",
-			icon: "kimi-coding",
-			summary: "Moonshot Kimi coding models through the provider's own API.",
-			signupUrl: "https://platform.moonshot.ai/console/api-keys",
-			apiKeyPlaceholder: "sk-...",
-			models: [
-				{ id: "kimi-for-coding", label: "Kimi For Coding" },
-				{ id: "kimi-k2-thinking", label: "Kimi K2 Thinking" },
-			],
-		},
-		deepseek: {
-			label: "DeepSeek",
-			icon: "deepseek",
-			summary: "Direct DeepSeek API access for chat and reasoning models.",
-			signupUrl: "https://platform.deepseek.com/api_keys",
-			apiKeyPlaceholder: "sk-...",
-			models: [
-				{ id: "deepseek-chat", label: "DeepSeek Chat" },
-				{ id: "deepseek-reasoner", label: "DeepSeek Reasoner" },
-			],
-		},
-		"opencode-go": {
-			label: "OpenCode Go",
-			icon: "opencode-go",
-			summary: "Custom OpenAI-compatible endpoint. Use this for self-hosted or gatewayed model APIs.",
-			signupUrl: "https://opencode.ai",
-			apiKeyPlaceholder: "api key",
-			showBaseUrl: true,
-			baseUrlLabel: "Endpoint",
-			baseUrlPlaceholder: "https://opencode.ai/zen/go/v1",
-			models: [
-				{ id: "kimi-k2.6", label: "Kimi K2.6", hint: "reasoning" },
-				{ id: "kimi-k2.5", label: "Kimi K2.5", hint: "balanced" },
-			],
-		},
-	};
 
 	type ProviderForm = {
 		modelId: string;
@@ -355,6 +252,10 @@
 	const selectedProvider = $derived(
 		providers.find((provider) => provider.name === selectedProviderName) ?? null,
 	);
+
+	function modelIcon(provider: string, model: ModelOption): string {
+		return model.icon ?? PRESETS[provider]?.icon ?? provider;
+	}
 </script>
 
 <section>
@@ -601,15 +502,11 @@
 												onclick={() => pickModel(provider.name, model.id)}
 												disabled={entry.busy}
 											>
+												<ProviderIcon name={modelIcon(provider.name, model)} class="size-4" />
 												<div class="min-w-0">
 													<div class="text-sm font-medium">{model.label}</div>
 													<div class="text-muted-foreground font-mono text-[10px]">{model.id}</div>
 												</div>
-												{#if model.hint}
-													<span class="bg-muted text-muted-foreground rounded px-1.5 py-0.5 text-[10px]">
-														{model.hint}
-													</span>
-												{/if}
 												{#if selected}
 													<Icon icon={checkCircleLinear} class="size-3 shrink-0" />
 												{/if}

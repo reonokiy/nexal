@@ -32,6 +32,7 @@ import { registerBuiltins } from "../commands/builtin.ts";
 import { loadAllChannelConfigs, onChannelConfigChange } from "../settings.ts";
 import type { IncomingMessage } from "./types.ts";
 import type { GatewayClient } from "../gateway/index.ts";
+import type { TapeHandle, TapeStore } from "../tape/index.ts";
 import { createLog } from "../log.ts";
 
 const log = createLog("channels");
@@ -49,6 +50,10 @@ export interface ChannelManagerConfig {
 	onMessage: (msg: IncomingMessage) => void;
 	/** Gateway client for sandbox monitoring commands. */
 	gateway?: GatewayClient;
+	/** Tape store for tape browsing commands. */
+	tapeStore?: TapeStore;
+	/** Resolve the persisted tape id for a chat session key. */
+	getTapeRef?: (sessionKey: string) => Promise<TapeHandle | null>;
 	/** Test seam — defaults to settings.loadAllChannelConfigs. */
 	loadConfigs?: () => Promise<Record<string, Record<string, unknown>>>;
 	/** Test seam — defaults to settings.onChannelConfigChange. */
@@ -65,6 +70,10 @@ export class ChannelManager {
 	private readonly build: (name: string, cfg: Record<string, unknown>) => Channel | null;
 	private readonly commands = new CommandRegistry();
 	private readonly gateway: GatewayClient | undefined;
+	private readonly tapeStore: TapeStore | undefined;
+	private readonly getTapeRef:
+		| ((sessionKey: string) => Promise<TapeHandle | null>)
+		| undefined;
 	/** name → hash of the applied config (or OFF when intentionally not running). */
 	private readonly applied = new Map<string, string>();
 
@@ -79,10 +88,12 @@ export class ChannelManager {
 		this.channels = cfg.channels;
 		this.onMessage = cfg.onMessage;
 		this.gateway = cfg.gateway;
+		this.tapeStore = cfg.tapeStore;
+		this.getTapeRef = cfg.getTapeRef;
 		this.loadConfigs = cfg.loadConfigs ?? loadAllChannelConfigs;
 		this.subscribe = cfg.subscribe ?? onChannelConfigChange;
 		this.build = cfg.buildChannelFn ?? ((n, c) => buildRegisteredChannel(n, c, this.commands, this.gateway));
-		registerBuiltins(this.commands, cfg.gateway);
+		registerBuiltins(this.commands, cfg.gateway, this.tapeStore, this.getTapeRef);
 	}
 
 	/** Initial reconcile + wire up change notifications & poll timer. */

@@ -3,6 +3,7 @@
  */
 import type { CommandRegistry } from "./registry.ts";
 import type { GatewayClient } from "../gateway/index.ts";
+import type { TapeEntry, TapeHandle, TapeInfo, TapeStore } from "../tape/index.ts";
 import {
 	deleteAuth,
 	loadAuth,
@@ -33,6 +34,17 @@ interface ProvidersPayload {
 		hasKey: boolean;
 	}[];
 }
+
+export interface TapesPayload {
+	tapes: TapeInfo[];
+}
+
+export interface TapePayload {
+	tape: TapeInfo;
+	entries: TapeEntry[];
+}
+
+type GetTapeRef = (sessionKey: string) => Promise<TapeHandle | null>;
 
 type ConfigureParseResult =
 	| {
@@ -75,7 +87,12 @@ export function parseConfigureArgs(args: string[]): ConfigureParseResult {
 	return { ok: true, provider, modelId, apiKey, ...(baseUrl ? { baseUrl } : {}) };
 }
 
-export function registerBuiltins(registry: CommandRegistry, gateway?: GatewayClient): void {
+export function registerBuiltins(
+	registry: CommandRegistry,
+	gateway?: GatewayClient,
+	tapeStore?: TapeStore,
+	getTapeRef?: GetTapeRef,
+): void {
 	registry.register({
 		name: "help",
 		description: "Show available commands",
@@ -237,6 +254,61 @@ export function registerBuiltins(registry: CommandRegistry, gateway?: GatewayCli
 				} catch (err) {
 					return { text: `Failed to list sandboxes: ${err}` };
 				}
+			},
+		});
+	}
+
+	if (tapeStore && getTapeRef) {
+		registry.register({
+			name: "tapes",
+			description: "List tapes for the current session",
+			async execute(ctx, _args) {
+				const ref = await getTapeRef(`${ctx.channel}:${ctx.chatId}`);
+				if (!ref) {
+					return {
+						text: "No tapes found.",
+						data: { tapes: [] } satisfies TapesPayload,
+					};
+				}
+				const tape = await tapeStore.info(ref);
+				const tapes = tape.entries > 0 ? [tape] : [];
+				const lines = tapes.map((item) => {
+					const tape = item;
+					const shortId = tape.id.length > 12 ? `${tape.id.slice(0, 12)}…` : tape.id;
+					const anchor = tape.lastAnchor ? ` last anchor: ${tape.lastAnchor}` : " no anchor";
+					return `${shortId}  ${tape.entries} entries, ${tape.anchors} anchors,${anchor}`;
+				});
+				return {
+					text: lines.length ? lines.join("\n") : "No tapes found.",
+					data: { tapes } satisfies TapesPayload,
+				};
+			},
+		});
+
+		registry.register({
+			name: "tape",
+			description: "Read the current session tape (usage: /tape <tape_id>)",
+			async execute(ctx, args) {
+				const [tapeId] = args;
+				if (!tapeId) {
+					return { text: "Usage: /tape <tape_id>", error: "missing tape_id" };
+				}
+
+				const allowed = await getTapeRef(`${ctx.channel}:${ctx.chatId}`);
+				if (!allowed || allowed.tapeId !== tapeId) {
+					return { text: `Tape not found: ${tapeId}`, error: "tape not found" };
+				}
+
+				const handle: TapeHandle = { tapeId };
+				const [tape, entries] = await Promise.all([
+					tapeStore.info(handle),
+					tapeStore.read(handle),
+				]);
+
+				return {
+					text: `Tape ${tape.id}: ${entries.length} entries.`,
+					data: { tape, entries } satisfies TapePayload,
+				};
 			},
 		});
 	}
