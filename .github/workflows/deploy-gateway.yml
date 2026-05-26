@@ -1,15 +1,6 @@
 name: Deploy Gateway
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "crates/nexal-gateway/**"
-      - "crates/nexal-agent/**"
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - "deploy/gateway/**"
-      - ".github/workflows/deploy-gateway.yml"
   workflow_dispatch:
 
 concurrency:

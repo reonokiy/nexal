@@ -9,6 +9,7 @@
 	import { cn } from "$lib/utils";
 	import { renderMarkdown } from "$lib/markdown";
 	import type { Chat } from "$lib/client.svelte";
+	import { onMount } from "svelte";
 	import { VList } from "virtua/svelte";
 
 	interface TapeInfo {
@@ -42,15 +43,20 @@
 	let {
 		chat,
 		onHeaderChange,
+		onTapesCountChange,
 	}: {
 		chat: Chat;
 		onHeaderChange?: (info: TapeHeaderInfo) => void;
+		onTapesCountChange?: (count: number | null) => void;
 	} = $props();
 
 	let tape = $state<TapeInfo | null>(null);
+	let tapes = $state<TapeInfo[]>([]);
 	let entries = $state<TapeEntry[]>([]);
 	let loading = $state(false);
+	let loadingTapes = $state(false);
 	let error = $state<string | null>(null);
+	let tapesError = $state<string | null>(null);
 
 	const tapeId = $derived.by(() => {
 		const match = router.current.match(/^tap(?:e)?s\/(.+)$/);
@@ -81,9 +87,48 @@
 		}
 	}
 
+	async function loadTapes(silent = false) {
+		if (chat.status !== "open") {
+			if (!silent) loadingTapes = false;
+			tapesError = "Backend not connected";
+			return;
+		}
+
+		try {
+			if (!silent) loadingTapes = true;
+			tapesError = null;
+			const res = await chat.runCommandAwait("tapes", [], 10_000);
+			if (res.error) throw new Error(res.error);
+			const data = res.data as { tapes?: TapeInfo[] } | null | undefined;
+			tapes = data?.tapes ?? [];
+		} catch (e) {
+			if (!silent) {
+				tapes = [];
+				tapesError = e instanceof Error ? e.message : "fetch failed";
+			}
+		} finally {
+			if (!silent) loadingTapes = false;
+		}
+	}
+
 	let loadedTapeId: string | null = null;
+	let loadedTapesForRoute: string | null = null;
 	$effect(() => {
-		if (!tapeId) return;
+		if (!tapeId) {
+			tape = null;
+			entries = [];
+			loadedTapeId = null;
+			if (chat.status !== "open") {
+				loadingTapes = false;
+				tapesError = "Backend not connected";
+				return;
+			}
+			const routeKey = `${chat.status}:${router.current}`;
+			if (loadedTapesForRoute === routeKey) return;
+			loadedTapesForRoute = routeKey;
+			void loadTapes();
+			return;
+		}
 		if (chat.status !== "open") {
 			loading = true;
 			error = null;
@@ -92,6 +137,13 @@
 		if (tapeId === loadedTapeId) return;
 		loadedTapeId = tapeId;
 		void loadTape(tapeId);
+	});
+
+	onMount(() => {
+		const interval = setInterval(() => {
+			if (!tapeId && chat.status === "open") void loadTapes(true);
+		}, 10_000);
+		return () => clearInterval(interval);
 	});
 
 	$effect(() => {
@@ -105,6 +157,10 @@
 					}
 				: null,
 		);
+	});
+
+	$effect(() => {
+		onTapesCountChange?.(!tapeId && !loadingTapes && !tapesError ? tapes.length : null);
 	});
 
 	function fmt(value: string): string {
@@ -129,6 +185,18 @@
 		if (entry.kind === "tool_result") return String(entry.payload.toolName ?? "Tool result");
 		if (entry.kind === "anchor") return "Anchor";
 		return entry.kind;
+	}
+
+	function shortTapeId(id: string): string {
+		return id.length > 36 ? `${id.slice(0, 36)}...` : id;
+	}
+
+	function tapeSubtitle(item: TapeInfo): string {
+		const parts = [`${item.entries} entries`, `${item.anchors} anchors`];
+		if (item.entriesSinceLastAnchor > 0) {
+			parts.push(`${item.entriesSinceLastAnchor} since last anchor`);
+		}
+		return parts.join(" · ");
 	}
 
 	function entryKindLabel(entry: TapeEntry): string {
@@ -234,11 +302,43 @@
 <section class="flex h-full min-h-0 w-full flex-col px-6 pb-8">
 	<div class="mx-auto flex h-full min-h-0 w-full max-w-5xl flex-col gap-5">
 		{#if !tapeId}
-			<div class="border-border flex min-h-80 flex-col items-center justify-center rounded-md border border-dashed text-center">
-				<Icon icon={infoCircleLinear} class="text-muted-foreground mb-3 size-8" />
-				<p class="text-sm font-medium">Choose a tape</p>
-				<p class="text-muted-foreground mt-1 text-sm">Pick one from the Tapes section in the sidebar.</p>
-			</div>
+			{#if loadingTapes}
+				<div class="text-muted-foreground flex min-h-80 items-center justify-center gap-2 text-sm">
+					<Icon icon={recordCircleLinear} class="size-4 animate-spin" />
+					<span>Loading tapes…</span>
+				</div>
+			{:else if tapesError}
+				<div class="flex min-h-80 items-center justify-center text-sm text-red-400">{tapesError}</div>
+			{:else if tapes.length === 0}
+				<div class="border-border flex min-h-80 flex-col items-center justify-center rounded-md border border-dashed text-center">
+					<Icon icon={infoCircleLinear} class="text-muted-foreground mb-3 size-8" />
+					<p class="text-sm font-medium">No tapes yet</p>
+				</div>
+			{:else}
+				<div class="flex min-h-0 flex-col gap-3">
+					<div class="border-border overflow-hidden rounded-md border">
+						{#each tapes as item (item.id)}
+							<button
+								type="button"
+								class="border-border hover:bg-accent flex w-full items-center gap-3 border-b px-4 py-3 text-left transition-colors duration-150 last:border-b-0"
+								onclick={() => router.go(`tapes/${encodeURIComponent(item.id)}`)}
+								title={item.id}
+							>
+								<div class="bg-muted text-muted-foreground flex size-9 shrink-0 items-center justify-center rounded-md">
+									<Icon icon={billListLinear} class="size-4" />
+								</div>
+								<div class="min-w-0 flex-1">
+									<div class="truncate text-sm font-medium">{shortTapeId(item.id)}</div>
+									<div class="text-muted-foreground mt-0.5 truncate text-xs">{tapeSubtitle(item)}</div>
+								</div>
+								{#if item.lastTokenUsage != null}
+									<div class="text-muted-foreground shrink-0 text-xs">{item.lastTokenUsage} tokens</div>
+								{/if}
+							</button>
+						{/each}
+					</div>
+				</div>
+			{/if}
 		{:else if loading}
 			<div class="text-muted-foreground flex min-h-80 items-center justify-center gap-2 text-sm">
 				<Icon icon={recordCircleLinear} class="size-4 animate-spin" />

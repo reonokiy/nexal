@@ -5,6 +5,7 @@ use std::sync::Arc;
 use clap::Parser;
 use nexal_gateway::backend::{
     FlyBackend, FlyConfig, KubernetesBackend, KubernetesConfig, PodmanBackend, SharedBackend,
+    SpritesBackend, SpritesConfig,
 };
 use nexal_gateway::config::GatewayConfig;
 use nexal_gateway::pool::{self, WarmPool, WarmPoolConfig};
@@ -147,6 +148,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 region: cfg.backend.fly_region.clone(),
                 api_base: cfg.backend.fly_api_base.clone(),
                 agent_bin_path: cfg.backend.fly_agent_bin_path.clone(),
+            })?)
+        }
+        "sprites" => {
+            let token = cfg
+                .backend
+                .sprites_token
+                .clone()
+                .ok_or("sprites backend requires backend.sprites_token")?;
+            Arc::new(SpritesBackend::new(SpritesConfig {
+                token,
+                api_base: cfg.backend.sprites_api_base.clone(),
+                name_prefix: cfg.backend.sprites_name_prefix.clone(),
+                agent_port: cfg.backend.sprites_agent_port,
+                agent_bin_path: cfg.backend.sprites_agent_bin_path.clone(),
             })?)
         }
         other => return Err(format!("unknown backend kind: {other}").into()),

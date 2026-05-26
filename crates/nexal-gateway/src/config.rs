@@ -99,6 +99,19 @@ pub struct BackendConfig {
     /// Path of `nexal-agent` inside the image. Default
     /// `/usr/local/bin/nexal-agent`.
     pub fly_agent_bin_path: Option<String>,
+    // Sprites.dev-specific.
+    /// Sprites API token (`Authorization: Bearer`).
+    pub sprites_token: Option<String>,
+    /// Sprites API base. Default `https://api.sprites.dev`.
+    pub sprites_api_base: Option<String>,
+    /// Prefix used when deriving Sprite names. Defaults to the gateway
+    /// container name passed by `AgentRegistry`.
+    pub sprites_name_prefix: Option<String>,
+    /// Port where `nexal-agent` listens inside the Sprite. Default `9100`.
+    pub sprites_agent_port: Option<u16>,
+    /// Path where the gateway uploads `nexal-agent` inside each Sprite.
+    /// Default `/usr/local/bin/nexal-agent`.
+    pub sprites_agent_bin_path: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]

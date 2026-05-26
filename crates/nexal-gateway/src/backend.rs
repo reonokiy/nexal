@@ -15,10 +15,12 @@ use thiserror::Error;
 pub mod fly;
 pub mod kubernetes;
 pub mod podman;
+pub mod sprites;
 
 pub use fly::{FlyBackend, FlyConfig};
 pub use kubernetes::{KubernetesBackend, KubernetesConfig};
 pub use podman::PodmanBackend;
+pub use sprites::{SpritesBackend, SpritesConfig};
 
 #[derive(Debug, Clone, Error)]
 pub enum BackendError {

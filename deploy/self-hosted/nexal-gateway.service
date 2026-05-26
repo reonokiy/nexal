@@ -1,0 +1,15 @@
+[Unit]
+Description=Nexal Gateway
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=__APP_DIR__
+Environment=NEXAL_LOG=info
+ExecStart=__APP_DIR__/target/release/nexal-gateway --config __CONFIG_DIR__/gateway.toml
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

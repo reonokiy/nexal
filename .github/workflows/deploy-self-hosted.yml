@@ -1,0 +1,147 @@
+name: Deploy Self-hosted
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "packages/**"
+      - "web/**"
+      - "crates/**"
+      - "deploy/self-hosted/**"
+      - "package.json"
+      - "bun.lock"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/deploy-self-hosted.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-self-hosted
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup SSH
+        env:
+          HOST: ${{ vars.SELF_HOSTED_HOST || secrets.SELF_HOSTED_HOST }}
+          PORT: ${{ vars.SELF_HOSTED_PORT || secrets.SELF_HOSTED_PORT || '22' }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          printf '%s\n' "${{ secrets.SELF_HOSTED_SSH_KEY }}" > ~/.ssh/self_hosted
+          chmod 600 ~/.ssh/self_hosted
+          ssh-keyscan -p "$PORT" "$HOST" >> ~/.ssh/known_hosts
+
+      - name: Sync repository
+        env:
+          HOST: ${{ vars.SELF_HOSTED_HOST || secrets.SELF_HOSTED_HOST }}
+          USER: ${{ vars.SELF_HOSTED_USER || secrets.SELF_HOSTED_USER || 'nexal' }}
+          PORT: ${{ vars.SELF_HOSTED_PORT || secrets.SELF_HOSTED_PORT || '22' }}
+          DEPLOY_DIR: ${{ vars.SELF_HOSTED_DEPLOY_DIR || secrets.SELF_HOSTED_DEPLOY_DIR || '/opt/nexal' }}
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/self_hosted -p "$PORT" "$USER@$HOST" "mkdir -p '$DEPLOY_DIR'"
+          rsync -az --delete \
+            --exclude '.git/' \
+            --exclude 'node_modules/' \
+            --exclude 'web/node_modules/' \
+            --exclude 'target/' \
+            -e "ssh -i ~/.ssh/self_hosted -p $PORT" \
+            ./ "$USER@$HOST:$DEPLOY_DIR/"
+
+      - name: Upload runtime config
+        env:
+          HOST: ${{ vars.SELF_HOSTED_HOST || secrets.SELF_HOSTED_HOST }}
+          USER: ${{ vars.SELF_HOSTED_USER || secrets.SELF_HOSTED_USER || 'nexal' }}
+          PORT: ${{ vars.SELF_HOSTED_PORT || secrets.SELF_HOSTED_PORT || '22' }}
+          DEPLOY_DIR: ${{ vars.SELF_HOSTED_DEPLOY_DIR || secrets.SELF_HOSTED_DEPLOY_DIR || '/opt/nexal' }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          NEXAL_GATEWAY_ACCESS_KEY: ${{ secrets.NEXAL_GATEWAY_ACCESS_KEY }}
+          NEXAL_GATEWAY_SECRET_KEY: ${{ secrets.NEXAL_GATEWAY_SECRET_KEY }}
+          NEXAL_AUTH_ENABLED: ${{ secrets.NEXAL_AUTH_ENABLED }}
+          NEXAL_SUPABASE_URL: ${{ secrets.NEXAL_SUPABASE_URL }}
+          SUPABASE_JWT_SECRET: ${{ secrets.SUPABASE_JWT_SECRET }}
+          NEXAL_ADMINS: ${{ secrets.NEXAL_ADMINS }}
+          STORAGE_PROVIDER: ${{ secrets.STORAGE_PROVIDER }}
+          STORAGE_S3_ENDPOINT: ${{ secrets.STORAGE_S3_ENDPOINT }}
+          STORAGE_S3_BUCKET: ${{ secrets.STORAGE_S3_BUCKET }}
+          STORAGE_S3_ACCESS_KEY: ${{ secrets.STORAGE_S3_ACCESS_KEY }}
+          STORAGE_S3_SECRET_KEY: ${{ secrets.STORAGE_S3_SECRET_KEY }}
+          STORAGE_S3_REGION: ${{ secrets.STORAGE_S3_REGION }}
+          NEXAL_SANDBOX_IMAGE: ${{ vars.NEXAL_SANDBOX_IMAGE || 'ghcr.io/reonokiy/nexal-sandbox:python3.13-debian13' }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/nexal-deploy-secrets
+          cat > /tmp/nexal-deploy-secrets/server.env <<EOF
+          DATABASE_URL=${DATABASE_URL}
+          NEXAL_HTTP_PORT=3000
+          NEXAL_GATEWAY_URL=ws://127.0.0.1:5500
+          NEXAL_GATEWAY_ACCESS_KEY=${NEXAL_GATEWAY_ACCESS_KEY}
+          NEXAL_GATEWAY_SECRET_KEY=${NEXAL_GATEWAY_SECRET_KEY}
+          NEXAL_AUTH_ENABLED=${NEXAL_AUTH_ENABLED}
+          NEXAL_SUPABASE_URL=${NEXAL_SUPABASE_URL}
+          SUPABASE_JWT_SECRET=${SUPABASE_JWT_SECRET}
+          NEXAL_ADMINS=${NEXAL_ADMINS}
+          STORAGE_PROVIDER=${STORAGE_PROVIDER}
+          STORAGE_S3_ENDPOINT=${STORAGE_S3_ENDPOINT}
+          STORAGE_S3_BUCKET=${STORAGE_S3_BUCKET}
+          STORAGE_S3_ACCESS_KEY=${STORAGE_S3_ACCESS_KEY}
+          STORAGE_S3_SECRET_KEY=${STORAGE_S3_SECRET_KEY}
+          STORAGE_S3_REGION=${STORAGE_S3_REGION}
+          NEXAL_LOG=info
+          EOF
+          sed -i 's/^          //' /tmp/nexal-deploy-secrets/server.env
+          cat > /tmp/nexal-deploy-secrets/gateway.toml <<EOF
+          listen = "127.0.0.1:5500"
+
+          [[credentials]]
+          access_key = "${NEXAL_GATEWAY_ACCESS_KEY}"
+          secret_key = "${NEXAL_GATEWAY_SECRET_KEY}"
+
+          [defaults]
+          image = "${NEXAL_SANDBOX_IMAGE}"
+          agent_bin = "${DEPLOY_DIR}/target/release/nexal-agent"
+          memory = "512m"
+          cpus = "1.0"
+          pids_limit = 256
+          network = true
+          container_name_prefix = "nexal-worker-"
+          workspace_volume = "${DEPLOY_DIR}/.local/share/nexal/workspace"
+          skills_dir = "${DEPLOY_DIR}/.local/share/nexal/skills"
+
+          [backend]
+          kind = "podman"
+          podman_bin = "/usr/bin/podman"
+          runtime = "krun"
+
+          [proxy]
+          listen = "127.0.0.1:5501"
+          external_base = "http://host.containers.internal:5501"
+
+          [pool]
+          enabled = false
+          size = 0
+          EOF
+          sed -i 's/^          //' /tmp/nexal-deploy-secrets/gateway.toml
+          ssh -i ~/.ssh/self_hosted -p "$PORT" "$USER@$HOST" "mkdir -p '$DEPLOY_DIR/.deploy-secrets' && chmod 700 '$DEPLOY_DIR/.deploy-secrets'"
+          scp -i ~/.ssh/self_hosted -P "$PORT" \
+            /tmp/nexal-deploy-secrets/server.env \
+            /tmp/nexal-deploy-secrets/gateway.toml \
+            "$USER@$HOST:$DEPLOY_DIR/.deploy-secrets/"
+          ssh -i ~/.ssh/self_hosted -p "$PORT" "$USER@$HOST" "chmod 600 '$DEPLOY_DIR/.deploy-secrets/server.env' '$DEPLOY_DIR/.deploy-secrets/gateway.toml'"
+
+      - name: Deploy on server
+        env:
+          HOST: ${{ vars.SELF_HOSTED_HOST || secrets.SELF_HOSTED_HOST }}
+          USER: ${{ vars.SELF_HOSTED_USER || secrets.SELF_HOSTED_USER || 'nexal' }}
+          PORT: ${{ vars.SELF_HOSTED_PORT || secrets.SELF_HOSTED_PORT || '22' }}
+          DEPLOY_DIR: ${{ vars.SELF_HOSTED_DEPLOY_DIR || secrets.SELF_HOSTED_DEPLOY_DIR || '/opt/nexal' }}
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/self_hosted -p "$PORT" "$USER@$HOST" \
+            "cd '$DEPLOY_DIR' && SELF_HOSTED_DEPLOY_DIR='$DEPLOY_DIR' NEXAL_PROD_ENV_FILE='$DEPLOY_DIR/.deploy-secrets/server.env' NEXAL_GATEWAY_CONFIG_FILE='$DEPLOY_DIR/.deploy-secrets/gateway.toml' bash deploy/self-hosted/deploy.sh"

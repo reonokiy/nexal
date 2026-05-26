@@ -1,0 +1,21 @@
+{
+    email admin@example.com
+}
+
+nexal.example.com {
+    root * /opt/nexal/web-dist
+    encode zstd gzip
+
+    handle_path /api/* {
+        reverse_proxy 127.0.0.1:3000
+    }
+
+    handle /ws* {
+        reverse_proxy 127.0.0.1:3000
+    }
+
+    handle {
+        try_files {path} /index.html
+        file_server
+    }
+}

@@ -1,0 +1,15 @@
+[Unit]
+Description=Nexal LLM Server
+After=network-online.target nexal-gateway.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=__APP_DIR__
+EnvironmentFile=__CONFIG_DIR__/server.env
+ExecStart=/usr/bin/env bash -lc 'export PATH="$HOME/.bun/bin:$HOME/.cargo/bin:$PATH"; bun run src/cli.ts'
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

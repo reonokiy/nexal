@@ -1,17 +1,6 @@
 name: Deploy Server (LLM)
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - src/**
-      - packages/**
-      - drizzle/**
-      - package.json
-      - tsconfig.json
-      - drizzle.config.ts
-      - deploy/server/**
-      - .github/workflows/deploy-server.yml
   workflow_dispatch:
 
 jobs:

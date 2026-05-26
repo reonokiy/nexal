@@ -1,0 +1,29 @@
+listen = "127.0.0.1:5500"
+
+[[credentials]]
+access_key = "replace-with-gateway-access-key"
+secret_key = "replace-with-gateway-secret-key"
+
+[defaults]
+image = "ghcr.io/reonokiy/nexal-sandbox:python3.13-debian13"
+agent_bin = "/opt/nexal/target/release/nexal-agent"
+memory = "512m"
+cpus = "1.0"
+pids_limit = 256
+network = true
+container_name_prefix = "nexal-worker-"
+workspace_volume = "/opt/nexal/.local/share/nexal/workspace"
+skills_dir = "/opt/nexal/.local/share/nexal/skills"
+
+[backend]
+kind = "podman"
+podman_bin = "/usr/bin/podman"
+runtime = "krun"
+
+[proxy]
+listen = "127.0.0.1:5501"
+external_base = "http://host.containers.internal:5501"
+
+[pool]
+enabled = false
+size = 0

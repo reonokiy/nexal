@@ -24,6 +24,7 @@
 		anchors: number;
 		lastAnchor: string | null;
 	} | null>(null);
+	let tapesCount = $state<number | null>(null);
 	const loggedIn = $derived(auth.accessToken.length > 0);
 	const authReady = $derived(auth.initialised);
 
@@ -55,6 +56,10 @@
 
 	function setTapeHeader(info: typeof tapeHeader) {
 		tapeHeader = info;
+	}
+
+	function setTapesCount(count: number | null) {
+		tapesCount = count;
 	}
 
 	const onSettings = $derived(router.current.startsWith("settings"));
@@ -101,9 +106,9 @@
 						{#if onTapes}
 							<div class="min-w-0 flex flex-1 items-center gap-3">
 								<div class="flex min-w-0 items-baseline gap-2">
-									<span class="text-muted-foreground shrink-0 text-xs font-medium uppercase">Tapes</span>
+									<span class="shrink-0 text-sm font-medium">Tapes</span>
 									{#if tapeHeader}
-										<span class="truncate text-sm font-medium">{tapeHeader.id}</span>
+										<span class="text-muted-foreground truncate text-sm">{tapeHeader.id}</span>
 									{/if}
 								</div>
 							{#if tapeHeader}
@@ -113,6 +118,10 @@
 									{#if tapeHeader.lastAnchor}
 										<span>last: {tapeHeader.lastAnchor}</span>
 									{/if}
+								</div>
+							{:else if tapesCount !== null}
+								<div class="text-muted-foreground ml-auto shrink-0 text-xs">
+									{tapesCount} {tapesCount === 1 ? "tape" : "tapes"}
 								</div>
 							{/if}
 						</div>
@@ -126,7 +135,11 @@
 					{#if onComputers}
 						<ComputersPage {chat} />
 					{:else}
-						<TapsPage {chat} onHeaderChange={setTapeHeader} />
+						<TapsPage
+							{chat}
+							onHeaderChange={setTapeHeader}
+							onTapesCountChange={setTapesCount}
+						/>
 					{/if}
 				</div>
 			</div>
