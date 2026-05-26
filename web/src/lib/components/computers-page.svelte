@@ -37,30 +37,32 @@
 		return agents.find((agent) => agent.agent_id === selectedAgentId) ?? null;
 	});
 
-	async function fetchAgents() {
+	async function fetchAgents(silent = false) {
 		if (chat.status !== "open") {
-			error = "Backend not connected";
-			loading = false;
+			if (!silent) {
+				error = "Backend not connected";
+				loading = false;
+			}
 			return;
 		}
 
 		try {
-			loading = true;
+			if (!silent) loading = true;
 			const res = await chat.runCommandAwait("sandboxes", []);
 			if (res.error) throw new Error(res.error);
 			const data = res.data as { agents?: Agent[] } | null | undefined;
 			agents = data?.agents ?? [];
 			error = null;
 		} catch (e) {
-			error = e instanceof Error ? e.message : "fetch failed";
+			if (!silent) error = e instanceof Error ? e.message : "fetch failed";
 		} finally {
-			loading = false;
+			if (!silent) loading = false;
 		}
 	}
 
 	onMount(() => {
 		fetchAgents();
-		interval = setInterval(fetchAgents, 10_000);
+		interval = setInterval(() => fetchAgents(true), 10_000);
 		return () => clearInterval(interval);
 	});
 

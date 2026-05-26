@@ -11,6 +11,7 @@ export { default as checkCircleLinear } from "@iconify/icons-solar/check-circle-
 export { default as closeCircleLinear } from "@iconify/icons-solar/close-circle-linear";
 export { default as clockCircleLinear } from "@iconify/icons-solar/clock-circle-linear";
 export { default as codeSquareLinear } from "@iconify/icons-solar/code-square-linear";
+export { default as cpuLinear } from "@iconify/icons-solar/cpu-linear";
 export { default as eyeClosedLinear } from "@iconify/icons-solar/eye-closed-linear";
 export { default as eyeLinear } from "@iconify/icons-solar/eye-linear";
 export { default as hashtagLinear } from "@iconify/icons-solar/hashtag-linear";

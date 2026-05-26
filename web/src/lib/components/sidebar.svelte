@@ -36,46 +36,52 @@
 
 	let interval: ReturnType<typeof setInterval> | undefined;
 
-	async function refreshAgents() {
+	async function refreshAgents(silent = false) {
 		if (chat.status !== "open") {
-			agents = [];
-			loadingComputers = false;
+			if (!silent) {
+				agents = [];
+				loadingComputers = false;
+			}
 			return;
 		}
 
 		try {
-			loadingComputers = true;
+			if (!silent) loadingComputers = true;
 			const res = await chat.runCommandAwait("sandboxes", []);
 			if (res.error) throw new Error(res.error);
 			const data = res.data as { agents?: Agent[] } | null | undefined;
 			agents = data?.agents ?? [];
 		} catch {
-			agents = [];
+			if (!silent) agents = [];
 		} finally {
-			loadingComputers = false;
+			if (!silent) loadingComputers = false;
 		}
 	}
 
-	async function refreshTapes() {
+	async function refreshTapes(silent = false) {
 		if (chat.status !== "open") {
-			tapes = [];
-			tapesError = "Backend not connected";
-			loadingTapes = false;
+			if (!silent) {
+				tapes = [];
+				tapesError = "Backend not connected";
+				loadingTapes = false;
+			}
 			return;
 		}
 
 		try {
-			loadingTapes = true;
+			if (!silent) loadingTapes = true;
 			const res = await chat.runCommandAwait("tapes", []);
 			if (res.error) throw new Error(res.error);
 			const data = res.data as { tapes?: TapeInfo[] } | null | undefined;
 			tapes = data?.tapes ?? [];
 			tapesError = null;
 		} catch (e) {
-			tapes = [];
-			tapesError = e instanceof Error ? e.message : "Unavailable";
+			if (!silent) {
+				tapes = [];
+				tapesError = e instanceof Error ? e.message : "Unavailable";
+			}
 		} finally {
-			loadingTapes = false;
+			if (!silent) loadingTapes = false;
 		}
 	}
 
@@ -87,8 +93,8 @@
 		refreshAgents();
 		refreshTapes();
 		interval = setInterval(() => {
-			refreshAgents();
-			refreshTapes();
+			refreshAgents(true);
+			refreshTapes(true);
 		}, 10_000);
 		return () => clearInterval(interval);
 	});
