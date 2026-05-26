@@ -40,14 +40,9 @@ sed \
   deploy/self-hosted/nexal-server.service > "$SYSTEMD_USER_DIR/nexal-server.service"
 systemctl --user daemon-reload
 
-bun install --frozen-lockfile
-cargo build --release -p nexal-gateway -p nexal-agent
-
-(
-  cd web
-  GITHUB_PAGES=false bun run check
-  GITHUB_PAGES=false bun run build
-)
+test -x "$APP_DIR/target/release/nexal-gateway"
+test -x "$APP_DIR/target/release/nexal-agent"
+test -d "$APP_DIR/web/dist"
 rsync -a --delete web/dist/ "$WEB_ROOT"/
 
 systemctl --user enable nexal-gateway nexal-server
