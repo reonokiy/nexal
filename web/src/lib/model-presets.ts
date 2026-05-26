@@ -19,6 +19,7 @@ export interface ProviderPreset {
 	baseUrlPlaceholder?: string;
 	baseUrlLabel?: string;
 	showBaseUrl?: boolean;
+	allowCustomModel?: boolean;
 	warn?: string;
 }
 
@@ -70,8 +71,8 @@ export const PRESETS: Record<string, ProviderPreset> = {
 		signupUrl: "https://aistudio.google.com/apikey",
 		apiKeyPlaceholder: "AIza...",
 		models: [
-			{ id: "gemini-2.5-flash", label: "Gemini 2.5 Flash", icon: "google" },
-			{ id: "gemini-2.5-pro", label: "Gemini 2.5 Pro", icon: "google", config: { reasoningEffort: "medium" } },
+			{ id: "gemini-2.5-flash", label: "Gemini 2.5 Flash", icon: "gemini" },
+			{ id: "gemini-2.5-pro", label: "Gemini 2.5 Pro", icon: "gemini", config: { reasoningEffort: "medium" } },
 		],
 	},
 	"kimi-coding": {
@@ -99,11 +100,10 @@ export const PRESETS: Record<string, ProviderPreset> = {
 	"opencode-go": {
 		label: "OpenCode Go",
 		icon: "opencode-go",
-		summary: "Custom OpenAI-compatible endpoint. Use this for self-hosted or gatewayed model APIs.",
+		summary: "OpenCode hosted model gateway.",
 		signupUrl: "https://opencode.ai",
 		apiKeyPlaceholder: "api key",
-		showBaseUrl: true,
-		baseUrlLabel: "Endpoint",
+		allowCustomModel: false,
 		baseUrlPlaceholder: "https://opencode.ai/zen/go/v1",
 		models: [
 			{ id: "glm-5.1", label: "GLM-5.1", icon: "zhipuai", config: { reasoningEffort: "high", endpointKind: "openai-compatible" } },

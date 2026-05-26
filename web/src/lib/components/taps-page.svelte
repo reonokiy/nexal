@@ -2,18 +2,14 @@
 	import Icon from "@iconify/svelte";
 	import {
 		billListLinear,
-		clockCircleLinear,
-		codeSquareLinear,
-		hashtagLinear,
 		infoCircleLinear,
 		recordCircleLinear,
-		starsMinimalisticLinear,
-		userRoundedLinear,
 	} from "$lib/icons/solar";
 	import { router } from "$lib/router.svelte";
 	import { cn } from "$lib/utils";
 	import { renderMarkdown } from "$lib/markdown";
 	import type { Chat } from "$lib/client.svelte";
+	import { VList } from "virtua/svelte";
 
 	interface TapeInfo {
 		id: string;
@@ -32,7 +28,24 @@
 		date: string;
 	}
 
-	let { chat }: { chat: Chat } = $props();
+	type ContentBlock =
+		| { type: "text" | "thinking"; text: string }
+		| { type: "toolCall"; id: string; name: string; args: unknown };
+
+	type TapeHeaderInfo = {
+		id: string;
+		entries: number;
+		anchors: number;
+		lastAnchor: string | null;
+	} | null;
+
+	let {
+		chat,
+		onHeaderChange,
+	}: {
+		chat: Chat;
+		onHeaderChange?: (info: TapeHeaderInfo) => void;
+	} = $props();
 
 	let tape = $state<TapeInfo | null>(null);
 	let entries = $state<TapeEntry[]>([]);
@@ -46,7 +59,8 @@
 
 	async function loadTape(id: string) {
 		if (chat.status !== "open") {
-			error = "Backend not connected";
+			loading = true;
+			error = null;
 			return;
 		}
 
@@ -69,36 +83,56 @@
 
 	let loadedTapeId: string | null = null;
 	$effect(() => {
-		if (!tapeId || tapeId === loadedTapeId) return;
+		if (!tapeId) return;
+		if (chat.status !== "open") {
+			loading = true;
+			error = null;
+			return;
+		}
+		if (tapeId === loadedTapeId) return;
 		loadedTapeId = tapeId;
 		void loadTape(tapeId);
+	});
+
+	$effect(() => {
+		onHeaderChange?.(
+			tape
+				? {
+						id: tape.id,
+						entries: tape.entries,
+						anchors: tape.anchors,
+						lastAnchor: tape.lastAnchor,
+					}
+				: null,
+		);
 	});
 
 	function fmt(value: string): string {
 		const date = new Date(value);
 		if (Number.isNaN(date.getTime())) return value;
 		return new Intl.DateTimeFormat(undefined, {
-			month: "short",
-			day: "numeric",
+			year: "numeric",
+			month: "2-digit",
+			day: "2-digit",
 			hour: "2-digit",
 			minute: "2-digit",
+			second: "2-digit",
+			hour12: false,
 		}).format(date);
-	}
-
-	function entryIcon(entry: TapeEntry) {
-		const role = String(entry.payload.role ?? "");
-		if (role === "user") return userRoundedLinear;
-		if (role === "assistant") return starsMinimalisticLinear;
-		if (entry.kind === "anchor") return hashtagLinear;
-		return codeSquareLinear;
 	}
 
 	function entryLabel(entry: TapeEntry): string {
 		const role = String(entry.payload.role ?? "");
 		if (role === "user") return "User";
 		if (role === "assistant") return "Assistant";
+		if (entry.kind === "tool_call") return String(entry.payload.toolName ?? entry.payload.name ?? "Tool call");
 		if (entry.kind === "tool_result") return String(entry.payload.toolName ?? "Tool result");
-		if (entry.kind === "anchor") return `Anchor ${String(entry.payload.name ?? "")}`.trim();
+		if (entry.kind === "anchor") return "Anchor";
+		return entry.kind;
+	}
+
+	function entryKindLabel(entry: TapeEntry): string {
+		if (entry.kind === "anchor") return String(entry.payload.name ?? "anchor");
 		return entry.kind;
 	}
 
@@ -107,8 +141,19 @@
 		if (role === "user") return "bg-sky-500/10 text-sky-700 dark:text-sky-300";
 		if (role === "assistant") return "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300";
 		if (entry.kind === "anchor") return "bg-violet-500/10 text-violet-700 dark:text-violet-300";
+		if (entry.kind === "tool_call") return "bg-orange-500/10 text-orange-700 dark:text-orange-300";
 		if (entry.kind === "tool_result") return "bg-amber-500/10 text-amber-700 dark:text-amber-300";
 		return "bg-zinc-500/10 text-zinc-700 dark:text-zinc-300";
+	}
+
+	function formatToolArgs(value: unknown): string {
+		if (typeof value === "string") return value;
+		if (value == null) return "{}";
+		try {
+			return JSON.stringify(value, null, 2);
+		} catch {
+			return String(value);
+		}
 	}
 
 	function textFromContent(content: unknown): string {
@@ -121,11 +166,10 @@
 					const record = item as Record<string, unknown>;
 					if (typeof record.text === "string") return record.text;
 					if (typeof record.content === "string") return record.content;
-					if (typeof record.type === "string") return `[${record.type}]`;
 					return "";
 				})
-				.filter(Boolean)
-				.join("\n");
+					.filter(Boolean)
+					.join("\n");
 		}
 		if (content == null) return "";
 		return JSON.stringify(content, null, 2);
@@ -133,6 +177,12 @@
 
 	function bodyFor(entry: TapeEntry): string {
 		if ("content" in entry.payload) return textFromContent(entry.payload.content);
+		if (entry.kind === "tool_call") {
+			const name = String(entry.payload.toolName ?? entry.payload.name ?? "tool");
+			const id = String(entry.payload.toolCallId ?? entry.payload.id ?? "");
+			const args = entry.payload.arguments ?? entry.payload.args ?? entry.payload.input ?? {};
+			return `${name}${id ? ` (${id})` : ""}\n${formatToolArgs(args)}`;
+		}
 		if (entry.kind === "anchor") {
 			const state = entry.payload.state;
 			return state ? JSON.stringify(state, null, 2) : "Checkpoint";
@@ -143,31 +193,46 @@
 	function isMarkdown(entry: TapeEntry): boolean {
 		return String(entry.payload.role ?? "") === "assistant";
 	}
-</script>
 
-<section class="flex min-h-full w-full flex-col px-6 pb-8">
-	<div class="mx-auto flex w-full max-w-5xl flex-col gap-5">
-		<div class="flex flex-wrap items-end justify-between gap-4 pt-2">
-			<div>
-				<div class="text-muted-foreground mb-1 flex items-center gap-2 text-xs font-medium uppercase">
-					<Icon icon={billListLinear} class="size-3.5" />
-					<span>Tapes</span>
-				</div>
-				<h1 class="text-2xl font-semibold tracking-tight">
-					{tape ? tape.id : "Select a tape"}
-				</h1>
-			</div>
-			{#if tape}
-				<div class="text-muted-foreground flex flex-wrap items-center gap-3 text-sm">
-					<span>{tape.entries} entries</span>
-					<span>{tape.anchors} anchors</span>
-					{#if tape.lastAnchor}
-						<span>last: {tape.lastAnchor}</span>
-					{/if}
-				</div>
-			{/if}
-		</div>
+	function contentBlocks(entry: TapeEntry): ContentBlock[] {
+		if (!("content" in entry.payload)) return [{ type: "text", text: bodyFor(entry) }];
+		const content = entry.payload.content;
+		if (typeof content === "string") return [{ type: "text", text: content }];
+		if (!Array.isArray(content)) return [{ type: "text", text: bodyFor(entry) }];
 
+		return content
+			.map((item): ContentBlock | null => {
+				if (typeof item === "string") return { type: "text", text: item };
+				if (!item || typeof item !== "object") return null;
+				const record = item as Record<string, unknown>;
+				if (record.type === "toolCall" || record.type === "tool_call") {
+					return {
+						type: "toolCall",
+						id: String(record.id ?? record.toolCallId ?? ""),
+						name: String(record.name ?? record.toolName ?? "tool"),
+						args: record.arguments ?? record.args ?? record.input ?? {},
+					};
+				}
+				const text =
+					typeof record.thinking === "string"
+						? record.thinking
+						: typeof record.text === "string"
+							? record.text
+							: typeof record.content === "string"
+								? record.content
+								: "";
+				if (!text) return null;
+				return {
+					type: record.type === "thinking" ? "thinking" : "text",
+					text,
+				};
+			})
+			.filter((block): block is ContentBlock => block !== null);
+	}
+	</script>
+
+<section class="flex h-full min-h-0 w-full flex-col px-6 pb-8">
+	<div class="mx-auto flex h-full min-h-0 w-full max-w-5xl flex-col gap-5">
 		{#if !tapeId}
 			<div class="border-border flex min-h-80 flex-col items-center justify-center rounded-md border border-dashed text-center">
 				<Icon icon={infoCircleLinear} class="text-muted-foreground mb-3 size-8" />
@@ -187,39 +252,58 @@
 				<p class="text-sm font-medium">This tape is empty</p>
 			</div>
 		{:else}
-			<div class="border-border bg-background overflow-hidden rounded-md border">
-				{#each entries as entry (entry.id)}
-					<article class="border-border grid gap-3 border-b px-4 py-4 last:border-b-0 md:grid-cols-[9rem_minmax(0,1fr)]">
-						<div class="flex items-start gap-2">
-							<span class={cn("mt-0.5 flex size-7 shrink-0 items-center justify-center rounded", entryClass(entry))}>
-								<Icon icon={entryIcon(entry)} class="size-3.5" />
-							</span>
-							<div class="min-w-0">
-								<div class="text-sm font-medium">#{entry.id}</div>
-								<div class="text-muted-foreground mt-0.5 flex items-center gap-1 text-xs">
-									<Icon icon={clockCircleLinear} class="size-3" />
-									<span>{fmt(entry.date)}</span>
-								</div>
-							</div>
-						</div>
+			<VList
+				data={entries}
+				getKey={(entry: TapeEntry) => entry.id}
+				class="border-border bg-background rounded-md border"
+				style="height: 100%; width: 100%;"
+			>
+				{#snippet children(entry: TapeEntry)}
+					<article class="border-border border-b px-4 py-4">
 						<div class="min-w-0">
-							<div class="mb-2 flex flex-wrap items-center gap-2">
-								<span class={cn("inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium", entryClass(entry))}>
-									{entryLabel(entry)}
-								</span>
-								<span class="text-muted-foreground rounded bg-muted px-1.5 py-0.5 text-xs">{entry.kind}</span>
-							</div>
-							{#if isMarkdown(entry)}
-								<div class="md-body text-foreground max-w-none text-sm">
-									{@html renderMarkdown(bodyFor(entry))}
+							<div class="mb-2 flex min-w-0 items-center gap-2">
+								<div class="flex min-w-0 flex-wrap items-center gap-2">
+									<span class={cn("inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium", entryClass(entry))}>
+										{entryLabel(entry)}
+									</span>
+									<span class="text-muted-foreground rounded bg-muted px-1.5 py-0.5 text-xs">{entryKindLabel(entry)}</span>
 								</div>
-							{:else}
-								<pre class="text-foreground/90 whitespace-pre-wrap break-words font-sans text-sm leading-relaxed">{bodyFor(entry)}</pre>
-							{/if}
-						</div>
+								<div class="text-muted-foreground ml-auto flex shrink-0 items-center gap-2 text-xs">
+									<span>{fmt(entry.date)}</span>
+									<span class="font-medium text-foreground">#{entry.id}</span>
+								</div>
+							</div>
+								<div class="flex flex-col gap-2">
+									{#each contentBlocks(entry) as block}
+										{#if block.type === "thinking"}
+											<div class="border-border bg-muted/35 text-muted-foreground rounded-md border px-3 py-2 text-sm">
+												<div class="mb-1 text-[10px] font-medium uppercase tracking-wider">thinking</div>
+												<pre class="whitespace-pre-wrap break-words font-sans leading-relaxed">{block.text}</pre>
+											</div>
+										{:else if block.type === "toolCall"}
+											<div class="border-border rounded-md border bg-orange-500/[0.03] px-3 py-2 text-sm">
+												<div class="mb-2 flex min-w-0 items-center gap-2">
+													<span class="text-orange-700 dark:text-orange-300 text-[10px] font-medium uppercase tracking-wider">tool call</span>
+													<span class="truncate font-medium">{block.name}</span>
+													{#if block.id}
+														<span class="text-muted-foreground ml-auto shrink-0 truncate text-xs">{block.id}</span>
+													{/if}
+												</div>
+												<pre class="text-foreground/90 whitespace-pre-wrap break-words font-sans text-sm leading-relaxed">{formatToolArgs(block.args)}</pre>
+											</div>
+										{:else if isMarkdown(entry)}
+											<div class="md-body text-foreground max-w-none text-sm">
+												{@html renderMarkdown(block.text)}
+											</div>
+										{:else}
+											<pre class="text-foreground/90 whitespace-pre-wrap break-words font-sans text-sm leading-relaxed">{block.text}</pre>
+										{/if}
+									{/each}
+								</div>
+							</div>
 					</article>
-				{/each}
-			</div>
+				{/snippet}
+			</VList>
 		{/if}
 	</div>
 </section>

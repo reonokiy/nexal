@@ -18,6 +18,12 @@
 	const chat = createChat(settings.backendUrl, settings.chatId, settings.sender, getAccessToken());
 
 	let sidebarOpen = $state(true);
+	let tapeHeader = $state<{
+		id: string;
+		entries: number;
+		anchors: number;
+		lastAnchor: string | null;
+	} | null>(null);
 	const loggedIn = $derived(auth.accessToken.length > 0);
 	const authReady = $derived(auth.initialised);
 
@@ -45,6 +51,10 @@
 
 	function toggleSidebar() {
 		sidebarOpen = !sidebarOpen;
+	}
+
+	function setTapeHeader(info: typeof tapeHeader) {
+		tapeHeader = info;
 	}
 
 	const onSettings = $derived(router.current.startsWith("settings"));
@@ -88,12 +98,35 @@
 						<Icon icon={sidebarCodeLinear} class="size-4" />
 						<span class="sr-only">Toggle sidebar</span>
 					</button>
+						{#if onTapes}
+							<div class="min-w-0 flex flex-1 items-center gap-3">
+								<div class="flex min-w-0 items-baseline gap-2">
+									<span class="text-muted-foreground shrink-0 text-xs font-medium uppercase">Tapes</span>
+									{#if tapeHeader}
+										<span class="truncate text-sm font-medium">{tapeHeader.id}</span>
+									{/if}
+								</div>
+							{#if tapeHeader}
+								<div class="text-muted-foreground ml-auto flex shrink-0 items-center gap-3 text-xs">
+									<span>{tapeHeader.entries} entries</span>
+									<span>{tapeHeader.anchors} anchors</span>
+									{#if tapeHeader.lastAnchor}
+										<span>last: {tapeHeader.lastAnchor}</span>
+									{/if}
+								</div>
+							{/if}
+						</div>
+					{:else if onComputers}
+						<div class="min-w-0 flex flex-1 items-center gap-2">
+							<div class="truncate text-sm font-medium">Computers</div>
+						</div>
+					{/if}
 				</header>
 				<div class="flex min-h-0 flex-1 overflow-y-auto">
 					{#if onComputers}
 						<ComputersPage {chat} />
 					{:else}
-						<TapsPage {chat} />
+						<TapsPage {chat} onHeaderChange={setTapeHeader} />
 					{/if}
 				</div>
 			</div>

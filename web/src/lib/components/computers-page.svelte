@@ -77,12 +77,7 @@
 	}
 </script>
 
-<div class="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-5 px-6 py-5">
-	<div class="flex items-center gap-2">
-		<Icon icon={boxLinear} class="size-4 text-muted-foreground" />
-		<h1 class="text-sm font-semibold">Computers</h1>
-	</div>
-
+<div class="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-5 px-6 pb-5">
 	{#if loading}
 		<div class="flex flex-1 items-center justify-center gap-2 py-12 text-sm text-muted-foreground">
 			<Icon icon={recordCircleLinear} class="size-4 animate-spin" />

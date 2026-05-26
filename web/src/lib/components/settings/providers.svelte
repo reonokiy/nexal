@@ -14,7 +14,7 @@
 	import type { Chat } from "$lib/client.svelte";
 	import { fade, fly } from "svelte/transition";
 	import { cubicOut } from "svelte/easing";
-	import { PRESETS, type ModelOption, type ProviderPreset } from "$lib/model-presets";
+	import { PRESETS } from "$lib/model-presets";
 
 	let { chat }: { chat: Chat } = $props();
 
@@ -36,7 +36,6 @@
 	}
 
 	type ProviderForm = {
-		modelId: string;
 		key: string;
 		reveal: boolean;
 		busy: boolean;
@@ -60,11 +59,9 @@
 
 	function ensureForm(name: string): void {
 		const preset = PRESETS[name];
-		const defaultModel = preset?.models[0]?.id ?? "";
 		const existing = form[name];
 		if (!existing) {
 			form[name] = {
-				modelId: active?.provider === name ? active.modelId : defaultModel,
 				key: "",
 				reveal: false,
 				busy: false,
@@ -73,13 +70,13 @@
 			};
 			return;
 		}
-		if (active?.provider === name) existing.modelId = active.modelId;
 		if (providerBaseUrls[name] !== undefined) existing.baseUrl = providerBaseUrls[name]!;
 	}
 
 	function setFlash(name: string, message: string, error = false) {
 		const target = form[name];
 		if (!target) return;
+		if (error && isConnectionError(message)) return;
 		target.flash = error ? `error: ${message}` : message;
 		const current = target.flash;
 		setTimeout(() => {
@@ -87,9 +84,14 @@
 		}, error ? 3200 : 2400);
 	}
 
+	function isConnectionError(value: unknown): boolean {
+		const message = value instanceof Error ? value.message : String(value);
+		return /not connected|backend not connected/i.test(message);
+	}
+
 	async function refresh() {
 		if (chat.status !== "open") {
-			loadError = "Not connected to backend.";
+			loadError = null;
 			providers = orderedProviders(
 				Object.keys(PRESETS).map((name) => ({ name, hasKey: false, envKey: null })),
 			);
@@ -135,10 +137,11 @@
 			const settingsError =
 				settingsRes.status === "fulfilled" ? settingsRes.value.error : settingsRes.reason;
 			if (providerError || settingsError) {
-				loadError = String(providerError ?? settingsError);
+				const error = providerError ?? settingsError;
+				loadError = isConnectionError(error) ? null : String(error);
 			}
 		} catch (err) {
-			loadError = (err as Error).message;
+			loadError = isConnectionError(err) ? null : (err as Error).message;
 			providers = orderedProviders(
 				Object.keys(PRESETS).map((name) => ({ name, hasKey: false, envKey: null })),
 			);
@@ -197,39 +200,6 @@
 		}
 	}
 
-	async function pickModel(name: string, modelId: string) {
-		const entry = form[name]!;
-		entry.modelId = modelId;
-		entry.busy = true;
-		try {
-			const res = await chat.runCommandAwait("model", [name, modelId]);
-			if (res.error) throw new Error(res.error);
-			setFlash(name, `Using ${modelId}`);
-			await refresh();
-		} catch (err) {
-			setFlash(name, (err as Error).message, true);
-		} finally {
-			entry.busy = false;
-		}
-	}
-
-	async function saveCustomModel(name: string) {
-		const entry = form[name]!;
-		const modelId = entry.modelId.trim();
-		if (!modelId) return;
-		entry.busy = true;
-		try {
-			const res = await chat.runCommandAwait("model", [name, modelId]);
-			if (res.error) throw new Error(res.error);
-			setFlash(name, `Using ${modelId}`);
-			await refresh();
-		} catch (err) {
-			setFlash(name, (err as Error).message, true);
-		} finally {
-			entry.busy = false;
-		}
-	}
-
 	onMount(() => {
 		const tryLoad = () => {
 			if (chat.status === "open") void refresh();
@@ -253,9 +223,10 @@
 		providers.find((provider) => provider.name === selectedProviderName) ?? null,
 	);
 
-	function modelIcon(provider: string, model: ModelOption): string {
-		return model.icon ?? PRESETS[provider]?.icon ?? provider;
+	function providerIconName(provider: string): string {
+		return PRESETS[provider]?.icon ?? provider;
 	}
+
 </script>
 
 <section>
@@ -267,36 +238,31 @@
 						{@const isSelected = selectedProviderName === provider.name}
 						<button
 							type="button"
-							class={cn(
-								"flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left transition-colors duration-150",
-								isSelected
-									? "bg-black/[0.05]"
-									: "hover:bg-black/[0.03]",
-							)}
+								class={cn(
+									"flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left transition-colors duration-150",
+									isSelected ? "bg-muted" : "hover:bg-muted/45",
+								)}
 							onclick={() => (selectedProviderName = provider.name)}
 						>
-							<span
-								class={cn(
-									"flex size-10 shrink-0 items-center justify-center rounded-xl border",
-									provider.hasKey
-										? "border-border bg-background"
-										: "border-foreground/10 bg-foreground/[0.03]",
-								)}
-							>
-								<ProviderIcon name={preset?.icon ?? provider.name} class="size-5" />
+								<span
+									class={cn(
+										"flex size-10 shrink-0 items-center justify-center rounded-xl border",
+										provider.hasKey
+											? "border-border bg-background"
+											: "border-foreground/10 bg-foreground/[0.03]",
+									)}
+								>
+										<ProviderIcon name={providerIconName(provider.name)} class="size-5" />
 							</span>
 							<span class="min-w-0 flex-1">
 								<span class="flex items-center gap-2">
 									<span class="truncate text-sm font-medium">{preset?.label ?? provider.name}</span>
-									{#if active?.provider === provider.name}
-										<span class="text-foreground/60 text-[10px]">active</span>
-									{/if}
+										{#if active?.provider === provider.name}
+											<span class="text-foreground/60 text-[10px]">active</span>
+										{/if}
+									</span>
 								</span>
-								<span class="text-muted-foreground mt-0.5 block text-xs">
-									{provider.hasKey ? "API key configured" : "API key required"}
-								</span>
-							</span>
-						</button>
+							</button>
 					{/each}
 				</div>
 			</div>
@@ -325,7 +291,7 @@
 										: "border-foreground/10 bg-foreground/[0.03]",
 								)}
 							>
-								<ProviderIcon name={preset?.icon ?? provider.name} class="size-6" />
+								<ProviderIcon name={providerIconName(provider.name)} class="size-6" />
 							</span>
 							<div class="min-w-0 flex-1">
 								<div class="flex flex-wrap items-center gap-2">
@@ -336,14 +302,10 @@
 											active
 										</span>
 									{/if}
-									{#if provider.hasKey}
-										<span class="border-foreground/15 text-muted-foreground rounded-full border px-2 py-0.5 text-[10px]">
-											ready
-										</span>
-									{:else}
-										<span class="border-foreground/10 bg-foreground/[0.04] text-foreground/80 rounded-full border px-2 py-0.5 text-[10px]">
-											no key
-										</span>
+										{#if !provider.hasKey}
+											<span class="border-foreground/10 bg-foreground/[0.04] text-foreground/80 rounded-full border px-2 py-0.5 text-[10px]">
+												no key
+											</span>
 									{/if}
 								</div>
 								<p class="text-muted-foreground mt-2 max-w-2xl text-sm leading-relaxed">
@@ -361,8 +323,8 @@
 							</a>
 						</div>
 
-						<div class="mt-6 grid gap-6 2xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
-							<div class="flex flex-col gap-4">
+							<div class="mt-6 grid gap-6">
+								<div class="flex flex-col gap-4">
 								{#if loadError}
 									<div class="border-destructive/30 bg-destructive/5 text-destructive rounded-xl border px-3 py-2 text-xs">
 										{loadError}
@@ -440,10 +402,6 @@
 									{/if}
 								</div>
 
-								<div class="flex items-center justify-between gap-2 pt-1">
-									<span class="text-muted-foreground font-mono text-[10px]">
-										{provider.envKey ? `env: ${provider.envKey}` : provider.name}
-									</span>
 									{#if entry.flash}
 										<span
 											in:fly={{ y: 4, duration: 160, easing: cubicOut }}
@@ -453,90 +411,32 @@
 											{entry.flash}
 										</span>
 									{/if}
+
+									{#if preset?.warn}
+										<div class="border-amber-500/30 bg-amber-500/[0.07] text-amber-700 dark:text-amber-400 rounded-md border px-2.5 py-2 text-[11px] leading-relaxed">
+											{preset.warn}
+										</div>
+									{/if}
 								</div>
 
-								{#if preset?.warn}
-									<div class="border-amber-500/30 bg-amber-500/[0.07] text-amber-700 dark:text-amber-400 rounded-md border px-2.5 py-2 text-[11px] leading-relaxed">
-										{preset.warn}
-									</div>
-								{/if}
-							</div>
-
-							<div class="flex flex-col gap-4">
-								<div class="min-w-0">
-									<div class="text-sm font-medium">Model</div>
-									<p class="text-muted-foreground mt-1 text-sm">
-										{isActive && active ? active.modelId : "Choose the model this provider should run."}
-									</p>
-								</div>
-
-								{#if !provider.hasKey}
-									<div class="border-border/70 bg-background/70 rounded-xl border border-dashed px-3.5 py-3">
-										<div class="flex items-start justify-between gap-3">
-											<div class="min-w-0">
-												<div class="text-sm font-medium">Model UI is ready</div>
-												<p class="text-muted-foreground mt-1 text-xs leading-relaxed">
-													You can preview the supported models now. Save the API key first to make this selection live.
-												</p>
-											</div>
-											<div class="text-foreground/75 rounded-lg border px-2 py-1 text-[10px] uppercase tracking-wider">
-												step 2
-											</div>
+								{#if preset?.models?.length}
+									<div class="space-y-2">
+										<div class="text-muted-foreground text-[11px] uppercase tracking-wider">Available models</div>
+										<div class="flex flex-wrap gap-2">
+											{#each preset.models as model (model.id)}
+												<div class="border-border bg-background flex min-h-10 items-center gap-2 rounded-xl border px-3 py-2 text-left">
+													<ProviderIcon name={model.icon ?? preset.icon ?? provider.name} class="size-4" />
+													<div class="min-w-0">
+														<div class="text-sm font-medium">{model.label}</div>
+														<div class="text-muted-foreground font-mono text-[10px]">{model.id}</div>
+													</div>
+												</div>
+											{/each}
 										</div>
 									</div>
 								{/if}
-
-								<div class="space-y-2">
-									<div class="text-muted-foreground text-[11px] uppercase tracking-wider">Recommended models</div>
-									<div class="flex flex-wrap gap-2">
-										{#each preset?.models ?? [] as model (model.id)}
-											{@const selected = active?.provider === provider.name && active.modelId === model.id}
-											<button
-												type="button"
-												class={cn(
-													"flex min-h-10 items-center gap-2 rounded-xl border px-3 py-2 text-left transition-colors disabled:opacity-50",
-													selected
-														? "border-foreground/40 bg-foreground/5"
-														: "border-border hover:bg-accent",
-												)}
-												onclick={() => pickModel(provider.name, model.id)}
-												disabled={entry.busy}
-											>
-												<ProviderIcon name={modelIcon(provider.name, model)} class="size-4" />
-												<div class="min-w-0">
-													<div class="text-sm font-medium">{model.label}</div>
-													<div class="text-muted-foreground font-mono text-[10px]">{model.id}</div>
-												</div>
-												{#if selected}
-													<Icon icon={checkCircleLinear} class="size-3 shrink-0" />
-												{/if}
-											</button>
-										{/each}
-									</div>
-								</div>
-
-								<div class="space-y-1.5">
-									<div class="text-muted-foreground text-[11px] uppercase tracking-wider">Custom model ID</div>
-									<div class="flex items-center gap-2">
-										<Input
-											class="h-10 flex-1 font-mono text-sm"
-											placeholder="custom model id"
-											bind:value={entry.modelId}
-											disabled={entry.busy}
-										/>
-										<Button
-											variant="outline"
-											size="sm"
-											onclick={() => saveCustomModel(provider.name)}
-											disabled={entry.busy || !entry.modelId.trim()}
-										>
-											use
-										</Button>
-									</div>
-								</div>
 							</div>
-						</div>
-					{/if}
+						{/if}
 				</section>
 			{/if}
 	</div>

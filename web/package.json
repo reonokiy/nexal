@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@fontsource/inter": "^5.2.8",
+    "@fontsource/noto-sans-sc": "^5.2.9",
     "@iconify/icons-solar": "^1.2.3",
     "@iconify/svelte": "^5.2.1",
     "@nexal/transport": "workspace:*",

@@ -4,14 +4,7 @@
 	import { fade } from "svelte/transition";
 	import { cubicOut } from "svelte/easing";
 	import Icon from "@iconify/svelte";
-	import {
-		altArrowLeftLinear,
-		chatRoundLineLinear,
-		paletteLinear,
-		settingsLinear,
-		sliderHorizontalLinear,
-		starsMinimalisticLinear,
-	} from "$lib/icons/solar";
+	import { altArrowLeftLinear } from "$lib/icons/solar";
 	import General from "$lib/components/settings/general.svelte";
 	import Appearance from "$lib/components/settings/appearance.svelte";
 	import ChatSection from "$lib/components/settings/chat.svelte";
@@ -30,13 +23,13 @@
 		| "tools"
 		| "advanced";
 
-	const SECTIONS: { id: SectionId; label: string; icon: any }[] = [
-		{ id: "general", label: "General", icon: settingsLinear },
-		{ id: "appearance", label: "Appearance", icon: paletteLinear },
-		{ id: "chat", label: "Chat", icon: chatRoundLineLinear },
-		{ id: "providers", label: "Model providers", icon: starsMinimalisticLinear },
-		{ id: "tools", label: "Tools", icon: sliderHorizontalLinear },
-		{ id: "advanced", label: "Advanced", icon: sliderHorizontalLinear },
+	const SECTIONS: { id: SectionId; label: string }[] = [
+		{ id: "general", label: "General" },
+		{ id: "appearance", label: "Appearance" },
+		{ id: "chat", label: "Chat" },
+		{ id: "providers", label: "Model providers" },
+		{ id: "tools", label: "Tools" },
+		{ id: "advanced", label: "Advanced" },
 	];
 
 	const section = $derived.by<SectionId>(() => {
@@ -81,14 +74,7 @@
 						)}
 						onclick={() => goSection(s.id)}
 					>
-						<Icon
-							icon={s.icon}
-							class={cn(
-								"size-4",
-								active ? "text-foreground" : "text-muted-foreground",
-							)}
-						/>
-						<span>{s.label}</span>
+							<span>{s.label}</span>
 					</button>
 				{/each}
 			</nav>

@@ -155,7 +155,7 @@
 			type="button"
 			class={cn(
 				"text-foreground/85 flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm transition-colors duration-150 active:scale-[0.98]",
-				router.current.startsWith("tapes") || router.current.startsWith("taps")
+				router.current === "tapes" || router.current === "taps"
 					? "bg-black/[0.05] text-foreground"
 					: "hover:bg-black/[0.04]",
 			)}
@@ -189,7 +189,6 @@
 						onclick={() => router.go(`tapes/${encodeURIComponent(tape.id)}`)}
 						title={tape.id}
 					>
-						<span class="size-1.5 shrink-0 rounded-full bg-sky-400"></span>
 						<span class="min-w-0 flex-1 truncate">{shortTapeId(tape.id)}</span>
 						<span class="text-muted-foreground/70 shrink-0">{tape.entries}</span>
 					</button>
