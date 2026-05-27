@@ -27,6 +27,8 @@ jobs:
       GITHUB_PAGES: "true"
       PAGES_BASE_PATH: "/"
       VITE_APP_URL: "https://nexal.nokiy.net"
+      VITE_SUPABASE_URL: ${{ secrets.NEXAL_SUPABASE_URL }}
+      VITE_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
     steps:
       - uses: actions/checkout@v4
 
@@ -43,7 +45,11 @@ jobs:
 
       - name: Build web
         working-directory: web
-        run: bun run build
+        run: |
+          set -euo pipefail
+          test -n "$VITE_SUPABASE_URL"
+          test -n "$VITE_SUPABASE_ANON_KEY"
+          bun run build
 
       - name: Setup Pages
         uses: actions/configure-pages@v5

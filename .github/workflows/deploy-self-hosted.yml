@@ -45,8 +45,14 @@ jobs:
 
       - name: Build web
         working-directory: web
+        env:
+          VITE_APP_URL: "https://nexal.nokiy.net"
+          VITE_SUPABASE_URL: ${{ secrets.NEXAL_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
         run: |
           set -euo pipefail
+          test -n "$VITE_SUPABASE_URL"
+          test -n "$VITE_SUPABASE_ANON_KEY"
           GITHUB_PAGES=false bun run check
           GITHUB_PAGES=false bun run build
 
