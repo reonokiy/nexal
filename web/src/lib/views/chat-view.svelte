@@ -9,14 +9,8 @@
 	import EmptyState from "$lib/components/empty-state.svelte";
 	import Icon from "@iconify/svelte";
 	import {
-		checkCircleLinear,
-		clockCircleLinear,
-		closeCircleLinear,
-		cpuLinear,
 		plugCircleLinear,
-		serverSquareLinear,
 		sidebarCodeLinear,
-		userRoundedLinear,
 	} from "$lib/icons/solar";
 	import { settings } from "$lib/settings.svelte";
 	import type { Chat, Message as Msg } from "$lib/client.svelte";
@@ -46,6 +40,7 @@
 		workerName?: string;
 		workerKind?: string;
 		workerLifetime?: string;
+		workerPath?: string;
 	}
 
 	type DisplayItem = MsgItem | { kind: "typing"; id: number };
@@ -75,6 +70,11 @@
 		updates: number;
 	}
 
+	interface ChildTransfer {
+		child: string;
+		text: string;
+	}
+
 	/** Parse source from message text (short-term until backend sends metadata). */
 	function parseSource(text: string): {
 		source?: Source;
@@ -101,6 +101,15 @@
 			};
 		}
 		return { text };
+	}
+
+	function parseChildTransfer(text: string): ChildTransfer | undefined {
+		const match = text.match(/^\[from child ([^\]]+)\]\s*/);
+		if (!match) return undefined;
+		return {
+			child: match[1]!,
+			text: text.slice(match[0].length),
+		};
 	}
 
 	function workerFromMetadata(metadata: Msg["metadata"]): WorkerMeta | undefined {
@@ -156,21 +165,29 @@
 			if (m.role === "agent") {
 				const parsed = parseSource(m.text);
 				const worker = workerFromMetadata(m.metadata);
+				const transfer = parseChildTransfer(parsed.text);
+				const workerName = worker?.name ?? parsed.workerId ?? transfer?.child;
+				const workerPath = transfer
+					? `${transfer.child} > coordinator`
+					: workerName
+						? `coordinator > ${workerName}`
+						: undefined;
 				return {
 					id: m.id,
 					streamId: m.streamId,
 					role: m.role,
-					text: parsed.text,
+					text: transfer?.text ?? parsed.text,
 					ts: m.ts,
 					streaming: m.streaming,
 					kind: "msg" as const,
-					source: parsed.source ?? (worker ? "worker" : "coordinator"),
+					source: parsed.source ?? (worker || transfer ? "worker" : "coordinator"),
 					toolName: parsed.toolName,
-					workerId: parsed.workerId ?? worker?.name,
+					workerId: parsed.workerId ?? workerName,
 					workerStatus: parsed.workerStatus ?? (worker ? inferWorkerStatus(parsed.text) : undefined),
 					workerName: worker?.name,
 					workerKind: worker?.kind,
 					workerLifetime: worker?.lifetime,
+					workerPath,
 				};
 			}
 			// visibleMessages filters out system, so m.role must be "user" here
@@ -197,6 +214,7 @@
 		for (const message of visibleMessages) {
 			if (message.role !== "agent") continue;
 			const parsed = parseSource(message.text);
+			const transfer = parseChildTransfer(parsed.text);
 			const spawn = parseSpawn(parsed.text);
 			if (spawn) {
 				nameToId.set(spawn.name, spawn.id);
@@ -212,9 +230,9 @@
 			}
 
 			const worker = workerFromMetadata(message.metadata);
-			if (!worker && parsed.source !== "worker") continue;
+			if (!worker && parsed.source !== "worker" && !transfer) continue;
 
-			const name = worker?.name ?? parsed.workerId ?? "worker";
+			const name = worker?.name ?? parsed.workerId ?? transfer?.child ?? "worker";
 			const id = parsed.workerId ?? nameToId.get(name) ?? name;
 			const existing = tasks.get(id);
 			upsertTask(tasks, {
@@ -222,8 +240,8 @@
 				name,
 				kind: worker?.kind ?? existing?.kind ?? "worker",
 				lifetime: worker?.lifetime ?? existing?.lifetime,
-				status: parsed.workerStatus ?? inferWorkerStatus(parsed.text, existing?.status),
-				lastText: parsed.text,
+				status: parsed.workerStatus ?? inferWorkerStatus(transfer?.text ?? parsed.text, existing?.status),
+				lastText: transfer?.text ?? parsed.text,
 				ts: message.ts,
 			});
 			nameToId.set(name, id);
@@ -285,20 +303,12 @@
 		return "text-primary bg-primary/10";
 	}
 
-	function statusIcon(status: string) {
-		if (status === "failed") return closeCircleLinear;
-		if (["done", "completed"].includes(status)) return checkCircleLinear;
-		return clockCircleLinear;
-	}
-
-	function taskIcon(kind: string) {
-		if (kind === "coordinator") return serverSquareLinear;
-		if (kind === "executor") return cpuLinear;
-		return userRoundedLinear;
-	}
-
 	function shortId(id: string): string {
 		return id.length > 12 ? id.slice(0, 8) : id;
+	}
+
+	function taskPath(task: TaskItem): string {
+		return `coordinator > ${task.name}`;
 	}
 
 	async function refreshModelLabel() {
@@ -352,7 +362,6 @@
 					class="text-muted-foreground hidden items-center gap-2 rounded-md px-2 py-1 text-xs sm:flex"
 					title="Coordinator subtasks"
 				>
-					<Icon icon={serverSquareLinear} class="size-3.5" />
 					<span>{taskSummary.active} active</span>
 					{#if taskSummary.failed > 0}
 						<span class="text-red-500">{taskSummary.failed} failed</span>
@@ -382,9 +391,8 @@
 					<div class="mx-auto flex w-full max-w-3xl gap-2 overflow-x-auto">
 						{#each taskItems.slice(0, 6) as task (task.id)}
 							<div class="bg-muted/40 flex min-w-48 items-center gap-2 rounded-md px-2.5 py-2">
-								<Icon icon={taskIcon(task.kind)} class="text-muted-foreground size-4 shrink-0" />
 								<div class="min-w-0 flex-1">
-									<div class="truncate text-xs font-medium">{task.name}</div>
+									<div class="truncate text-xs font-medium">{taskPath(task)}</div>
 									<div class="text-muted-foreground truncate text-[11px]">
 										{task.kind}
 										{#if task.lifetime}
@@ -440,6 +448,7 @@
 									toolName={item.toolName}
 									workerId={item.workerId}
 									workerStatus={item.workerStatus}
+									workerPath={item.workerPath}
 								/>
 							{/if}
 						</div>
@@ -450,7 +459,6 @@
 		{#if taskItems.length > 0}
 			<aside class="border-border/70 hidden w-80 shrink-0 border-l lg:flex lg:flex-col">
 				<div class="border-border/70 flex h-12 items-center gap-2 border-b px-4">
-					<Icon icon={serverSquareLinear} class="text-muted-foreground size-4" />
 					<div class="text-sm font-medium">Tasks</div>
 					<div class="text-muted-foreground ml-auto text-xs">
 						{taskSummary.active} active
@@ -458,15 +466,11 @@
 				</div>
 				<div class="min-h-0 flex-1 overflow-y-auto">
 					{#each taskItems as task (task.id)}
-						<div class="border-border/60 flex gap-3 border-b px-4 py-3">
-							<div class="bg-muted mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-md">
-								<Icon icon={taskIcon(task.kind)} class="text-muted-foreground size-4" />
-							</div>
+						<div class="border-border/60 border-b px-4 py-3">
 							<div class="min-w-0 flex-1">
 								<div class="flex items-center gap-2">
-									<div class="truncate text-sm font-medium">{task.name}</div>
+									<div class="truncate text-sm font-medium">{taskPath(task)}</div>
 									<span class={`inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium ${statusClass(task.status)}`}>
-										<Icon icon={statusIcon(task.status)} class="size-3" />
 										{task.status}
 									</span>
 								</div>
