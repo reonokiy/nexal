@@ -457,16 +457,10 @@
 			{/if}
 		</section>
 		{#if taskItems.length > 0}
-			<aside class="border-border/70 hidden w-80 shrink-0 border-l lg:flex lg:flex-col">
-				<div class="border-border/70 flex h-12 items-center gap-2 border-b px-4">
-					<div class="text-sm font-medium">Tasks</div>
-					<div class="text-muted-foreground ml-auto text-xs">
-						{taskSummary.active} active
-					</div>
-				</div>
+			<aside class="border-border/70 hidden w-80 shrink-0 border-l pt-1 lg:flex lg:flex-col">
 				<div class="min-h-0 flex-1 overflow-y-auto">
 					{#each taskItems as task (task.id)}
-						<div class="border-border/60 border-b px-4 py-3">
+						<div class="border-border/60 border-b px-4 py-3 first:pt-4">
 							<div class="min-w-0 flex-1">
 								<div class="flex items-center gap-2">
 									<div class="truncate text-sm font-medium">{taskPath(task)}</div>
