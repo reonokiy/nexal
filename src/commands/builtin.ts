@@ -2,6 +2,7 @@
  * Built-in slash commands registered at startup.
  */
 import type { CommandRegistry } from "./registry.ts";
+import type { CommandContext } from "./registry.ts";
 import type { GatewayClient } from "../gateway/index.ts";
 import type { TapeEntry, TapeHandle, TapeInfo, TapeStore } from "../tape/index.ts";
 import {
@@ -41,10 +42,20 @@ export interface TapesPayload {
 
 export interface TapePayload {
 	tape: TapeInfo;
+}
+
+export interface TapeEntriesPayload {
+	tape: TapeInfo;
 	entries: TapeEntry[];
+	offset: number;
+	limit: number;
+	total: number;
+	hasMore: boolean;
 }
 
 type GetTapeRef = (sessionKey: string) => Promise<TapeHandle | null>;
+
+const MAX_TAPE_PAGE_SIZE = 500;
 
 type ConfigureParseResult =
 	| {
@@ -259,6 +270,30 @@ export function registerBuiltins(
 	}
 
 	if (tapeStore && getTapeRef) {
+		const resolveTapeRef = getTapeRef;
+		async function requireAllowedTape(
+			ctx: CommandContext,
+			tapeId: string | undefined,
+		): Promise<
+			| { ok: true; handle: TapeHandle }
+			| { ok: false; result: { text: string; error: string } }
+		> {
+			if (!tapeId) {
+				return {
+					ok: false,
+					result: { text: "Usage: /tape <tape_id>", error: "missing tape_id" },
+				};
+			}
+			const allowed = await resolveTapeRef(`${ctx.channel}:${ctx.chatId}`);
+			if (!allowed || allowed.tapeId !== tapeId) {
+				return {
+					ok: false,
+					result: { text: `Tape not found: ${tapeId}`, error: "tape not found" },
+				};
+			}
+			return { ok: true, handle: { tapeId } };
+		}
+
 		registry.register({
 			name: "tapes",
 			description: "List tapes for the current session",
@@ -287,27 +322,43 @@ export function registerBuiltins(
 
 		registry.register({
 			name: "tape",
-			description: "Read the current session tape (usage: /tape <tape_id>)",
+			description: "Read current session tape metadata (usage: /tape <tape_id>)",
 			async execute(ctx, args) {
 				const [tapeId] = args;
-				if (!tapeId) {
-					return { text: "Usage: /tape <tape_id>", error: "missing tape_id" };
-				}
-
-				const allowed = await getTapeRef(`${ctx.channel}:${ctx.chatId}`);
-				if (!allowed || allowed.tapeId !== tapeId) {
-					return { text: `Tape not found: ${tapeId}`, error: "tape not found" };
-				}
-
-				const handle: TapeHandle = { tapeId };
-				const [tape, entries] = await Promise.all([
-					tapeStore.info(handle),
-					tapeStore.read(handle),
-				]);
-
+				const allowed = await requireAllowedTape(ctx, tapeId);
+				if (!allowed.ok) return allowed.result;
+				const tape = await tapeStore.info(allowed.handle);
 				return {
-					text: `Tape ${tape.id}: ${entries.length} entries.`,
-					data: { tape, entries } satisfies TapePayload,
+					text: `Tape ${tape.id}: ${tape.entries} entries.`,
+					data: { tape } satisfies TapePayload,
+				};
+			},
+		});
+
+		registry.register({
+			name: "tape_entries",
+			description: "Read current session tape entries by page (usage: /tape_entries <tape_id> [offset] [limit])",
+			async execute(ctx, args) {
+				const [tapeId, offsetArg, limitArg] = args;
+				const allowed = await requireAllowedTape(ctx, tapeId);
+				if (!allowed.ok) return allowed.result;
+				const offset = Math.max(0, Number.parseInt(offsetArg ?? "0", 10) || 0);
+				const requestedLimit = Number.parseInt(limitArg ?? "100", 10) || 100;
+				const limit = Math.min(MAX_TAPE_PAGE_SIZE, Math.max(1, requestedLimit));
+				const [tape, entries] = await Promise.all([
+					tapeStore.info(allowed.handle),
+					tapeStore.readPage(allowed.handle, { offset, limit }),
+				]);
+				return {
+					text: `Tape ${tape.id}: entries ${offset + 1}-${offset + entries.length} of ${tape.entries}.`,
+					data: {
+						tape,
+						entries,
+						offset,
+						limit,
+						total: tape.entries,
+						hasMore: offset + entries.length < tape.entries,
+					} satisfies TapeEntriesPayload,
 				};
 			},
 		});

@@ -11,6 +11,7 @@
 	import type { Chat } from "$lib/client.svelte";
 	import { onMount } from "svelte";
 	import { VList } from "virtua/svelte";
+	import type { VListHandle } from "virtua/svelte";
 
 	interface TapeInfo {
 		id: string;
@@ -27,6 +28,15 @@
 		payload: Record<string, unknown>;
 		meta: Record<string, unknown>;
 		date: string;
+	}
+
+	interface TapeEntriesPage {
+		tape?: TapeInfo;
+		entries?: TapeEntry[];
+		offset?: number;
+		limit?: number;
+		total?: number;
+		hasMore?: boolean;
 	}
 
 	type ContentBlock =
@@ -54,9 +64,15 @@
 	let tapes = $state<TapeInfo[]>([]);
 	let entries = $state<TapeEntry[]>([]);
 	let loading = $state(false);
+	let loadingMore = $state(false);
 	let loadingTapes = $state(false);
 	let error = $state<string | null>(null);
 	let tapesError = $state<string | null>(null);
+	let hasMoreEntries = $state(false);
+	let nextEntryOffset = $state(0);
+	let tapeList: VListHandle | null = $state(null);
+
+	const TAPE_PAGE_SIZE = 100;
 
 	const tapeId = $derived.by(() => {
 		const match = router.current.match(/^tap(?:e)?s\/(.+)$/);
@@ -72,19 +88,74 @@
 
 		try {
 			loading = true;
+			loadingMore = false;
 			error = null;
-			const res = await chat.runCommandAwait("tape", [id], 30_000);
-			if (res.error) throw new Error(res.error);
-			const data = res.data as { tape?: TapeInfo; entries?: TapeEntry[] } | null | undefined;
-			tape = data?.tape ?? null;
-			entries = data?.entries ?? [];
+			hasMoreEntries = false;
+			nextEntryOffset = 0;
+			entries = [];
+			const [info, page] = await Promise.all([
+				loadTapeInfo(id),
+				loadTapeEntriesPage(id, 0),
+			]);
+			tape = page.tape ?? info;
+			entries = page.entries ?? [];
+			nextEntryOffset = entries.length;
+			hasMoreEntries = page.hasMore ?? entries.length < (page.total ?? tape.entries);
+			setTimeout(checkNeedMoreEntries, 0);
 		} catch (e) {
 			tape = null;
 			entries = [];
+			hasMoreEntries = false;
+			nextEntryOffset = 0;
 			error = e instanceof Error ? e.message : "fetch failed";
 		} finally {
 			loading = false;
 		}
+	}
+
+	async function loadTapeInfo(id: string): Promise<TapeInfo> {
+		const res = await chat.runCommandAwait("tape", [id], 30_000);
+		if (res.error) throw new Error(res.error);
+		const data = res.data as { tape?: TapeInfo } | null | undefined;
+		if (!data?.tape) throw new Error("Tape metadata missing");
+		return data.tape;
+	}
+
+	async function loadTapeEntriesPage(id: string, offset: number): Promise<TapeEntriesPage> {
+		const res = await chat.runCommandAwait(
+			"tape_entries",
+			[id, String(offset), String(TAPE_PAGE_SIZE)],
+			30_000,
+		);
+		if (res.error) throw new Error(res.error);
+		return (res.data as TapeEntriesPage | null | undefined) ?? {};
+	}
+
+	async function loadMoreEntries() {
+		if (!tapeId || loading || loadingMore || !hasMoreEntries || chat.status !== "open") return;
+		try {
+			loadingMore = true;
+			const page = await loadTapeEntriesPage(tapeId, nextEntryOffset);
+			const nextEntries = page.entries ?? [];
+			if (page.tape) tape = page.tape;
+			if (nextEntries.length > 0) {
+				entries = [...entries, ...nextEntries];
+			}
+			nextEntryOffset += nextEntries.length;
+			hasMoreEntries = page.hasMore ?? nextEntryOffset < (page.total ?? tape?.entries ?? nextEntryOffset);
+			setTimeout(checkNeedMoreEntries, 0);
+		} catch (e) {
+			error = e instanceof Error ? e.message : "fetch failed";
+		} finally {
+			loadingMore = false;
+		}
+	}
+
+	function checkNeedMoreEntries() {
+		if (!tapeList || !hasMoreEntries || loading || loadingMore) return;
+		const remaining =
+			tapeList.getScrollSize() - tapeList.getScrollOffset() - tapeList.getViewportSize();
+		if (remaining < 1200) void loadMoreEntries();
 	}
 
 	async function loadTapes(silent = false) {
@@ -117,6 +188,8 @@
 		if (!tapeId) {
 			tape = null;
 			entries = [];
+			hasMoreEntries = false;
+			nextEntryOffset = 0;
 			loadedTapeId = null;
 			if (chat.status !== "open") {
 				loadingTapes = false;
@@ -132,6 +205,7 @@
 		if (chat.status !== "open") {
 			loading = true;
 			error = null;
+			loadingMore = false;
 			return;
 		}
 		if (tapeId === loadedTapeId) return;
@@ -352,27 +426,31 @@
 				<p class="text-sm font-medium">This tape is empty</p>
 			</div>
 		{:else}
-			<VList
-				data={entries}
-				getKey={(entry: TapeEntry) => entry.id}
-				class="border-border bg-background rounded-md border"
-				style="height: 100%; width: 100%;"
-			>
-				{#snippet children(entry: TapeEntry)}
-					<article class="border-border border-b px-4 py-4">
-						<div class="min-w-0">
-							<div class="mb-2 flex min-w-0 items-center gap-2">
-								<div class="flex min-w-0 flex-wrap items-center gap-2">
-									<span class={cn("inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium", entryClass(entry))}>
-										{entryLabel(entry)}
-									</span>
-									<span class="text-muted-foreground rounded bg-muted px-1.5 py-0.5 text-xs">{entryKindLabel(entry)}</span>
+			<div class="relative min-h-0 flex-1">
+				<VList
+					bind:this={tapeList}
+					data={entries}
+					getKey={(entry: TapeEntry) => entry.id}
+					onscroll={checkNeedMoreEntries}
+					onscrollend={checkNeedMoreEntries}
+					class="border-border bg-background rounded-md border"
+					style="height: 100%; width: 100%;"
+				>
+					{#snippet children(entry: TapeEntry)}
+						<article class="border-border border-b px-4 py-4">
+							<div class="min-w-0">
+								<div class="mb-2 flex min-w-0 items-center gap-2">
+									<div class="flex min-w-0 flex-wrap items-center gap-2">
+										<span class={cn("inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium", entryClass(entry))}>
+											{entryLabel(entry)}
+										</span>
+										<span class="text-muted-foreground rounded bg-muted px-1.5 py-0.5 text-xs">{entryKindLabel(entry)}</span>
+									</div>
+									<div class="text-muted-foreground ml-auto flex shrink-0 items-center gap-2 text-xs">
+										<span>{fmt(entry.date)}</span>
+										<span class="font-medium text-foreground">#{entry.id}</span>
+									</div>
 								</div>
-								<div class="text-muted-foreground ml-auto flex shrink-0 items-center gap-2 text-xs">
-									<span>{fmt(entry.date)}</span>
-									<span class="font-medium text-foreground">#{entry.id}</span>
-								</div>
-							</div>
 								<div class="flex flex-col gap-2">
 									{#each contentBlocks(entry) as block}
 										{#if block.type === "thinking"}
@@ -401,9 +479,16 @@
 									{/each}
 								</div>
 							</div>
-					</article>
-				{/snippet}
-			</VList>
+						</article>
+					{/snippet}
+				</VList>
+				{#if loadingMore}
+					<div class="bg-background/90 border-border text-muted-foreground absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-md border px-3 py-1.5 text-xs shadow-sm">
+						<Icon icon={recordCircleLinear} class="size-3.5 animate-spin" />
+						<span>Loading more…</span>
+					</div>
+				{/if}
+			</div>
 		{/if}
 	</div>
 </section>

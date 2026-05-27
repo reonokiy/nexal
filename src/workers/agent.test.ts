@@ -11,6 +11,7 @@ const mockTapeStore: TapeStore = {
 	create: async () => ({ tapeId: "00000000-0000-4000-8000-000000000001" }),
 	listTapes: async () => [],
 	read: async () => [],
+	readPage: async () => [],
 	append: async (_tape: any, entryOrEntries: any) =>
 		Array.isArray(entryOrEntries)
 			? entryOrEntries.map((entry, index) => ({ ...entry, id: index + 1 }))

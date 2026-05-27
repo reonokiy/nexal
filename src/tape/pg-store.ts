@@ -118,6 +118,27 @@ export function createTapeStore(opts: TapeStoreOptions = {}): TapeStore {
 			return entries;
 		},
 
+		async readPage(
+			tape: TapeHandle,
+			options: { offset: number; limit: number },
+		): Promise<TapeEntry[]> {
+			const tapeRecord = await findTapeRecordById(db, tape.tapeId);
+			if (!tapeRecord) return [];
+			const rows = await db
+				.select()
+				.from(tapeEntries)
+				.where(eq(tapeEntries.tapeId, tapeRecord.id))
+				.orderBy(tapeEntries.entryId)
+				.limit(options.limit)
+				.offset(options.offset);
+			const entries = rows.map(rowToEntry);
+			if (!fileStore) return entries;
+			for (const e of entries) {
+				e.payload = await hydrateFileRefs(e.payload, fileStore);
+			}
+			return entries;
+		},
+
 		append: appendTape,
 
 		async reset(tapeRef: TapeHandle): Promise<void> {

@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import { parseConfigureArgs, registerBuiltins } from "./builtin.ts";
 import { CommandRegistry } from "./registry.ts";
-import type { TapeStore } from "../tape/index.ts";
+import type { TapeEntry, TapeStore } from "../tape/index.ts";
 
 describe("parseConfigureArgs", () => {
 	test("parses provider, model, and API key", () => {
@@ -95,6 +95,25 @@ describe("tape commands", () => {
 								date: "2026-01-01T00:00:01.000Z",
 							},
 						]
+					: [],
+			readPage: async (tape, { offset, limit }) =>
+				tape.tapeId === currentTape.id
+					? ([
+							{
+								id: 1,
+								kind: "anchor",
+								payload: { name: "session/start" },
+								meta: {},
+								date: "2026-01-01T00:00:00.000Z",
+							},
+							{
+								id: 2,
+								kind: "message",
+								payload: { role: "user", content: "hello" },
+								meta: {},
+								date: "2026-01-01T00:00:01.000Z",
+							},
+						] satisfies TapeEntry[]).slice(offset, offset + limit)
 					: [],
 			append: async (_tape, entryOrEntries: any) =>
 				Array.isArray(entryOrEntries)

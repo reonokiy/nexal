@@ -26,6 +26,8 @@ export interface TapeStore {
 	listTapes(): Promise<TapeInfo[]>;
 	/** Read every entry for a tape, ordered by entry_id. */
 	read(tape: TapeHandle): Promise<TapeEntry[]>;
+	/** Read a page of entries for a tape, ordered by entry_id. */
+	readPage(tape: TapeHandle, options: { offset: number; limit: number }): Promise<TapeEntry[]>;
 	/** Append entries to the tail of a tape (allocates entry_id). */
 	append(tape: TapeHandle, entry: TapeEntryDraft): Promise<TapeEntry>;
 	append(tape: TapeHandle, entries: TapeEntryDraft[]): Promise<TapeEntry[]>;
