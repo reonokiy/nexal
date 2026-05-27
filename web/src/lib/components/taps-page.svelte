@@ -9,6 +9,15 @@
 	import { cn } from "$lib/utils";
 	import { renderMarkdown } from "$lib/markdown";
 	import type { Chat } from "$lib/client.svelte";
+	import {
+		getCachedLatestTapeEntries,
+		getCachedTapeEntriesPage,
+		getCachedTapeInfo,
+		getCachedTapes,
+		putCachedTapeEntries,
+		putCachedTapeInfo,
+		putCachedTapes,
+	} from "$lib/tape-cache";
 	import { onMount, tick } from "svelte";
 	import { VList } from "virtua/svelte";
 	import type { VListHandle } from "virtua/svelte";
@@ -67,6 +76,7 @@
 	let loading = $state(false);
 	let loadingMore = $state(false);
 	let loadingTapes = $state(false);
+	let syncing = $state(false);
 	let error = $state<string | null>(null);
 	let tapesError = $state<string | null>(null);
 	let hasMoreEntries = $state(false);
@@ -81,37 +91,72 @@
 	});
 
 	async function loadTape(id: string) {
+		const generation = ++loadTapeGeneration;
+		loading = true;
+		loadingMore = false;
+		syncing = false;
+		error = null;
+		hasMoreEntries = false;
+		nextEntryOffset = 0;
+		entries = [];
+
+		const [cachedInfo, cachedEntries] = await Promise.all([
+			getCachedTapeInfo(id),
+			getCachedLatestTapeEntries(id, TAPE_PAGE_SIZE),
+		]);
+		if (generation !== loadTapeGeneration) return;
+
+		if (cachedInfo || cachedEntries.length > 0) {
+			tape = cachedInfo;
+			entries = cachedEntries;
+			nextEntryOffset = Math.max(0, (cachedEntries[0]?.id ?? 1) - 1);
+			hasMoreEntries = nextEntryOffset > 0;
+			loading = false;
+			await scrollTapeToLatest();
+		}
+
 		if (chat.status !== "open") {
-			loading = true;
-			error = null;
+			if (!cachedInfo && cachedEntries.length === 0) {
+				loading = false;
+				error = "Backend not connected";
+			}
 			return;
 		}
 
 		try {
-			loading = true;
-			loadingMore = false;
-			error = null;
-			hasMoreEntries = false;
-			nextEntryOffset = 0;
-			entries = [];
+			syncing = cachedInfo !== null || cachedEntries.length > 0;
 			const info = await loadTapeInfo(id);
 			const initialOffset = Math.max(0, info.entries - TAPE_PAGE_SIZE);
 			const page = await loadTapeEntriesPage(id, initialOffset);
+			if (generation !== loadTapeGeneration) return;
 			tape = page.tape ?? info;
-			entries = page.entries ?? [];
+			entries = page.entries ?? cachedEntries;
 			nextEntryOffset = initialOffset;
 			hasMoreEntries = initialOffset > 0;
-			await tick();
-			tapeList?.scrollToIndex(Math.max(0, entries.length - 1), { align: "end" });
+			await Promise.all([
+				putCachedTapeInfo(tape),
+				putCachedTapeEntries(id, entries),
+			]);
+			await scrollTapeToLatest();
 		} catch (e) {
-			tape = null;
-			entries = [];
-			hasMoreEntries = false;
-			nextEntryOffset = 0;
-			error = e instanceof Error ? e.message : "fetch failed";
+			if (entries.length === 0) {
+				tape = null;
+				entries = [];
+				hasMoreEntries = false;
+				nextEntryOffset = 0;
+				error = e instanceof Error ? e.message : "fetch failed";
+			}
 		} finally {
-			loading = false;
+			if (generation === loadTapeGeneration) {
+				loading = false;
+				syncing = false;
+			}
 		}
+	}
+
+	async function scrollTapeToLatest() {
+		await tick();
+		tapeList?.scrollToIndex(Math.max(0, entries.length - 1), { align: "end" });
 	}
 
 	async function loadTapeInfo(id: string): Promise<TapeInfo> {
@@ -137,16 +182,26 @@
 	}
 
 	async function loadMoreEntries() {
-		if (!tapeId || loading || loadingMore || !hasMoreEntries || chat.status !== "open") return;
+		if (!tapeId || loading || loadingMore || !hasMoreEntries) return;
 		try {
 			loadingMore = true;
 			const previousOffset = Math.max(0, nextEntryOffset - TAPE_PAGE_SIZE);
 			const limit = nextEntryOffset - previousOffset;
+			const cachedEntries = await getCachedTapeEntriesPage(tapeId, previousOffset, limit);
+			if (isCompletePage(cachedEntries, previousOffset, limit)) {
+				entries = mergeEntries(cachedEntries, entries);
+				nextEntryOffset = previousOffset;
+				hasMoreEntries = previousOffset > 0;
+				if (chat.status === "open") void syncEntriesPage(tapeId, previousOffset, limit);
+				return;
+			}
+			if (chat.status !== "open") return;
 			const page = await loadTapeEntriesPage(tapeId, previousOffset, limit);
 			const nextEntries = page.entries ?? [];
 			if (page.tape) tape = page.tape;
 			if (nextEntries.length > 0) {
-				entries = [...nextEntries, ...entries];
+				entries = mergeEntries(nextEntries, entries);
+				await putCachedTapeEntries(tapeId, nextEntries);
 			}
 			nextEntryOffset = previousOffset;
 			hasMoreEntries = previousOffset > 0;
@@ -157,15 +212,83 @@
 		}
 	}
 
+	async function syncEntriesPage(id: string, offset: number, limit: number) {
+		try {
+			const page = await loadTapeEntriesPage(id, offset, limit);
+			const syncedEntries = page.entries ?? [];
+			if (page.tape) {
+				tape = page.tape;
+				await putCachedTapeInfo(page.tape);
+			}
+			if (syncedEntries.length > 0) {
+				entries = mergeEntries(entries, syncedEntries);
+				await putCachedTapeEntries(id, syncedEntries);
+			}
+		} catch {
+			// Background cache refresh can fail without interrupting browsing.
+		}
+	}
+
+	async function syncLatestTape(id: string) {
+		if (syncing || loading || chat.status !== "open") return;
+		try {
+			syncing = true;
+			const info = await loadTapeInfo(id);
+			const initialOffset = Math.max(0, info.entries - TAPE_PAGE_SIZE);
+			const page = await loadTapeEntriesPage(id, initialOffset);
+			const syncedTape = page.tape ?? info;
+			const syncedEntries = page.entries ?? [];
+			if (tapeId === id) {
+				tape = syncedTape;
+				if (syncedEntries.length > 0) {
+					entries = mergeEntries(entries, syncedEntries);
+					nextEntryOffset = Math.max(0, (entries[0]?.id ?? 1) - 1);
+				}
+				hasMoreEntries = nextEntryOffset > 0;
+			}
+			await Promise.all([
+				putCachedTapeInfo(syncedTape),
+				putCachedTapeEntries(id, syncedEntries),
+			]);
+		} catch {
+			// Keep showing cached data if background sync fails.
+		} finally {
+			syncing = false;
+		}
+	}
+
 	function checkNeedMoreEntries() {
 		if (!tapeList || !hasMoreEntries || loading || loadingMore) return;
 		if (tapeList.getScrollOffset() < 1200) void loadMoreEntries();
 	}
 
+	function isCompletePage(pageEntries: TapeEntry[], offset: number, limit: number): boolean {
+		if (pageEntries.length !== limit) return false;
+		return pageEntries[0]?.id === offset + 1 && pageEntries.at(-1)?.id === offset + limit;
+	}
+
+	function mergeEntries(...groups: TapeEntry[][]): TapeEntry[] {
+		const byId = new Map<number, TapeEntry>();
+		for (const group of groups) {
+			for (const entry of group) byId.set(entry.id, entry);
+		}
+		return [...byId.values()].sort((a, b) => a.id - b.id);
+	}
+
 	async function loadTapes(silent = false) {
+		let cachedCount = 0;
+		if (!silent) {
+			const cached = await getCachedTapes();
+			cachedCount = cached.length;
+			if (cached.length > 0) {
+				tapes = cached;
+				loadingTapes = false;
+				tapesError = null;
+			}
+		}
 		if (chat.status !== "open") {
 			if (!silent) loadingTapes = false;
-			tapesError = "Backend not connected";
+			if (cachedCount === 0) tapesError = "Backend not connected";
 			return;
 		}
 
@@ -176,6 +299,7 @@
 			if (res.error) throw new Error(res.error);
 			const data = res.data as { tapes?: TapeInfo[] } | null | undefined;
 			tapes = data?.tapes ?? [];
+			await putCachedTapes(tapes);
 		} catch (e) {
 			if (!silent) {
 				tapes = [];
@@ -188,6 +312,7 @@
 
 	let loadedTapeId: string | null = null;
 	let loadedTapesForRoute: string | null = null;
+	let loadTapeGeneration = 0;
 	$effect(() => {
 		if (!tapeId) {
 			tape = null;
@@ -195,31 +320,22 @@
 			hasMoreEntries = false;
 			nextEntryOffset = 0;
 			loadedTapeId = null;
-			if (chat.status !== "open") {
-				loadingTapes = false;
-				tapesError = "Backend not connected";
-				return;
-			}
 			const routeKey = `${chat.status}:${router.current}`;
 			if (loadedTapesForRoute === routeKey) return;
 			loadedTapesForRoute = routeKey;
 			void loadTapes();
 			return;
 		}
-		if (chat.status !== "open") {
-			loading = true;
-			error = null;
-			loadingMore = false;
-			return;
-		}
-		if (tapeId === loadedTapeId) return;
-		loadedTapeId = tapeId;
+		const routeKey = `${chat.status}:${tapeId}`;
+		if (routeKey === loadedTapeId) return;
+		loadedTapeId = routeKey;
 		void loadTape(tapeId);
 	});
 
 	onMount(() => {
 		const interval = setInterval(() => {
-			if (!tapeId && chat.status === "open") void loadTapes(true);
+			if (tapeId && chat.status === "open") void syncLatestTape(tapeId);
+			else if (!tapeId && chat.status === "open") void loadTapes(true);
 		}, 10_000);
 		return () => clearInterval(interval);
 	});
@@ -437,7 +553,7 @@
 					</div>
 				</div>
 			{/if}
-		{:else if loading}
+		{:else if loading && entries.length === 0}
 			<div class="text-muted-foreground flex min-h-80 items-center justify-center gap-2 text-sm">
 				<Icon icon={recordCircleLinear} class="size-4 animate-spin" />
 				<span>Loading tape…</span>
