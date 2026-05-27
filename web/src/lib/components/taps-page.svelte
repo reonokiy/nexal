@@ -41,6 +41,7 @@
 
 	type ContentBlock =
 		| { type: "text" | "thinking"; text: string }
+		| { type: "image"; src: string; mimeType: string }
 		| { type: "toolCall"; id: string; name: string; args: unknown };
 
 	type TapeHeaderInfo = {
@@ -336,6 +337,17 @@
 		return String(entry.payload.role ?? "") === "assistant";
 	}
 
+	function imageSrc(record: Record<string, unknown>): string | null {
+		const mimeType = typeof record.mimeType === "string" ? record.mimeType : "image/png";
+		const url = record.url;
+		if (typeof url === "string" && url) return url;
+		const data = record.data;
+		if (typeof data === "string") {
+			return data.startsWith("data:") ? data : `data:${mimeType};base64,${data}`;
+		}
+		return null;
+	}
+
 	function contentBlocks(entry: TapeEntry): ContentBlock[] {
 		if (!("content" in entry.payload)) return [{ type: "text", text: bodyFor(entry) }];
 		const content = entry.payload.content;
@@ -347,6 +359,15 @@
 				if (typeof item === "string") return { type: "text", text: item };
 				if (!item || typeof item !== "object") return null;
 				const record = item as Record<string, unknown>;
+				if (record.type === "image") {
+					const src = imageSrc(record);
+					if (!src) return null;
+					return {
+						type: "image",
+						src,
+						mimeType: typeof record.mimeType === "string" ? record.mimeType : "image/png",
+					};
+				}
 				if (record.type === "toolCall" || record.type === "tool_call") {
 					return {
 						type: "toolCall",
@@ -458,6 +479,19 @@
 												<div class="mb-1 text-[10px] font-medium uppercase tracking-wider">thinking</div>
 												<pre class="whitespace-pre-wrap break-words font-sans leading-relaxed">{block.text}</pre>
 											</div>
+										{:else if block.type === "image"}
+											<figure class="border-border bg-muted/20 overflow-hidden rounded-md border">
+												<img
+													src={block.src}
+													alt={`Tape image (${block.mimeType})`}
+													class="max-h-[520px] w-auto max-w-full object-contain"
+													loading="lazy"
+													decoding="async"
+												/>
+												<figcaption class="text-muted-foreground border-border border-t px-3 py-1.5 text-xs">
+													{block.mimeType}
+												</figcaption>
+											</figure>
 										{:else if block.type === "toolCall"}
 											<div class="border-border rounded-md border bg-orange-500/[0.03] px-3 py-2 text-sm">
 												<div class="mb-2 flex min-w-0 items-center gap-2">

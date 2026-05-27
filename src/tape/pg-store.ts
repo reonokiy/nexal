@@ -345,6 +345,12 @@ async function hydrateFileRefs(
 				mutated = true;
 				continue;
 			}
+			const url = await store.getUrl(block.fileRef);
+			if (url) {
+				next.push({ ...block, url });
+				mutated = true;
+				continue;
+			}
 		}
 		next.push(block);
 	}
