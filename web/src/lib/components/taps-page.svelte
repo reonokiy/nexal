@@ -51,7 +51,16 @@
 	type ContentBlock =
 		| { type: "text" | "thinking"; text: string }
 		| { type: "image"; src: string; mimeType: string }
-		| { type: "toolCall"; id: string; name: string; args: unknown };
+		| { type: "toolCall"; id: string; name: string; args: unknown }
+		| {
+				type: "tapeRef";
+				tapeId: string;
+				relation?: string;
+				name?: string;
+				kind?: string;
+				lifetime?: string;
+				agentId?: string;
+			};
 
 	type TapeHeaderInfo = {
 		id: string;
@@ -378,6 +387,7 @@
 		if (entry.kind === "tool_call") return String(entry.payload.toolName ?? entry.payload.name ?? "Tool call");
 		if (entry.kind === "tool_result") return String(entry.payload.toolName ?? "Tool result");
 		if (entry.kind === "anchor") return "Anchor";
+		if (entry.kind === "ref") return "Tape ref";
 		return entry.kind;
 	}
 
@@ -393,6 +403,10 @@
 		return parts.join(" · ");
 	}
 
+	function openTape(id: string) {
+		router.go(`tapes/${encodeURIComponent(id)}`);
+	}
+
 	function entryKindLabel(entry: TapeEntry): string {
 		if (entry.kind === "anchor") return String(entry.payload.name ?? "anchor");
 		return entry.kind;
@@ -403,6 +417,7 @@
 		if (role === "user") return "bg-sky-500/10 text-sky-700 dark:text-sky-300";
 		if (role === "assistant") return "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300";
 		if (entry.kind === "anchor") return "bg-violet-500/10 text-violet-700 dark:text-violet-300";
+		if (entry.kind === "ref") return "bg-cyan-500/10 text-cyan-700 dark:text-cyan-300";
 		if (entry.kind === "tool_call") return "bg-orange-500/10 text-orange-700 dark:text-orange-300";
 		if (entry.kind === "tool_result") return "bg-amber-500/10 text-amber-700 dark:text-amber-300";
 		return "bg-zinc-500/10 text-zinc-700 dark:text-zinc-300";
@@ -468,6 +483,27 @@
 	}
 
 	function contentBlocks(entry: TapeEntry): ContentBlock[] {
+		if (entry.kind === "ref") {
+			const ref = entry.payload.ref;
+			if (ref && typeof ref === "object") {
+				const record = ref as Record<string, unknown>;
+				const meta = record.meta && typeof record.meta === "object"
+					? (record.meta as Record<string, unknown>)
+					: {};
+				const tapeId = record.tapeId;
+				if (typeof tapeId === "string") {
+					return [{
+						type: "tapeRef",
+						tapeId,
+						relation: typeof record.relation === "string" ? record.relation : undefined,
+						name: typeof meta.name === "string" ? meta.name : undefined,
+						kind: typeof meta.kind === "string" ? meta.kind : undefined,
+						lifetime: typeof meta.lifetime === "string" ? meta.lifetime : undefined,
+						agentId: typeof meta.agentId === "string" ? meta.agentId : undefined,
+					}];
+				}
+			}
+		}
 		if (!("content" in entry.payload)) return [{ type: "text", text: bodyFor(entry) }];
 		const content = entry.payload.content;
 		if (typeof content === "string") return [{ type: "text", text: content }];
@@ -623,6 +659,36 @@
 												</div>
 												<pre class="text-foreground/90 whitespace-pre-wrap break-words font-sans text-sm leading-relaxed">{formatToolArgs(block.args)}</pre>
 											</div>
+										{:else if block.type === "tapeRef"}
+											<button
+												type="button"
+												class="border-border hover:bg-accent/60 flex w-full items-center gap-3 rounded-md border px-3 py-2.5 text-left transition-colors duration-150"
+												onclick={() => openTape(block.tapeId)}
+												title={block.tapeId}
+											>
+												<div class="min-w-0 flex-1">
+													<div class="truncate text-sm font-medium">
+														{block.name ?? shortTapeId(block.tapeId)}
+													</div>
+													<div class="text-muted-foreground mt-0.5 flex min-w-0 flex-wrap items-center gap-1.5 text-xs">
+														<span>tape</span>
+														{#if block.relation}
+															<span>·</span>
+															<span>{block.relation}</span>
+														{/if}
+														{#if block.kind}
+															<span>·</span>
+															<span>{block.kind}</span>
+														{/if}
+														{#if block.lifetime}
+															<span>·</span>
+															<span>{block.lifetime}</span>
+														{/if}
+														<span>·</span>
+														<span class="font-mono">{shortTapeId(block.tapeId)}</span>
+													</div>
+												</div>
+											</button>
 										{:else if isMarkdown(entry)}
 											<div class="md-body text-foreground max-w-none text-sm">
 												{@html renderMarkdown(block.text)}

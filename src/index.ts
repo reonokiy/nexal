@@ -229,6 +229,7 @@ async function main(): Promise<void> {
 				}
 				pool.forwardChildReport(sessionKey, sender, content);
 			},
+			getSessionTapeRef: getOrCreateSessionTapeRef,
 		});
 
 		pool = new AgentPool({

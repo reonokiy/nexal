@@ -270,7 +270,30 @@ export function registerBuiltins(
 	}
 
 	if (tapeStore && getTapeRef) {
+		const tapesApi = tapeStore;
 		const resolveTapeRef = getTapeRef;
+		async function collectReachableTapes(ctx: CommandContext): Promise<Map<string, TapeHandle>> {
+			const root = await resolveTapeRef(`${ctx.channel}:${ctx.chatId}`);
+			const out = new Map<string, TapeHandle>();
+			if (!root) return out;
+			const queue: TapeHandle[] = [root];
+			out.set(root.tapeId, root);
+			while (queue.length > 0 && out.size < 500) {
+				const current = queue.shift()!;
+				const entries = await tapesApi.read(current);
+				for (const entry of entries) {
+					if (entry.kind !== "ref") continue;
+					const ref = entry.payload.ref as { tapeId?: unknown } | undefined;
+					const tapeId = typeof ref?.tapeId === "string" ? ref.tapeId : null;
+					if (!tapeId || out.has(tapeId)) continue;
+					const handle = { tapeId };
+					out.set(tapeId, handle);
+					queue.push(handle);
+				}
+			}
+			return out;
+		}
+
 		async function requireAllowedTape(
 			ctx: CommandContext,
 			tapeId: string | undefined,
@@ -284,29 +307,31 @@ export function registerBuiltins(
 					result: { text: "Usage: /tape <tape_id>", error: "missing tape_id" },
 				};
 			}
-			const allowed = await resolveTapeRef(`${ctx.channel}:${ctx.chatId}`);
-			if (!allowed || allowed.tapeId !== tapeId) {
+			const allowed = await collectReachableTapes(ctx);
+			const handle = allowed.get(tapeId);
+			if (!handle) {
 				return {
 					ok: false,
 					result: { text: `Tape not found: ${tapeId}`, error: "tape not found" },
 				};
 			}
-			return { ok: true, handle: { tapeId } };
+			return { ok: true, handle };
 		}
 
 		registry.register({
 			name: "tapes",
 			description: "List tapes for the current session",
 			async execute(ctx, _args) {
-				const ref = await getTapeRef(`${ctx.channel}:${ctx.chatId}`);
-				if (!ref) {
+				const handles = await collectReachableTapes(ctx);
+				if (handles.size === 0) {
 					return {
 						text: "No tapes found.",
 						data: { tapes: [] } satisfies TapesPayload,
 					};
 				}
-				const tape = await tapeStore.info(ref);
-				const tapes = tape.entries > 0 ? [tape] : [];
+				const tapes = (await Promise.all(
+					[...handles.values()].map((handle) => tapesApi.info(handle)),
+				)).filter((tape) => tape.entries > 0);
 				const lines = tapes.map((item) => {
 					const tape = item;
 					const shortId = tape.id.length > 12 ? `${tape.id.slice(0, 12)}…` : tape.id;
@@ -327,7 +352,7 @@ export function registerBuiltins(
 				const [tapeId] = args;
 				const allowed = await requireAllowedTape(ctx, tapeId);
 				if (!allowed.ok) return allowed.result;
-				const tape = await tapeStore.info(allowed.handle);
+				const tape = await tapesApi.info(allowed.handle);
 				return {
 					text: `Tape ${tape.id}: ${tape.entries} entries.`,
 					data: { tape } satisfies TapePayload,
@@ -346,8 +371,8 @@ export function registerBuiltins(
 				const requestedLimit = Number.parseInt(limitArg ?? "100", 10) || 100;
 				const limit = Math.min(MAX_TAPE_PAGE_SIZE, Math.max(1, requestedLimit));
 				const [tape, entries] = await Promise.all([
-					tapeStore.info(allowed.handle),
-					tapeStore.readPage(allowed.handle, { offset, limit }),
+					tapesApi.info(allowed.handle),
+					tapesApi.readPage(allowed.handle, { offset, limit }),
 				]);
 				return {
 					text: `Tape ${tape.id}: entries ${offset + 1}-${offset + entries.length} of ${tape.entries}.`,

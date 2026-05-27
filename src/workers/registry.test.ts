@@ -130,6 +130,8 @@ function mockStore(rows: WorkerRow[] = []): TrackingStore {
 
 function buildRegistry(opts?: {
 	store?: WorkerStore;
+	tapeStore?: TapeStore;
+	getSessionTapeRef?: (key: string) => Promise<{ tapeId: string }>;
 	forwardToCoordinator?: (key: string, sender: string, content: import("../content.ts").UserContent) => void | Promise<void>;
 }) {
 	return new WorkerRegistry({
@@ -145,7 +147,8 @@ function buildRegistry(opts?: {
 		executorTools: () => [],
 		coordinatorTools: () => [],
 		forwardToCoordinator: opts?.forwardToCoordinator,
-		tapeStore: mockTapeStore,
+		tapeStore: opts?.tapeStore ?? mockTapeStore,
+		getSessionTapeRef: opts?.getSessionTapeRef,
 	});
 }
 
@@ -328,6 +331,52 @@ describe("WorkerRegistry.spawn", () => {
 		});
 		expect(store.inserts[0]!.systemPrompt).toBe("special");
 		expect(store.inserts[0]!.sendPolicy).toBe("final");
+	});
+
+	test("creates a child tape and links it from the parent tape", async () => {
+		const store = mockStore();
+		const appended: Array<{ tapeId: string; entry: any }> = [];
+		let seq = 0;
+		const tapeStore: TapeStore = {
+			...mockTapeStore,
+			create: async () => ({ tapeId: `00000000-0000-4000-8000-${(++seq).toString().padStart(12, "0")}` }),
+			append: async (tape: any, entryOrEntries: any) => {
+				const entries = Array.isArray(entryOrEntries) ? entryOrEntries : [entryOrEntries];
+				for (const entry of entries) appended.push({ tapeId: tape.tapeId, entry });
+				return Array.isArray(entryOrEntries)
+					? entries.map((entry, index) => ({ ...entry, id: index + 1 }))
+					: { ...entryOrEntries, id: 1 };
+			},
+		};
+		const reg = buildRegistry({
+			store,
+			tapeStore,
+			getSessionTapeRef: async () => ({ tapeId: "00000000-0000-4000-8000-000000000999" }),
+		});
+		const row = await reg.spawn({
+			kind: "executor",
+			lifetime: "persistent",
+			parentSessionKey: "ws:default",
+			sourceChannel: "ws",
+			sourceChatId: "default",
+			name: "child-agent",
+		});
+		expect(row.tapeId).toBe("00000000-0000-4000-8000-000000000001");
+		expect(store.inserts[0]!.tapeId).toBe(row.tapeId);
+		expect(appended[0]).toMatchObject({
+			tapeId: "00000000-0000-4000-8000-000000000999",
+			entry: {
+				kind: "ref",
+				payload: {
+					ref: {
+						type: "tape",
+						tapeId: row.tapeId,
+						relation: "link",
+						meta: { name: "child-agent", kind: "executor" },
+					},
+				},
+			},
+		});
 	});
 
 	test("container name is derived from the spawned id (prefix + 12 hex chars)", async () => {

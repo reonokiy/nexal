@@ -34,7 +34,7 @@ import type { UserContent } from "../content.ts";
 import type { MessageSender } from "../messaging/index.ts";
 import type { ProxySpec } from "../config.ts";
 import type { GatewayClient } from "../gateway/index.ts";
-import type { TapeStore } from "../tape/index.ts";
+import { tapeRecord, type TapeHandle, type TapeStore } from "../tape/index.ts";
 import { WorkerAgent } from "./agent.ts";
 import type {
 	SendPolicy,
@@ -53,6 +53,7 @@ export interface WorkerRegistryConfig {
 	sender: MessageSender;
 	maxConcurrent: number;
 	tapeStore: TapeStore;
+	getSessionTapeRef?: (sessionKey: string) => Promise<TapeHandle>;
 	getApiKey?: (provider: string) => Promise<string | undefined> | string | undefined;
 	/** Default system prompt for executors with no override. */
 	executorSystemPromptDefault: string;
@@ -106,6 +107,7 @@ export class WorkerRegistry {
 			throw new Error("oneshot workers require an initial_prompt");
 		}
 		const id = randomUUID();
+		const tapeRef = await this.cfg.tapeStore.create();
 		const containerName = `nexal-worker-${id.replace(/-/g, "").slice(0, 12)}`;
 		const defaultPrompt =
 			req.kind === "coordinator"
@@ -126,10 +128,67 @@ export class WorkerRegistry {
 			modelId: this.cfg.modelId,
 			containerName,
 			sendPolicy: req.sendPolicy ?? "explicit",
+			tapeId: tapeRef.tapeId,
 		});
+		await this.linkWorkerTape(req, row, tapeRef);
 		this.queue.push(id);
 		this.pump();
 		return row;
+	}
+
+	private async linkWorkerTape(
+		req: SpawnRequest,
+		row: WorkerRow,
+		childTape: TapeHandle,
+	): Promise<void> {
+		const parentTape = await this.resolveParentTape(req.parentSessionKey);
+		if (!parentTape) return;
+		const childMeta = {
+			role: "child_agent",
+			agentId: row.id,
+			name: row.name,
+			kind: row.kind,
+			lifetime: row.lifetime,
+			parentSessionKey: row.parentSessionKey,
+			status: row.status,
+		};
+		try {
+			await this.cfg.tapeStore.append(parentTape, tapeRecord.ref(
+				{
+					type: "tape",
+					tapeId: childTape.tapeId,
+					relation: "link",
+					meta: childMeta,
+				},
+				{ meta: { event: "agent_spawn", ...childMeta } },
+			));
+			await this.cfg.tapeStore.append(childTape, tapeRecord.ref(
+				{
+					type: "tape",
+					tapeId: parentTape.tapeId,
+					relation: "parent",
+					meta: {
+						role: "parent_agent",
+						parentSessionKey: row.parentSessionKey,
+					},
+				},
+				{ meta: { event: "agent_parent" } },
+			));
+		} catch (err) {
+			log.error(`failed to link worker ${row.id} tape ${childTape.tapeId}`, err);
+		}
+	}
+
+	private async resolveParentTape(parentSessionKey: string): Promise<TapeHandle | null> {
+		if (parentSessionKey.includes(":")) {
+			return this.cfg.getSessionTapeRef ? await this.cfg.getSessionTapeRef(parentSessionKey) : null;
+		}
+		const parent = await this.cfg.store.get(parentSessionKey);
+		if (!parent) return null;
+		if (parent.tapeId) return { tapeId: parent.tapeId };
+		const tape = await this.cfg.tapeStore.create();
+		await this.cfg.store.setTapeId(parent.id, tape.tapeId);
+		return tape;
 	}
 
 	/**

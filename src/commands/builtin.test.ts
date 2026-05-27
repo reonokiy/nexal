@@ -65,9 +65,49 @@ describe("tape commands", () => {
 		entriesSinceLastAnchor: 1,
 		lastTokenUsage: null,
 	};
+	const childTape = {
+		...currentTape,
+		id: "00000000-0000-4000-8000-000000000002",
+		entries: 1,
+		anchors: 0,
+		lastAnchor: null,
+		entriesSinceLastAnchor: 1,
+	};
 
-	function setup() {
+	function setup(opts: { includeChildRef?: boolean } = {}) {
 		const registry = new CommandRegistry();
+		const currentEntries: TapeEntry[] = [
+			{
+				id: 1,
+				kind: "anchor",
+				payload: { name: "session/start" },
+				meta: {},
+				date: "2026-01-01T00:00:00.000Z",
+			},
+			{
+				id: 2,
+				kind: "message",
+				payload: { role: "user", content: "hello" },
+				meta: {},
+				date: "2026-01-01T00:00:01.000Z",
+			},
+		];
+		if (opts.includeChildRef) {
+			currentEntries.push({
+				id: 3,
+				kind: "ref",
+				payload: {
+					ref: {
+						type: "tape",
+						tapeId: childTape.id,
+						relation: "link",
+						meta: { name: "worker-1", kind: "executor" },
+					},
+				},
+				meta: { event: "agent_spawn" },
+				date: "2026-01-01T00:00:02.000Z",
+			});
+		}
 		const store: TapeStore = {
 			create: async () => ({ tapeId: currentTape.id }),
 			listTapes: async () => [
@@ -79,41 +119,27 @@ describe("tape commands", () => {
 			],
 			read: async (tape) =>
 				tape.tapeId === currentTape.id
-					? [
-							{
+					? currentEntries
+					: tape.tapeId === childTape.id
+						? [{
 								id: 1,
-								kind: "anchor",
-								payload: { name: "session/start" },
-								meta: {},
-								date: "2026-01-01T00:00:00.000Z",
-							},
-							{
-								id: 2,
 								kind: "message",
-								payload: { role: "user", content: "hello" },
+								payload: { role: "assistant", content: "child" },
 								meta: {},
-								date: "2026-01-01T00:00:01.000Z",
-							},
-						]
+								date: "2026-01-01T00:00:03.000Z",
+							}]
 					: [],
 			readPage: async (tape, { offset, limit }) =>
 				tape.tapeId === currentTape.id
-					? ([
-							{
+					? currentEntries.slice(offset, offset + limit)
+					: tape.tapeId === childTape.id
+						? ([{
 								id: 1,
-								kind: "anchor",
-								payload: { name: "session/start" },
-								meta: {},
-								date: "2026-01-01T00:00:00.000Z",
-							},
-							{
-								id: 2,
 								kind: "message",
-								payload: { role: "user", content: "hello" },
+								payload: { role: "assistant", content: "child" },
 								meta: {},
-								date: "2026-01-01T00:00:01.000Z",
-							},
-						] satisfies TapeEntry[]).slice(offset, offset + limit)
+								date: "2026-01-01T00:00:03.000Z",
+							}] satisfies TapeEntry[]).slice(offset, offset + limit)
 					: [],
 			append: async (_tape, entryOrEntries: any) =>
 				Array.isArray(entryOrEntries)
@@ -123,6 +149,8 @@ describe("tape commands", () => {
 			info: async (tape) =>
 				tape.tapeId === currentTape.id
 					? currentTape
+					: tape.tapeId === childTape.id
+						? childTape
 					: { ...currentTape, id: tape.tapeId, entries: 0, anchors: 0, lastAnchor: null },
 			handoff: async () => {},
 			search: async () => [],
@@ -152,5 +180,16 @@ describe("tape commands", () => {
 			["00000000-0000-4000-8000-000000000999"],
 		);
 		expect(result?.error).toBe("tape not found");
+	});
+
+	test("allows reading tapes referenced from the current tape", async () => {
+		const registry = setup({ includeChildRef: true });
+		const result = await registry.execute(
+			"tape",
+			{ channel: "ws", chatId: "default", sender: "test" },
+			[childTape.id],
+		);
+		expect(result?.error).toBeUndefined();
+		expect(result?.data).toEqual({ tape: childTape });
 	});
 });
