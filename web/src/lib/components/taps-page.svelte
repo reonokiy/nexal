@@ -73,7 +73,7 @@
 		try {
 			loading = true;
 			error = null;
-			const res = await chat.runCommandAwait("tape", [id], 10_000);
+			const res = await chat.runCommandAwait("tape", [id], 30_000);
 			if (res.error) throw new Error(res.error);
 			const data = res.data as { tape?: TapeInfo; entries?: TapeEntry[] } | null | undefined;
 			tape = data?.tape ?? null;
@@ -97,7 +97,7 @@
 		try {
 			if (!silent) loadingTapes = true;
 			tapesError = null;
-			const res = await chat.runCommandAwait("tapes", [], 10_000);
+			const res = await chat.runCommandAwait("tapes", [], 30_000);
 			if (res.error) throw new Error(res.error);
 			const data = res.data as { tapes?: TapeInfo[] } | null | undefined;
 			tapes = data?.tapes ?? [];

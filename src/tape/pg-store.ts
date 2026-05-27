@@ -172,24 +172,47 @@ export function createTapeStore(opts: TapeStoreOptions = {}): TapeStore {
 	};
 
 	async function infoForTapeRecord(tapeRecord: schema.TapeRow): Promise<TapeInfo> {
-		const rows = await db
-			.select()
+		const [statsRow] = await db
+			.select({
+				entries: sql<number>`count(*)::int`,
+				anchors: sql<number>`count(*) filter (where ${tapeEntries.kind} = 'anchor')::int`,
+			})
 			.from(tapeEntries)
-			.where(eq(tapeEntries.tapeId, tapeRecord.id))
-			.orderBy(tapeEntries.entryId);
-		const entries = rows.map(rowToEntry);
-		const anchors = entries.filter((e) => e.kind === "anchor");
-		const lastAnchor = entries.findLast((e) => e.kind === "anchor") ?? null;
-		const entriesSinceLastAnchor = lastAnchor
-			? entries.length - entries.findLastIndex((e) => e.id === lastAnchor.id) - 1
-			: entries.length;
+			.where(eq(tapeEntries.tapeId, tapeRecord.id));
+		const [lastAnchorRow] = await db
+			.select({
+				entryId: tapeEntries.entryId,
+				payload: tapeEntries.payload,
+			})
+			.from(tapeEntries)
+			.where(and(eq(tapeEntries.tapeId, tapeRecord.id), eq(tapeEntries.kind, "anchor")))
+			.orderBy(desc(tapeEntries.entryId))
+			.limit(1);
+		const [lastRunRow] = await db
+			.select({ payload: tapeEntries.payload })
+			.from(tapeEntries)
+			.where(
+				and(
+					eq(tapeEntries.tapeId, tapeRecord.id),
+					eq(tapeEntries.kind, "event"),
+					sql`${tapeEntries.payload}->>'name' = 'run'`,
+				),
+			)
+			.orderBy(desc(tapeEntries.entryId))
+			.limit(1);
+		const entries = statsRow?.entries ?? 0;
+		const anchors = statsRow?.anchors ?? 0;
+		const lastAnchorId = lastAnchorRow?.entryId ?? null;
+		const entriesSinceLastAnchor =
+			lastAnchorId !== null ? entries - lastAnchorId : entries;
+		const lastTokenUsage = (lastRunRow?.payload.data as any)?.usage?.total_tokens;
 		return {
 			id: tapeRecord.id,
-			entries: entries.length,
-			anchors: anchors.length,
-			lastAnchor: lastAnchor ? String(lastAnchor.payload.name ?? null) : null,
+			entries,
+			anchors,
+			lastAnchor: lastAnchorRow ? String(lastAnchorRow.payload.name ?? null) : null,
 			entriesSinceLastAnchor,
-			lastTokenUsage: findLastTokenUsage(entries),
+			lastTokenUsage: typeof lastTokenUsage === "number" ? lastTokenUsage : null,
 		};
 	}
 
