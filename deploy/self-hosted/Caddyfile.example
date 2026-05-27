@@ -7,7 +7,6 @@ nexal.nokiy.net {
     encode zstd gzip
 
     @websocket {
-        header Connection *Upgrade*
         header Upgrade websocket
     }
     reverse_proxy @websocket 127.0.0.1:3000
