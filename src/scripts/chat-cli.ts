@@ -9,7 +9,7 @@
  *
  * Usage:
  *   bun run src/scripts/chat-cli.ts
- *   bun run src/scripts/chat-cli.ts --url wss://nexal.nokiy.net --provider github
+ *   bun run src/scripts/chat-cli.ts --url wss://nexal.nokiy.net/ws --provider github
  *   bun run src/scripts/chat-cli.ts --once "hello"        # send one and exit
  *   bun run src/scripts/chat-cli.ts --token "<jwt>"       # skip OAuth
  *
@@ -95,7 +95,7 @@ Usage:
   bun run src/scripts/chat-cli.ts [options]
 
 Options:
-  --url <ws-url>         backend WebSocket URL (default $NEXAL_URL or wss://nexal.nokiy.net)
+  --url <ws-url>         backend WebSocket URL (default $NEXAL_URL or wss://nexal.nokiy.net/ws)
   --token <jwt>          skip OAuth, use this Supabase access token directly
   --provider <p>         OAuth provider (default github; google, gitlab, etc. also work)
   --chat-id <id>         chat id sent with messages (default "cli")
@@ -122,7 +122,7 @@ REPL:
 }
 
 const BACKEND_URL =
-	values.url ?? process.env.NEXAL_URL ?? "wss://nexal.nokiy.net";
+	values.url ?? process.env.NEXAL_URL ?? "wss://nexal.nokiy.net/ws";
 
 // ── Session cache ───────────────────────────────────────────────────
 

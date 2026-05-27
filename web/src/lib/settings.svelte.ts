@@ -13,8 +13,12 @@ export type Theme = "light" | "dark" | "system";
 export type SendKey = "enter" | "shift-enter";
 
 const PREFIX = "nexal.";
-const CANONICAL_BACKEND_URL = "wss://nexal.nokiy.net";
-const LEGACY_BACKEND_URLS = new Set(["wss://nexal-server.fly.dev"]);
+const CANONICAL_BACKEND_URL = "wss://nexal.nokiy.net/ws";
+const LEGACY_BACKEND_URLS = new Set([
+	"wss://nexal-server.fly.dev",
+	"wss://api.nexal.nokiy.net",
+	"wss://nexal.nokiy.net",
+]);
 const DEFAULT_BACKEND_URL = normalizeBackendUrl(
 	import.meta.env.VITE_NEXAL_BACKEND ?? CANONICAL_BACKEND_URL,
 );
