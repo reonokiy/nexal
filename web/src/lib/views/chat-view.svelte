@@ -41,6 +41,7 @@
 		workerKind?: string;
 		workerLifetime?: string;
 		workerPath?: string;
+		showHeader?: boolean;
 	}
 
 	type DisplayItem = MsgItem | { kind: "typing"; id: number };
@@ -160,7 +161,18 @@
 		chat.messages.filter((m) => m.role !== "system"),
 	);
 
+	function groupKey(item: MsgItem): string {
+		return [
+			item.role,
+			item.source ?? "",
+			item.toolName ?? "",
+			item.workerPath ?? "",
+			item.workerId ?? "",
+		].join("|");
+	}
+
 	const displayItems = $derived.by<DisplayItem[]>(() => {
+		let previousKey: string | null = null;
 		const out: DisplayItem[] = visibleMessages.map((m) => {
 			if (m.role === "agent") {
 				const parsed = parseSource(m.text);
@@ -172,7 +184,7 @@
 					: workerName
 						? `coordinator > ${workerName}`
 						: undefined;
-				return {
+				const item: MsgItem = {
 					id: m.id,
 					streamId: m.streamId,
 					role: m.role,
@@ -189,9 +201,13 @@
 					workerLifetime: worker?.lifetime,
 					workerPath,
 				};
+				const key = groupKey(item);
+				item.showHeader = key !== previousKey;
+				previousKey = key;
+				return item;
 			}
 			// visibleMessages filters out system, so m.role must be "user" here
-			return {
+			const item: MsgItem = {
 				id: m.id,
 				streamId: m.streamId,
 				role: m.role as "user",
@@ -200,6 +216,10 @@
 				streaming: m.streaming,
 				kind: "msg" as const,
 			};
+			const key = groupKey(item);
+			item.showHeader = key !== previousKey;
+			previousKey = key;
+			return item;
 		});
 		if (chat.typing && !chat.messages.some((m) => m.streaming)) {
 			out.push({ kind: "typing", id: -1 });
@@ -449,6 +469,7 @@
 									workerId={item.workerId}
 									workerStatus={item.workerStatus}
 									workerPath={item.workerPath}
+									showHeader={item.showHeader}
 								/>
 							{/if}
 						</div>

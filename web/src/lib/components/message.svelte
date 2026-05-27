@@ -21,6 +21,7 @@
 		workerId?: string;
 		workerStatus?: string;
 		workerPath?: string;
+		showHeader?: boolean;
 	}
 	let {
 		role,
@@ -32,6 +33,7 @@
 		workerId,
 		workerStatus,
 		workerPath,
+		showHeader = true,
 	}: Props = $props();
 
 	let toolExpanded = $state(false);
@@ -73,37 +75,39 @@
 <article
 	class={cn(
 		"group flex flex-col gap-1",
-		settings.compact ? "py-2" : "py-3",
+		showHeader ? (settings.compact ? "py-2" : "py-3") : "py-1",
 		source === "tool" && "pl-4 border-l-2 border-amber-400/20",
 	)}
 >
-	<div class="text-muted-foreground flex items-baseline gap-2 text-xs">
-		<span class={cn("font-semibold flex items-center gap-1", labelColor())}>
-			{#if source === "tool"}
-				<Icon icon={codeSquareLinear} class="size-3" />
+	{#if showHeader}
+		<div class="text-muted-foreground flex items-baseline gap-2 text-xs">
+			<span class={cn("font-semibold flex items-center gap-1", labelColor())}>
+				{#if source === "tool"}
+					<Icon icon={codeSquareLinear} class="size-3" />
+				{/if}
+				{displayLabel()}
+			</span>
+			{#if source && source !== "coordinator" && source !== "worker"}
+				<span class={cn("text-[10px] font-medium rounded px-1 py-0.5", badgeClass())}>
+					{source}
+				</span>
 			{/if}
-			{displayLabel()}
-		</span>
-		{#if source && source !== "coordinator" && source !== "worker"}
-			<span class={cn("text-[10px] font-medium rounded px-1 py-0.5", badgeClass())}>
-				{source}
-			</span>
-		{/if}
-		{#if source === "worker"}
-			<span class="text-muted-foreground/80 text-[10px]">
-				{workerStatus ?? "running"}
-			</span>
-		{/if}
-		{#if settings.showTimestamps}
-			<time class="opacity-60">{fmt(ts)}</time>
-		{/if}
-		{#if streaming}
-			<span class="text-primary inline-flex items-center gap-1 text-[10px]">
-				<span class="bg-primary size-1.5 animate-pulse rounded-full"></span>
-				streaming
-			</span>
-		{/if}
-	</div>
+			{#if source === "worker"}
+				<span class="text-muted-foreground/80 text-[10px]">
+					{workerStatus ?? "running"}
+				</span>
+			{/if}
+			{#if settings.showTimestamps}
+				<time class="opacity-60">{fmt(ts)}</time>
+			{/if}
+			{#if streaming}
+				<span class="text-primary inline-flex items-center gap-1 text-[10px]">
+					<span class="bg-primary size-1.5 animate-pulse rounded-full"></span>
+					streaming
+				</span>
+			{/if}
+		</div>
+	{/if}
 
 	{#if source === "tool"}
 		<div class="mt-1">
