@@ -220,7 +220,7 @@ just test
 
 ## Web UI Defaults
 
-The Web UI defaults to `wss://api.nexal.nokiy.net` as the backend URL. Users can override it with `VITE_NEXAL_BACKEND` or from the Settings page. Browser-side settings are stored in `localStorage` with the `nexal.` prefix.
+The Web UI defaults to `wss://nexal.nokiy.net` as the backend URL. Users can override it with `VITE_NEXAL_BACKEND` or from the Settings page. Browser-side settings are stored in `localStorage` with the `nexal.` prefix.
 
 ## Deployment
 

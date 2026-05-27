@@ -2,7 +2,7 @@
     email admin@example.com
 }
 
-api.nexal.nokiy.net {
+nexal.nokiy.net {
     root * /opt/nexal/web-dist
     encode zstd gzip
 
