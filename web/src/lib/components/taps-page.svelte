@@ -9,7 +9,7 @@
 	import { cn } from "$lib/utils";
 	import { renderMarkdown } from "$lib/markdown";
 	import type { Chat } from "$lib/client.svelte";
-	import { onMount } from "svelte";
+	import { onMount, tick } from "svelte";
 	import { VList } from "virtua/svelte";
 	import type { VListHandle } from "virtua/svelte";
 
@@ -94,15 +94,15 @@
 			hasMoreEntries = false;
 			nextEntryOffset = 0;
 			entries = [];
-			const [info, page] = await Promise.all([
-				loadTapeInfo(id),
-				loadTapeEntriesPage(id, 0),
-			]);
+			const info = await loadTapeInfo(id);
+			const initialOffset = Math.max(0, info.entries - TAPE_PAGE_SIZE);
+			const page = await loadTapeEntriesPage(id, initialOffset);
 			tape = page.tape ?? info;
 			entries = page.entries ?? [];
-			nextEntryOffset = entries.length;
-			hasMoreEntries = page.hasMore ?? entries.length < (page.total ?? tape.entries);
-			setTimeout(checkNeedMoreEntries, 0);
+			nextEntryOffset = initialOffset;
+			hasMoreEntries = initialOffset > 0;
+			await tick();
+			tapeList?.scrollToIndex(Math.max(0, entries.length - 1), { align: "end" });
 		} catch (e) {
 			tape = null;
 			entries = [];
@@ -122,10 +122,14 @@
 		return data.tape;
 	}
 
-	async function loadTapeEntriesPage(id: string, offset: number): Promise<TapeEntriesPage> {
+	async function loadTapeEntriesPage(
+		id: string,
+		offset: number,
+		limit = TAPE_PAGE_SIZE,
+	): Promise<TapeEntriesPage> {
 		const res = await chat.runCommandAwait(
 			"tape_entries",
-			[id, String(offset), String(TAPE_PAGE_SIZE)],
+			[id, String(offset), String(limit)],
 			30_000,
 		);
 		if (res.error) throw new Error(res.error);
@@ -136,15 +140,16 @@
 		if (!tapeId || loading || loadingMore || !hasMoreEntries || chat.status !== "open") return;
 		try {
 			loadingMore = true;
-			const page = await loadTapeEntriesPage(tapeId, nextEntryOffset);
+			const previousOffset = Math.max(0, nextEntryOffset - TAPE_PAGE_SIZE);
+			const limit = nextEntryOffset - previousOffset;
+			const page = await loadTapeEntriesPage(tapeId, previousOffset, limit);
 			const nextEntries = page.entries ?? [];
 			if (page.tape) tape = page.tape;
 			if (nextEntries.length > 0) {
-				entries = [...entries, ...nextEntries];
+				entries = [...nextEntries, ...entries];
 			}
-			nextEntryOffset += nextEntries.length;
-			hasMoreEntries = page.hasMore ?? nextEntryOffset < (page.total ?? tape?.entries ?? nextEntryOffset);
-			setTimeout(checkNeedMoreEntries, 0);
+			nextEntryOffset = previousOffset;
+			hasMoreEntries = previousOffset > 0;
 		} catch (e) {
 			error = e instanceof Error ? e.message : "fetch failed";
 		} finally {
@@ -154,9 +159,7 @@
 
 	function checkNeedMoreEntries() {
 		if (!tapeList || !hasMoreEntries || loading || loadingMore) return;
-		const remaining =
-			tapeList.getScrollSize() - tapeList.getScrollOffset() - tapeList.getViewportSize();
-		if (remaining < 1200) void loadMoreEntries();
+		if (tapeList.getScrollOffset() < 1200) void loadMoreEntries();
 	}
 
 	async function loadTapes(silent = false) {
@@ -454,6 +457,7 @@
 					getKey={(entry: TapeEntry) => entry.id}
 					onscroll={checkNeedMoreEntries}
 					onscrollend={checkNeedMoreEntries}
+					shift
 					class="border-border bg-background rounded-md border"
 					style="height: 100%; width: 100%;"
 				>
@@ -517,7 +521,7 @@
 					{/snippet}
 				</VList>
 				{#if loadingMore}
-					<div class="bg-background/90 border-border text-muted-foreground absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-md border px-3 py-1.5 text-xs shadow-sm">
+					<div class="bg-background/90 border-border text-muted-foreground absolute left-1/2 top-3 flex -translate-x-1/2 items-center gap-2 rounded-md border px-3 py-1.5 text-xs shadow-sm">
 						<Icon icon={recordCircleLinear} class="size-3.5 animate-spin" />
 						<span>Loading more…</span>
 					</div>
