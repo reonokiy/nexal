@@ -1,14 +1,6 @@
 name: Deploy Web to Pages
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - web/**
-      - packages/transport/**
-      - package.json
-      - bun.lock
-      - .github/workflows/deploy-web-pages.yml
   workflow_dispatch:
 
 permissions:
