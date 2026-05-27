@@ -44,7 +44,8 @@ Install Bun for the deploy user:
 sudo -iu nexal bash -lc 'curl -fsSL https://bun.sh/install | bash'
 ```
 
-Install Caddy config once. Edit the domain and email first:
+Install Caddy config once. Edit the email first if you want Caddy to use a
+specific ACME contact:
 
 ```bash
 cp /opt/nexal/deploy/self-hosted/Caddyfile.example /etc/caddy/Caddyfile
