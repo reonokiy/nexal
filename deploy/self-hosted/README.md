@@ -95,4 +95,6 @@ Run the `Deploy Self-hosted` GitHub Actions workflow manually. It will:
 5. restart `nexal-gateway` and `nexal-server` as user services.
 
 Caddy serves `/opt/nexal/web-dist` and reverse proxies `/api/*` and `/ws*` to
-the Bun server on `127.0.0.1:3000`.
+the Bun server on `127.0.0.1:3000`. The Bun server should bind to localhost
+through `NEXAL_CHANNEL__WS__HOST=127.0.0.1` so port 3000 is not exposed
+directly.
