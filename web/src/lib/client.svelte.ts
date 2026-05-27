@@ -12,6 +12,7 @@ import {
 	createWebSocketConnection,
 	type ChatClient,
 	type CommandInfo,
+	type ReplyMetadata,
 	type WebSocketConnection,
 } from "@nexal/transport";
 
@@ -25,6 +26,7 @@ export interface Message {
 	text: string;
 	ts: number;
 	streaming?: boolean;
+	metadata?: ReplyMetadata;
 }
 
 let nextId = 1;
@@ -76,9 +78,15 @@ export function createChat(
 	}
 
 	function wire(client: ChatClient): void {
-		client.onReply(({ text }) => {
+		client.onReply(({ text, metadata }) => {
 			setTyping(false);
-			messages.push({ id: nextId++, role: "agent", text, ts: Date.now() });
+			messages.push({
+				id: nextId++,
+				role: "agent",
+				text,
+				ts: Date.now(),
+				metadata,
+			});
 		});
 		client.onTyping(() => setTyping(true));
 		client.onReplyChunk(({ messageId, delta }) => {
