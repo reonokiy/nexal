@@ -39,6 +39,8 @@
 	}
 
 	const MODEL_CACHE_KEY = "nexal.modelPicker";
+	const COMMAND_HISTORY_KEY = "nexal.commandHistory";
+	const MAX_COMMAND_HISTORY = 100;
 
 	let {
 		chat,
@@ -62,6 +64,9 @@
 	let loadingCommands = $state(false);
 	let commandError = $state<string | null>(null);
 	let highlightedCommand = $state(0);
+	let commandHistory = $state<string[]>([]);
+	let commandHistoryIndex = $state<number | null>(null);
+	let commandHistoryDraft = $state("");
 
 	const fallbackCommands: CommandInfo[] = [
 		{ name: "help", description: "Show available commands" },
@@ -126,10 +131,70 @@
 	function selectCommand(command: CommandInfo) {
 		value = `/${command.name} `;
 		commandMenuOpen = false;
+		resetCommandHistoryCursor();
 		queueMicrotask(() => {
 			textareaEl?.focus();
 			autoResize();
 		});
+	}
+
+	function readCommandHistory(): string[] {
+		if (typeof localStorage === "undefined") return [];
+		try {
+			const parsed = JSON.parse(localStorage.getItem(COMMAND_HISTORY_KEY) ?? "[]") as unknown;
+			if (!Array.isArray(parsed)) return [];
+			return parsed.filter((item): item is string => typeof item === "string" && item.startsWith("/"));
+		} catch {
+			return [];
+		}
+	}
+
+	function writeCommandHistory(next: string[]) {
+		if (typeof localStorage === "undefined") return;
+		localStorage.setItem(COMMAND_HISTORY_KEY, JSON.stringify(next.slice(-MAX_COMMAND_HISTORY)));
+	}
+
+	function rememberCommand(text: string) {
+		const command = text.trim();
+		if (!command.startsWith("/")) return;
+		const withoutDuplicateTail = commandHistory.filter((item) => item !== command);
+		commandHistory = [...withoutDuplicateTail, command].slice(-MAX_COMMAND_HISTORY);
+		writeCommandHistory(commandHistory);
+		resetCommandHistoryCursor();
+	}
+
+	function resetCommandHistoryCursor() {
+		commandHistoryIndex = null;
+		commandHistoryDraft = "";
+	}
+
+	function canUseCommandHistory(e: KeyboardEvent): boolean {
+		if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || e.isComposing) return false;
+		if (value.includes("\n")) return false;
+		if (value.trim() !== "" && !value.startsWith("/")) return false;
+		return true;
+	}
+
+	function recallCommandHistory(direction: -1 | 1) {
+		if (commandHistory.length === 0) return;
+		if (commandHistoryIndex === null) {
+			commandHistoryDraft = value;
+			commandHistoryIndex = direction === -1 ? commandHistory.length - 1 : 0;
+		} else {
+			const nextIndex = commandHistoryIndex + direction;
+			if (nextIndex < 0) {
+				commandHistoryIndex = 0;
+			} else if (nextIndex >= commandHistory.length) {
+				commandHistoryIndex = null;
+				value = commandHistoryDraft;
+				queueMicrotask(autoResize);
+				return;
+			} else {
+				commandHistoryIndex = nextIndex;
+			}
+		}
+		value = commandHistory[commandHistoryIndex] ?? commandHistoryDraft;
+		queueMicrotask(autoResize);
 	}
 
 	function onkeydown(e: KeyboardEvent) {
@@ -159,6 +224,12 @@
 			}
 		}
 
+		if ((e.key === "ArrowUp" || e.key === "ArrowDown") && canUseCommandHistory(e)) {
+			e.preventDefault();
+			recallCommandHistory(e.key === "ArrowUp" ? -1 : 1);
+			return;
+		}
+
 		if (e.key !== "Enter" || e.isComposing) return;
 		const wantShift = settings.sendKey === "shift-enter";
 		if (wantShift) {
@@ -172,6 +243,7 @@
 
 	function submit() {
 		if (!value.trim()) return;
+		rememberCommand(value);
 		onSubmit();
 		queueMicrotask(autoResize);
 	}
@@ -266,6 +338,7 @@
 	}
 
 	onMount(() => {
+		commandHistory = readCommandHistory();
 		function closeModelMenu(event: PointerEvent) {
 			if (!modelMenuOpen) return;
 			if (modelMenuEl?.contains(event.target as Node)) return;
@@ -318,13 +391,13 @@
 					<button
 						type="button"
 						class={cn(
-							"flex w-full items-start gap-3 px-3 py-2 text-left transition-colors",
+							"grid w-full grid-cols-[5.5rem_minmax(0,1fr)] items-start gap-3 px-3 py-2 text-left transition-colors",
 							index === highlightedCommand ? "bg-accent text-foreground" : "hover:bg-accent/70",
 						)}
 						onmousedown={(event) => event.preventDefault()}
 						onclick={() => selectCommand(command)}
 					>
-						<span class="text-foreground mt-0.5 shrink-0 font-mono text-sm">/{command.name}</span>
+						<span class="text-foreground mt-0.5 truncate font-mono text-sm">/{command.name}</span>
 						<span class="text-muted-foreground min-w-0 text-sm leading-snug">{command.description}</span>
 					</button>
 				{/each}
@@ -337,6 +410,7 @@
 		bind:value
 		oninput={() => {
 			modelMenuOpen = false;
+			resetCommandHistoryCursor();
 			autoResize();
 		}}
 		{onkeydown}

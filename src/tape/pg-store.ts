@@ -155,6 +155,13 @@ export function createTapeStore(opts: TapeStoreOptions = {}): TapeStore {
 			});
 		},
 
+		async delete(tapeRef: TapeHandle): Promise<void> {
+			await db.transaction(async (tx) => {
+				const tapeRecord = await findTapeRecordById(tx, tapeRef.tapeId);
+				if (tapeRecord) await tx.delete(tapes).where(eq(tapes.id, tapeRecord.id));
+			});
+		},
+
 		async info(tape: TapeHandle): Promise<TapeInfo> {
 			const tapeRecord = await findTapeRecordById(db, tape.tapeId);
 			if (!tapeRecord) {

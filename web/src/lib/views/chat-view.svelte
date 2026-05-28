@@ -200,7 +200,8 @@
 
 	const displayItems = $derived.by<DisplayItem[]>(() => {
 		let previousKey: string | null = null;
-		const out: DisplayItem[] = visibleMessages.map((m) => {
+		const out: DisplayItem[] = [];
+		for (const m of visibleMessages) {
 			if (m.role === "agent") {
 				const parsed = parseSource(m.text);
 				const worker = workerFromMetadata(m.metadata);
@@ -233,8 +234,28 @@
 				};
 				const key = groupKey(item);
 				item.showHeader = key !== previousKey;
+				const previous = out[out.length - 1];
+				if (
+					item.source === "worker" &&
+					previous &&
+					previous.kind === "msg" &&
+					previous.source === "worker" &&
+					groupKey(previous) === key
+				) {
+					previous.text = `${previous.text}\n\n${item.text}`;
+					previous.ts = item.ts;
+					previous.streaming = previous.streaming || item.streaming;
+					previous.workerStatus = item.workerStatus ?? previous.workerStatus;
+					previous.workerName = item.workerName ?? previous.workerName;
+					previous.workerKind = item.workerKind ?? previous.workerKind;
+					previous.workerLifetime = item.workerLifetime ?? previous.workerLifetime;
+					previous.workerPath = item.workerPath ?? previous.workerPath;
+					previousKey = key;
+					continue;
+				}
 				previousKey = key;
-				return item;
+				out.push(item);
+				continue;
 			}
 			// visibleMessages filters out system, so m.role must be "user" here
 			const item: MsgItem = {
@@ -249,8 +270,8 @@
 			const key = groupKey(item);
 			item.showHeader = key !== previousKey;
 			previousKey = key;
-			return item;
-		});
+			out.push(item);
+		}
 		if (chat.typing && !chat.messages.some((m) => m.streaming)) {
 			out.push({ kind: "typing", id: -1 });
 		}

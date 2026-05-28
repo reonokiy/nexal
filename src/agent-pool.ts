@@ -33,7 +33,7 @@ import {
 	imageContentToAttachment,
 } from "./content.ts";
 import { Tape, type TapeHandle, type TapeStore, entriesToLlmMessages, tapeRecord } from "./tape/index.ts";
-import { hasRuntimeContextEntry, runtimeContextRecord } from "./tape/runtime-context.ts";
+import { runtimeContextRecord, runtimeContextStatus } from "./tape/runtime-context.ts";
 
 export interface AgentPoolConfig {
 	systemPrompt: string;
@@ -206,18 +206,22 @@ export class AgentPool {
 					chatId: msg.chatId,
 				});
 			}
-			if (!hasRuntimeContextEntry(entries)) {
+			const contextInput = {
+				scope: "session" as const,
+				systemPrompt: this.config.systemPrompt,
+				model: this.config.model,
+				tools: allTools,
+				metadata: {
+					channel: msg.channel,
+					chatId: msg.chatId,
+					sessionKey: key,
+				},
+			};
+			const contextStatus = runtimeContextStatus(entries, contextInput);
+			if (contextStatus !== "current") {
 				await tape.append(runtimeContextRecord({
-					scope: "session",
-					systemPrompt: this.config.systemPrompt,
-					model: this.config.model,
-					tools: allTools,
-					metadata: {
-						channel: msg.channel,
-						chatId: msg.chatId,
-						sessionKey: key,
-					},
-				}));
+					...contextInput,
+				}, { change: contextStatus }));
 			}
 		} catch (err) {
 			log.error(`failed to load tape for session ${key}`, err);

@@ -12,6 +12,8 @@ export interface RuntimeContextInput {
 	metadata?: Record<string, unknown>;
 }
 
+export type RuntimeContextStatus = "missing" | "current" | "changed";
+
 export function hasRuntimeContextEntry(entries: readonly TapeEntry[]): boolean {
 	return entries.some((entry) =>
 		entry.kind === "event" &&
@@ -19,18 +21,45 @@ export function hasRuntimeContextEntry(entries: readonly TapeEntry[]): boolean {
 	);
 }
 
-export function runtimeContextRecord(input: RuntimeContextInput): TapeEntryDraft {
+export function runtimeContextStatus(
+	entries: readonly TapeEntry[],
+	input: RuntimeContextInput,
+): RuntimeContextStatus {
+	const latest = latestRuntimeContextData(entries);
+	if (!latest) return "missing";
+	return stableStringify(latest) === stableStringify(runtimeContextData(input))
+		? "current"
+		: "changed";
+}
+
+export function runtimeContextRecord(
+	input: RuntimeContextInput,
+	options: { change?: Exclude<RuntimeContextStatus, "current"> } = {},
+): TapeEntryDraft {
 	return tapeRecord.event(
 		RUNTIME_CONTEXT_EVENT,
-		{
-			scope: input.scope,
-			systemPrompt: input.systemPrompt,
-			model: serializeModel(input.model),
-			tools: input.tools.map(serializeTool),
-			metadata: input.metadata ?? {},
-		},
-		{ meta: { internal: true, scope: input.scope } },
+		runtimeContextData(input),
+		{ meta: { internal: true, scope: input.scope, change: options.change ?? "created" } },
 	);
+}
+
+function runtimeContextData(input: RuntimeContextInput): Record<string, unknown> {
+	return {
+		scope: input.scope,
+		systemPrompt: input.systemPrompt,
+		model: serializeModel(input.model),
+		tools: input.tools.map(serializeTool),
+		metadata: input.metadata ?? {},
+	};
+}
+
+function latestRuntimeContextData(entries: readonly TapeEntry[]): unknown | null {
+	for (let i = entries.length - 1; i >= 0; i--) {
+		const entry = entries[i]!;
+		if (entry.kind !== "event" || entry.payload.name !== RUNTIME_CONTEXT_EVENT) continue;
+		return entry.payload.data ?? null;
+	}
+	return null;
 }
 
 function serializeModel(model: Model<any>): Record<string, unknown> {
@@ -70,4 +99,18 @@ function toPlain(value: unknown): unknown {
 	} catch {
 		return String(value);
 	}
+}
+
+function stableStringify(value: unknown): string {
+	return JSON.stringify(sortObject(value));
+}
+
+function sortObject(value: unknown): unknown {
+	if (Array.isArray(value)) return value.map(sortObject);
+	if (!value || typeof value !== "object") return value;
+	return Object.fromEntries(
+		Object.entries(value as Record<string, unknown>)
+			.sort(([a], [b]) => a.localeCompare(b))
+			.map(([key, item]) => [key, sortObject(item)]),
+	);
 }

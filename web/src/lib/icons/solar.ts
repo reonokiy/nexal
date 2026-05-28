@@ -29,4 +29,5 @@ export { default as sidebarCodeLinear } from "@iconify/icons-solar/sidebar-code-
 export { default as sliderHorizontalLinear } from "@iconify/icons-solar/slider-horizontal-linear";
 export { default as squareArrowRightUpLinear } from "@iconify/icons-solar/square-arrow-right-up-linear";
 export { default as starsMinimalisticLinear } from "@iconify/icons-solar/stars-minimalistic-linear";
+export { default as trashBinTrashLinear } from "@iconify/icons-solar/trash-bin-trash-linear";
 export { default as userRoundedLinear } from "@iconify/icons-solar/user-rounded-linear";

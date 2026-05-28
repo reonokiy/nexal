@@ -45,8 +45,8 @@ import type { ProxySpec } from "../config.ts";
 import type { GatewayClient } from "../gateway/index.ts";
 import type { AgentClient } from "../gateway/agent_client.ts";
 import { createBashTool } from "../tools/bash.ts";
-import { Tape, type TapeStore, jsonToMessages, messagesToJson, messagesToEntries, entriesToLlmMessages } from "../tape/index.ts";
-import { hasRuntimeContextEntry, runtimeContextRecord } from "../tape/runtime-context.ts";
+import { Tape, type TapeEntry, type TapeStore, jsonToMessages, messagesToJson, messagesToEntries, entriesToLlmMessages } from "../tape/index.ts";
+import { runtimeContextRecord, runtimeContextStatus } from "../tape/runtime-context.ts";
 import type { SendPolicy, WorkerKind, WorkerLifetime, WorkerRow, WorkerStore } from "./store.ts";
 
 const PERSIST_DEBOUNCE_MS = 250;
@@ -134,10 +134,10 @@ export class WorkerAgent {
 		// Load history from tape; fallback to DB messages_json.
 		// Tape is the canonical format; convert directly to LLM format.
 		let initialMessages = jsonToMessages(row.messagesJson);
-		let hasRuntimeContext = false;
+		let tapeEntries: TapeEntry[] = [];
 		try {
 			const entries = await tape.view().entries();
-			hasRuntimeContext = hasRuntimeContextEntry(entries);
+			tapeEntries = [...entries];
 			if (entries.length > 0) {
 				initialMessages = entriesToLlmMessages(entries) as any;
 				this.lastPersistedMsgCount = initialMessages.length;
@@ -148,27 +148,29 @@ export class WorkerAgent {
 		}
 
 		const tools = this.deps.toolsForKind(this);
-		if (!hasRuntimeContext) {
+		const contextInput = {
+			scope: "worker" as const,
+			systemPrompt: row.systemPrompt,
+			model,
+			tools,
+			metadata: {
+				id: row.id,
+				name: row.name,
+				kind: row.kind,
+				lifetime: row.lifetime,
+				parentSessionKey: row.parentSessionKey,
+				sourceChannel: row.sourceChannel,
+				sourceChatId: row.sourceChatId,
+				sourceReplyTo: row.sourceReplyTo,
+				sendPolicy: row.sendPolicy,
+				initialPrompt: row.initialPrompt,
+				containerName: row.containerName,
+			},
+		};
+		const contextStatus = runtimeContextStatus(tapeEntries, contextInput);
+		if (contextStatus !== "current") {
 			try {
-				await tape.append(runtimeContextRecord({
-					scope: "worker",
-					systemPrompt: row.systemPrompt,
-					model,
-					tools,
-					metadata: {
-						id: row.id,
-						name: row.name,
-						kind: row.kind,
-						lifetime: row.lifetime,
-						parentSessionKey: row.parentSessionKey,
-						sourceChannel: row.sourceChannel,
-						sourceChatId: row.sourceChatId,
-						sourceReplyTo: row.sourceReplyTo,
-						sendPolicy: row.sendPolicy,
-						initialPrompt: row.initialPrompt,
-						containerName: row.containerName,
-					},
-				}));
+				await tape.append(runtimeContextRecord(contextInput, { change: contextStatus }));
 			} catch (err) {
 				this.log.error(`failed to persist runtime context for worker ${row.id}`, err);
 			}

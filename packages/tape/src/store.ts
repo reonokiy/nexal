@@ -33,6 +33,8 @@ export interface TapeStore {
 	append(tape: TapeHandle, entries: TapeEntryDraft[]): Promise<TapeEntry[]>;
 	/** Delete all entries for a persisted tape reference (hard reset). */
 	reset(tape: TapeHandle): Promise<void>;
+	/** Delete a persisted tape and its entries. */
+	delete(tape: TapeHandle): Promise<void>;
 	/** Runtime summary (entry count, anchors, last anchor, …). */
 	info(tape: TapeHandle): Promise<TapeInfo>;
 	/** Write a new anchor entry (handoff). */

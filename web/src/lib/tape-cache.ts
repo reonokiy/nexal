@@ -109,15 +109,36 @@ export async function putCachedTapeInfo(info: CachedTapeInfo): Promise<void> {
 }
 
 export async function putCachedTapes(tapes: CachedTapeInfo[]): Promise<void> {
-	if (tapes.length === 0) return;
 	try {
 		const db = await openDb();
 		const tx = db.transaction(TAPES_STORE, "readwrite");
 		const store = tx.objectStore(TAPES_STORE);
+		store.clear();
 		for (const tape of tapes) store.put(tape);
 		await transactionDone(tx);
 	} catch {
 		// Cache writes are opportunistic.
+	}
+}
+
+export async function deleteCachedTape(tapeId: string): Promise<void> {
+	try {
+		const db = await openDb();
+		const tx = db.transaction([TAPES_STORE, ENTRIES_STORE], "readwrite");
+		tx.objectStore(TAPES_STORE).delete(tapeId);
+		const entries = tx.objectStore(ENTRIES_STORE);
+		const index = entries.index(ENTRY_INDEX);
+		const range = IDBKeyRange.bound([tapeId, 0], [tapeId, Number.MAX_SAFE_INTEGER]);
+		const request = index.openCursor(range);
+		request.onsuccess = () => {
+			const cursor = request.result;
+			if (!cursor) return;
+			cursor.delete();
+			cursor.continue();
+		};
+		await transactionDone(tx);
+	} catch {
+		// Cache deletes are opportunistic.
 	}
 }
 

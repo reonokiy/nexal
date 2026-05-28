@@ -25,6 +25,7 @@ const mockTapeStore: TapeStore = {
 			? entryOrEntries.map((entry, index) => ({ ...entry, id: index + 1 }))
 			: { ...entryOrEntries, id: 1 },
 	reset: async () => {},
+	delete: async () => {},
 	info: async () => ({
 		id: "00000000-0000-4000-8000-000000000001",
 		entries: 0,

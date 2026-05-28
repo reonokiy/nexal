@@ -4,6 +4,7 @@
 import type { CommandRegistry } from "./registry.ts";
 import type { CommandContext } from "./registry.ts";
 import type { GatewayClient } from "../gateway/index.ts";
+import { GatewayAgentClient } from "../gateway/agent_client.ts";
 import type { TapeEntry, TapeHandle, TapeInfo, TapeStore } from "../tape/index.ts";
 import {
 	deleteAuth,
@@ -51,6 +52,15 @@ export interface TapeEntriesPayload {
 	limit: number;
 	total: number;
 	hasMore: boolean;
+}
+
+export interface SandboxExecPayload {
+	agentId: string;
+	command: string;
+	stdout: string;
+	stderr: string;
+	exitCode: number;
+	timedOut: boolean;
 }
 
 type GetTapeRef = (sessionKey: string) => Promise<TapeHandle | null>;
@@ -267,6 +277,72 @@ export function registerBuiltins(
 				}
 			},
 		});
+
+		registry.register({
+			name: "sandbox_start",
+			description: "Start a manual sandbox for testing shared /workspace",
+			async execute(_ctx, args) {
+				const name = args.join("-").trim() || `manual-${Date.now().toString(36)}`;
+				try {
+					const result = await gateway.spawnAgent({
+						name,
+						labels: { "nexal.manual": "true" },
+					});
+					return {
+						text: `Started sandbox ${result.container_name} (${result.agent_id}).`,
+						data: { agent: result },
+					};
+				} catch (err) {
+					return {
+						text: `Failed to start sandbox: ${err instanceof Error ? err.message : String(err)}`,
+						error: "sandbox start failed",
+					};
+				}
+			},
+		});
+
+		registry.register({
+			name: "sandbox_exec",
+			description: "Run a shell command in a sandbox (usage: /sandbox_exec <agent_id> <command>)",
+			async execute(_ctx, args) {
+				const [agentId, ...commandParts] = args;
+				const command = commandParts.join(" ").trim();
+				if (!agentId || !command) {
+					return {
+						text: "Usage: /sandbox_exec <agent_id> <command>",
+						error: "missing agent_id or command",
+					};
+				}
+				try {
+					const client = new GatewayAgentClient(gateway, agentId);
+					const result = await client.runCommand(["/bin/bash", "-lc", command], {
+						cwd: "/workspace",
+						timeoutMs: 120_000,
+					});
+					const text = [
+						result.stdout ? `$ ${command}\n${result.stdout.trimEnd()}` : `$ ${command}`,
+						result.stderr ? `stderr:\n${result.stderr.trimEnd()}` : "",
+						`exit=${result.exitCode}${result.timedOut ? " (timed out)" : ""}`,
+					].filter(Boolean).join("\n");
+					return {
+						text,
+						data: {
+							agentId,
+							command,
+							stdout: result.stdout,
+							stderr: result.stderr,
+							exitCode: result.exitCode,
+							timedOut: result.timedOut,
+						} satisfies SandboxExecPayload,
+					};
+				} catch (err) {
+					return {
+						text: `Failed to run command: ${err instanceof Error ? err.message : String(err)}`,
+						error: "sandbox exec failed",
+					};
+				}
+			},
+		});
 	}
 
 	if (tapeStore && getTapeRef) {
@@ -356,6 +432,28 @@ export function registerBuiltins(
 				return {
 					text: `Tape ${tape.id}: ${tape.entries} entries.`,
 					data: { tape } satisfies TapePayload,
+				};
+			},
+		});
+
+		registry.register({
+			name: "tape_delete",
+			description: "Delete a reachable non-current tape (usage: /tape_delete <tape_id>)",
+			async execute(ctx, args) {
+				const [tapeId] = args;
+				const allowed = await requireAllowedTape(ctx, tapeId);
+				if (!allowed.ok) return allowed.result;
+				const current = await getTapeRef(`${ctx.channel}:${ctx.chatId}`);
+				if (current?.tapeId === allowed.handle.tapeId) {
+					return {
+						text: "Cannot delete the current session tape while this chat is active.",
+						error: "cannot delete current session tape",
+					};
+				}
+				await tapesApi.delete(allowed.handle);
+				return {
+					text: `Deleted tape ${allowed.handle.tapeId}.`,
+					data: { tapeId: allowed.handle.tapeId },
 				};
 			},
 		});

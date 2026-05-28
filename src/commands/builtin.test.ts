@@ -146,6 +146,7 @@ describe("tape commands", () => {
 					? entryOrEntries.map((entry, index) => ({ ...entry, id: index + 1 }))
 					: { ...entryOrEntries, id: 1 },
 			reset: async () => {},
+			delete: async () => {},
 			info: async (tape) =>
 				tape.tapeId === currentTape.id
 					? currentTape
@@ -191,5 +192,98 @@ describe("tape commands", () => {
 		);
 		expect(result?.error).toBeUndefined();
 		expect(result?.data).toEqual({ tape: childTape });
+	});
+
+	test("deletes referenced child tapes", async () => {
+		const registry = setup({ includeChildRef: true });
+		const result = await registry.execute(
+			"tape_delete",
+			{ channel: "ws", chatId: "default", sender: "test" },
+			[childTape.id],
+		);
+		expect(result?.error).toBeUndefined();
+		expect(result?.data).toEqual({ tapeId: childTape.id });
+	});
+
+	test("refuses deleting the current session tape", async () => {
+		const registry = setup();
+		const result = await registry.execute(
+			"tape_delete",
+			{ channel: "ws", chatId: "default", sender: "test" },
+			[currentTape.id],
+		);
+		expect(result?.error).toBe("cannot delete current session tape");
+	});
+});
+
+describe("sandbox commands", () => {
+	test("starts a manual sandbox through the gateway", async () => {
+		const registry = new CommandRegistry();
+		const gateway = {
+			spawnAgent: async (params: any) => ({
+				agent_id: "agent-1",
+				container_name: `container-${params.name}`,
+			}),
+			listAgents: async () => ({ agents: [] }),
+		};
+		registerBuiltins(registry, gateway as any);
+		const result = await registry.execute(
+			"sandbox_start",
+			{ channel: "ws", chatId: "default", sender: "test" },
+			["manual-test"],
+		);
+		expect(result?.error).toBeUndefined();
+		expect(result?.data).toEqual({
+			agent: { agent_id: "agent-1", container_name: "container-manual-test" },
+		});
+	});
+
+	test("runs a shell command in a sandbox", async () => {
+		const registry = new CommandRegistry();
+		const calls: any[] = [];
+		const gateway = {
+			listAgents: async () => ({ agents: [] }),
+			spawnAgent: async () => ({ agent_id: "agent-1", container_name: "container" }),
+			request: async (requestMethod: string, requestParams: any) => {
+				if (requestMethod !== "agent/invoke") throw new Error(`unexpected ${requestMethod}`);
+				const method = requestParams.method as string;
+				const params = requestParams.params;
+				calls.push({ method, params });
+				if (method === "process/start") return { process_id: params.process_id };
+				if (method === "process/read") {
+					return {
+						chunks: [{ seq: 1, stream: "stdout", chunk: new TextEncoder().encode("hello\n") }],
+						next_seq: 2,
+						exited: true,
+						exit_code: 0,
+						closed: true,
+						failure: null,
+					};
+				}
+				throw new Error(`unexpected ${method}`);
+			},
+		};
+		registerBuiltins(registry, gateway as any);
+		const result = await registry.execute(
+			"sandbox_exec",
+			{ channel: "ws", chatId: "default", sender: "test" },
+			["agent-1", "echo hello"],
+		);
+		expect(result?.error).toBeUndefined();
+		expect(result?.data).toMatchObject({
+			agentId: "agent-1",
+			command: "echo hello",
+			stdout: "hello\n",
+			exitCode: 0,
+			timedOut: false,
+		});
+		expect(calls[0]).toMatchObject({
+			method: "process/start",
+			params: {
+				argv: ["/bin/bash", "-lc", "echo hello"],
+				cwd: "/workspace",
+				tty: false,
+			},
+		});
 	});
 });

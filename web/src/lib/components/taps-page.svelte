@@ -5,6 +5,7 @@
 		billListLinear,
 		infoCircleLinear,
 		recordCircleLinear,
+		trashBinTrashLinear,
 	} from "$lib/icons/solar";
 	import { router } from "$lib/router.svelte";
 	import { cn } from "$lib/utils";
@@ -15,6 +16,7 @@
 		getCachedTapeEntriesPage,
 		getCachedTapeInfo,
 		getCachedTapes,
+		deleteCachedTape,
 		putCachedTapeEntries,
 		putCachedTapeInfo,
 		putCachedTapes,
@@ -93,6 +95,8 @@
 	let loadingMore = $state(false);
 	let loadingTapes = $state(false);
 	let syncing = $state(false);
+	let deletingTapeId = $state<string | null>(null);
+	let pendingDeleteTape = $state<TapeInfo | null>(null);
 	let error = $state<string | null>(null);
 	let tapesError = $state<string | null>(null);
 	let hasMoreEntries = $state(false);
@@ -326,6 +330,29 @@
 		}
 	}
 
+	async function deleteTape(id: string) {
+		if (deletingTapeId) return;
+		if (chat.status !== "open") {
+			tapesError = "Backend not connected";
+			return;
+		}
+		try {
+			deletingTapeId = id;
+			tapesError = null;
+			const res = await chat.runCommandAwait("tape_delete", [id], 30_000);
+			if (res.error) throw new Error(res.error);
+			tapes = tapes.filter((item) => item.id !== id);
+			await deleteCachedTape(id);
+			await putCachedTapes(tapes);
+			if (tapeId === id) router.go("tapes");
+		} catch (e) {
+			tapesError = e instanceof Error ? e.message : "delete failed";
+		} finally {
+			deletingTapeId = null;
+			pendingDeleteTape = null;
+		}
+	}
+
 	let loadedTapeId: string | null = null;
 	let loadedTapesForRoute: string | null = null;
 	let loadTapeGeneration = 0;
@@ -413,6 +440,16 @@
 
 	function openTape(id: string) {
 		router.go(`tapes/${encodeURIComponent(id)}`);
+	}
+
+	function requestDeleteTape(item: TapeInfo) {
+		if (deletingTapeId) return;
+		pendingDeleteTape = item;
+	}
+
+	function closeDeleteDialog() {
+		if (deletingTapeId) return;
+		pendingDeleteTape = null;
 	}
 
 	function entryKindLabel(entry: TapeEntry): string {
@@ -602,23 +639,39 @@
 				<div class="flex min-h-0 flex-col gap-3">
 					<div class="border-border overflow-hidden rounded-md border">
 						{#each tapes as item (item.id)}
-							<button
-								type="button"
-								class="border-border hover:bg-accent flex w-full items-center gap-3 border-b px-4 py-3 text-left transition-colors duration-150 last:border-b-0"
-								onclick={() => router.go(`tapes/${encodeURIComponent(item.id)}`)}
-								title={item.id}
-							>
-								<div class="bg-muted text-muted-foreground flex size-9 shrink-0 items-center justify-center rounded-md">
-									<Icon icon={billListLinear} class="size-4" />
-								</div>
-								<div class="min-w-0 flex-1">
-									<div class="truncate text-sm font-medium">{shortTapeId(item.id)}</div>
-									<div class="text-muted-foreground mt-0.5 truncate text-xs">{tapeSubtitle(item)}</div>
-								</div>
-								{#if item.lastTokenUsage != null}
-									<div class="text-muted-foreground shrink-0 text-xs">{item.lastTokenUsage} tokens</div>
-								{/if}
-							</button>
+							<div class="border-border flex items-center gap-2 border-b px-3 py-2.5 last:border-b-0">
+								<button
+									type="button"
+									class="hover:bg-black/[0.04] flex min-w-0 flex-1 items-center gap-3 rounded-md px-1 py-1 text-left transition-colors duration-150"
+									onclick={() => router.go(`tapes/${encodeURIComponent(item.id)}`)}
+									title={item.id}
+								>
+									<div class="bg-black/[0.04] text-muted-foreground flex size-9 shrink-0 items-center justify-center rounded-md">
+										<Icon icon={billListLinear} class="size-4" />
+									</div>
+									<div class="min-w-0 flex-1">
+										<div class="truncate text-sm font-medium">{shortTapeId(item.id)}</div>
+										<div class="text-muted-foreground mt-0.5 truncate text-xs">{tapeSubtitle(item)}</div>
+									</div>
+									{#if item.lastTokenUsage != null}
+										<div class="text-muted-foreground shrink-0 text-xs">{item.lastTokenUsage} tokens</div>
+									{/if}
+								</button>
+								<button
+									type="button"
+									class="text-muted-foreground hover:bg-red-500/10 hover:text-red-500 flex size-8 shrink-0 items-center justify-center rounded-md transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-50"
+									onclick={() => requestDeleteTape(item)}
+									disabled={deletingTapeId !== null}
+									title="Delete tape"
+									aria-label={`Delete tape ${shortTapeId(item.id)}`}
+								>
+									{#if deletingTapeId === item.id}
+										<Icon icon={recordCircleLinear} class="size-3.5 animate-spin" />
+									{:else}
+										<Icon icon={trashBinTrashLinear} class="size-3.5" />
+									{/if}
+								</button>
+							</div>
 						{/each}
 					</div>
 				</div>
@@ -766,3 +819,56 @@
 		{/if}
 	</div>
 </section>
+
+{#if pendingDeleteTape}
+	<div class="fixed inset-0 z-50 flex items-center justify-center px-4">
+		<button
+			type="button"
+			class="absolute inset-0 bg-black/20"
+			aria-label="Cancel delete tape"
+			onclick={closeDeleteDialog}
+		></button>
+		<div
+			class="border-border bg-background relative w-full max-w-sm rounded-md border"
+			role="dialog"
+			aria-modal="true"
+			aria-labelledby="delete-tape-title"
+			tabindex="-1"
+		>
+			<div class="border-border border-b px-4 py-3">
+				<h2 id="delete-tape-title" class="text-sm font-medium">Delete tape</h2>
+				<p class="text-muted-foreground mt-1 text-xs">
+					This will permanently remove this tape and its entries.
+				</p>
+			</div>
+			<div class="px-4 py-3">
+				<div class="bg-muted/40 rounded-md px-3 py-2">
+					<div class="truncate font-mono text-xs">{pendingDeleteTape.id}</div>
+					<div class="text-muted-foreground mt-1 text-xs">{tapeSubtitle(pendingDeleteTape)}</div>
+				</div>
+			</div>
+			<div class="border-border flex items-center justify-end gap-2 border-t px-4 py-3">
+				<button
+					type="button"
+					class="hover:bg-accent rounded-md px-3 py-1.5 text-sm transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-50"
+					onclick={closeDeleteDialog}
+					disabled={deletingTapeId !== null}
+				>
+					Cancel
+				</button>
+				<button
+					type="button"
+					class="rounded-md bg-red-500 px-3 py-1.5 text-sm font-medium text-white transition-colors duration-150 hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-60"
+					onclick={() => deleteTape(pendingDeleteTape!.id)}
+					disabled={deletingTapeId !== null}
+				>
+					{#if deletingTapeId === pendingDeleteTape.id}
+						Deleting…
+					{:else}
+						Delete
+					{/if}
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}

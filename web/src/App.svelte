@@ -12,8 +12,6 @@
 	import Icon from "@iconify/svelte";
 	import { sidebarCodeLinear } from "$lib/icons/solar";
 	import { onMount } from "svelte";
-	import { slide } from "svelte/transition";
-	import { cubicOut } from "svelte/easing";
 
 	const chat = createChat(settings.backendUrl, settings.chatId, settings.sender, getAccessToken());
 
@@ -82,14 +80,16 @@
 	{:else if onSettings}
 		<SettingsPage {chat} />
 	{:else}
-		{#if sidebarOpen}
-			<div
-				transition:slide={{ axis: "x", duration: 200, easing: cubicOut }}
-				class="overflow-hidden"
-			>
-				<Sidebar {chat} />
-			</div>
-		{/if}
+		<div
+			class={[
+				"shrink-0 overflow-hidden transition-[width] duration-200 ease-out",
+				sidebarOpen ? "w-64" : "pointer-events-none w-0",
+			].join(" ")}
+			aria-hidden={!sidebarOpen}
+			inert={!sidebarOpen}
+		>
+			<Sidebar {chat} />
+		</div>
 		{#if onComputers || onTapes}
 			<div class="flex h-screen flex-1 flex-col">
 				<header class="flex h-12 items-center gap-2 px-4">
