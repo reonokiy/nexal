@@ -176,6 +176,41 @@ pre.font-sans {
 	border-radius: 0;
 	font-size: 0.85em;
 }
+.md-body .md-code {
+	background: var(--muted);
+	border: 1px solid var(--border);
+	border-radius: 0.5rem;
+	margin: 0.6em 0;
+	overflow: hidden;
+}
+.md-body .md-code figcaption {
+	border-bottom: 1px solid var(--border);
+	color: var(--muted-foreground);
+	font-family: var(--font-mono);
+	font-size: 0.68rem;
+	font-weight: 500;
+	line-height: 1;
+	padding: 0.55rem 0.75rem;
+}
+.md-body .md-code pre {
+	background: transparent !important;
+	border: 0;
+	border-radius: 0;
+	margin: 0;
+	padding: 0.75em 0.9em;
+}
+.md-body .md-code .shiki {
+	color: var(--shiki-light);
+}
+.md-body .md-code .shiki span {
+	color: var(--shiki-light);
+}
+.dark .md-body .md-code .shiki {
+	color: var(--shiki-dark);
+}
+.dark .md-body .md-code .shiki span {
+	color: var(--shiki-dark);
+}
 .md-body blockquote {
 	border-left: 3px solid var(--border);
 	padding-left: 0.9em;

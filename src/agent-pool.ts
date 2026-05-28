@@ -33,6 +33,7 @@ import {
 	imageContentToAttachment,
 } from "./content.ts";
 import { Tape, type TapeHandle, type TapeStore, entriesToLlmMessages, tapeRecord } from "./tape/index.ts";
+import { hasRuntimeContextEntry, runtimeContextRecord } from "./tape/runtime-context.ts";
 
 export interface AgentPoolConfig {
 	systemPrompt: string;
@@ -89,7 +90,7 @@ export class AgentPool {
 
 	/**
 	 * Inject a synthetic message into a chat session's debouncer — used
-	 * when a spawned worker's `report_to_parent` lands on the top-level
+	 * when a spawned worker's `send_to_parent` lands on the top-level
 	 * coordinator (which has no DB row, only an in-memory Agent here).
 	 *
 	 * `sessionKey` is `"<channel>:<chatId>"`; the synthesized
@@ -204,6 +205,19 @@ export class AgentPool {
 					channel: msg.channel,
 					chatId: msg.chatId,
 				});
+			}
+			if (!hasRuntimeContextEntry(entries)) {
+				await tape.append(runtimeContextRecord({
+					scope: "session",
+					systemPrompt: this.config.systemPrompt,
+					model: this.config.model,
+					tools: allTools,
+					metadata: {
+						channel: msg.channel,
+						chatId: msg.chatId,
+						sessionKey: key,
+					},
+				}));
 			}
 		} catch (err) {
 			log.error(`failed to load tape for session ${key}`, err);

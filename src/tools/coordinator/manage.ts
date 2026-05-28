@@ -10,20 +10,20 @@ import { formatAge, truncate } from "../../utils/format.ts";
 import type { CoordinatorCtx } from "./schemas.ts";
 import { IdParams, ListParams, RouteParams } from "./schemas.ts";
 
-export function routeToAgentTool(
+export function sendToAgentTool(
 	registry: WorkerRegistry,
 	ctx: CoordinatorCtx,
 ): AgentTool<typeof RouteParams, { id: string }> {
 	return {
-		name: "route_to_agent",
-		label: "Route To Agent",
+		name: "send_to_agent",
+		label: "Send To Agent",
 		description:
 			"Feed a new user instruction to an existing persistent agent (executor or " +
 			"sub-coordinator) as its next user message. The agent resumes its loop in the " +
 			"background.\n" +
-			"You can ONLY route to agents you spawned directly. To reach a deeper descendant, " +
-			"route through the intermediate coordinator. Only valid for persistent lifetime — " +
-			"oneshot tasks reject routes.\n" +
+			"You can ONLY send to agents you spawned directly. To reach a deeper descendant, " +
+			"send through the intermediate coordinator. Only valid for persistent lifetime — " +
+			"oneshot tasks reject incoming messages.\n" +
 			"content: a plain string, or an array of content blocks " +
 			'[{type:"text",text:"..."},{type:"image",data:"<base64>",mimeType:"..."}] ' +
 			"to include images. Provide all necessary context — the agent doesn't see your conversation.",
@@ -33,9 +33,9 @@ export function routeToAgentTool(
 			params: Static<typeof RouteParams>,
 		): Promise<AgentToolResult<{ id: string }>> {
 			const content = params.content as UserContent;
-			await registry.routeFromCaller(ctx.parentSessionKey, params.id, content);
+			await registry.sendToAgentFromCaller(ctx.parentSessionKey, params.id, content);
 			return {
-				content: [{ type: "text", text: `routed content to ${params.id}` }],
+				content: [{ type: "text", text: `sent content to ${params.id}` }],
 				details: { id: params.id },
 			};
 		},
@@ -52,7 +52,7 @@ export function listAgentsTool(
 		description:
 			"List agents directly under THIS coordinator, newest first. Shows id, kind, " +
 			"lifetime, name, status, age. Use to find an existing agent before deciding " +
-			"between route_to_agent and spawn_*.",
+			"between send_to_agent and spawn_*.",
 		parameters: ListParams,
 		async execute(): Promise<AgentToolResult<{ count: number }>> {
 			const rows = await registry.listForParent(ctx.parentSessionKey, 20);

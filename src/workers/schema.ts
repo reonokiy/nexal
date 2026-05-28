@@ -4,9 +4,9 @@
  * Two orthogonal axes:
  *
  *   `kind`     — what tools the agent has:
- *     - `"coordinator"` — dispatcher only (spawn_…, route_to_agent, …),
+ *     - `"coordinator"` — dispatcher only (spawn_…, send_to_agent, …),
  *                        NO bash. Can spawn sub-coordinators.
- *     - `"executor"`    — bash + send_update. Does the actual work.
+ *     - `"executor"`    — bash + send_to_user. Does the actual work.
  *
  *   `lifetime` — when the agent dies:
  *     - `"persistent"` — stays alive across many turns; accepts routes.

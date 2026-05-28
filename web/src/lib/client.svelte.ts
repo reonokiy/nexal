@@ -30,6 +30,8 @@ export interface Message {
 }
 
 let nextId = 1;
+const HISTORY_PREFIX = "nexal.chat.history.";
+const MAX_PERSISTED_MESSAGES = 1000;
 
 export function createChat(
 	initialUrl: string,
@@ -40,9 +42,15 @@ export function createChat(
 	let url = $state(initialUrl);
 	let status = $state<Status>("idle");
 	let typing = $state(false);
-	const messages = $state<Message[]>([]);
+	const historyKey = `${HISTORY_PREFIX}${chatIdValue}`;
+	const restoredMessages = loadCachedMessages(historyKey);
+	const messages = $state<Message[]>(restoredMessages);
 	let authToken = initialAuthToken;
 	let authOk = false;
+
+	if (restoredMessages.length > 0) {
+		nextId = Math.max(nextId, Math.max(...restoredMessages.map((m) => m.id)) + 1);
+	}
 
 	let ws: WebSocketConnection | null = null;
 	let chat: ChatClient | null = null;
@@ -60,6 +68,16 @@ export function createChat(
 	}) => void>();
 
 	let typingTimer: ReturnType<typeof setTimeout> | null = null;
+	let saveTimer: ReturnType<typeof setTimeout> | null = null;
+
+	function scheduleSave() {
+		if (saveTimer) clearTimeout(saveTimer);
+		saveTimer = setTimeout(() => {
+			saveTimer = null;
+			saveCachedMessages(historyKey, messages);
+		}, 120);
+	}
+
 	function setTyping(on: boolean) {
 		typing = on;
 		if (typingTimer) clearTimeout(typingTimer);
@@ -68,6 +86,7 @@ export function createChat(
 
 	function pushSystem(text: string) {
 		messages.push({ id: nextId++, role: "system", text, ts: Date.now() });
+		scheduleSave();
 	}
 
 	function findStreaming(streamId: string): Message | undefined {
@@ -87,6 +106,7 @@ export function createChat(
 				ts: Date.now(),
 				metadata,
 			});
+			scheduleSave();
 		});
 		client.onTyping(() => setTyping(true));
 		client.onReplyChunk(({ messageId, delta }) => {
@@ -102,10 +122,14 @@ export function createChat(
 					ts: Date.now(),
 					streaming: true,
 				});
+			scheduleSave();
 		});
 		client.onReplyEnd(({ messageId }) => {
 			const existing = findStreaming(messageId);
-			if (existing) existing.streaming = false;
+			if (existing) {
+				existing.streaming = false;
+				scheduleSave();
+			}
 		});
 		client.onCommandResult(({ name, text, error, data }) => {
 			for (const cb of awaiters) cb({ name, text, error, data });
@@ -120,6 +144,7 @@ export function createChat(
 				text: error ? `/${name} error: ${error}` : `/${name}: ${text ?? ""}`,
 				ts: Date.now(),
 			});
+			scheduleSave();
 		});
 	}
 
@@ -212,6 +237,12 @@ export function createChat(
 			chat.send({ chatId: chatIdValue, sender: senderValue, text: trimmed });
 		}
 		messages.push({ id: nextId++, role: "user", text: trimmed, ts: Date.now() });
+		scheduleSave();
+	}
+
+	function clearMessages() {
+		messages.length = 0;
+		saveCachedMessages(historyKey, messages);
 	}
 
 	/** Send a slash command without echoing a "user" bubble. */
@@ -296,6 +327,7 @@ export function createChat(
 		connect,
 		disconnect,
 		sendText,
+		clearMessages,
 		runCommand,
 		runCommandAwait,
 		listCommands,
@@ -303,3 +335,48 @@ export function createChat(
 }
 
 export type Chat = ReturnType<typeof createChat>;
+
+function loadCachedMessages(key: string): Message[] {
+	try {
+		if (typeof localStorage === "undefined") return [];
+		const raw = localStorage.getItem(key);
+		if (!raw) return [];
+		const parsed = JSON.parse(raw) as unknown;
+		if (!Array.isArray(parsed)) return [];
+		return parsed.filter(isPersistableMessage).map((message) => ({
+			...message,
+			streaming: false,
+			streamId: undefined,
+		}));
+	} catch {
+		return [];
+	}
+}
+
+function saveCachedMessages(key: string, messages: readonly Message[]) {
+	try {
+		if (typeof localStorage === "undefined") return;
+		const persisted = messages
+			.filter((message) => message.role !== "system")
+			.slice(-MAX_PERSISTED_MESSAGES)
+			.map((message) => ({
+				...message,
+				streaming: false,
+				streamId: undefined,
+			}));
+		localStorage.setItem(key, JSON.stringify(persisted));
+	} catch {
+		// Chat history cache is best-effort local state.
+	}
+}
+
+function isPersistableMessage(value: unknown): value is Message {
+	if (!value || typeof value !== "object") return false;
+	const record = value as Record<string, unknown>;
+	return (
+		typeof record.id === "number" &&
+		(record.role === "user" || record.role === "agent") &&
+		typeof record.text === "string" &&
+		typeof record.ts === "number"
+	);
+}

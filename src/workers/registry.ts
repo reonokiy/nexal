@@ -1,11 +1,11 @@
 /**
  * WorkerRegistry — owns the live `WorkerAgent` set, manages the
- * spawn/route/cancel surface, and drives startup resume + shutdown
+ * spawn/send/cancel surface, and drives startup resume + shutdown
  * suspend.
  *
  * External API (consumed by `tools/worker.ts`):
  *   spawn(req)            — create a new persistent or shot worker
- *   route(id, message)    — feed a new instruction to a persistent worker
+ *   sendToAgent(id, msg)  — feed a new instruction to a persistent worker
  *   cancel(id)            — abort + mark cancelled
  *   get(id)               — raw store lookup
  *   listForParent(key)    — recent workers for the parent chat
@@ -20,8 +20,8 @@
  * (each holds a Podman container). When the cap is hit, `spawn`
  * returns the queued row and the runner starts as soon as a slot
  * frees. Persistent workers stay alive forever (until cancel/shutdown)
- * so heavy use of `spawn_worker` will eventually need explicit
- * `cancel_worker` calls.
+ * so heavy use of `spawn_*` will eventually need explicit
+ * `cancel_agent` calls.
  */
 import { randomUUID } from "node:crypto";
 import { createLog } from "../log.ts";
@@ -59,9 +59,9 @@ export interface WorkerRegistryConfig {
 	executorSystemPromptDefault: string;
 	/** Default system prompt for sub-coordinators with no override. */
 	coordinatorSystemPromptDefault: string;
-	/** Tool factory for executor workers (typically bash + send_update + report_to_parent). */
+	/** Tool factory for executor workers (typically bash + send_to_user + send_to_parent). */
 	executorTools: (runner: WorkerAgent) => AgentTool<any>[];
-	/** Tool factory for sub-coordinators (dispatcher tools + report_to_parent). */
+	/** Tool factory for sub-coordinators (dispatcher tools + send_to_parent). */
 	coordinatorTools: (runner: WorkerAgent) => AgentTool<any>[];
 	/**
 	 * Upstream API proxies registered for every executor on spawn.
@@ -198,19 +198,19 @@ export class WorkerRegistry {
 	 * retry once the agent reaches `idle`.
 	 *
 	 * Internal — does NOT enforce parent/child relationship. Use
-	 * `routeFromCaller` from dispatcher-tool code paths.
+	 * `sendToAgentFromCaller` from dispatcher-tool code paths.
 	 */
-	async route(id: string, content: UserContent): Promise<void> {
+	async sendToAgent(id: string, content: UserContent): Promise<void> {
 		const runner = this.agents.get(id);
 		if (!runner) {
 			const row = await this.cfg.store.get(id);
 			if (!row) throw new Error(`agent ${id} not found`);
 			throw new Error(
-				`agent ${id} is ${row.status} (not yet started or already terminal); cannot route`,
+				`agent ${id} is ${row.status} (not yet started or already terminal); cannot send`,
 			);
 		}
 		if (runner.lifetime !== "persistent") {
-			throw new Error(`agent ${id} is one-shot; cannot accept route`);
+			throw new Error(`agent ${id} is one-shot; cannot accept messages`);
 		}
 		await runner.route(content);
 	}
@@ -222,7 +222,7 @@ export class WorkerRegistry {
 	 * sub-coordinator's row id for nested dispatchers. Children of
 	 * that dispatcher have `parent_session_key === callerKey`.
 	 */
-	async routeFromCaller(
+	async sendToAgentFromCaller(
 		callerKey: string,
 		targetId: string,
 		content: UserContent,
@@ -232,10 +232,10 @@ export class WorkerRegistry {
 		if (target.parentSessionKey !== callerKey) {
 			throw new Error(
 				`agent ${targetId} is not a direct child of you (its parent is ${target.parentSessionKey}). ` +
-					`You can only route to agents you spawned. To reach a deeper descendant, route through the intermediate coordinator.`,
+					`You can only send to agents you spawned. To reach a deeper descendant, send through the intermediate coordinator.`,
 			);
 		}
-		await this.route(targetId, content);
+		await this.sendToAgent(targetId, content);
 	}
 
 	/**
@@ -244,7 +244,7 @@ export class WorkerRegistry {
 	 *   - `"<channel>:<chatId>"` → top-level coordinator (AgentPool)
 	 *   - any other id            → another row in this registry
 	 */
-	async reportToParent(callerId: string, content: UserContent): Promise<void> {
+	async sendToParent(callerId: string, content: UserContent): Promise<void> {
 		const caller = await this.cfg.store.get(callerId);
 		if (!caller) throw new Error(`agent ${callerId} not found`);
 		const parentKey = caller.parentSessionKey;
@@ -253,7 +253,7 @@ export class WorkerRegistry {
 		if (parentKey.includes(":")) {
 			if (!this.cfg.forwardToCoordinator) {
 				throw new Error(
-					"top-level delivery not configured; report_to_parent unavailable for top-level children",
+					"top-level delivery not configured; send_to_parent unavailable for top-level children",
 				);
 			}
 			await this.cfg.forwardToCoordinator(parentKey, `worker:${caller.name}`, content);
@@ -265,7 +265,7 @@ export class WorkerRegistry {
 			typeof content === "string"
 				? `[from child ${caller.name}] ${content}`
 				: [{ type: "text", text: `[from child ${caller.name}] ` }, ...content];
-		await this.route(parentKey, prefixed);
+		await this.sendToAgent(parentKey, prefixed);
 	}
 
 	async cancel(id: string): Promise<void> {

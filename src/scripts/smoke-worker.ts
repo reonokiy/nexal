@@ -2,7 +2,7 @@
  * End-to-end smoke of the worker subsystem against a live nexal-gateway.
  *
  * Spawns one shot executor through the gateway, asks it to write a
- * file inside /workspace and call send_update, then asserts the stub
+ * file inside /workspace and call send_to_user, then asserts the stub
  * channel saw the message and the row ended up `completed`.
  *
  * Requirements:
@@ -23,7 +23,7 @@ import type { Channel, OutgoingReply } from "../channels/types.ts";
 import { GatewayClient } from "../gateway/index.ts";
 import { createMessageSender } from "../messaging/index.ts";
 import { createBashTool } from "../tools/bash.ts";
-import { createSendUpdateTool } from "../tools/send_update.ts";
+import { createSendToUserTool } from "../tools/send_to_user.ts";
 import { WorkerRegistry } from "../workers/registry.ts";
 import type { WorkerAgent } from "../workers/agent.ts";
 import { createWorkerStore } from "../workers/store.ts";
@@ -79,12 +79,12 @@ async function main(): Promise<void> {
 		maxConcurrent: 1,
 		tapeStore,
 		executorSystemPromptDefault:
-			"You are a test executor. Do exactly what the user asks using bash, then call send_update with a short confirmation.",
+			"You are a test executor. Do exactly what the user asks using bash, then call send_to_user with a short confirmation.",
 		coordinatorSystemPromptDefault: "You are a test coordinator (unused in this smoke).",
 		executorTools: (runner: WorkerAgent) => {
 			const client = runner.execClient;
-			if (!client) return [createSendUpdateTool(runner)];
-			return [createBashTool(client), createSendUpdateTool(runner)];
+			if (!client) return [createSendToUserTool(runner)];
+			return [createBashTool(client), createSendToUserTool(runner)];
 		},
 		coordinatorTools: () => [], // unused
 	});
@@ -97,7 +97,7 @@ async function main(): Promise<void> {
 		sourceChatId: "smoke-chat",
 		name: "smoke",
 		initialPrompt:
-			'Create the file /workspace/out containing "hello-from-sub-agent", then call send_update with the text "done".',
+			'Create the file /workspace/out containing "hello-from-sub-agent", then call send_to_user with the text "done".',
 		sendPolicy: "explicit",
 	});
 	console.log(`[smoke] spawned worker ${row.id}`);

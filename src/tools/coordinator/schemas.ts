@@ -18,25 +18,25 @@ export const SpawnExecutorParams = Type.Object({
 	name: Type.String({
 		description:
 			"Short kebab-case label (e.g. \"refactor-authz\"). Shown as a prefix on " +
-			"every chat message the executor emits via send_update.",
+			"every chat message the executor emits via send_to_user.",
 	}),
 	system_prompt: Type.String({
 		description:
 			"The executor's persona / capability description. Frozen at spawn time. " +
 			"Be specific about role, allowed actions, and reporting style. Tell it to " +
-			"call send_update for milestones.",
+			"call send_to_user for milestones.",
 	}),
 	initial_prompt: Type.Optional(
 		Type.String({
 			description:
 				"Optional first user message. Omit to spawn an empty executor that waits " +
-				"for a route_to_agent call.",
+				"for a send_to_agent call.",
 		}),
 	),
 	send_policy: Type.Optional(
 		Type.Union([Type.Literal("explicit"), Type.Literal("final"), Type.Literal("all")], {
 			description:
-				"explicit (default) = only send_update reaches chat; final = + last assistant text per turn; all = every assistant turn.",
+				"explicit (default) = only send_to_user reaches chat; final = + last assistant text per turn; all = every assistant turn.",
 		}),
 	),
 });

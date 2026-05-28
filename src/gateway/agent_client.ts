@@ -34,6 +34,8 @@ export interface AgentClient {
 	readonly agentId?: string;
 	/** Run a command and accumulate output until exit. */
 	runCommand(argv: string[], opts?: RunCommandOptions): Promise<RunCommandResult>;
+	/** Read a file from the agent filesystem. */
+	readFile(path: string): Promise<Uint8Array>;
 	/** Close any per-client resources. Does NOT kill the underlying container. */
 	close(): Promise<void>;
 }
@@ -103,6 +105,11 @@ export class GatewayAgentClient implements AgentClient {
 		}
 
 		return { stdout, stderr, exitCode, timedOut };
+	}
+
+	async readFile(path: string): Promise<Uint8Array> {
+		const result = await this.agent.fsReadFile({ path });
+		return result.data;
 	}
 
 	/** No-op: the underlying GatewayClient WS is shared, not owned. */

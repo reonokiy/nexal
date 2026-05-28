@@ -47,11 +47,12 @@ export function createTapeStore(opts: TapeStoreOptions = {}): TapeStore {
 
 		const prepared: TapeEntryDraft[] = [];
 		for (const entry of entries) {
+			const normalized = normalizeTapeEntryDraft(entry);
 			prepared.push({
-				...entry,
+				...normalized,
 				payload: fileStore
-					? await offloadLargeBlobs(entry.payload, fileStore, maxInline, db)
-					: entry.payload,
+					? await offloadLargeBlobs(normalized.payload, fileStore, maxInline, db)
+					: normalized.payload,
 			});
 		}
 
@@ -402,6 +403,85 @@ function rowToEntry(row: schema.TapeEntryRow): TapeEntry {
 		payload: row.payload ?? {},
 		meta: row.meta ?? {},
 		date: row.entryDate,
+	};
+}
+
+export function normalizeTapeEntryDraft(entry: TapeEntryDraft): TapeEntryDraft {
+	if (entry.kind === "tool_call") return normalizeLegacyToolCallEntry(entry);
+	if (entry.kind !== "message") return entry;
+
+	const content = entry.payload.content;
+	if (!Array.isArray(content)) return entry;
+
+	let changed = false;
+	const normalizedContent = content.map((block) => {
+		if (!block || typeof block !== "object" || Array.isArray(block)) return block;
+		const record = block as Record<string, unknown>;
+		if (record.type !== "tool_call") return block;
+		changed = true;
+		const {
+			type: _type,
+			id,
+			name,
+			toolCallId,
+			toolName,
+			arguments: args,
+			args: legacyArgs,
+			input,
+			...rest
+		} = record;
+		return {
+			...rest,
+			type: "toolCall",
+			id: id ?? toolCallId ?? "",
+			name: name ?? toolName ?? "tool",
+			arguments: args ?? legacyArgs ?? input ?? {},
+		};
+	});
+	if (!changed) return entry;
+	return {
+		...entry,
+		payload: {
+			...entry.payload,
+			content: normalizedContent,
+		},
+	};
+}
+
+function normalizeLegacyToolCallEntry(entry: TapeEntryDraft): TapeEntryDraft {
+	const payload = entry.payload;
+	const {
+		toolCallId,
+		toolName,
+		id,
+		name,
+		arguments: args,
+		args: legacyArgs,
+		input,
+		thoughtSignature,
+		role: _role,
+		content: _content,
+		...rest
+	} = payload;
+	const callId = String(toolCallId ?? id ?? "");
+	const callName = String(toolName ?? name ?? "tool");
+	const parsedDate = Date.parse(entry.date);
+	const timestamp = Number(payload.timestamp ?? (Number.isFinite(parsedDate) ? parsedDate : Date.now()));
+	return {
+		...entry,
+		kind: "message",
+		payload: {
+			...rest,
+			role: "assistant",
+			content: [{
+				type: "toolCall",
+				id: callId,
+				name: callName,
+				arguments: args ?? legacyArgs ?? input ?? {},
+				...(thoughtSignature ? { thoughtSignature } : {}),
+			}],
+			timestamp,
+		},
 	};
 }
 

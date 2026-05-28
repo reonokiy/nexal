@@ -13,14 +13,16 @@ const CTX: CoordinatorCtx = {
 
 function mockRegistry(): WorkerRegistry & {
 	spawn: ReturnType<typeof mock>;
-	routeFromCaller: ReturnType<typeof mock>;
+	sendToAgentFromCaller: ReturnType<typeof mock>;
 	get: ReturnType<typeof mock>;
 	listForParent: ReturnType<typeof mock>;
 	cancel: ReturnType<typeof mock>;
 } {
 	return {
-		spawn: mock(async (req: any) => fakeRow({ id: `spawned-${req.name}`, kind: req.kind, lifetime: req.lifetime })),
-		routeFromCaller: mock(async () => undefined),
+		spawn: mock(async (req: any) =>
+			fakeRow({ id: `spawned-${req.name}`, kind: req.kind, lifetime: req.lifetime, status: "spawning" }),
+		),
+		sendToAgentFromCaller: mock(async () => undefined),
 		get: mock(async (id: string) => (id === "known" ? fakeRow({ id: "known" }) : null)),
 		listForParent: mock(async () => [fakeRow({ id: "a" }), fakeRow({ id: "b" })]),
 		cancel: mock(async () => undefined),
@@ -34,7 +36,7 @@ describe("createCoordinatorTools", () => {
 			"spawn_executor",
 			"spawn_oneshot",
 			"spawn_coordinator",
-			"route_to_agent",
+			"send_to_agent",
 			"list_agents",
 			"get_agent",
 			"cancel_agent",
@@ -93,13 +95,13 @@ describe("createCoordinatorTools", () => {
 		expect(req.sendPolicy).toBe("explicit");
 	});
 
-	test("route_to_agent enforces caller via routeFromCaller", async () => {
+	test("send_to_agent enforces caller via sendToAgentFromCaller", async () => {
 		const reg = mockRegistry();
 		const tools = createCoordinatorTools(reg, CTX);
 		await tools
-			.find((t) => t.name === "route_to_agent")!
+			.find((t) => t.name === "send_to_agent")!
 			.execute("call-4", { id: "child", content: "do thing" } as any);
-		expect(reg.routeFromCaller).toHaveBeenCalledWith(
+		expect(reg.sendToAgentFromCaller).toHaveBeenCalledWith(
 			CTX.parentSessionKey,
 			"child",
 			"do thing",

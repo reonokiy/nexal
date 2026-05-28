@@ -14,7 +14,7 @@
 
 	function clearChat() {
 		if (!confirm("Discard the current chat transcript?")) return;
-		chat.messages.length = 0;
+		chat.clearMessages();
 	}
 </script>
 
@@ -37,7 +37,7 @@
 
 		<SettingRow
 			label="Clear chat transcript"
-			desc="Wipes the in-memory message history shown on this device."
+			desc="Wipes the message history saved in this browser."
 		>
 			<Button variant="secondary" size="sm" class="h-8" onclick={clearChat}>
 				clear

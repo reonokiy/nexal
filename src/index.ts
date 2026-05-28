@@ -13,8 +13,8 @@ import { loadConfig } from "./config.ts";
 import { GatewayClient } from "./gateway/index.ts";
 import { createMessageSender } from "./messaging/index.ts";
 import { createBashTool } from "./tools/bash.ts";
-import { createReportToParentTool } from "./tools/report_to_parent.ts";
-import { createSendUpdateTool } from "./tools/send_update.ts";
+import { createSendToParentTool } from "./tools/send_to_parent.ts";
+import { createSendToUserTool } from "./tools/send_to_user.ts";
 import { createCoordinatorTools } from "./tools/coordinator/index.ts";
 import { WorkerRegistry } from "./workers/registry.ts";
 import { loadAuth, loadModelConfig, loadProviderConfig } from "./settings.ts";
@@ -200,8 +200,8 @@ async function main(): Promise<void> {
 			executorTools: (runner) => {
 				const client = runner.execClient;
 				const tools: AgentTool<any>[] = [
-					createSendUpdateTool(runner),
-					createReportToParentTool(workers!, runner),
+					createSendToUserTool(runner),
+					createSendToParentTool(workers!, runner),
 				];
 				if (client) tools.unshift(createBashTool(client));
 				else log.error(`executor "${runner.row.name}" has no exec client, bash tool will be unavailable`);
@@ -220,7 +220,7 @@ async function main(): Promise<void> {
 				// And the upward edge: sub-coordinators can escalate to
 				// their own parent (which may be another sub-coordinator
 				// or the top-level coordinator).
-				createReportToParentTool(workers!, runner),
+				createSendToParentTool(workers!, runner),
 			],
 			forwardToCoordinator: (sessionKey, sender, content) => {
 				if (!pool) {
@@ -313,7 +313,7 @@ async function main(): Promise<void> {
 	await manager.startInitial();
 
 	// Resume non-terminal workers after channels are up so their
-	// send_update calls can land on the right destination.
+	// send_to_user calls can land on the right destination.
 	await workers?.resumePending().catch((err: unknown) =>
 		log.error("failed to resume workers from previous process", err),
 	);

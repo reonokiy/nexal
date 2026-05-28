@@ -13,6 +13,7 @@
   "dependencies": {
     "@fontsource/inter": "^5.2.8",
     "@fontsource/noto-sans-sc": "^5.2.9",
+    "@humanspeak/svelte-markdown": "^1.5.2",
     "@iconify/icons-solar": "^1.2.3",
     "@iconify/svelte": "^5.2.1",
     "@nexal/transport": "workspace:*",
@@ -20,7 +21,7 @@
     "bits-ui": "^2.0.0",
     "clsx": "^2.1.1",
     "dompurify": "^3.4.2",
-    "marked": "^18.0.3",
+    "shiki": "^4.1.0",
     "simple-icons": "^16.19.0",
     "tailwind-merge": "^2.5.4",
     "tailwind-variants": "^0.3.0",

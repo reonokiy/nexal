@@ -1,10 +1,10 @@
 /**
- * report_to_parent — the only way for a spawned agent to send a
+ * send_to_parent — the only way for a spawned agent to send a
  * message UPWARDS in the tree.
  *
  * Tree edges:
- *   - parent → child: `route_to_agent` (only direct children)
- *   - child  → parent: `report_to_parent` (this tool)
+ *   - parent → child: `send_to_agent` (only direct children)
+ *   - child  → parent: `send_to_parent` (this tool)
  *   - child  → sibling: forbidden — must go through the common parent
  *
  * The destination is decided by the agent's `parent_session_key`:
@@ -25,34 +25,37 @@ import { type Static, Type } from "@mariozechner/pi-ai";
 
 import type { WorkerRegistry } from "../workers/registry.ts";
 import type { WorkerAgent } from "../workers/agent.ts";
-import { UserContentSchema, type UserContent, contentLength } from "../content.ts";
+import { TextOnlyUserContentSchema, type UserContent, contentLength } from "../content.ts";
+import { attachSandboxFiles, FileAttachmentsSchema } from "./file_content.ts";
 
-const ReportParams = Type.Object({
-	content: UserContentSchema,
+const SendToParentParams = Type.Object({
+	content: TextOnlyUserContentSchema,
+	files: FileAttachmentsSchema,
 });
 
-export function createReportToParentTool(
+export function createSendToParentTool(
 	registry: WorkerRegistry,
 	runner: WorkerAgent,
-): AgentTool<typeof ReportParams, { bytes: number }> {
+): AgentTool<typeof SendToParentParams, { bytes: number }> {
 	return {
-		name: "report_to_parent",
-		label: "Report To Parent",
+		name: "send_to_parent",
+		label: "Send To Parent",
 		description:
 			"Send a message to the agent that spawned you (your parent in the tree). " +
 			"This is the ONLY upward edge — you cannot talk to siblings or your parent's " +
-			"parent directly. If you need a sibling to act, ask your parent to route the " +
+			"parent directly. If you need a sibling to act, ask your parent to send the " +
 			"work over.\n" +
-			"content: a plain string, or an array of content blocks " +
-			'[{type:"text",text:"..."},{type:"image",data:"<base64>",mimeType:"image/jpeg"}] ' +
-			"when you need to include images. Be self-contained — your parent doesn't see your transcript.",
-		parameters: ReportParams,
+			"content: a plain string, or an array of text content blocks. " +
+			"If you need to include images or other downloaded files, put their sandbox paths in " +
+			'files, e.g. files:[{path:"/workspace/cat.jpg",mimeType:"image/jpeg"}]. ' +
+			"Do NOT paste base64 image data into content. Be self-contained — your parent doesn't see your transcript.",
+		parameters: SendToParentParams,
 		async execute(
 			_id: string,
-			params: Static<typeof ReportParams>,
+			params: Static<typeof SendToParentParams>,
 		): Promise<AgentToolResult<{ bytes: number }>> {
-			const content = params.content as UserContent;
-			await registry.reportToParent(runner.id, content);
+			const content = await attachSandboxFiles(runner, params.content as UserContent, params.files);
+			await registry.sendToParent(runner.id, content);
 			const len = contentLength(content);
 			return {
 				content: [{ type: "text", text: "[reported]" }],

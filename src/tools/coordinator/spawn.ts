@@ -37,7 +37,7 @@ export function spawnExecutorTool(
 		label: "Spawn Executor",
 		description:
 			"Create a long-lived executor agent with its own Podman sandbox, bash, and " +
-			"send_update. The executor persists across many turns — use route_to_agent to " +
+			"send_to_user. The executor persists across many turns — use send_to_agent to " +
 			"feed it new instructions. Use this when an ongoing project area benefits from " +
 			"accumulated context.",
 		parameters: SpawnExecutorParams,
@@ -103,7 +103,7 @@ export function spawnCoordinatorTool(
 		description:
 			"Create a long-lived sub-coordinator. Sub-coordinators are themselves " +
 			"dispatchers: they own a subtree of executors (and possibly more " +
-			"sub-coordinators), and they respond to route_to_agent calls. Use this when " +
+			"sub-coordinators), and they respond to send_to_agent calls. Use this when " +
 			"a domain is large enough to deserve its own scheduling layer (e.g. a project " +
 			"with many specialist executors).",
 		parameters: SpawnCoordinatorParams,

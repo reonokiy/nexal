@@ -104,12 +104,7 @@
 			<span>Computers</span>
 		</button>
 		<div class="mt-1 flex flex-col gap-0.5 pl-8">
-			{#if computers.loading && computers.agents.length === 0}
-				<div class="text-muted-foreground flex items-center gap-2 px-2.5 py-1 text-xs">
-					<span class="size-1.5 animate-pulse rounded-full bg-foreground/35"></span>
-					<span class="animate-pulse">Loading…</span>
-				</div>
-			{:else if computers.agents.length === 0}
+			{#if computers.agents.length === 0}
 				<div class="text-muted-foreground/70 px-2.5 py-1 text-xs">No computers</div>
 			{:else}
 				{#each computers.agents as agent (agent.agent_id)}

@@ -3,7 +3,7 @@
  *
  * Core primitives:
  *   Tape     — chronological sequence of facts per session/workspace
- *   Entry    — immutable fact record (message, tool_call, tool_result, event, anchor)
+ *   Entry    — immutable fact record (message, tool_result, event, anchor)
  *   Anchor   — logical checkpoint carrying state payload
  *   FileRef  — external storage reference for binary attachments
  *   TapeRef  — reference to another tape or entry within a tape
@@ -29,6 +29,7 @@ export type TapeEntryDraft = Omit<TapeEntry, "id">;
 export type TapeEntryKind =
 	| "anchor"
 	| "message"
+	/** Legacy input kind normalized to message content before persistence. */
 	| "tool_call"
 	| "tool_result"
 	| "event"

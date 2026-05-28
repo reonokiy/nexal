@@ -135,13 +135,40 @@
 
 	function inferWorkerStatus(text: string, existing?: string): string {
 		const lower = text.toLowerCase();
-		if (text.includes("❌") || lower.includes("failed:") || lower.includes("error:")) {
+		if (
+			text.includes("❌") ||
+			lower.includes("failed:") ||
+			lower.includes("error:") ||
+			lower.includes("unsuccess") ||
+			lower.includes("not successful") ||
+			lower.includes("失败") ||
+			lower.includes("错误")
+		) {
 			return "failed";
 		}
-		if (lower.includes("complete") || lower.includes("finished") || lower.includes("done")) {
+		if (
+			lower.includes("complete") ||
+			lower.includes("completed") ||
+			lower.includes("finished") ||
+			lower.includes("done") ||
+			lower.includes("success") ||
+			lower.includes("succeeded") ||
+			lower.includes("成功") ||
+			lower.includes("完成")
+		) {
 			return "done";
 		}
 		return existing === "spawning" ? "running" : existing ?? "running";
+	}
+
+	function displayWorkerStatus(status: string | undefined, lifetime?: string): string {
+		if (!status) return "running";
+		if (lifetime === "oneshot" && ["done", "completed"].includes(status)) return "stopped";
+		return status;
+	}
+
+	function isTerminalStatus(status: string): boolean {
+		return ["done", "completed", "stopped", "suspended", "cancelled"].includes(status);
 	}
 
 	function upsertTask(
@@ -195,7 +222,10 @@
 					source: parsed.source ?? (worker || transfer ? "worker" : "coordinator"),
 					toolName: parsed.toolName,
 					workerId: parsed.workerId ?? workerName,
-					workerStatus: parsed.workerStatus ?? (worker ? inferWorkerStatus(parsed.text) : undefined),
+					workerStatus: displayWorkerStatus(
+						parsed.workerStatus ?? (worker ? inferWorkerStatus(parsed.text) : undefined),
+						worker?.lifetime,
+					),
 					workerName: worker?.name,
 					workerKind: worker?.kind,
 					workerLifetime: worker?.lifetime,
@@ -260,7 +290,10 @@
 				name,
 				kind: worker?.kind ?? existing?.kind ?? "worker",
 				lifetime: worker?.lifetime ?? existing?.lifetime,
-				status: parsed.workerStatus ?? inferWorkerStatus(transfer?.text ?? parsed.text, existing?.status),
+				status: displayWorkerStatus(
+					parsed.workerStatus ?? inferWorkerStatus(transfer?.text ?? parsed.text, existing?.status),
+					worker?.lifetime ?? existing?.lifetime,
+				),
 				lastText: transfer?.text ?? parsed.text,
 				ts: message.ts,
 			});
@@ -276,7 +309,7 @@
 		let done = 0;
 		for (const task of taskItems) {
 			if (task.status === "failed") failed++;
-			else if (["done", "completed", "suspended", "cancelled"].includes(task.status)) done++;
+			else if (isTerminalStatus(task.status)) done++;
 			else active++;
 		}
 		return { active, failed, done, total: taskItems.length };
@@ -312,13 +345,13 @@
 	}
 
 	function newChat() {
-		chat.messages.length = 0;
+		chat.clearMessages();
 		input = "";
 	}
 
 	function statusClass(status: string): string {
 		if (status === "failed") return "text-red-500 bg-red-500/10";
-		if (["done", "completed"].includes(status)) return "text-emerald-500 bg-emerald-500/10";
+		if (["done", "completed", "stopped"].includes(status)) return "text-emerald-500 bg-emerald-500/10";
 		if (["suspended", "cancelled"].includes(status)) return "text-muted-foreground bg-muted";
 		return "text-primary bg-primary/10";
 	}

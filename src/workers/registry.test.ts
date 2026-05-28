@@ -39,14 +39,14 @@ const mockTapeStore: TapeStore = {
 
 /**
  * Tests focus on the public tree-edge API:
- *   - routeFromCaller: only caller's direct children may be routed to
- *   - reportToParent: parent is a session key OR a worker id; behaviour
+ *   - sendToAgentFromCaller: only caller's direct children may receive messages
+ *   - sendToParent: parent is a session key OR a worker id; behaviour
  *                     differs
  *
  * We do NOT exercise actual spawning / running here — that would pull
  * in sandbox + agent machinery. Tests construct a WorkerRegistry with
  * a mock store and verify behaviour BEFORE any runner is live
- * (so `route` downstream of the tree check errors with "cannot route",
+ * (so `sendToAgent` downstream of the tree check errors with "cannot send",
  * which is enough to confirm the validation path took the right
  * branch).
  */
@@ -152,10 +152,10 @@ function buildRegistry(opts?: {
 	});
 }
 
-describe("WorkerRegistry.routeFromCaller", () => {
+describe("WorkerRegistry.sendToAgentFromCaller", () => {
 	test("throws 'not found' for unknown target id", async () => {
 		const reg = buildRegistry({ store: mockStore([]) });
-		await expect(reg.routeFromCaller("caller", "missing", "hi")).rejects.toThrow(
+		await expect(reg.sendToAgentFromCaller("caller", "missing", "hi")).rejects.toThrow(
 			/agent missing not found/,
 		);
 	});
@@ -164,14 +164,14 @@ describe("WorkerRegistry.routeFromCaller", () => {
 		const target = fakeRow({ id: "target", parentSessionKey: "other-parent" });
 		const reg = buildRegistry({ store: mockStore([target]) });
 		await expect(
-			reg.routeFromCaller("evil-caller", "target", "take over"),
+			reg.sendToAgentFromCaller("evil-caller", "target", "take over"),
 		).rejects.toThrow(/not a direct child/);
 	});
 
 	test("error message names the actual parent so the LLM can route correctly", async () => {
 		const target = fakeRow({ id: "target", parentSessionKey: "real-parent-id" });
 		const reg = buildRegistry({ store: mockStore([target]) });
-		await expect(reg.routeFromCaller("caller", "target", "hi")).rejects.toThrow(
+		await expect(reg.sendToAgentFromCaller("caller", "target", "hi")).rejects.toThrow(
 			/its parent is real-parent-id/,
 		);
 	});
@@ -179,18 +179,18 @@ describe("WorkerRegistry.routeFromCaller", () => {
 	test("caller == parent passes the validation then fails downstream (no runner)", async () => {
 		const target = fakeRow({ id: "target", parentSessionKey: "parent" });
 		const reg = buildRegistry({ store: mockStore([target]) });
-		// No runner exists, so route() throws a different error — proving
+		// No runner exists, so sendToAgent() throws a different error — proving
 		// the tree-edge check let us past it.
-		await expect(reg.routeFromCaller("parent", "target", "hi")).rejects.toThrow(
-			/cannot route/,
+		await expect(reg.sendToAgentFromCaller("parent", "target", "hi")).rejects.toThrow(
+			/cannot send/,
 		);
 	});
 });
 
-describe("WorkerRegistry.reportToParent", () => {
+describe("WorkerRegistry.sendToParent", () => {
 	test("throws 'not found' for unknown caller id", async () => {
 		const reg = buildRegistry({ store: mockStore([]) });
-		await expect(reg.reportToParent("ghost", "hi")).rejects.toThrow(
+		await expect(reg.sendToParent("ghost", "hi")).rejects.toThrow(
 			/agent ghost not found/,
 		);
 	});
@@ -206,7 +206,7 @@ describe("WorkerRegistry.reportToParent", () => {
 			store: mockStore([caller]),
 			forwardToCoordinator: deliver,
 		});
-		await reg.reportToParent("exec-1", "done with refactor");
+		await reg.sendToParent("exec-1", "done with refactor");
 		expect(deliver).toHaveBeenCalledTimes(1);
 		const args = (deliver as any).mock.calls[0];
 		expect(args[0]).toBe("telegram:-100999");
@@ -217,7 +217,7 @@ describe("WorkerRegistry.reportToParent", () => {
 	test("session-key parent with no forwardToCoordinator throws a clear error", async () => {
 		const caller = fakeRow({ id: "exec-1", parentSessionKey: "telegram:-1" });
 		const reg = buildRegistry({ store: mockStore([caller]) });
-		await expect(reg.reportToParent("exec-1", "hi")).rejects.toThrow(
+		await expect(reg.sendToParent("exec-1", "hi")).rejects.toThrow(
 			/top-level delivery not configured/,
 		);
 	});
@@ -236,7 +236,7 @@ describe("WorkerRegistry.reportToParent", () => {
 		});
 		// No runner registered for coord-parent-uuid → route() throws.
 		// That's fine; we only care that forwardToCoordinator was NOT called.
-		await expect(reg.reportToParent("exec-1", "hi")).rejects.toThrow();
+		await expect(reg.sendToParent("exec-1", "hi")).rejects.toThrow();
 		expect(deliver).not.toHaveBeenCalled();
 	});
 
@@ -251,7 +251,7 @@ describe("WorkerRegistry.reportToParent", () => {
 		// We can't observe the prefix directly (route throws before it
 		// reaches a runner), but we can verify the thrown error carries
 		// the parent id — same code path.
-		await expect(reg.reportToParent("exec-1", "ping")).rejects.toThrow(
+		await expect(reg.sendToParent("exec-1", "ping")).rejects.toThrow(
 			/parent-uuid/,
 		);
 	});
@@ -414,17 +414,17 @@ describe("WorkerRegistry.spawn", () => {
 	});
 });
 
-describe("WorkerRegistry.route (id lookup)", () => {
+describe("WorkerRegistry.sendToAgent (id lookup)", () => {
 	test("throws when the agent doesn't exist at all", async () => {
 		const reg = buildRegistry();
-		await expect(reg.route("nope", "hi")).rejects.toThrow(/agent nope not found/);
+		await expect(reg.sendToAgent("nope", "hi")).rejects.toThrow(/agent nope not found/);
 	});
 
 	test("throws with the persisted status when a row exists but no runner is live", async () => {
 		const row = fakeRow({ id: "r1", status: "idle" as WorkerStatus });
 		const reg = buildRegistry({ store: mockStore([row]) });
-		await expect(reg.route("r1", "hi")).rejects.toThrow(
-			/agent r1 is idle.*cannot route/,
+		await expect(reg.sendToAgent("r1", "hi")).rejects.toThrow(
+			/agent r1 is idle.*cannot send/,
 		);
 	});
 });

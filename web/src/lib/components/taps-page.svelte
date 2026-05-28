@@ -1,13 +1,14 @@
 <script lang="ts">
 	import Icon from "@iconify/svelte";
 	import {
+		altArrowRightLinear,
 		billListLinear,
 		infoCircleLinear,
 		recordCircleLinear,
 	} from "$lib/icons/solar";
 	import { router } from "$lib/router.svelte";
 	import { cn } from "$lib/utils";
-	import { renderMarkdown } from "$lib/markdown";
+	import Markdown from "$lib/components/markdown.svelte";
 	import type { Chat } from "$lib/client.svelte";
 	import {
 		getCachedLatestTapeEntries,
@@ -68,6 +69,12 @@
 		anchors: number;
 		lastAnchor: string | null;
 	} | null;
+
+	type ToolArgRow = {
+		key: string;
+		value: string;
+		kind: "string" | "number" | "boolean" | "null" | "object" | "array";
+	};
 
 	let {
 		chat,
@@ -386,6 +393,7 @@
 		if (role === "assistant") return "Assistant";
 		if (entry.kind === "tool_call") return String(entry.payload.toolName ?? entry.payload.name ?? "Tool call");
 		if (entry.kind === "tool_result") return String(entry.payload.toolName ?? "Tool result");
+		if (entry.kind === "event") return String(entry.payload.name ?? "Event");
 		if (entry.kind === "anchor") return "Anchor";
 		if (entry.kind === "ref") return "Tape ref";
 		return entry.kind;
@@ -433,6 +441,38 @@
 		}
 	}
 
+	function valueKind(value: unknown): ToolArgRow["kind"] {
+		if (value === null || value === undefined) return "null";
+		if (Array.isArray(value)) return "array";
+		if (typeof value === "object") return "object";
+		if (typeof value === "number") return "number";
+		if (typeof value === "boolean") return "boolean";
+		return "string";
+	}
+
+	function formatToolArgValue(value: unknown): string {
+		if (typeof value === "string") return value;
+		if (value === undefined) return "undefined";
+		if (value === null) return "null";
+		if (typeof value === "number" || typeof value === "boolean") return String(value);
+		return formatToolArgs(value);
+	}
+
+	function toolArgRows(value: unknown): ToolArgRow[] {
+		if (value && typeof value === "object" && !Array.isArray(value)) {
+			return Object.entries(value as Record<string, unknown>).map(([key, item]) => ({
+				key,
+				value: formatToolArgValue(item),
+				kind: valueKind(item),
+			}));
+		}
+		return [{
+			key: "value",
+			value: formatToolArgValue(value),
+			kind: valueKind(value),
+		}];
+	}
+
 	function textFromContent(content: unknown): string {
 		if (typeof content === "string") return content;
 		if (Array.isArray(content)) {
@@ -454,12 +494,6 @@
 
 	function bodyFor(entry: TapeEntry): string {
 		if ("content" in entry.payload) return textFromContent(entry.payload.content);
-		if (entry.kind === "tool_call") {
-			const name = String(entry.payload.toolName ?? entry.payload.name ?? "tool");
-			const id = String(entry.payload.toolCallId ?? entry.payload.id ?? "");
-			const args = entry.payload.arguments ?? entry.payload.args ?? entry.payload.input ?? {};
-			return `${name}${id ? ` (${id})` : ""}\n${formatToolArgs(args)}`;
-		}
 		if (entry.kind === "anchor") {
 			const state = entry.payload.state;
 			return state ? JSON.stringify(state, null, 2) : "Checkpoint";
@@ -523,12 +557,12 @@
 						mimeType: typeof record.mimeType === "string" ? record.mimeType : "image/png",
 					};
 				}
-				if (record.type === "toolCall" || record.type === "tool_call") {
+				if (record.type === "toolCall") {
 					return {
 						type: "toolCall",
-						id: String(record.id ?? record.toolCallId ?? ""),
-						name: String(record.name ?? record.toolName ?? "tool"),
-						args: record.arguments ?? record.args ?? record.input ?? {},
+						id: String(record.id ?? ""),
+						name: String(record.name ?? "tool"),
+						args: record.arguments ?? {},
 					};
 				}
 				const text =
@@ -649,16 +683,38 @@
 												</figcaption>
 											</figure>
 										{:else if block.type === "toolCall"}
-											<div class="border-border rounded-md border bg-orange-500/[0.03] px-3 py-2 text-sm">
-												<div class="mb-2 flex min-w-0 items-center gap-2">
+											<details class="border-border group rounded-md border bg-orange-500/[0.03] text-sm">
+												<summary class="flex min-w-0 cursor-pointer list-none items-center gap-2 px-3 py-2 marker:hidden">
+													<Icon
+														icon={altArrowRightLinear}
+														class="text-muted-foreground size-3.5 shrink-0 transition-transform duration-150 group-open:rotate-90"
+													/>
 													<span class="text-orange-700 dark:text-orange-300 text-[10px] font-medium uppercase tracking-wider">tool call</span>
-													<span class="truncate font-medium">{block.name}</span>
+													<span class="truncate text-xs font-medium">{block.name}</span>
+													<span class="text-muted-foreground rounded bg-orange-500/10 px-1.5 py-0.5 text-[10px]">
+														{toolArgRows(block.args).length} params
+													</span>
 													{#if block.id}
-														<span class="text-muted-foreground ml-auto shrink-0 truncate text-xs">{block.id}</span>
+														<span class="text-muted-foreground ml-auto shrink truncate text-xs">{block.id}</span>
 													{/if}
+												</summary>
+												<div class="border-border bg-orange-500/[0.025] border-t px-3 py-2">
+													<div class="grid gap-2">
+														{#if toolArgRows(block.args).length === 0}
+															<div class="text-muted-foreground rounded-md bg-background px-2.5 py-2 text-xs">none</div>
+														{/if}
+														{#each toolArgRows(block.args) as row (row.key)}
+															<div class="border-border/80 bg-background grid gap-1 rounded-md border px-2.5 py-2 md:grid-cols-[9rem_minmax(0,1fr)] md:gap-3">
+																<div class="flex min-w-0 items-center gap-2">
+																	<span class="truncate font-mono text-xs font-medium text-orange-700 dark:text-orange-300">{row.key}</span>
+																	<span class="text-muted-foreground rounded bg-muted px-1.5 py-0.5 text-[10px]">{row.kind}</span>
+																</div>
+																<pre class="text-foreground/90 bg-muted/25 rounded px-2 py-1.5 whitespace-pre-wrap break-words font-sans text-sm leading-relaxed">{row.value}</pre>
+															</div>
+														{/each}
+													</div>
 												</div>
-												<pre class="text-foreground/90 whitespace-pre-wrap break-words font-sans text-sm leading-relaxed">{formatToolArgs(block.args)}</pre>
-											</div>
+											</details>
 										{:else if block.type === "tapeRef"}
 											<button
 												type="button"
@@ -690,9 +746,7 @@
 												</div>
 											</button>
 										{:else if isMarkdown(entry)}
-											<div class="md-body text-foreground max-w-none text-sm">
-												{@html renderMarkdown(block.text)}
-											</div>
+											<Markdown source={block.text} class="text-sm" />
 										{:else}
 											<pre class="text-foreground/90 whitespace-pre-wrap break-words font-sans text-sm leading-relaxed">{block.text}</pre>
 										{/if}

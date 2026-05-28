@@ -15,6 +15,9 @@ function stubClient(
 		async runCommand(argv, opts) {
 			return handler(argv, opts);
 		},
+		async readFile() {
+			return new Uint8Array();
+		},
 		async close() {},
 	};
 }

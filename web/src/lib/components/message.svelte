@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { renderMarkdown } from "$lib/markdown";
+	import Markdown from "$lib/components/markdown.svelte";
 	import { cn } from "$lib/utils";
 	import { settings } from "$lib/settings.svelte";
 	import Icon from "@iconify/svelte";
@@ -38,8 +38,6 @@
 
 	let toolExpanded = $state(false);
 	let messageExpanded = $state(false);
-
-	const html = $derived(role === "agent" && source !== "tool" ? renderMarkdown(text) : "");
 
 	function fmt(t: number) {
 		const d = new Date(t);
@@ -151,9 +149,7 @@
 			{/if}
 		</div>
 	{:else if role === "agent"}
-		<div class="prose prose-sm md-body text-foreground max-w-none">
-			{@html html}{#if streaming}<span class="md-cursor"></span>{/if}
-		</div>
+		<Markdown source={text} {streaming} />
 	{:else}
 		<div class="text-foreground/90 text-sm leading-relaxed whitespace-pre-wrap break-words">
 			{text}

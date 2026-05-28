@@ -38,6 +38,15 @@ export const UserContentSchema = Type.Union([
 	}),
 ]) as TSchema;
 
+/** Tool-parameter schema for tools that attach images by sandbox file path. */
+export const TextOnlyUserContentSchema = Type.Union([
+	Type.String({ description: "Plain text message." }),
+	Type.Array(TextContentSchema, {
+		description:
+			"Array of text content blocks. Attach images with the tool's files parameter instead of base64.",
+	}),
+]) as TSchema;
+
 // ── Conversion helpers ───────────────────────────────────────────────
 
 /** Channel-layer `ImageAttachment` → pi-ai `ImageContent`. */

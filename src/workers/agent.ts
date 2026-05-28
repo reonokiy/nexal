@@ -7,10 +7,10 @@
  *   - one `Agent` (from pi-agent-core)
  *
  * Tool set is selected by `kind`:
- *   - `"coordinator"` — dispatcher tools only (spawn_…, route_to_agent, …),
+ *   - `"coordinator"` — dispatcher tools only (spawn_…, send_to_agent, …),
  *                       NO bash. Lets sub-coordinators recursively spawn
  *                       their own children.
- *   - `"executor"`    — `bash` + `send_update`. Does the work.
+ *   - `"executor"`    — `bash` + `send_to_user`. Does the work.
  *
  * Termination is selected by `lifetime`:
  *   - `"persistent"` — on `agent_end`, flip to `idle` and stay alive.
@@ -46,6 +46,7 @@ import type { GatewayClient } from "../gateway/index.ts";
 import type { AgentClient } from "../gateway/agent_client.ts";
 import { createBashTool } from "../tools/bash.ts";
 import { Tape, type TapeStore, jsonToMessages, messagesToJson, messagesToEntries, entriesToLlmMessages } from "../tape/index.ts";
+import { hasRuntimeContextEntry, runtimeContextRecord } from "../tape/runtime-context.ts";
 import type { SendPolicy, WorkerKind, WorkerLifetime, WorkerRow, WorkerStore } from "./store.ts";
 
 const PERSIST_DEBOUNCE_MS = 250;
@@ -55,7 +56,7 @@ const RESUME_NUDGE = [
 	"Your shell container has been re-attached; filesystem side-effects in /workspace",
 	"persist, but anything done outside /workspace or in-memory container state is gone.",
 	"Inspect /workspace, figure out where you left off, continue the work,",
-	"and call send_update when you have progress to share.",
+	"and call send_to_user when you have progress to share.",
 ].join(" ");
 
 export interface WorkerAgentDeps {
@@ -67,7 +68,7 @@ export interface WorkerAgentDeps {
 	/**
 	 * Tool factory called once when the agent is constructed. The
 	 * registry routes here based on `runner.row.kind`:
-	 *   - executor    → `[bash, send_update, …]`
+	 *   - executor    → `[bash, send_to_user, …]`
 	 *   - coordinator → `[spawn_executor, spawn_coordinator, …]` (no bash)
 	 */
 	toolsForKind: (runner: WorkerAgent) => AgentTool<any>[];
@@ -133,8 +134,10 @@ export class WorkerAgent {
 		// Load history from tape; fallback to DB messages_json.
 		// Tape is the canonical format; convert directly to LLM format.
 		let initialMessages = jsonToMessages(row.messagesJson);
+		let hasRuntimeContext = false;
 		try {
 			const entries = await tape.view().entries();
+			hasRuntimeContext = hasRuntimeContextEntry(entries);
 			if (entries.length > 0) {
 				initialMessages = entriesToLlmMessages(entries) as any;
 				this.lastPersistedMsgCount = initialMessages.length;
@@ -145,6 +148,31 @@ export class WorkerAgent {
 		}
 
 		const tools = this.deps.toolsForKind(this);
+		if (!hasRuntimeContext) {
+			try {
+				await tape.append(runtimeContextRecord({
+					scope: "worker",
+					systemPrompt: row.systemPrompt,
+					model,
+					tools,
+					metadata: {
+						id: row.id,
+						name: row.name,
+						kind: row.kind,
+						lifetime: row.lifetime,
+						parentSessionKey: row.parentSessionKey,
+						sourceChannel: row.sourceChannel,
+						sourceChatId: row.sourceChatId,
+						sourceReplyTo: row.sourceReplyTo,
+						sendPolicy: row.sendPolicy,
+						initialPrompt: row.initialPrompt,
+						containerName: row.containerName,
+					},
+				}));
+			} catch (err) {
+				this.log.error(`failed to persist runtime context for worker ${row.id}`, err);
+			}
+		}
 		const agent = new Agent({
 			initialState: {
 				systemPrompt: row.systemPrompt,
