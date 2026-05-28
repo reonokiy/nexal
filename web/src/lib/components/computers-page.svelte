@@ -12,20 +12,9 @@
 		serverSquareLinear,
 	} from "$lib/icons/solar";
 	import type { Chat } from "$lib/client.svelte";
-
-	interface Agent {
-		agent_id: string;
-		container_name: string;
-		created_at_unix_ms: number;
-	}
+	import { computers, startComputersRefresh } from "$lib/computers.svelte";
 
 	let { chat }: { chat: Chat } = $props();
-
-	let agents = $state<Agent[]>([]);
-	let loading = $state(true);
-	let error = $state<string | null>(null);
-
-	let interval: ReturnType<typeof setInterval> | undefined;
 
 	const selectedAgentId = $derived.by(() => {
 		const match = router.current.match(/^computers\/(.+)$/);
@@ -34,36 +23,11 @@
 
 	const selectedAgent = $derived.by(() => {
 		if (!selectedAgentId) return null;
-		return agents.find((agent) => agent.agent_id === selectedAgentId) ?? null;
+		return computers.agents.find((agent) => agent.agent_id === selectedAgentId) ?? null;
 	});
 
-	async function fetchAgents(silent = false) {
-		if (chat.status !== "open") {
-			if (!silent) {
-				error = "Backend not connected";
-				loading = false;
-			}
-			return;
-		}
-
-		try {
-			if (!silent) loading = true;
-			const res = await chat.runCommandAwait("sandboxes", []);
-			if (res.error) throw new Error(res.error);
-			const data = res.data as { agents?: Agent[] } | null | undefined;
-			agents = data?.agents ?? [];
-			error = null;
-		} catch (e) {
-			if (!silent) error = e instanceof Error ? e.message : "fetch failed";
-		} finally {
-			if (!silent) loading = false;
-		}
-	}
-
 	onMount(() => {
-		fetchAgents();
-		interval = setInterval(() => fetchAgents(true), 10_000);
-		return () => clearInterval(interval);
+		return startComputersRefresh(chat);
 	});
 
 	function formatAge(ms: number): string {
@@ -80,17 +44,17 @@
 </script>
 
 <div class="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-5 px-6 pb-5">
-	{#if loading}
+	{#if computers.loading && computers.agents.length === 0}
 		<div class="flex flex-1 items-center justify-center gap-2 py-12 text-sm text-muted-foreground">
 			<Icon icon={recordCircleLinear} class="size-4 animate-spin" />
 			<span class="animate-pulse">Loading computers…</span>
 		</div>
-	{:else if error}
+	{:else if computers.error && computers.agents.length === 0}
 		<div class="flex flex-1 items-center justify-center gap-2 py-12 text-sm text-red-400">
 			<Icon icon={serverSquareLinear} class="size-4" />
-			{error}
+			{computers.error}
 		</div>
-	{:else if agents.length === 0}
+	{:else if computers.agents.length === 0}
 		<div class="flex flex-1 flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-border py-16 text-center">
 			<Icon icon={boxLinear} class="size-8 opacity-35" />
 			<div class="space-y-1">

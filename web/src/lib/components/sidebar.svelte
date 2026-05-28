@@ -10,12 +10,7 @@
 		settingsLinear,
 	} from "$lib/icons/solar";
 	import type { Chat } from "$lib/client.svelte";
-
-	interface Agent {
-		agent_id: string;
-		container_name: string;
-		created_at_unix_ms: number;
-	}
+	import { computers, startComputersRefresh } from "$lib/computers.svelte";
 
 	interface TapeInfo {
 		id: string;
@@ -28,35 +23,11 @@
 
 	let { chat }: { chat: Chat } = $props();
 
-	let agents = $state<Agent[]>([]);
 	let tapes = $state<TapeInfo[]>([]);
-	let loadingComputers = $state(true);
 	let loadingTapes = $state(true);
 	let tapesError = $state<string | null>(null);
 
 	let interval: ReturnType<typeof setInterval> | undefined;
-
-	async function refreshAgents(silent = false) {
-		if (chat.status !== "open") {
-			if (!silent) {
-				agents = [];
-				loadingComputers = false;
-			}
-			return;
-		}
-
-		try {
-			if (!silent) loadingComputers = true;
-			const res = await chat.runCommandAwait("sandboxes", []);
-			if (res.error) throw new Error(res.error);
-			const data = res.data as { agents?: Agent[] } | null | undefined;
-			agents = data?.agents ?? [];
-		} catch {
-			if (!silent) agents = [];
-		} finally {
-			if (!silent) loadingComputers = false;
-		}
-	}
 
 	async function refreshTapes(silent = false) {
 		if (chat.status !== "open") {
@@ -90,13 +61,15 @@
 	}
 
 	onMount(() => {
-		refreshAgents();
+		const stopComputersRefresh = startComputersRefresh(chat);
 		refreshTapes();
 		interval = setInterval(() => {
-			refreshAgents(true);
 			refreshTapes(true);
 		}, 10_000);
-		return () => clearInterval(interval);
+		return () => {
+			stopComputersRefresh();
+			clearInterval(interval);
+		};
 	});
 </script>
 
@@ -131,15 +104,15 @@
 			<span>Computers</span>
 		</button>
 		<div class="mt-1 flex flex-col gap-0.5 pl-8">
-			{#if loadingComputers}
+			{#if computers.loading && computers.agents.length === 0}
 				<div class="text-muted-foreground flex items-center gap-2 px-2.5 py-1 text-xs">
 					<span class="size-1.5 animate-pulse rounded-full bg-foreground/35"></span>
 					<span class="animate-pulse">Loading…</span>
 				</div>
-			{:else if agents.length === 0}
+			{:else if computers.agents.length === 0}
 				<div class="text-muted-foreground/70 px-2.5 py-1 text-xs">No computers</div>
 			{:else}
-				{#each agents as agent (agent.agent_id)}
+				{#each computers.agents as agent (agent.agent_id)}
 					<button
 						type="button"
 						class={cn(
