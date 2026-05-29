@@ -55,7 +55,7 @@ describe("loadConfig defaults", () => {
 		expect(cfg.activeWindowSecs).toBe(60);
 		expect(cfg.admins).toEqual([]);
 		expect(cfg.gateway.clientName).toBe("nexal-bun");
-		expect(cfg.gateway.url).toBe("ws://127.0.0.1:5500");
+		expect(cfg.gateway.url).toBe("https://nexal.fly.dev");
 		expect(cfg.workers.maxConcurrent).toBe(5);
 		expect(cfg.executor.proxies).toEqual([]);
 	});

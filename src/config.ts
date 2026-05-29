@@ -20,8 +20,8 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 export interface StorageConfig {
-	/** Storage backend: "s3" (Supabase S3-compatible) or "local". */
-	provider: "s3" | "local";
+	/** Storage backend: S3-compatible object storage. */
+	provider: "s3";
 	/** S3-compatible endpoint, e.g. `https://<project>.storage.supabase.co/storage/v1/s3`. */
 	s3Endpoint: string;
 	/** Bucket name. */
@@ -225,7 +225,7 @@ function applyStorageOverlay(
 	source: Record<string, unknown>,
 ): void {
 	const provider = source.provider;
-	if (provider === "s3" || provider === "local") storage.provider = provider;
+	if (provider === "s3") storage.provider = provider;
 	if (typeof source.s3_endpoint === "string") storage.s3Endpoint = source.s3_endpoint;
 	if (typeof source.s3Endpoint === "string") storage.s3Endpoint = source.s3Endpoint;
 	if (typeof source.s3_bucket === "string") storage.s3Bucket = source.s3_bucket;
@@ -319,7 +319,7 @@ function setDeep(cfg: NexalConfig, path: string[], value: unknown): void {
 		const key = snakeToCamel(path.slice(1).join("_"));
 		switch (key) {
 			case "provider":
-				if (value === "s3" || value === "local") cfg.storage.provider = value;
+				if (value === "s3") cfg.storage.provider = value;
 				return;
 			case "s3Endpoint":
 				if (typeof value === "string") cfg.storage.s3Endpoint = value;

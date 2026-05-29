@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { normalizeTapeEntryDraft } from "./pg-store.ts";
+import { normalizeTapeEntryDraft } from "./nexal-tape.ts";
 import type { TapeEntryDraft } from "./index.ts";
 
 describe("normalizeTapeEntryDraft", () => {
