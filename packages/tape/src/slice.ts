@@ -20,7 +20,7 @@ import { TapeView } from "./view.ts";
  *
  * @example
  * ```typescript
- * const tape = new Tape({ store, name: "session:123" });
+ * const tape = new Tape({ store, ref: { tapeId: "session:123" } });
  *
  * // Create a slice with only user messages
  * const userSlice = tape.slice(e => e.payload.role === "user");

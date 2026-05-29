@@ -32,8 +32,7 @@ import {
 	extractTextFromContent,
 	imageContentToAttachment,
 } from "./content.ts";
-import { Tape, type TapeHandle, type TapeStore, entriesToLlmMessages, tapeRecord } from "./tape/index.ts";
-import { runtimeContextRecord, runtimeContextStatus } from "./tape/runtime-context.ts";
+import { Tape, type TapeHandle, type TapeStore, entriesToLlmMessages } from "./tape/index.ts";
 
 export interface AgentPoolConfig {
 	systemPrompt: string;
@@ -128,13 +127,13 @@ export class AgentPool {
 		// Persist user message to tape before handing to agent.
 		const tape = session.tape;
 		try {
-			await tape.append(tapeRecord.userMessage(
+			await tape.recordUserMessage(
 				typeof content === "string" ? content : content.map((c) => ({ ...c })),
 				{
 					timestamp: msg.timestamp,
-					meta: { channel: msg.channel, sender: msg.sender },
+					meta: promptMetaForIncoming(msg),
 				},
-			));
+			);
 		} catch (err) {
 			log.error(`failed to persist user message to tape for ${key}`, err);
 		}
@@ -206,23 +205,31 @@ export class AgentPool {
 					chatId: msg.chatId,
 				});
 			}
-			const contextInput = {
-				scope: "session" as const,
-				systemPrompt: this.config.systemPrompt,
-				model: this.config.model,
-				tools: allTools,
-				metadata: {
-					channel: msg.channel,
-					chatId: msg.chatId,
-					sessionKey: key,
-				},
+			const metadata = {
+				channel: msg.channel,
+				chatId: msg.chatId,
+				sessionKey: key,
 			};
-			const contextStatus = runtimeContextStatus(entries, contextInput);
-			if (contextStatus !== "current") {
-				await tape.append(runtimeContextRecord({
-					...contextInput,
-				}, { change: contextStatus }));
-			}
+			await tape.setSessionContext({
+				...metadata,
+				streaming: !!this.config.sender.sendChunk && !!this.config.sender.sendEnd,
+				debounce: this.config.debounce ?? null,
+			});
+			await tape.setSystemPrompt(this.config.systemPrompt, {
+				scope: "session",
+				metadata,
+				ifChanged: true,
+			});
+			await tape.setModel(this.config.model, {
+				scope: "session",
+				metadata,
+				ifChanged: true,
+			});
+			await tape.setTools(allTools, {
+				scope: "session",
+				metadata,
+				ifChanged: true,
+			});
 		} catch (err) {
 			log.error(`failed to load tape for session ${key}`, err);
 		}
@@ -280,7 +287,7 @@ export class AgentPool {
 				// Persist assistant message to tape.
 				const am = event.message as Extract<AgentMessage, { role: "assistant" }>;
 				try {
-					await tape.append(tapeRecord.assistantMessage(am.content.map((c: any) => ({ ...c })), {
+					await tape.recordAssistantMessage(am.content.map((c: any) => ({ ...c })), {
 						api: (am as any).api ?? "",
 						provider: (am as any).provider ?? "",
 						model: (am as any).model ?? "",
@@ -289,7 +296,7 @@ export class AgentPool {
 						stopReason: (am as any).stopReason ?? "stop",
 						errorMessage: (am as any).errorMessage,
 						timestamp: (am as any).timestamp ?? Date.now(),
-					}));
+					});
 				} catch (err) {
 					log.error(`failed to persist assistant message to tape for ${key}`, err);
 				}
@@ -332,13 +339,13 @@ export class AgentPool {
 			// Persist tool results to tape.
 			if (event.type === "tool_execution_end") {
 				try {
-					await tape.append(tapeRecord.toolResult({
+					await tape.recordToolResult({
 						toolCallId: event.toolCallId,
 						toolName: event.toolName,
 						content: (event.result as any)?.content ?? [],
 						details: (event.result as any)?.details,
 						isError: event.isError,
-					}));
+					});
 				} catch (err) {
 					log.error(`failed to persist tool result to tape for ${key}`, err);
 				}
@@ -364,4 +371,13 @@ export class AgentPool {
 
 function extractText(msg: AgentMessage): string {
 	return extractTextFromContent(msg.content as UserContent);
+}
+
+function promptMetaForIncoming(msg: IncomingMessage): Record<string, unknown> {
+	const internal = msg.sender.startsWith("worker:");
+	return {
+		channel: msg.channel,
+		sender: msg.sender,
+		...(internal ? { internal: true, promptKind: "child_report" } : {}),
+	};
 }

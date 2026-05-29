@@ -1,16 +1,9 @@
 /**
- * Tape module — re-exports from @nexal/tape package plus local implementations.
+ * Tape module — generic @nexal/tape APIs plus Nexal-specific semantics and local stores.
  */
 export * from "@nexal/tape";
+export { NexalTape, NexalTape as Tape } from "./nexal-tape.ts";
+export type { NexalSessionContext, NexalWorkerContext } from "./nexal-tape.ts";
 export { createTapeStore, getOrCreateSessionTapeRef, getSessionTapeRef } from "./pg-store.ts";
 export type { TapeStoreOptions } from "./pg-store.ts";
 export { createFileStore } from "./create-file-store.ts";
-export {
-	entriesToLlmMessages,
-	entriesToMessages,
-	messagesToEntries,
-	messagesToJson,
-	jsonToMessages,
-	truncateEntries,
-	truncateMessages,
-} from "./convert.ts";

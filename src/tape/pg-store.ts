@@ -18,7 +18,7 @@ import { uuidv7 } from "uuidv7";
 
 import { getDb } from "../db.ts";
 import * as schema from "./schema.ts";
-import { tapeRecord, type TapeEntry, type TapeEntryDraft, type TapeHandle, type TapeInfo, type TapeStore, type FileStore } from "@nexal/tape";
+import type { TapeEntry, TapeEntryDraft, TapeHandle, TapeInfo, TapeStore, FileStore } from "@nexal/tape";
 
 export interface TapeStoreOptions {
 	/** Off-load oversized binary blocks to this store. Optional. */
@@ -57,20 +57,20 @@ export function createTapeStore(opts: TapeStoreOptions = {}): TapeStore {
 		}
 
 		const persisted = await db.transaction(async (tx) => {
-			const tapeRecord = await requireTapeRecord(tx, tape);
-			const firstId = tapeRecord.lastEntryId + 1;
-			const lastId = tapeRecord.lastEntryId + prepared.length;
+			const tapeRow = await requireTapeRecord(tx, tape);
+			const firstId = tapeRow.lastEntryId + 1;
+			const lastId = tapeRow.lastEntryId + prepared.length;
 
 			await tx
 				.update(tapes)
 				.set({ lastEntryId: lastId })
-				.where(eq(tapes.id, tapeRecord.id));
+				.where(eq(tapes.id, tapeRow.id));
 
 			const rows = await tx
 				.insert(tapeEntries)
 				.values(
 					prepared.map((entry, index) => ({
-						tapeId: tapeRecord.id,
+						tapeId: tapeRow.id,
 						entryId: firstId + index,
 						kind: entry.kind,
 						anchorName: entry.kind === "anchor" ? String(entry.payload.name ?? "") : null,
@@ -104,67 +104,57 @@ export function createTapeStore(opts: TapeStoreOptions = {}): TapeStore {
 		},
 
 		async read(tape: TapeHandle): Promise<TapeEntry[]> {
-			const tapeRecord = await findTapeRecordById(db, tape.tapeId);
-			if (!tapeRecord) return [];
+			const tapeRow = await findTapeRecordById(db, tape.tapeId);
+			if (!tapeRow) return [];
 			const rows = await db
 				.select()
 				.from(tapeEntries)
-				.where(eq(tapeEntries.tapeId, tapeRecord.id))
+				.where(eq(tapeEntries.tapeId, tapeRow.id))
 				.orderBy(tapeEntries.entryId);
-			const entries = rows.map(rowToEntry);
-			if (!fileStore) return entries;
-			for (const e of entries) {
-				e.payload = await hydrateFileRefs(e.payload, fileStore);
-			}
-			return entries;
+			return hydrateEntries(rows.map(rowToEntry), fileStore);
 		},
 
 		async readPage(
 			tape: TapeHandle,
 			options: { offset: number; limit: number },
 		): Promise<TapeEntry[]> {
-			const tapeRecord = await findTapeRecordById(db, tape.tapeId);
-			if (!tapeRecord) return [];
+			const tapeRow = await findTapeRecordById(db, tape.tapeId);
+			if (!tapeRow) return [];
 			const rows = await db
 				.select()
 				.from(tapeEntries)
-				.where(eq(tapeEntries.tapeId, tapeRecord.id))
+				.where(eq(tapeEntries.tapeId, tapeRow.id))
 				.orderBy(tapeEntries.entryId)
 				.limit(options.limit)
 				.offset(options.offset);
-			const entries = rows.map(rowToEntry);
-			if (!fileStore) return entries;
-			for (const e of entries) {
-				e.payload = await hydrateFileRefs(e.payload, fileStore);
-			}
-			return entries;
+			return hydrateEntries(rows.map(rowToEntry), fileStore);
 		},
 
 		append: appendTape,
 
 		async reset(tapeRef: TapeHandle): Promise<void> {
 			await db.transaction(async (tx) => {
-				const tapeRecord = await findTapeRecordById(tx, tapeRef.tapeId);
-				if (tapeRecord) {
-					await tx.delete(tapeEntries).where(eq(tapeEntries.tapeId, tapeRecord.id));
+				const tapeRow = await findTapeRecordById(tx, tapeRef.tapeId);
+				if (tapeRow) {
+					await tx.delete(tapeEntries).where(eq(tapeEntries.tapeId, tapeRow.id));
 					await tx
 						.update(tapes)
 						.set({ lastEntryId: 0 })
-						.where(eq(tapes.id, tapeRecord.id));
+						.where(eq(tapes.id, tapeRow.id));
 				}
 			});
 		},
 
 		async delete(tapeRef: TapeHandle): Promise<void> {
 			await db.transaction(async (tx) => {
-				const tapeRecord = await findTapeRecordById(tx, tapeRef.tapeId);
-				if (tapeRecord) await tx.delete(tapes).where(eq(tapes.id, tapeRecord.id));
+				const tapeRow = await findTapeRecordById(tx, tapeRef.tapeId);
+				if (tapeRow) await tx.delete(tapes).where(eq(tapes.id, tapeRow.id));
 			});
 		},
 
 		async info(tape: TapeHandle): Promise<TapeInfo> {
-			const tapeRecord = await findTapeRecordById(db, tape.tapeId);
-			if (!tapeRecord) {
+			const tapeRow = await findTapeRecordById(db, tape.tapeId);
+			if (!tapeRow) {
 				return {
 					id: tape.tapeId,
 					entries: 0,
@@ -174,47 +164,47 @@ export function createTapeStore(opts: TapeStoreOptions = {}): TapeStore {
 					lastTokenUsage: null,
 				};
 			}
-			return infoForTapeRecord(tapeRecord);
+			return infoForTapeRecord(tapeRow);
 		},
 
 		async handoff(tape: TapeHandle, name: string, state?: Record<string, unknown>): Promise<void> {
-			await appendTape(tape, tapeRecord.anchor(name, state));
+			await appendTape(tape, anchorDraft(name, state));
 		},
 
 		async search(tape: TapeHandle, query: string, limit = 20): Promise<TapeEntry[]> {
-			const tapeRecord = await findTapeRecordById(db, tape.tapeId);
-			if (!tapeRecord) return [];
+			const tapeRow = await findTapeRecordById(db, tape.tapeId);
+			if (!tapeRow) return [];
 			const pattern = `%${escapeLike(query)}%`;
 			const rows = await db
 				.select()
 				.from(tapeEntries)
 				.where(
 					and(
-						eq(tapeEntries.tapeId, tapeRecord.id),
+						eq(tapeEntries.tapeId, tapeRow.id),
 						sql`${tapeEntries.payload}::text LIKE ${pattern}`,
 					),
 				)
 				.orderBy(desc(tapeEntries.entryId))
 				.limit(limit);
-			return rows.map(rowToEntry);
+			return hydrateEntries(rows.map(rowToEntry), fileStore);
 		},
 	};
 
-	async function infoForTapeRecord(tapeRecord: schema.TapeRow): Promise<TapeInfo> {
+	async function infoForTapeRecord(tapeRow: schema.TapeRow): Promise<TapeInfo> {
 		const [statsRow] = await db
 			.select({
 				entries: sql<number>`count(*)::int`,
 				anchors: sql<number>`count(*) filter (where ${tapeEntries.kind} = 'anchor')::int`,
 			})
 			.from(tapeEntries)
-			.where(eq(tapeEntries.tapeId, tapeRecord.id));
+			.where(eq(tapeEntries.tapeId, tapeRow.id));
 		const [lastAnchorRow] = await db
 			.select({
 				entryId: tapeEntries.entryId,
 				payload: tapeEntries.payload,
 			})
 			.from(tapeEntries)
-			.where(and(eq(tapeEntries.tapeId, tapeRecord.id), eq(tapeEntries.kind, "anchor")))
+			.where(and(eq(tapeEntries.tapeId, tapeRow.id), eq(tapeEntries.kind, "anchor")))
 			.orderBy(desc(tapeEntries.entryId))
 			.limit(1);
 		const [lastRunRow] = await db
@@ -222,7 +212,7 @@ export function createTapeStore(opts: TapeStoreOptions = {}): TapeStore {
 			.from(tapeEntries)
 			.where(
 				and(
-					eq(tapeEntries.tapeId, tapeRecord.id),
+					eq(tapeEntries.tapeId, tapeRow.id),
 					eq(tapeEntries.kind, "event"),
 					sql`${tapeEntries.payload}->>'name' = 'run'`,
 				),
@@ -236,10 +226,12 @@ export function createTapeStore(opts: TapeStoreOptions = {}): TapeStore {
 			lastAnchorId !== null ? entries - lastAnchorId : entries;
 		const lastTokenUsage = (lastRunRow?.payload.data as any)?.usage?.total_tokens;
 		return {
-			id: tapeRecord.id,
+			id: tapeRow.id,
 			entries,
 			anchors,
-			lastAnchor: lastAnchorRow ? String(lastAnchorRow.payload.name ?? null) : null,
+			lastAnchor: typeof lastAnchorRow?.payload.name === "string"
+				? lastAnchorRow.payload.name
+				: null,
 			entriesSinceLastAnchor,
 			lastTokenUsage: typeof lastTokenUsage === "number" ? lastTokenUsage : null,
 		};
@@ -333,6 +325,17 @@ export async function getSessionTapeRef(sessionKey: string): Promise<TapeHandle 
 
 // ── helpers ──────────────────────────────────────────────────────────
 
+async function hydrateEntries(
+	entries: TapeEntry[],
+	store: FileStore | undefined,
+): Promise<TapeEntry[]> {
+	if (!store) return entries;
+	return Promise.all(entries.map(async (entry) => ({
+		...entry,
+		payload: await hydrateFileRefs(entry.payload, store),
+	})));
+}
+
 async function hydrateFileRefs(
 	payload: Record<string, unknown>,
 	store: FileStore,
@@ -410,6 +413,17 @@ function rowToEntry(row: schema.TapeEntryRow): TapeEntry {
 		payload: row.payload ?? {},
 		meta: row.meta ?? {},
 		date: row.entryDate,
+	};
+}
+
+function anchorDraft(name: string, state?: Record<string, unknown>): TapeEntryDraft {
+	const payload: Record<string, unknown> = { name };
+	if (state) payload.state = state;
+	return {
+		kind: "anchor",
+		payload,
+		meta: {},
+		date: new Date().toISOString(),
 	};
 }
 
@@ -498,15 +512,4 @@ function sha256Key(value: string): string {
 
 function escapeLike(value: string): string {
 	return value.replace(/[\\%_]/g, "\\$&");
-}
-
-function findLastTokenUsage(entries: TapeEntry[]): number | null {
-	for (let i = entries.length - 1; i >= 0; i--) {
-		const e = entries[i]!;
-		if (e.kind === "event" && e.payload.name === "run") {
-			const usage = (e.payload.data as any)?.usage?.total_tokens;
-			if (typeof usage === "number") return usage;
-		}
-	}
-	return null;
 }

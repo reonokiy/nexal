@@ -1,7 +1,7 @@
 {
   "name": "@nexal/tape",
   "version": "0.1.0",
-  "description": "Append-only fact tape — zero-dependency interfaces and types",
+  "description": "Append-only fact tape — zero-dependency types and utilities",
   "type": "module",
   "private": true,
   "main": "./src/index.ts",
@@ -10,6 +10,10 @@
     ".": {
       "types": "./src/index.ts",
       "import": "./src/index.ts"
+    },
+    "./strategies": {
+      "types": "./src/strategies.ts",
+      "import": "./src/strategies.ts"
     }
   }
 }

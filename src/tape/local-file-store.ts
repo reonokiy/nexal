@@ -2,6 +2,8 @@
  * LocalFileStore — local filesystem storage for dev / tests.
  */
 import { createHash } from "node:crypto";
+import { dirname } from "node:path";
+import { mkdir } from "node:fs/promises";
 import type { FileRef, FileStore } from "@nexal/tape";
 import type { StorageConfig } from "../config.ts";
 
@@ -23,6 +25,7 @@ export class LocalFileStore implements FileStore {
 		const hash = sha256Hex(data);
 		const path = hashPath(hash);
 		const fullPath = `${this.root}/${path}`;
+		await mkdir(dirname(fullPath), { recursive: true });
 		await Bun.write(fullPath, data);
 		return {
 			fileHash: hash,

@@ -34,7 +34,7 @@ import type { UserContent } from "../content.ts";
 import type { MessageSender } from "../messaging/index.ts";
 import type { ProxySpec } from "../config.ts";
 import type { GatewayClient } from "../gateway/index.ts";
-import { tapeRecord, type TapeHandle, type TapeStore } from "../tape/index.ts";
+import { Tape, type TapeHandle, type TapeStore } from "../tape/index.ts";
 import { WorkerAgent } from "./agent.ts";
 import type {
 	SendPolicy,
@@ -153,27 +153,17 @@ export class WorkerRegistry {
 			status: row.status,
 		};
 		try {
-			await this.cfg.tapeStore.append(parentTape, tapeRecord.ref(
-				{
-					type: "tape",
-					tapeId: childTape.tapeId,
-					relation: "link",
-					meta: childMeta,
-				},
-				{ meta: { event: "agent_spawn", ...childMeta } },
-			));
-			await this.cfg.tapeStore.append(childTape, tapeRecord.ref(
-				{
-					type: "tape",
-					tapeId: parentTape.tapeId,
-					relation: "parent",
-					meta: {
-						role: "parent_agent",
-						parentSessionKey: row.parentSessionKey,
-					},
-				},
-				{ meta: { event: "agent_parent" } },
-			));
+			const parent = new Tape({ store: this.cfg.tapeStore, ref: parentTape });
+			const child = new Tape({ store: this.cfg.tapeStore, ref: childTape });
+			await parent.link(childTape, "link", childMeta, {
+				meta: { event: "agent_spawn", ...childMeta },
+			});
+			await child.link(parentTape, "parent", {
+				role: "parent_agent",
+				parentSessionKey: row.parentSessionKey,
+			}, {
+				meta: { event: "agent_parent" },
+			});
 		} catch (err) {
 			log.error(`failed to link worker ${row.id} tape ${childTape.tapeId}`, err);
 		}

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { messagesToJson, jsonToMessages } from "../tape/index.ts";
+import { messagesToJson, jsonToMessages, messagesToEntries, entriesToMessages } from "../tape/index.ts";
 
 describe("messagesToJson / jsonToMessages", () => {
 	test("empty array round-trips", () => {
@@ -93,5 +93,40 @@ describe("messagesToJson / jsonToMessages", () => {
 		] as any;
 		const decoded = jsonToMessages(messagesToJson(msgs));
 		expect((decoded[0] as any).metadata).toEqual({ __nexal_bytes_b64__: 123 });
+	});
+
+	test("messagesToEntries preserves message metadata for tape replay/audit", () => {
+		const entries = messagesToEntries([
+			{
+				role: "user",
+				content: "resume work",
+				timestamp: 1,
+				meta: { internal: true, promptKind: "resume" },
+			},
+		] as any);
+
+		expect(entries[0]!.meta).toEqual({ internal: true, promptKind: "resume" });
+	});
+
+	test("entriesToMessages restores tape metadata onto messages", () => {
+		const messages = entriesToMessages([
+			{
+				id: 1,
+				kind: "message",
+				payload: { role: "user", content: "resume work", timestamp: 1 },
+				meta: { internal: true, promptKind: "resume" },
+				date: "2026-05-28T00:00:00.000Z",
+			},
+		]);
+
+		expect((messages[0] as any).meta).toEqual({ internal: true, promptKind: "resume" });
+	});
+
+	test("messagesToEntries normalizes string assistant content into text blocks", () => {
+		const entries = messagesToEntries([
+			{ role: "assistant", content: "done", timestamp: 1 },
+		] as any);
+
+		expect(entries[0]!.payload.content).toEqual([{ type: "text", text: "done" }]);
 	});
 });

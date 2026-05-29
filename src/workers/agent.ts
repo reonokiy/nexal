@@ -45,8 +45,7 @@ import type { ProxySpec } from "../config.ts";
 import type { GatewayClient } from "../gateway/index.ts";
 import type { AgentClient } from "../gateway/agent_client.ts";
 import { createBashTool } from "../tools/bash.ts";
-import { Tape, type TapeEntry, type TapeStore, jsonToMessages, messagesToJson, messagesToEntries, entriesToLlmMessages } from "../tape/index.ts";
-import { runtimeContextRecord, runtimeContextStatus } from "../tape/runtime-context.ts";
+import { Tape, type TapeStore, jsonToMessages, messagesToJson, entriesToLlmMessages } from "../tape/index.ts";
 import type { SendPolicy, WorkerKind, WorkerLifetime, WorkerRow, WorkerStore } from "./store.ts";
 
 const PERSIST_DEBOUNCE_MS = 250;
@@ -92,6 +91,7 @@ export class WorkerAgent {
 	private readonly log;
 	private agent?: Agent;
 	private client?: AgentClient;
+	private tape?: Tape;
 	private disposed = false;
 	private persistTimer: ReturnType<typeof setTimeout> | null = null;
 	private latestTurnCount: number;
@@ -130,14 +130,13 @@ export class WorkerAgent {
 		const tapeRef = row.tapeId ? { tapeId: row.tapeId } : await this.deps.tapeStore.create();
 		if (!row.tapeId) await this.deps.store.setTapeId(row.id, tapeRef.tapeId);
 		const tape = new Tape({ store: this.deps.tapeStore, ref: tapeRef });
+		this.tape = tape;
 
 		// Load history from tape; fallback to DB messages_json.
 		// Tape is the canonical format; convert directly to LLM format.
-		let initialMessages = jsonToMessages(row.messagesJson);
-		let tapeEntries: TapeEntry[] = [];
+		let initialMessages: AgentMessage[] = jsonToMessages<AgentMessage>(row.messagesJson);
 		try {
 			const entries = await tape.view().entries();
-			tapeEntries = [...entries];
 			if (entries.length > 0) {
 				initialMessages = entriesToLlmMessages(entries) as any;
 				this.lastPersistedMsgCount = initialMessages.length;
@@ -148,12 +147,21 @@ export class WorkerAgent {
 		}
 
 		const tools = this.deps.toolsForKind(this);
-		const contextInput = {
-			scope: "worker" as const,
-			systemPrompt: row.systemPrompt,
-			model,
-			tools,
-			metadata: {
+		const metadata = {
+			id: row.id,
+			name: row.name,
+			kind: row.kind,
+			lifetime: row.lifetime,
+			parentSessionKey: row.parentSessionKey,
+			sourceChannel: row.sourceChannel,
+			sourceChatId: row.sourceChatId,
+			sourceReplyTo: row.sourceReplyTo,
+			sendPolicy: row.sendPolicy,
+			initialPrompt: row.initialPrompt,
+			containerName: row.containerName,
+		};
+		try {
+			await tape.setWorkerContext({
 				id: row.id,
 				name: row.name,
 				kind: row.kind,
@@ -162,18 +170,31 @@ export class WorkerAgent {
 				sourceChannel: row.sourceChannel,
 				sourceChatId: row.sourceChatId,
 				sourceReplyTo: row.sourceReplyTo,
-				sendPolicy: row.sendPolicy,
 				initialPrompt: row.initialPrompt,
+				sendPolicy: row.sendPolicy,
+				status: row.status,
+				sandboxKey: this.sandboxKey,
 				containerName: row.containerName,
-			},
-		};
-		const contextStatus = runtimeContextStatus(tapeEntries, contextInput);
-		if (contextStatus !== "current") {
-			try {
-				await tape.append(runtimeContextRecord(contextInput, { change: contextStatus }));
-			} catch (err) {
-				this.log.error(`failed to persist runtime context for worker ${row.id}`, err);
-			}
+				sandboxed: row.kind === "executor",
+				resumed: this.deps.resumed,
+			});
+			await tape.setSystemPrompt(row.systemPrompt, {
+				scope: "worker",
+				metadata,
+				ifChanged: true,
+			});
+			await tape.setModel(model, {
+				scope: "worker",
+				metadata,
+				ifChanged: true,
+			});
+			await tape.setTools(tools, {
+				scope: "worker",
+				metadata,
+				ifChanged: true,
+			});
+		} catch (err) {
+			this.log.error(`failed to persist tape system config for worker ${row.id}`, err);
 		}
 		const agent = new Agent({
 			initialState: {
@@ -194,15 +215,17 @@ export class WorkerAgent {
 		this.wireEvents(agent, tape);
 
 		await store.markStarted(this.id);
+		await this.recordTapeStatus("running");
 
 		if (this.deps.resumed && initialMessages.length > 0) {
-			await agent.prompt(RESUME_NUDGE);
+			await agent.prompt(this.internalPromptMessage(RESUME_NUDGE, "resume"));
 		} else if (row.initialPrompt) {
-			await agent.prompt(row.initialPrompt);
+			await agent.prompt(this.internalPromptMessage(row.initialPrompt, "initial"));
 		} else {
 			// Persistent agent spawned without an initial prompt — flip
 			// to idle immediately so the parent can route to it.
 			await store.markIdle(this.id, messagesToJson(initialMessages));
+			await this.recordTapeStatus("idle");
 		}
 	}
 
@@ -229,12 +252,13 @@ export class WorkerAgent {
 			content = await this.writeImagesToSandbox(content);
 		}
 
-		const msg: AgentMessage = { role: "user", content, timestamp: Date.now() };
+		const msg = this.internalPromptMessage(content, "route");
 		if (agent.state.isStreaming) {
 			agent.steer(msg);
 			return;
 		}
 		await this.deps.store.markStarted(this.id);
+		await this.recordTapeStatus("running");
 		await agent.prompt(msg);
 	}
 
@@ -248,6 +272,7 @@ export class WorkerAgent {
 		await this.agent?.waitForIdle().catch(() => undefined);
 		await this.flushNow();
 		await this.deps.store.setStatus(this.id, "cancelled", reason);
+		await this.recordTapeStatus("cancelled", { reason });
 		await this.dispose(true);
 		this.deps.onTerminal(this.id);
 	}
@@ -307,6 +332,24 @@ export class WorkerAgent {
 		} catch (err) {
 			this.log.error(`failed to send message via ${this.deps.row.sourceChannel} to chat ${this.deps.row.sourceChatId}`, err);
 		}
+	}
+
+	private internalPromptMessage(
+		content: UserContent,
+		promptKind: "initial" | "resume" | "route",
+	): AgentMessage {
+		return {
+			role: "user",
+			content,
+			timestamp: Date.now(),
+			meta: {
+				internal: true,
+				promptKind,
+				workerId: this.id,
+				workerName: this.row.name,
+				workerKind: this.kind,
+			},
+		} as AgentMessage;
 	}
 
 	/**
@@ -433,11 +476,13 @@ export class WorkerAgent {
 				// Cancelled by coordinator or process shutdown — quiet exit.
 				await this.sendToChat("(task cancelled)");
 				await this.deps.store.setStatus(this.id, "cancelled", errorMessage);
+				await this.recordTapeStatus("cancelled", { error: errorMessage });
 				await this.dispose(true);
 				this.deps.onTerminal(this.id);
 				return;
 			}
 			await this.deps.store.markFailed(this.id, errorMessage);
+			await this.recordTapeStatus("failed", { error: errorMessage });
 			await this.sendToChat(`❌ failed: ${errorMessage}`);
 			await this.dispose(true);
 			this.deps.onTerminal(this.id);
@@ -457,6 +502,7 @@ export class WorkerAgent {
 
 		if (this.lifetime === "oneshot") {
 			await this.deps.store.markCompleted(this.id, messagesToJson(messages));
+			await this.recordTapeStatus("completed");
 			await this.dispose(true);
 			this.deps.onTerminal(this.id);
 			return;
@@ -464,6 +510,20 @@ export class WorkerAgent {
 
 		// Persistent: stay alive, accept future routes.
 		await this.deps.store.markIdle(this.id, messagesToJson(messages));
+		await this.recordTapeStatus("idle");
+	}
+
+	private async recordTapeStatus(status: string, metadata: Record<string, unknown> = {}): Promise<void> {
+		if (!this.tape) return;
+		try {
+			await this.tape.setStatus(status, {
+				scope: "worker",
+				metadata: { id: this.id, name: this.row.name, kind: this.kind, ...metadata },
+				ifChanged: true,
+			});
+		} catch (err) {
+			this.log.error(`failed to persist ${status} status to tape for worker ${this.id}`, err);
+		}
 	}
 
 	private scheduleFlush(tape: Tape): void {
@@ -498,11 +558,7 @@ export class WorkerAgent {
 			try {
 				const newMessages = messages.slice(this.lastPersistedMsgCount);
 				if (newMessages.length > 0) {
-					const entries = messagesToEntries(newMessages).map((e) => ({
-						...e,
-						date: new Date().toISOString(),
-					}));
-					await tape.append(entries);
+					await tape.recordMessages(newMessages, { date: new Date() });
 					this.lastPersistedMsgCount = messages.length;
 					this.log.info(`appended ${newMessages.length} messages to tape ${tape.ref.tapeId}`);
 				}

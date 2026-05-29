@@ -477,7 +477,11 @@ describe("WorkerAgent.start() — executor paths", () => {
 		await runner.start();
 		expect(gateway.acquireCalls).toEqual(["worker:w-1"]);
 		expect(store.markStartedCalls).toEqual(["w-1"]);
-		expect(FakeAgent.lastPrompted).toBe("do stuff");
+		expect(FakeAgent.lastPrompted).toMatchObject({
+			role: "user",
+			content: "do stuff",
+			meta: { internal: true, promptKind: "initial", workerId: "w-1" },
+		});
 	});
 
 	test("resumed executor with prior messages gets the restart nudge, not the initial prompt", async () => {
@@ -490,8 +494,11 @@ describe("WorkerAgent.start() — executor paths", () => {
 		});
 		await runner.start();
 		const prompt = FakeAgent.lastPrompted;
-		expect(typeof prompt).toBe("string");
-		expect(String(prompt)).toMatch(/interrupted by a process restart/);
+		expect(prompt).toMatchObject({
+			role: "user",
+			meta: { internal: true, promptKind: "resume", workerId: "w-1" },
+		});
+		expect((prompt as any).content).toMatch(/interrupted by a process restart/);
 	});
 
 	test("persistent executor with no prompt immediately markIdle()s", async () => {
@@ -516,7 +523,11 @@ describe("WorkerAgent.start() — coordinator paths", () => {
 		});
 		await runner.start();
 		expect(gateway.acquireCalls).toEqual([]); // no bash container
-		expect(FakeAgent.lastPrompted).toBe("dispatch work");
+		expect(FakeAgent.lastPrompted).toMatchObject({
+			role: "user",
+			content: "dispatch work",
+			meta: { internal: true, promptKind: "initial", workerId: "w-1" },
+		});
 	});
 });
 
@@ -528,7 +539,11 @@ describe("WorkerAgent.route() — with live Agent", () => {
 		store.markStartedCalls.length = 0;
 		FakeAgent.lastPrompted = null;
 		await runner.route("continue please");
-		expect(FakeAgent.lastSteered).toMatchObject({ role: "user", content: "continue please" });
+		expect(FakeAgent.lastSteered).toMatchObject({
+			role: "user",
+			content: "continue please",
+			meta: { internal: true, promptKind: "route", workerId: "w-1" },
+		});
 		expect(FakeAgent.lastPrompted).toBeNull();
 		expect(store.markStartedCalls).toEqual([]);
 	});
@@ -542,7 +557,11 @@ describe("WorkerAgent.route() — with live Agent", () => {
 		await runner.route("work on this");
 		expect(store.markStartedCalls).toEqual(["w-1"]);
 		expect(FakeAgent.lastSteered).toBeNull();
-		expect(FakeAgent.lastPrompted).toMatchObject({ role: "user", content: "work on this" });
+		expect(FakeAgent.lastPrompted).toMatchObject({
+			role: "user",
+			content: "work on this",
+			meta: { internal: true, promptKind: "route", workerId: "w-1" },
+		});
 	});
 });
 
